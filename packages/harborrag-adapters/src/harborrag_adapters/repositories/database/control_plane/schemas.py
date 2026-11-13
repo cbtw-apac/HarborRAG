@@ -58,9 +58,9 @@ class ProjectRow(Base):
 
 
 class SettingOverrideRow(Base):
-    """setting_overrides: one key's value at one scope, resolved default -> tenant -> project -> connection."""
+    """runtime_settings: one key's value at one scope, resolved default -> tenant -> project -> connection."""
 
-    __tablename__ = "setting_overrides"
+    __tablename__ = "runtime_settings"
 
     tenant_id: Mapped[str] = mapped_column(sa.String(128), primary_key=True)
     scope_level: Mapped[str] = mapped_column(sa.String(16), primary_key=True)
@@ -76,16 +76,16 @@ class SettingOverrideRow(Base):
     __table_args__ = (
         sa.CheckConstraint(
             "scope_level IN ('tenant', 'project', 'connection')",
-            name="ck_setting_overrides_scope_level",
+            name="ck_runtime_settings_scope_level",
         ),
-        sa.Index("ix_setting_overrides_tenant_key", "tenant_id", "key"),
+        sa.Index("ix_runtime_settings_tenant_key", "tenant_id", "key"),
     )
 
 
 class SettingScopeRevisionRow(Base):
-    """setting_scope_revisions: one monotonic revision per scope, for ETag/If-Match."""
+    """runtime_setting_revisions: one monotonic revision per scope, for ETag/If-Match."""
 
-    __tablename__ = "setting_scope_revisions"
+    __tablename__ = "runtime_setting_revisions"
 
     tenant_id: Mapped[str] = mapped_column(sa.String(128), primary_key=True)
     scope_level: Mapped[str] = mapped_column(sa.String(16), primary_key=True)
@@ -98,7 +98,7 @@ class SettingScopeRevisionRow(Base):
     __table_args__ = (
         sa.CheckConstraint(
             "scope_level IN ('tenant', 'project', 'connection')",
-            name="ck_setting_scope_revisions_scope_level",
+            name="ck_runtime_setting_revisions_scope_level",
         ),
     )
 

@@ -11,8 +11,8 @@ from harborrag_core.domain.setting_registry import (
 )
 
 
-def test_registry_has_fourteen_keys() -> None:
-    assert len(SETTING_REGISTRY) == 14
+def test_registry_has_sixteen_keys() -> None:
+    assert len(SETTING_REGISTRY) == 16
 
 
 def test_get_setting_spec_rejects_unknown_key() -> None:
@@ -78,6 +78,8 @@ def test_settings_schema_groups_preserve_catalog_order() -> None:
     retrieval = groups[0]
     assert retrieval.title == "Retrieval"
     assert [spec.key for spec in retrieval.settings] == [
+        "retrieval.top_k",
+        "retrieval.rerank",
         "capture.max_document_mb",
         "capture.file_types",
         "capture.max_pdf_pages",

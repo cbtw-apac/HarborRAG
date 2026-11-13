@@ -12,6 +12,7 @@ from harborrag_core.ingestion import (
     SourceAdmissionDecision,
     SourceIdentity,
 )
+from harborrag_runtime.ingestion_contracts import RunSettings
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,6 +28,7 @@ class DocumentReleaseRequest:
     force_reprocess: bool = False
     pdf_engine: str | None = None
     chunking_max_tokens: int | None = None
+    run_settings: RunSettings | None = None
 
     def __post_init__(self) -> None:
         if not self.tenant_id.strip() or not self.connector_name.strip():

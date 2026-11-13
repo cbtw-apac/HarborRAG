@@ -107,8 +107,9 @@ def test_an_etag_cycle_refuses_a_stale_write(client: TestClient) -> None:
 def test_an_idempotency_key_reused_with_another_body_is_a_validation_error(
     client: TestClient,
 ) -> None:
-    first = client.post("/v1/chat/completions", json={"prompt": "One", "idempotency_key": "key-1"})
-    reused = client.post("/v1/chat/completions", json={"prompt": "Two", "idempotency_key": "key-1"})
+    key = {"Idempotency-Key": "key-1"}
+    first = client.post("/v1/chat/completions", json={"message": "One"}, headers=key)
+    reused = client.post("/v1/chat/completions", json={"message": "Two"}, headers=key)
 
     assert first.status_code == 200
     assert reused.status_code == 422

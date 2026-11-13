@@ -42,5 +42,3 @@ class HarborPDFEngine(ABC):
 
 
 PdfBackend = HarborPDFEngine
-
-__all__ = ["HarborPDFEngine"]

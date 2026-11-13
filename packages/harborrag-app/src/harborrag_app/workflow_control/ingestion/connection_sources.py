@@ -5,33 +5,18 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass
 
 from harborrag_core.contracts.errors import HarborUnavailableError
 from harborrag_runtime.composition import ControlPlaneRepositories
 from harborrag_runtime.config.connectors.importing import import_connectors_once
 from harborrag_runtime.config.settings import RuntimeSettings
+from harborrag_runtime.config_store.run_settings import RunSettingsResolver
 from harborrag_runtime.ingestion.connections import ConnectionResolver, ResolvedConnection
-from harborrag_runtime.ingestion.durations import parse_iso8601_duration_seconds
 from harborrag_runtime.ingestion_contracts import PreparedSourceSubmission, SourceSubmission
-
-from ..control_plane.settings import SettingsService
 
 type SourcePreparation = Callable[..., PreparedSourceSubmission]
 
 logger = logging.getLogger("harborrag.app.workflow_control.ingestion.connection_sources")
-
-
-@dataclass(frozen=True, slots=True)
-class _ResolvedConnectionSettings:
-    """The connection scope's revision, plus any overrides to carry onto the run."""
-
-    revision: int
-    pdf_engine: str | None
-    chunking_max_tokens: int | None
-    ingestion_concurrency: int | None
-    ingestion_activity_timeout_seconds: int | None
-    ingestion_max_attempts: int | None
 
 
 class ConnectionSourceInputBuilder:
@@ -59,79 +44,25 @@ class ConnectionSourceInputBuilder:
         """
         await self._import_once(settings)
         connection = await self.resolve(submission)
-        resolved = await self._resolve_connection_settings(
-            connection.snapshot.tenant_id, connection.snapshot.source_key
-        )
+        run_settings = connection.run_settings
         return self._prepare(
             settings,
             submission,
             connection=connection,
-            settings_revision=resolved.revision,
-            pdf_engine=resolved.pdf_engine,
-            chunking_max_tokens=resolved.chunking_max_tokens,
-            ingestion_concurrency=resolved.ingestion_concurrency,
-            ingestion_activity_timeout_seconds=resolved.ingestion_activity_timeout_seconds,
-            ingestion_max_attempts=resolved.ingestion_max_attempts,
-        )
-
-    async def _resolve_connection_settings(
-        self, tenant_id: str, source_key: str
-    ) -> _ResolvedConnectionSettings:
-        """The connection scope's revision and any explicit overrides at or above it.
-
-        Only an actual override (``origin`` other than ``default``) is carried
-        onto the run: the registry default already matches today's real
-        behavior for an untouched connection, which a connector-specific
-        chunking profile (e.g. Jira's lower token cap) does not.
-        """
-        control_plane = self._control_plane()
-        if control_plane.setting_overrides is None or control_plane.setting_scope_revisions is None:
-            return _ResolvedConnectionSettings(
-                revision=0,
-                pdf_engine=None,
-                chunking_max_tokens=None,
-                ingestion_concurrency=None,
-                ingestion_activity_timeout_seconds=None,
-                ingestion_max_attempts=None,
-            )
-        project_id, _, connection_id = source_key.partition("/")
-        result = await SettingsService(control_plane=self._control_plane).read(
-            tenant_id, "connection", f"{project_id}/{connection_id}", effective=True
-        )
-        values = result.values
-        assert isinstance(values, dict)
-        pdf_parser = values.get("parsing.pdf_parser")
-        max_tokens = values.get("chunking.max_tokens")
-        concurrency = values.get("ingestion.concurrency")
-        activity_timeout = values.get("ingestion.activity_timeout")
-        max_attempts = values.get("ingestion.max_attempts")
-        return _ResolvedConnectionSettings(
-            revision=result.revision,
-            pdf_engine=(
-                str(pdf_parser["value"])
-                if isinstance(pdf_parser, dict) and pdf_parser.get("origin") != "default"
-                else None
+            settings_revision=(
+                int(run_settings.settings_revision.removeprefix("rev_"))
+                if run_settings is not None
+                else 0
             ),
-            chunking_max_tokens=(
-                int(max_tokens["value"])
-                if isinstance(max_tokens, dict) and max_tokens.get("origin") != "default"
-                else None
-            ),
+            pdf_engine=run_settings.pdf_parser if run_settings is not None else None,
+            chunking_max_tokens=run_settings.chunk_max_tokens if run_settings is not None else None,
             ingestion_concurrency=(
-                int(concurrency["value"])
-                if isinstance(concurrency, dict) and concurrency.get("origin") != "default"
-                else None
+                run_settings.document_concurrency if run_settings is not None else None
             ),
             ingestion_activity_timeout_seconds=(
-                parse_iso8601_duration_seconds(str(activity_timeout["value"]))
-                if isinstance(activity_timeout, dict) and activity_timeout.get("origin") != "default"
-                else None
+                run_settings.activity_timeout_seconds if run_settings is not None else None
             ),
-            ingestion_max_attempts=(
-                int(max_attempts["value"])
-                if isinstance(max_attempts, dict) and max_attempts.get("origin") != "default"
-                else None
-            ),
+            ingestion_max_attempts=run_settings.max_attempts if run_settings is not None else None,
         )
 
     async def _import_once(self, settings: RuntimeSettings) -> None:
@@ -164,7 +95,15 @@ class ConnectionSourceInputBuilder:
         control_plane = self._control_plane()
         if control_plane.connection_revisions is None:
             raise HarborUnavailableError("connection revisions are not configured")
-        resolver = ConnectionResolver(control_plane.connections, control_plane.connection_revisions)
+        resolver = ConnectionResolver(
+            control_plane.connections,
+            control_plane.connection_revisions,
+            run_settings=(
+                RunSettingsResolver(control_plane.config)
+                if control_plane.config is not None
+                else None
+            ),
+        )
         return await resolver.resolve(
             tenant_id=submission.tenant_id,
             source_key=submission.connection_id or submission.connector_name,

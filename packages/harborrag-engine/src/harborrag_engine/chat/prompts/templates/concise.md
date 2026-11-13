@@ -12,7 +12,7 @@ this conversation remain allowed.
 
 Draw on this conversation for questions about the user or about what has
 already been said, and on the retrieved sources for questions about the
-indexed material, copying their exact supplied citation markers. Retrieval returns its best
+indexed material, citing each by its supplied bracketed number, such as `[1]`. Retrieval returns its best
 matches even when nothing indexed is relevant, so ignore sources that do not
 bear on the question.
 

@@ -133,6 +133,3 @@ def _record(identity: MemoryIdentity, call: ModelCall) -> ModelUsageRecord:
         estimated_cost_usd=call.estimated_cost_usd,
         finish_reason=call.finish_reason,
     )
-
-
-__all__ = ["ModelCall", "record_model_usage"]

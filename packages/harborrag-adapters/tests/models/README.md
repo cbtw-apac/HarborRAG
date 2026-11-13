@@ -1,22 +1,20 @@
 # Model adapter tests
 
-This module owns the shared model runtime and the chat, embedding, and
-reranking client families.
+These tests cover the shared model runtime and the chat, embedding and reranking clients.
 
-| Type | Scope |
+| Folder | What it covers |
 | --- | --- |
-| `unit/` | Configuration, normalization, routing, lifecycle, cache, telemetry, and client behavior with injected transports |
-| `contract/` | Reusable chat backend conformance harness |
-| `chaos/` | Deterministic provider, Redis-lock, circuit, and cancellation fault injection |
-| `performance/` | Correctness-oriented local concurrency and single-flight load |
-| `smoke/` | Small real chat, embedding, and reranking provider requests |
+| `unit/` | Configuration, normalization, routing, lifecycle, cache, telemetry and client behaviour, with injected transports |
+| `contract/` | One conformance suite for every chat client and chat backend; see [Chat contract suites](contract/chat/README.md) |
+| `chaos/` | Deterministic fault injection: circuit breaking, Redis lock loss and cancellation; see [Chaos tests](chaos/README.md) |
+| `performance/` | Local concurrency limits and single-flight load; see [Load tests](performance/README.md) |
+| `smoke/` | Standalone scripts that send small real chat, embedding and reranking requests |
 
-Run deterministic model coverage with:
+Run the collected tests from the repository root:
 
 ```bash
-python -m pytest packages/harborrag-adapters/tests/models
+uv run pytest packages/harborrag-adapters/tests/models
 ```
 
-Live requests can consume paid quota and need provider-specific models,
-credentials, endpoints, and optional LiteLLM configuration. Follow the
-complete [model smoke setup](smoke/README.md) first.
+The smoke scripts call real providers, so they can spend paid quota and need a model, credentials
+and an endpoint for each family. Set them up with [Model smoke checks](smoke/README.md) first.

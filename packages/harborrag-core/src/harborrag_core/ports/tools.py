@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from harborrag_core.contracts.tools import BaseTool, ToolInvocationContext, ToolSpec
+from harborrag_core.contracts.tools import BaseTool as BaseTool
+from harborrag_core.contracts.tools import ToolInvocationContext, ToolSpec
 
 
 class ToolInvokerPort(Protocol):
@@ -25,6 +26,3 @@ class ToolExecutionAudit(Protocol):
 
 class ToolAccessPolicy(Protocol):
     def allowed(self, context: ToolInvocationContext, name: str) -> bool: ...
-
-
-__all__ = ["BaseTool", "ToolAccessPolicy", "ToolExecutionAudit", "ToolInvokerPort"]

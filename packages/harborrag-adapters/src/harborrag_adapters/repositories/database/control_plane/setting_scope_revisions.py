@@ -15,7 +15,7 @@ from .session import SessionFactory
 
 @dataclass(slots=True)
 class SqlSettingScopeRevisionRepository:
-    """SettingScopeRevisionRepositoryPort over the setting_scope_revisions table."""
+    """SettingScopeRevisionRepositoryPort over the runtime_setting_revisions table."""
 
     sessions: SessionFactory
 

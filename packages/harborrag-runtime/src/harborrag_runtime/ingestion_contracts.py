@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Protocol
 
 from harborrag_runtime.ingestion.limits import (
@@ -13,6 +15,22 @@ from harborrag_runtime.ingestion.limits import (
     validate_source_orchestration_limits,
 )
 from harborrag_runtime.source_query import ProcessingProfileInput, SourceQuery
+
+
+class RunKind(StrEnum):
+    """The workflow an ingestion run executes as, named by its workflow id prefix."""
+
+    SOURCE = "harborrag-source"
+    RETRY = "harborrag-retry"
+
+    @classmethod
+    def of(cls, request: Mapping[str, object]) -> RunKind:
+        """Return the kind of the run whose stored request is ``request``."""
+        return cls.RETRY if request.get("retry_of") else cls.SOURCE
+
+    def workflow_id(self, task_id: str) -> str:
+        """Return the workflow id of run ``task_id``."""
+        return f"{self.value}:{task_id}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,6 +50,64 @@ class SourceSubmission:
     missing_threshold: int = 2
     batch_size: int | None = None
     continue_after_batches: int = 25
+
+
+@dataclass(frozen=True, slots=True)
+class RunSettings:
+    """Overridden ``next_ingestion`` settings pinned for one run.
+
+    ``None`` leaves the boot knob in charge.
+
+    Args:
+        settings_revision: Revision label the values were resolved at.
+        pdf_parser: PDF backend override.
+        chunk_max_tokens: Cap on every chunking profile's hard maximum.
+        document_concurrency: Concurrent documents override.
+        activity_timeout_seconds: Document activity start-to-close timeout override.
+        max_attempts: Document activity retry count override.
+    """
+
+    settings_revision: str
+    pdf_parser: str | None = None
+    chunk_max_tokens: int | None = None
+    document_concurrency: int | None = None
+    activity_timeout_seconds: int | None = None
+    max_attempts: int | None = None
+
+    def to_json(self) -> dict[str, object]:
+        """Return the JSON-safe form stored in task requests and plans."""
+        return {
+            "settings_revision": self.settings_revision,
+            "pdf_parser": self.pdf_parser,
+            "chunk_max_tokens": self.chunk_max_tokens,
+            "document_concurrency": self.document_concurrency,
+            "activity_timeout_seconds": self.activity_timeout_seconds,
+            "max_attempts": self.max_attempts,
+        }
+
+    @classmethod
+    def from_json(cls, value: object) -> RunSettings | None:
+        """Rebuild from :meth:`to_json`; ``None`` for anything that is not a stored run."""
+        if not isinstance(value, dict):
+            return None
+        revision = value.get("settings_revision")
+        pdf_parser = value.get("pdf_parser")
+        max_tokens = value.get("chunk_max_tokens")
+        concurrency = value.get("document_concurrency")
+        activity_timeout_seconds = value.get("activity_timeout_seconds")
+        max_attempts = value.get("max_attempts")
+        if (
+            not isinstance(revision, str)
+            or not (pdf_parser is None or isinstance(pdf_parser, str))
+            or not (max_tokens is None or isinstance(max_tokens, int))
+            or not (concurrency is None or isinstance(concurrency, int))
+            or not (activity_timeout_seconds is None or isinstance(activity_timeout_seconds, int))
+            or not (max_attempts is None or isinstance(max_attempts, int))
+        ):
+            return None
+        return cls(
+            revision, pdf_parser, max_tokens, concurrency, activity_timeout_seconds, max_attempts
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,6 +135,7 @@ class PreparedSourceSubmission:
     chunking_max_tokens: int | None = None
     ingestion_activity_timeout_seconds: int | None = None
     ingestion_max_attempts: int | None = None
+    run_settings: RunSettings | None = None
 
     def __post_init__(self) -> None:
         identities = (
@@ -160,7 +237,7 @@ class IngestionGateway(Protocol):
 
     async def get_progress(self, task_id: str) -> dict[str, int]: ...
 
-    async def execution_status(self, task_id: str) -> str: ...
+    async def execution_status(self, task_id: str, kind: RunKind = RunKind.SOURCE) -> str: ...
 
     async def result(self, task_id: str) -> IngestionExecutionResult: ...
 
@@ -168,6 +245,6 @@ class IngestionGateway(Protocol):
 
     async def resume(self, task_id: str) -> None: ...
 
-    async def cancel(self, task_id: str) -> None: ...
+    async def cancel(self, task_id: str, kind: RunKind = RunKind.SOURCE) -> None: ...
 
     async def health(self) -> bool: ...

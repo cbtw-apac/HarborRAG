@@ -235,8 +235,8 @@ def test_close_failure_does_not_replace_the_envelope(monkeypatch, capsys) -> Non
 
 
 def _checkout(tmp_path, monkeypatch) -> None:
-    (tmp_path / "config").mkdir()
-    (tmp_path / "config" / "connectors.yaml").write_text("version: 1\nconnectors: {}\n")
+    (tmp_path / "config" / "sources").mkdir(parents=True)
+    (tmp_path / "config" / "sources" / "connectors.yaml").write_text("version: 1\nconnectors: {}\n")
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("HARBORRAG_PROJECT", raising=False)
     # conftest's autouse fixture sets a per-test sqlite URL; the fallback means "unset".
@@ -257,7 +257,7 @@ def test_checkout_refuses_ingestion_on_the_sqlite_fallback(tmp_path, monkeypatch
 
     err = capsys.readouterr().err
     assert code == 1
-    assert "HARBORRAG_CONTROL_DB_URL" in err and "harborrag init" in err
+    assert "HARBORRAG_CONTROL_DB_URL" in err and "dev.sh up --build" in err
     assert built == []
 
 

@@ -97,6 +97,3 @@ def failed_dependency(exc: BaseException) -> str | None:
         if _is_connection_failure(link) and (dependency := _dependency_of(link)) is not None:
             return dependency
     return None
-
-
-__all__ = ["failed_dependency"]

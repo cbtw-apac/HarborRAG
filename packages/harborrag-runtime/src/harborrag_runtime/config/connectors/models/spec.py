@@ -59,12 +59,17 @@ class ConnectionValidationError(HarborValidationError):
 
 @dataclass(frozen=True, slots=True)
 class AuthMethodSpec:
-    """One way to authenticate, with the dataclass keywords it implies."""
+    """One way to authenticate, with the dataclass keywords it implies.
+
+    ``derived`` keywords pick the method and are not stored; ``implied_by`` picks it
+    from keywords that are, such as a Cloud ``deployment_type``.
+    """
 
     id: AuthMethodId
     title: str
     model: type[StrictModel]
     derived: Mapping[str, Any] = field(default_factory=dict)
+    implied_by: Callable[[Mapping[str, Any]], bool] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,7 +113,11 @@ class SourceTypeSpec:
 
     ``credential_renames`` maps a public credential name to the dataclass
     keyword it feeds; ``query_fields`` are config fields that travel in the
-    run's query filters instead of the dataclass; ``endpoints`` are the
+    run's query filters instead of the dataclass; ``query_narrowers`` gives a
+    query field the function that combines the connection's value with a run's
+    so the run selects no more than the connection does, raising ``ValueError``
+    when it cannot, and a query field without one cannot be set by a run once
+    the connection configures it; ``endpoints`` are the
     credential fields naming the host secrets are sent to;
     ``operator_fields`` are credential fields only the CLI and
     ``connectors.yaml`` may set, such as a worker file path;
@@ -134,6 +143,7 @@ class SourceTypeSpec:
     tenant_keyword: str | None = None
     build_check: bool = True
     query_fields: frozenset[str] = frozenset()
+    query_narrowers: Mapping[str, Callable[[str, str], str]] = field(default_factory=dict)
     aliases: tuple[str, ...] = ()
     version: str = "2.0.0"
     policy: Callable[[Mapping[str, Any]], list[FieldIssue]] | None = None
@@ -405,12 +415,15 @@ class SourceTypeSpec:
         return credentials, config, tuning
 
     def _infer_method(self, flat: Mapping[str, Any], credentials: Mapping[str, Any]) -> str:
-        """Pick the auth method a flat entry implies: derived keys first, then required fields."""
+        """Pick the auth method a flat entry implies: derived keys, implied_by, required fields."""
         for method in self.auth_methods:
             if method.derived and all(
                 str(flat.get(key, "")).strip().lower() == value
                 for key, value in method.derived.items()
             ):
+                return method.id
+        for method in self.auth_methods:
+            if method.implied_by is not None and method.implied_by(flat):
                 return method.id
         for method in self.auth_methods:
             required = {n for n, info in method.model.model_fields.items() if info.is_required()}

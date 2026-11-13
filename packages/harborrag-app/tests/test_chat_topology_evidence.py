@@ -95,7 +95,7 @@ def test_qualified_assertions_paths_and_gaps_are_separate_from_originals() -> No
     assert len(packet["original_passages"]) == 1
     guidance = packet["generated_guidance"]
     assertion = guidance["qualified_assertions"][0]
-    assert assertion["source_citation"] == ('[Source 1: "doc-1" — source passage]')
+    assert assertion["source_citation"] == "[1]"
     assert assertion["observation"]["polarity"] == "negative"
     assert assertion["observation"]["modality"] == "possible"
     assert assertion["observation"]["attribution"] == "Alice"
@@ -128,7 +128,7 @@ def test_untrusted_closing_tags_are_losslessly_quoted() -> None:
     assert evidence.passages[0].text == raw
 
 
-def test_nested_section_citation_marker_remains_literal_in_model_prompt() -> None:
+def test_a_nested_section_stays_literal_beside_its_citation_number() -> None:
     result = _result()
     result.metadata.update(
         {"document_title": "Data Connectors", "section_path": ["Architecture", "Admission"]}
@@ -139,10 +139,10 @@ def test_nested_section_citation_marker_remains_literal_in_model_prompt() -> Non
         response, query="How does admission work?", history=(), max_bytes=8000, overlay=False
     )
 
-    marker = citation_marker(1, result)
-    assert "Architecture > Admission" in evidence.prompt
+    passage = _packet(evidence.prompt)["original_passages"][0]
+    assert passage["citation"] == citation_marker(1, result) == "[1]"
+    assert passage["section_path"] == ["Architecture", "Admission"]
     assert "\\u003e" not in evidence.prompt
-    assert _packet(evidence.prompt)["original_passages"][0]["citation"] == marker
 
 
 def test_budget_keeps_whole_passages_and_complete_history_pairs() -> None:
@@ -213,24 +213,24 @@ async def test_chat_mode_wiring_and_original_only_citations(
                 "Why?", tenant_id="ACME", principal_id="reader-1", options=options
             )
         ]
-        citations = events[0]["citations"]
+        assert events[0]["citations"] == (
+            {
+                "document_id": "doc-1",
+                "chunk_id": "chunk-1",
+                "score": 0.9,
+                "marker": "[1]",
+                "content": "According to Alice, A may not depend on B after 2025 if the pilot "
+                "succeeds.",
+            },
+        )
     else:
         response = await service.chat_completion(
             "Why?", tenant_id="ACME", principal_id="reader-1", options=options
         )
         assert response.ok
-        citations = response.data["citations"]
+        assert [(c["n"], c["chunk_id"]) for c in response.data["citations"]] == [(1, "chunk-1")]
     assert retrieval.request.mode == (
         RetrievalMode.LOCAL_SEMANTIC if graph_search else RetrievalMode.FLAT
-    )
-    assert citations == (
-        {
-            "document_id": "doc-1",
-            "chunk_id": "chunk-1",
-            "score": 0.9,
-            "marker": '[Source 1: "doc-1" — source passage]',
-            "content": "According to Alice, A may not depend on B after 2025 if the pilot succeeds.",
-        },
     )
     assert chat.request is not None
     assert chat.request.metadata.chunk_ids == ("chunk-1",)
@@ -254,7 +254,7 @@ async def test_a_long_question_still_gets_evidence_instead_of_a_503() -> None:
     actually reached the model rather than being dropped.
     """
 
-    chat = FakeChatFacade(answer="Grounded in [Source 1].")
+    chat = FakeChatFacade(answer="Grounded in [1].")
     runtime = FakeRuntime(chat, _TopologyRetrieval())
     service = AppService(
         FakeComposition({"runtime": {"ready": True}}),

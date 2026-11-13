@@ -222,12 +222,3 @@ async def drain_extraction_queue(
         return
     with contextlib.suppress(Exception):
         await queue.drain(timeout=timeout)
-
-
-__all__ = [
-    "MemoryExtractionQueue",
-    "drain_extraction_queue",
-    "dropped_extractions",
-    "reset_dropped_extractions",
-    "submit_exchange",
-]

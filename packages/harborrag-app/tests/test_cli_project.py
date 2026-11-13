@@ -26,7 +26,7 @@ def test_walks_up_from_a_nested_directory(tmp_path: Path) -> None:
 
     assert project is not None
     assert project.root == root.resolve()
-    assert project.runtime["connector_config_path"] == "config/connectors.yaml"
+    assert project.runtime["connector_config_path"] == "config/sources/connectors.yaml"
 
 
 def test_returns_none_without_a_marker(tmp_path: Path, monkeypatch) -> None:
@@ -71,7 +71,7 @@ def test_activation_applies_the_documented_precedence(tmp_path: Path, monkeypatc
     assert os.environ["OPENAI_API_KEY"] == "from-shell"  # shell beats .env
     assert os.environ["HARBORRAG_ENV"] == "prod"  # .env beats yaml
     assert os.environ["HARBORRAG_CONNECTOR_CONFIG_PATH"] == str(
-        (root / "config/connectors.yaml").resolve()
+        (root / "config/sources/connectors.yaml").resolve()
     )  # yaml paths made absolute
     assert os.environ["HARBORRAG_QDRANT_PREFER_GRPC"] == "false"  # booleans lower-cased
 
@@ -167,7 +167,7 @@ def test_global_value_options_are_all_declared() -> None:
 def test_main_explains_how_to_start_when_no_project_exists(
     tmp_path: Path, monkeypatch, capsys
 ) -> None:
-    """Outside a project (and outside a checkout) the CLI must point at `harborrag init`."""
+    """Outside a project and outside a checkout, the CLI points at a checkout or --project."""
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("HARBORRAG_PROJECT", raising=False)
@@ -175,7 +175,7 @@ def test_main_explains_how_to_start_when_no_project_exists(
 
     assert cli.main(["retrieve", "anything", "--json"]) == 1
     err = capsys.readouterr().err
-    assert "harborrag init" in err and "--project" in err
+    assert "repository checkout" in err and "--project" in err
 
 
 def test_walk_up_rejects_a_marker_in_a_directory_owned_by_someone_else(
@@ -279,16 +279,10 @@ def test_root_help_describes_auth_keys(capsys) -> None:
     assert "auth keys" in " ".join(capsys.readouterr().out.split())
 
 
-def test_init_help_shows_default_once(capsys) -> None:
+def test_init_is_no_longer_a_command(capsys) -> None:
     from harborrag_app.cli import main as cli
 
-    assert cli.main(["init", "--help"]) == 0
-
-    import re
-
-    text = " ".join(capsys.readouterr().out.split())
-    # `default: ./docs` (another option) is not the DIR default.
-    assert len(re.findall(r"default: \.(?![\w/])", text)) == 1
+    assert cli.main(["init", "--help"]) != 0
 
 
 @pytest.fixture

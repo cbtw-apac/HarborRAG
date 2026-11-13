@@ -1,15 +1,20 @@
 # Ingestion runtime structure
 
-The ingestion runtime is grouped by application responsibility:
+Contributor notes for `harborrag_runtime.ingestion`, grouped by application
+responsibility:
 
 - `document/` owns one document release and its durable stage boundaries.
-- `source/` owns discovery, bounded dispatch, retry, and source finalization.
-- `maintenance/` owns operations over already-published data: cleanup, relation
-  repair, and connector-free reindexing.
-- The package root owns cross-cutting composition, processing profiles, and
-  telemetry.
+- `source/` owns discovery, bounded dispatch, retry and source finalization.
+- `maintenance/` owns operations over already-published data: cleanup, relation repair,
+  connector-free reindexing and the retention of retired document versions.
+- The package root owns cross-cutting composition, processing profiles, connection
+  resolution and telemetry.
 
-Dependency direction is deliberately narrow:
+`harborrag_runtime.ingestion` is the stable facade. Callers import public application
+services and contracts from it; nested modules are implementation details for the runtime
+and white-box tests.
+
+## Dependency direction
 
 ```text
 document  <- source
@@ -19,51 +24,54 @@ maintenance <- source finalization
 composition/runtime_builder -> document + source + maintenance
 ```
 
-Maintenance uses structural protocols when it only needs part of a source
-contract. This prevents maintenance services from depending on source
-orchestrators and keeps package initialization acyclic.
+Maintenance uses structural protocols when it needs only part of a source contract. That
+keeps maintenance services independent of source orchestrators and package
+initialization acyclic.
 
-Connector-aware canonical normalization is composed under
-`document/normalizers/`, but provider behavior is not implemented there. Each
-connector owns its `document_transform.py` and exposes the factory through its
-`ConnectorProviderDefinition`. Runtime discovers those factories and bridges
-them to the generic engine `DocumentNormalizer`; its router knows only the
-`source_system` key and `BaseDocumentNormalizer`. Integrations may still extend
-`SourceDocumentNormalizerBuilder` for application-local strategies.
+## Add a source
 
-Source extensions enter production through the composition root. Pass an
-extended `SourceDocumentNormalizerBuilder`, a `ChunkingConfig` with the new
-source-to-profile mapping, and any additional `ChunkStrategy` instances to
-`IngestionRuntimeBuilder` (or `build_ingestion_runtime`). A strategy may expose
-a `record_validator` callable; the chunking registry invokes it without adding
-provider branches to shared validation. Connector config factories,
-constructor dependencies, path fields, aliases, and default public document
-kinds belong to that connector's `ConnectorProviderDefinition` registration.
-The same registration owns its optional `document_transform_factory`.
-This keeps a new source from requiring edits in generic API, configuration, or
-engine modules.
+Connector-aware canonical normalization is composed under `document/normalizers/`, but
+provider behaviour is not implemented there. A connector that needs its own transform
+(Confluence, Jira and local do) owns a `document_transform.py` and exposes the factory as
+`document_transform_factory` on its `ConnectorProviderDefinition`. The runtime discovers
+those factories and bridges them to the generic engine `DocumentNormalizer`; its router
+knows only the `source_system` key and `BaseDocumentNormalizer`. Integrations can still
+extend `SourceDocumentNormalizerBuilder` for application-local strategies.
 
-`harborrag_runtime.ingestion` is the stable façade. Callers should prefer its
-exports for public application services and contracts; nested modules are for
-runtime and white-box test implementation details.
+A new source enters production through the composition root. Pass an extended
+`SourceDocumentNormalizerBuilder`, a `ChunkingConfig` with the new source-to-profile
+mapping, and any extra `ChunkStrategy` instances to `IngestionRuntimeBuilder` or
+`build_ingestion_runtime`. A strategy may expose a `record_validator` callable, which the
+chunking registry calls without adding provider branches to shared validation. Connector
+config factories, constructor dependencies, path fields, aliases and default public
+document kinds belong to the connector's `ConnectorProviderDefinition` registration, so a
+new source needs no edits in generic API, configuration or engine modules. Writing the
+strategy itself is covered in the
+[chunking notes](../../../../harborrag-engine/src/harborrag_engine/ingestion/chunking/README.md).
 
-Temporal recurring ingestion is managed through `harborrag_runtime.scheduling`.
-`ScheduleService` validates definitions and manages creation, updates, pause/unpause,
-manual triggers, deletion, inspection, and backfill through `TemporalScheduleBackend`.
-Each firing prepares the source on the worker from the connector,
-processing and Temporal configuration it loaded, then starts the source-ingestion
-workflow with a fresh task ID. A firing is skipped, not failed, while another
-ingestion holds the same source scope. Overlap is limited to `skip` (default),
-`buffer_one` and `buffer_all`.
+## Scheduled ingestion
 
-The application syncs version-controlled `config/schedules.yaml` at startup,
-creating missing config-owned schedules and updating existing ones without
-resetting an operator's pause state or note; a changed `paused` value in the
-file is applied. API-owned schedules can be managed independently. The
-control-plane `SourceConfig.schedule` field is not the source for this
-reconciliation.
+Recurring ingestion lives in `harborrag_runtime.scheduling`. `ScheduleService` validates
+definitions and manages creation, updates, pause and unpause, manual triggers, deletion,
+inspection and backfill through `temporal.schedules.TemporalScheduleBackend`. Each firing
+starts the source-ingestion workflow with a fresh task ID.
 
-Tests mirror the same boundaries under `packages/harborrag-runtime/tests/runtime_ingestion/`: shared fakes are in
-`fixtures/`, fast behavior tests are grouped under `unit/document`,
-`unit/source`, `unit/maintenance`, and `unit/temporal`, while deterministic
-Temporal replay tests live in `workflows/`.
+At startup the application syncs `config/sources/schedules.yaml` into the config-owned
+schedules. Updating an existing schedule keeps an operator's pause state and note; a
+changed `paused` value in the file is applied. Schedules created through `ScheduleService` with owner `api` are left alone,
+and `ScheduleService` refuses API changes to a config-owned schedule. The control plane's
+`Connection.schedule` field plays no part in this reconciliation.
+
+What operators declare and see (overlap policies, pause handling, skipped firings) is in
+[Scheduled ingestion](../../../../../docs/users/scheduled-ingestion.md).
+
+## Tests
+
+Tests mirror these boundaries under `packages/harborrag-runtime/tests/runtime_ingestion/`:
+
+- `fixtures/` holds the shared fakes.
+- `unit/document`, `unit/source`, `unit/maintenance`, `unit/temporal`,
+  `unit/scheduling` and `unit/composition` hold the fast behaviour tests.
+- `workflows/` holds the deterministic Temporal replay tests.
+- `smoke/` holds the opt-in deployed smoke checks; see its
+  [README](../../../tests/runtime_ingestion/smoke/README.md).

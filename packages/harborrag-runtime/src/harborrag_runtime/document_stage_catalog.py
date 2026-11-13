@@ -80,5 +80,3 @@ DOCUMENT_STAGE_CATALOG = (
         "harborrag-index",
     ),
 )
-
-__all__ = ["DOCUMENT_STAGE_CATALOG", "DocumentStageSpec"]

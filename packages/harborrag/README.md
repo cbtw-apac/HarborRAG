@@ -1,127 +1,131 @@
 # harborrag
 
-`harborrag` is the public SDK facade and installation bundle for
-[HarborRAG](https://github.com/cbtw-apac/HarborRAG), a modular, provider-agnostic RAG
-framework for engineering knowledge. Importing it does not initialize provider clients or
-perform network I/O.
+The Python SDK of [HarborRAG](https://github.com/cbtw-apac/HarborRAG): ingest your
+sources, search them, walk the knowledge graph and chat over them from your own code.
+`harborrag` is the public facade and install bundle of the HarborRAG packages. Importing it
+does not create provider clients or open network connections.
 
-- Documentation: <https://cbtw-apac.github.io/HarborRAG/>
+- Documentation: <https://github.com/cbtw-apac/HarborRAG/tree/main/docs>
 - Source: <https://github.com/cbtw-apac/HarborRAG>
+
+New to HarborRAG? Start with the
+[Quick Start](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/getting-started/quick-start.md),
+which runs HarborRAG from a clone of the repository. The `harborrag` operator command runs
+from that checkout; this package is for using HarborRAG as a Python library.
 
 ## Install
 
 ```bash
-pip install "harborrag[all]"          # everything
-pip install "harborrag[local]"        # local end-to-end ingestion and retrieval
-pip install "harborrag[cli,qdrant]"   # or just what you need
+pip install "harborrag[local]"
 ```
 
-A bare `pip install harborrag` installs the framework - contracts, engine, memory,
-adapters, and runtime - but deliberately **no third-party provider clients**. There is no
-vector store, no graph store, and no model client until you add an extra:
+The `local` extra adds the clients the SDK needs to work with the local HarborRAG stack:
+Qdrant, FalkorDB, S3, the model client, chunking, the control plane, parsers and tables.
 
-| Extra | Adds |
-| --- | --- |
-| `local` | Qdrant, FalkorDB, S3, model client, chunking, control plane, parsers, Docling PDF, tables |
-| `chat` | the model client used by chat, embeddings, and reranking |
-| `cli` | the `harborrag` command |
-| `server` | the HTTP API plus the production and Temporal runtime |
-| `mcp` | the MCP transport |
-| `temporal` | the Temporal client for durable ingestion |
-| `qdrant`, `falkordb`, `postgres`, `s3`, `redis` | one provider each |
-| `all` | everything above; a superset of `local` |
+Release 2.0.0a2 on PyPI predates the documentation on `main`, so commands and settings
+described there may be missing from it or behave differently.
 
-Conversation memory (`harborrag-memory`) is already a required dependency, so it is
-available in every install. The `harborrag[memory]` extra exists for explicitness and adds
-nothing new.
+A bare `pip install harborrag` installs the runtime and the public facade but no
+third-party provider clients. Other extras add one provider client each (`qdrant`,
+`falkordb`, `postgres`, `s3`, `redis`), the model client for chat, embeddings and
+reranking (`chat`), the Temporal client (`temporal`), the HTTP API (`server`) or the MCP
+server (`mcp`). `all` adds all of them. See
+[Choose the extras you need](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/getting-started/installation.md#choose-the-extras-you-need).
 
-See [Installation](https://cbtw-apac.github.io/HarborRAG/docs/getting-started/installation.html)
-for PDF/OCR backends, editable installs, and platform notes.
+## Quick start
 
-## Ingest and retrieve
-
-`HarborRAG` exposes four async service facades - `ingestion`, `retrieval`, `graph`, and
-`chat` - behind one async context manager. Connectors are declared by name in your
-connector catalog, so credentials stay as environment references:
+The SDK works against a running HarborRAG stack. Start one from a repository checkout as
+in the
+[Quick Start](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/getting-started/quick-start.md),
+then export the stack's settings into your script's environment, as listed in
+[Python SDK: Before you start](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/python-sdk/README.md#before-you-start).
 
 ```python
 import asyncio
 
-from harborrag import AccessContext, HarborRAG, IngestionRequest, RetrievalRequest
+from harborrag import (
+    AccessContext,
+    HarborRAG,
+    HarborRAGConfig,
+    IngestionRequest,
+    RetrievalRequest,
+)
 
 
 async def main() -> None:
-    access = AccessContext(principal_id="user-1", tenant_id="tenant-1")
+    access = AccessContext(
+        principal_id="user-1", tenant_id="DEFAULT", corpus_mode="tenant_shared"
+    )
 
-    async with HarborRAG.from_config("config/harborrag.example.yaml") as harbor:
+    async with HarborRAG(HarborRAGConfig()) as harbor:
         await harbor.ingestion.run(
             IngestionRequest(access=access, connector_name="harborrag-workspace")
         )
-        results = await harbor.retrieval.search(
+        response = await harbor.retrieval.search(
             RetrievalRequest(access=access, query="deployment requirements")
         )
-        print(results)
+        for passage in response.results:
+            print(passage)
 
 
 asyncio.run(main())
 ```
 
-`config/harborrag.example.yaml` ships in the repository checkout. Copy it next to your
-application and point `from_config` at your own path.
+- A connection is one configured data source, and its `source_key` names it in
+  `IngestionRequest`. `harborrag-workspace` is the shipped local-folder connection.
+- `AccessContext` names the caller (`principal_id`) and the tenant it acts in. A tenant
+  is the isolation boundary that owns data. Connections imported from the repository's
+  `config/sources/connectors.yaml` live in tenant `DEFAULT`, so another tenant raises
+  `ConnectionNotFoundError`. Your application must authenticate the caller before it
+  builds this context.
+- `corpus_mode="tenant_shared"` lets this caller read every published document of the
+  tenant. Without it, the search returns only documents whose imported source
+  permissions grant the caller access, which is none on a fresh stack.
 
-## Chat
+[Python SDK](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/python-sdk/README.md)
+explains each part.
 
-Chat needs a model provider, so install `harborrag[chat]` (or any extra that includes it,
-such as `local`, `server`, or `all`) and configure credentials first:
+## What it provides
 
-```python
-from harborrag import ChatPrompt, HarborChatMessage, HarborChatRequest, HarborRAG
+- `HarborRAG`, an async context manager with the service facades `ingestion`,
+  `retrieval`, `graph`, `chat`, `knowledge` and `memory`.
+- `HarborRAGConfig` and `ExecutionMode`, which pick inline (`direct`, the default) or
+  durable (`temporal`) execution. `HarborRAG.from_config(path)` loads them from a YAML
+  file with `execution_mode`, `discover_plugins` and `runtime` keys.
+- Request and response types: `AccessContext`, `IngestionRequest`, `IngestionResult`,
+  `IngestionStatus`, `IngestionTaskReference`, `RetrievalRequest`, `RetrievalResponse`,
+  `RetrievalLane`, the graph path, subgraph and triplet requests and queries, and the chat
+  types `HarborChatRequest`, `HarborChatMessage`, `HarborChatResponse` and `ChatPrompt`.
 
-async with HarborRAG.from_config("config/harborrag.example.yaml") as harbor:
-    response = await harbor.chat.complete(
-        HarborChatRequest(messages=(HarborChatMessage.user("Summarize the results"),)),
-        prompt=ChatPrompt.CONCISE,
-    )
-```
+## Chat and durable ingestion
 
-## Direct versus durable execution
+`harbor.chat.complete(...)` and `harbor.chat.stream(...)` answer with the model configured
+in `config/models/models.yaml`. They need the `chat` extra or one that includes it
+(`local`, `server` or `all`). See
+[Python SDK: Chat](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/python-sdk/README.md#chat).
 
-Direct execution is the default: `ingestion.run` does the work inline.
-
-The durable controls - `submit`, `status`, `pause`, `resume`, and `cancel` - need
-`execution_mode: temporal` in your configuration **and** the `harborrag[temporal]` extra.
-Calling them without both raises `ExecutionCapabilityError`:
-
-```python
-task = await harbor.ingestion.submit(request)
-status = await harbor.ingestion.status(task.task_id)
-await harbor.ingestion.pause(task.task_id)
-await harbor.ingestion.resume(task.task_id)
-await harbor.ingestion.cancel(task.task_id)
-```
+`ingestion.run` works inline by default. `submit`, `status`, `pause`, `resume` and
+`cancel` need `execution_mode: temporal`, the `temporal` extra and a reachable Temporal
+server. Under `direct` they raise `ExecutionCapabilityError`; without the extra, the
+Temporal import fails with `MissingOptionalDependencyError`, which names the extra to
+install. See
+[Python SDK: Ingestion](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/python-sdk/README.md#ingestion).
 
 ## Related packages
 
-`harborrag` re-exports stable APIs from the workspace packages. Install one directly for a
-narrower dependency tree:
+`harborrag` re-exports stable APIs from the other HarborRAG packages. Install one of them
+directly for a narrower dependency tree; see
+[Install individual packages](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/getting-started/installation.md#install-individual-packages).
 
-| Package | Contains |
-| --- | --- |
-| `harborrag-core` | provider-neutral contracts and domain models |
-| `harborrag-adapters` | connectors, parsers, model clients, repositories |
-| `harborrag-engine` | ingestion and retrieval orchestration |
-| `harborrag-memory` | scope-aware conversation memory |
-| `harborrag-runtime` | production composition and Temporal orchestration |
-| `harborrag-app` | CLI and HTTP API |
-| `harborrag-mcp-server` | MCP tools and transport |
+## Contributing
 
-## Development
+See [CONTRIBUTING](https://github.com/cbtw-apac/HarborRAG/blob/main/CONTRIBUTING.md). Tests
+for this package live in `packages/harborrag/tests/`; run them from the repository root:
 
-Tests for this package live in `packages/harborrag/tests/`. Run them from the repository
-root:
-
-```shell
+```bash
 uv run pytest packages/harborrag/tests
 ```
 
-Licensed under the Apache License 2.0.
+## License
+
+Apache License 2.0.

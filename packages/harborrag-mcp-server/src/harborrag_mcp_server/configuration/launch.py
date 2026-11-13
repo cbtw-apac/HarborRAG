@@ -58,9 +58,9 @@ def _checkout_defaults(root: Path, environ: MutableMapping[str, str], *, check: 
     )
     _set_default(environ, "HARBORRAG_FALKORDB_HOST", "localhost")
     _set_default(environ, "HARBORRAG_FALKORDB_PORT", environ.get("FALKORDB_PORT", "6379"))
-    _set_default(environ, "HARBORRAG_MODEL_CONFIG_PATH", str(root / "config/models.yaml"))
-    _set_default(environ, "HARBORRAG_MCP_CONFIG_PATH", str(root / "config/mcp.yaml"))
-    _set_default(environ, "HARBORRAG_MCP_KEYS_PATH", str(root / "config/mcp_keys.yaml"))
+    _set_default(environ, "HARBORRAG_MODEL_CONFIG_PATH", str(root / "config/models/models.yaml"))
+    _set_default(environ, "HARBORRAG_MCP_CONFIG_PATH", str(root / "config/mcp/server.yaml"))
+    _set_default(environ, "HARBORRAG_MCP_KEYS_PATH", str(root / "config/mcp/keys.yaml"))
 
     # Local env files use paths relative to the checkout, even when a client
     # launches the wrapper from another working directory.

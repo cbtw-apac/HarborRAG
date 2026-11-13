@@ -44,6 +44,10 @@ class IngestionAlreadyRunningError(HarborConflictError):
     error_code = "already_running"
 
 
+class IngestionActionStateError(HarborConflictError):
+    error_code = "invalid_state"
+
+
 class IngestionIdempotencyConflictError(HarborConflictError):
     error_code = "invalid_state"
 
@@ -56,8 +60,12 @@ class IngestionCursorError(HarborValidationError):
     error_code = "validation_error"
 
 
-class IngestionStatusFilterError(HarborValidationError):
+class IngestionFailureIdError(HarborValidationError):
     error_code = "validation_error"
+
+
+class SettingsLevelNotFoundError(HarborValidationError):
+    error_code = "reference_not_found"
 
 
 # Error types whose messages are authored inside HarborRAG at the Temporal
@@ -77,6 +85,8 @@ class IngestionStatusFilterError(HarborValidationError):
 
 
 _PUBLIC_MESSAGE_TYPES: tuple[type[Exception], ...] = (
+    IngestionActionStateError,
+    IngestionNotFoundError,
     RuntimeConfigurationError,
     RuntimeConnectionError,
     WorkerStartupError,

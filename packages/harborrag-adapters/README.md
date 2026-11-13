@@ -1,155 +1,76 @@
 # harborrag-adapters
 
-Provider adapters for HarborRAG.
+`harborrag-adapters` is the part of [HarborRAG](https://github.com/cbtw-apac/HarborRAG)
+that talks to systems outside it. It holds the connectors that read sources such as Jira
+or a folder of files, the parsers that turn files into text, the refiners that split
+text too long for one chunk, the chat, embedding and reranking model clients, and the
+storage repositories. You use it directly when you write or test an adapter, or call
+these pieces from your own Python code.
 
-This package owns the code that talks to external systems and extracts text from
-raw source files. It sits between:
-
-- `harborrag-core`, which owns shared domain schemas such as `SourceRecord`,
-  `RawDocument`, `ParseInput`, and `ParsedDocument`.
-- `harborrag-runtime`, which should own orchestration, concurrency, scheduling,
-  backpressure, retries across tasks, and large ingestion pipelines.
-
-The adapter layer should stay focused on source-specific behavior: auth, API
-pagination, request retry hints, payload safety limits, parser routing, and clear
-errors for missing optional dependencies.
-
-## Public extension API
-
-Each adapter family owns its registry and factory at the variation point:
-connectors, parsers, model providers, and repository backends are registered
-independently. There is intentionally no cross-family registry because adding
-one provider must not require editing unrelated adapter families.
-
-## File ownership and test doubles
-
-- `connectors/base.py` and `parsers/common/base.py` define contracts. Production
-  implementations belong in provider or format modules under those packages.
-- Connector-specific canonical transformation lives in the provider's
-  `document_transform.py`; supporting representation logic may be split into a
-  provider-local package such as `connectors/confluence/normalization/`. It
-  does not belong in runtime or the chunk-refinement provider package.
-- Implemented connectors and parsers do not keep production `mock.py` modules;
-  their fakes and test doubles belong under `tests/`.
-- Repository families expose provider-neutral `Harbor*` contracts plus real
-  provider packages. Their deterministic fakes belong under `tests/`; production
-  repository packages do not ship mock backends.
-- Provider construction belongs to the registry or factory in that capability;
-  domain schemas remain in `harborrag-core`, and workflow orchestration remains
-  outside adapters.
-
-## Contributor and teammate deliverables
-
-A new adapter contribution should include its implementation and validated
-config, public exports or registry registration, focused unit/failure/security
-tests, optional-dependency declarations, and documentation or example env keys.
-Never commit credentials or use real provider payloads as fixtures.
+To run HarborRAG itself, you do not install this package by hand: follow the
+[Quick Start](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/getting-started/quick-start.md),
+which works from a clone of the repository.
 
 ## Install
 
-Base connector support only requires `requests` plus `harborrag-core`:
-
 ```bash
-pip install -e packages/harborrag-core -e packages/harborrag-adapters
+pip install harborrag-adapters
 ```
 
-Install common parser dependencies when parsing office files, images, HTML, and
-PDFs through the default parser stack:
+Releases up to 2.0.0a2 predate this README, so some of what it describes may be missing
+from them; see
+[Install from PyPI](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/getting-started/installation.md#install-from-pypi).
+
+The base install brings `harborrag-core`, `requests`, SQLAlchemy and `aiosqlite`. That is
+enough for the connectors, the plain-text, Markdown and JSON parsers, and the SQLite,
+filesystem and in-memory repositories. Everything else is an extra:
+
+| Extra | Adds | Needed for |
+| --- | --- | --- |
+| `llm` | LiteLLM, Pydantic, PyYAML | the chat, embedding and reranking clients |
+| `langfuse`, `opentelemetry` | the Langfuse or OpenTelemetry SDK | the model telemetry sink of the same name |
+| `langchain` | `langchain-core` | the LangChain chat model wrapper |
+| `chunking-code` | tree-sitter and its language grammars | splitting code at syntax boundaries |
+| `chunking-tokens` | `tiktoken` | exact token counts with `TiktokenTokenCounter` |
+| `chunking` | LangChain text splitters | the `recursive` refiner |
+| `qdrant`, `falkordb`, `redis`, `postgres`, `s3` | one storage client each | that storage provider |
+| `control-plane` | SQLAlchemy, Alembic, `cryptography` | the migrated control-plane database |
+| `tables` | `pyarrow` | stored table artifacts |
+
+Parsers for Office files, images and PDFs have their own extras, such as `parsers`,
+`pdf` and `parsers-all`; see
+[Add parser and PDF extras](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/getting-started/installation.md#add-parser-and-pdf-extras).
 
 ```bash
-pip install -e "packages/harborrag-adapters[parsers]"
+pip install "harborrag-adapters[llm,parsers,chunking-code]"
 ```
 
-Oversized text refinement needs no extra. `build_text_refiner(token_counter)`
-returns the routing refiner the runtime injects into the engine chunking
-service: code splits at syntax boundaries, Markdown at headings and fences,
-prose at sentence ends, and tables and logs at line breaks. Every strategy
-returns HarborRAG-owned `TextSplit` values that map back to exact source
-ranges, so engine policy never depends on framework-owned types. Two optional
-extras are available:
+## Quick start
 
-```bash
-# tree-sitter grammars for syntax-aware code splitting (pinned to GRAMMAR_SET)
-pip install -e "packages/harborrag-adapters[chunking-code]"
-# exact tiktoken counts for TiktokenTokenCounter
-pip install -e "packages/harborrag-adapters[chunking-tokens]"
-```
-
-Without `chunking-code`, `build_text_refiner` raises `GrammarSetMismatch`
-unless it gets `require_grammars=False`, in which case it splits code at
-separators. `RecursiveTextRefiner` (LangChain, `[chunking]` extra) and
-`MarkdownChunker` (whole-file, section-first chunking) are also exported. The
-runtime picks the refiner from `config/chunking.yaml`.
-
-Install advanced PDF backends separately when needed. This extra also includes
-RapidOCR with its default ONNX Runtime CPU engine:
-
-```bash
-pip install -e "packages/harborrag-adapters[pdf]"
-```
-
-For a Docling/RapidOCR-only deployment, use the narrower extra:
-
-```bash
-pip install -e "packages/harborrag-adapters[pdf-docling]"
-```
-
-SQLite database, state, filesystem, and memory repositories are included in the
-base install. Install only the extras needed by deployed services - `control-plane`
-adds the Alembic-managed control plane and `tables` adds the pyarrow-backed canonical
-table artifacts:
-
-```bash
-pip install -e "packages/harborrag-adapters[redis,qdrant,falkordb,postgres,s3,control-plane,tables]"
-```
-
-## Main Modules
-
-| Module | Purpose |
-| --- | --- |
-| `harborrag_adapters.connectors` | Source connectors that discover/load source records and own provider-specific canonical normalization. |
-| `harborrag_adapters.parsers` | Parser factory and format parsers that produce `ParsedDocument`s. |
-| `harborrag_adapters.models` | Chat, embedding, and reranking clients behind provider-neutral contracts. |
-| `harborrag_adapters.repositories` | Tenant-isolated vector, graph, cache, object, database, and workflow-state repositories. |
-| `harborrag_adapters.chunking` | Chunking strategies used by the ingestion engine. |
-
-See the module READMEs for deeper notes:
-
-- `src/harborrag_adapters/connectors/README.md`
-- `src/harborrag_adapters/connectors/confluence/normalization/README.md`
-- `src/harborrag_adapters/parsers/README.md`
-- `src/harborrag_adapters/parsers/pdf/README.md`
-- `src/harborrag_adapters/models/README.md`
-
-## Quick Start
-
-Load local files and parse them through the default parser registry:
-
-Run this from the repository root - `source_uri` is resolved relative to the process
-working directory.
+This script reads up to three Markdown or text files from a folder and parses each one.
+It needs only the base install. Set `ROOT` to any folder of Markdown files; the
+relative path is resolved from the directory you run the script in.
 
 ```python
 import asyncio
 from pathlib import Path
 
-from harborrag_adapters.connectors import (
-    ConnectorQuery,
-    LocalFileConfig,
-    LocalFileConnector,
-)
+from harborrag_adapters.connectors import ConnectorQuery, LocalFileConfig, LocalFileConnector
 from harborrag_adapters.parsers import HarborParserFactory, ParseRequest
+
+ROOT = Path("docs")
 
 
 async def main() -> None:
     connector = LocalFileConnector(
-        LocalFileConfig(source_path="docs", allowed_extensions={".md", ".txt"})
+        LocalFileConfig(source_path=ROOT, allowed_extensions={".md", ".txt"})
     )
     registry = HarborParserFactory().create_registry()
 
-    for record in connector.discover(ConnectorQuery(recursive=True)):
+    for record in connector.discover(ConnectorQuery(recursive=True, limit=3)):
         result = await registry.parse_request(
             ParseRequest(
-                source_uri=f"docs/{record.locator}",
+                source_uri=str(ROOT / record.locator),
                 filename=Path(record.locator).name,
                 mime_type=record.source_type,
             )
@@ -160,15 +81,46 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
+Each line shows the file, the parser family, the engine inside that family and the
+number of characters extracted. Run against the repository's `docs` folder, it prints:
+
+```text
+developers/architecture/data-lifecycle.md markup markdown 7153
+developers/architecture/projection-rebuild.md markup markdown 9249
+developers/architecture/README.md markup markdown 16371
+```
+
 Discovery is synchronous and yields `SourceRecord` objects (`id`, `source_type`,
 `locator`, `metadata`, `updated_at`, `checksum`). Parsing is asynchronous: the registry
-selects a parser *family* and the family routes to a concrete engine, so `parse_request`
-returns both names alongside the extracted text.
+picks a parser family, and the family picks the engine.
 
-Create a connector through the provider registry:
+## What it provides
+
+| Module | What it holds | Notes |
+| --- | --- | --- |
+| `harborrag_adapters.connectors` | `local`, `github`, `confluence`, `jira` and `sharepoint` connectors that discover and load source items | [Connectors](https://github.com/cbtw-apac/HarborRAG/blob/main/packages/harborrag-adapters/src/harborrag_adapters/connectors/README.md), [Confluence normalization](https://github.com/cbtw-apac/HarborRAG/blob/main/packages/harborrag-adapters/src/harborrag_adapters/connectors/confluence/normalization/README.md) |
+| `harborrag_adapters.parsers` | `HarborParserFactory` and eight parser families: `text`, `markup`, `structured`, `spreadsheet`, `document`, `presentation`, `image` and `pdf` | [Parsers](https://github.com/cbtw-apac/HarborRAG/blob/main/packages/harborrag-adapters/src/harborrag_adapters/parsers/README.md), [PDF parsers](https://github.com/cbtw-apac/HarborRAG/blob/main/packages/harborrag-adapters/src/harborrag_adapters/parsers/pdf/README.md) |
+| `harborrag_adapters.chunking` | `build_text_refiner`, which splits an oversized unit of a document at code, Markdown or sentence boundaries, plus `MarkdownChunker` and `RecursiveTextRefiner` | [Chunking configuration](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/configuration/chunking-config.md#refiner) |
+| `harborrag_adapters.models` | chat, embedding and reranking clients behind the model contracts of `harborrag-core` | [Model adapters](https://github.com/cbtw-apac/HarborRAG/blob/main/packages/harborrag-adapters/src/harborrag_adapters/models/README.md), [Chat adapter](https://github.com/cbtw-apac/HarborRAG/blob/main/packages/harborrag-adapters/src/harborrag_adapters/models/chat/README.md) |
+| `harborrag_adapters.repositories` | tenant-isolated vector, graph, cache, object, database and workflow-state storage | Repositories, below |
+| `harborrag_adapters.topology` | `LLMEntityExtractor`, the model adapter that extracts entities for the knowledge graph | [Graph build configuration](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/configuration/graph-build-config.md) |
+
+Each family keeps its own registry or factory: connectors, parsers, model providers and
+repository backends are registered separately. There is no registry shared across
+families, so adding one provider never means editing an unrelated family.
+
+`build_text_refiner(token_counter)` raises `GrammarSetMismatch` when the
+`chunking-code` grammars are missing or at another version; pass
+`require_grammars=False` to split code at separators instead. The YAML side of this
+choice is `refiner.require_code_grammars`; see
+[Code splitting needs the tree-sitter grammars](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/configuration/chunking-config.md#code-splitting-needs-the-tree-sitter-grammars).
+
+### Create a connector by provider name
+
+`HarborConnector` builds any registered provider from its name:
 
 ```python
-from harborrag_adapters.connectors import HarborConnector, GitHubRepositoryConfig
+from harborrag_adapters.connectors import GitHubRepositoryConfig, HarborConnector
 
 connector = HarborConnector(
     "github",
@@ -179,119 +131,60 @@ connector = HarborConnector(
         root_path="docs",
     ),
 )
-
-records = list(connector.discover())
 ```
 
-## Connectors
+`connector.discover()` then lists the repository's files through the GitHub REST API.
+The provider names, their aliases and their options are listed in
+[Connector configuration](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/configuration/connector-config.md#supported-providers).
 
-Available connector providers:
+### Repositories
 
-| Provider | Config class | Source |
-| --- | --- | --- |
-| `local` | `LocalFileConfig` | Local file or directory trees. |
-| `github` | `GitHubRepositoryConfig` | GitHub repository files through the REST API. |
-| `confluence` | `ConfluenceSpaceConfig` | Confluence Cloud or Data Center pages, comments, and attachments. |
-| `jira` | `JiraProjectConfig` | JIRA Cloud or Data Center issues, comments, changelog, and attachments. |
-| `sharepoint` | `SharePointSiteConfig` | SharePoint document libraries through Microsoft Graph. |
+Repository backends are asynchronous context managers. Every data operation takes a
+`StorageOperationContext`, which carries the tenant boundary, so callers never put
+tenant IDs into keys themselves.
 
-Connector flow:
+| Family | Client | Built-in backends | What it stores |
+| --- | --- | --- | --- |
+| Vector | `HarborVectorDBClient` | `qdrant` | Collections, point CRUD, scan, dense and hybrid search |
+| Graph | `HarborGraphDBClient` | `falkordb` | Node and edge CRUD, bounded subgraph expansion |
+| Cache | `HarborCacheDBClient` | `memory`, `redis` | JSON values, tags, counters, compare-and-set, fenced locks |
+| Object store | `HarborObjectStoreDBClient` | `memory`, `filesystem`, `s3` | Streaming bodies, metadata, list and delete, presigned reads |
+| Database | `HarborDatabaseClient` | `sqlite`, `postgresql` | Document and chunk unit of work, transactional outbox |
+| Workflow state | `HarborStateDBClient` | `sqlite`, `redis` | Versioned state, checkpoints, leases, fencing tokens |
 
-1. `discover(query)` returns lightweight `SourceRecord` objects.
-2. `load(record)` fetches one `RawDocument`.
-3. `load_raw_documents(query)` combines both steps for simple callers.
+Use a family client to build a backend by name, or construct a backend class directly
+when its configuration is already typed.
 
-The connectors include source-level safeguards: same-origin download checks,
-provider-aware retry delays, file-size gates, nested collection caps, scoped local
-path handling, and structured logging.
+## Advanced usage
 
-## Parsers
+- [Architecture: adapter layer](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/developers/architecture/README.md#adapter-layer)
+  explains what adapters own and what runtime owns, such as concurrency, retries
+  across documents and resumable jobs.
+- [Model configuration](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/configuration/model-config.md)
+  describes the model catalog the `models` clients load.
+- [Parser configuration](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/configuration/parser-config.md)
+  lists the formats the parsers read and the PDF engines.
 
-`HarborParserFactory().create_registry()` builds the registry. It routes by filename
-suffix and MIME content type. Generic transport MIME types defer to a specific suffix;
-other conflicting routes raise instead of choosing a parser silently.
+## Contributing
 
-Routing happens in two levels. The registry picks a **family**; the family then owns
-engine selection, quality checks, fallback, and output normalization. The eight
-registered families and their extensions:
+[Extending HarborRAG](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/developers/extending/README.md)
+shows where a new connector, parser, model provider or repository goes and what it must
+include, and
+[Adapter contributions](https://github.com/cbtw-apac/HarborRAG/blob/main/CONTRIBUTING.md#adapter-contributions)
+summarizes the rules for an adapter change. Keep fakes and test doubles under `tests/`:
+production packages ship no `mock.py` modules.
 
-| Family | Extensions |
-| --- | --- |
-| `text` | plain text plus common source and config suffixes - `.txt`, `.py`, `.ts`, `.yaml`, `.toml`, `.sql`, `.rst`, and ~30 more |
-| `markup` | `.md`, `.markdown`, `.mdx`, `.html`, `.htm`, `.xhtml` |
-| `structured` | `.json`, `.jsonl`, `.ndjson` |
-| `spreadsheet` | `.csv`, `.tsv`, `.xls`, `.xlsx`, `.xlsm`, `.xltx`, `.xltm` |
-| `document` | `.docx`, `.odt`, `.epub` |
-| `presentation` | `.pptx`, `.pptm` |
-| `image` | `.png`, `.jpg`, `.jpeg`, `.gif`, `.bmp`, `.tif`, `.tiff`, `.webp` - via OCR |
-| `pdf` | `.pdf`, with PyMuPDF, Docling, LiteParse, MinerU, and PaddleOCR engines |
-
-List them at runtime with `registry.families()`. The `PptxParser`/`DocxParser`/
-`PdfParser`-style names are migration aliases in `parsers/compat.py`, kept out of the
-package `__all__`; write new code against the registry and family names above.
-
-## Repositories
-
-Repository backends are asynchronous context managers and take a
-`StorageOperationContext` on every data operation. The context supplies the
-tenant boundary; callers must not encode tenant IDs into user keys themselves.
-
-| Family | Providers | Main products |
-| --- | --- | --- |
-| Vector | Qdrant | Collections, point CRUD, scan, dense and hybrid search. |
-| Graph | FalkorDB | Node/edge CRUD and bounded subgraph expansion. |
-| Cache | Memory, Redis | JSON values, tags, counters, compare-and-set, fenced locks. |
-| Object store | Memory, filesystem, S3 | Streaming bodies, metadata, list/delete, presigned reads. |
-| Database | SQLite, PostgreSQL | Document/chunk unit of work and transactional outbox. |
-| Workflow state | SQLite, Redis | Versioned state, checkpoints, leases, fencing tokens. |
-
-Use the family clients (`HarborVectorDBClient`, `HarborGraphDBClient`,
-`HarborCacheDBClient`, `HarborObjectStoreDBClient`, `HarborDatabaseClient`, and
-`HarborStateDBClient`) for provider-name construction, or instantiate a
-provider backend directly when configuration is already typed.
-
-Live, non-pytest smoke checks for Redis, FalkorDB, PostgreSQL, Qdrant, and SQLite
-are documented in `tests/repositories/smoke/README.md`.
-
-## Reliability Boundaries
-
-Adapters should:
-
-- Validate config and source scope early.
-- Keep provider SDK imports inside provider modules.
-- Respect provider retry and rate-limit hints.
-- Fail clearly when optional parser dependencies are missing.
-- Enforce source-level size and collection limits before loading content into
-  memory.
-
-Runtime should:
-
-- Own ingestion concurrency and queueing.
-- Own cross-source scheduling and global retry policy.
-- Own chunk fan-out, backpressure, and resumable ingestion jobs.
-- Introduce any future stream or spooled-file contract needed for truly huge
-  documents.
-
-## Tests
-
-Package tests live in:
-
-```text
-packages/harborrag-adapters/tests/
-```
-
-Run from the repository root:
+Run this package's tests from the repository root:
 
 ```bash
-pytest packages/harborrag-adapters/tests
+uv run pytest packages/harborrag-adapters/tests
 ```
 
-Run the hermetic repository suite and enforce its coverage target with:
+The [adapter test index](https://github.com/cbtw-apac/HarborRAG/blob/main/packages/harborrag-adapters/tests/README.md)
+lists every test folder and the package-wide coverage gate, and
+[Repository smoke checks](https://github.com/cbtw-apac/HarborRAG/blob/main/packages/harborrag-adapters/tests/repositories/smoke/README.md)
+run against live Redis, FalkorDB, PostgreSQL, Qdrant and SQLite.
 
-```bash
-pytest -n 0 packages/harborrag-adapters/tests/repositories/unit \
-  --cov=harborrag_adapters.repositories --cov-fail-under=90
-```
+## License
 
-Keep connector tests close to provider behavior and parser tests focused on
-format routing, dependency errors, and parsed output shape.
+Apache License 2.0.

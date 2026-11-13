@@ -25,11 +25,7 @@ from harborrag_runtime.ingestion.profiles import build_processing_profile
 from harborrag_runtime.tokenization import ApproximateTokenCounter
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[4]
-SHIPPED = REPOSITORY_ROOT / "config" / "chunking.yaml"
-SCAFFOLD = (
-    REPOSITORY_ROOT
-    / "packages/harborrag-app/src/harborrag_app/scaffold/templates/chunking.yaml.tmpl"
-)
+SHIPPED = REPOSITORY_ROOT / "config" / "ingestion" / "chunking.yaml"
 
 
 def _write(tmp_path: Path, text: str) -> Path:
@@ -38,14 +34,13 @@ def _write(tmp_path: Path, text: str) -> Path:
     return path
 
 
-def test_shipped_file_and_scaffold_declare_exactly_the_built_in_defaults() -> None:
+def test_shipped_file_declares_exactly_the_built_in_defaults() -> None:
     defaults = default_chunking_settings()
 
-    for path in (SHIPPED, SCAFFOLD):
-        loaded = load_chunking_settings(path)
-        assert loaded.config == defaults.config
-        assert loaded.refiner == defaults.refiner
-    assert SHIPPED.read_text(encoding="utf-8") == SCAFFOLD.read_text(encoding="utf-8")
+    loaded = load_chunking_settings(SHIPPED)
+
+    assert loaded.config == defaults.config
+    assert loaded.refiner == defaults.refiner
 
 
 def test_omitted_sections_keep_the_defaults(tmp_path: Path) -> None:

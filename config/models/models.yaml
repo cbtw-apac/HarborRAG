@@ -1,0 +1,65 @@
+chat:
+  default_model: primary
+  backend:
+    type: direct_sdk
+  timeouts:
+    request_seconds: 60
+  retry:
+    same_deployment_attempts: 2
+    max_deployment_failovers: 1
+    max_model_fallbacks: 1
+  security:
+    allowed_providers: [openai, openai_compatible]
+  models:
+    primary:
+      deployments:
+        - name: gateway-chat
+          provider: openai_compatible
+          model: ${HARBORRAG_CHAT_MODEL}
+          api_base: ${HARBORRAG_URL}
+          api_key: ${HARBORRAG_API_KEY}
+          capabilities:
+            streaming: true
+            structured_output: true
+            json_mode: true
+            tools: true
+            parallel_tools: true
+
+embed:
+  default_model: primary
+  timeouts:
+    request_seconds: 60
+  default_batch_size: 64
+  security:
+    allowed_providers: [cohere]
+  models:
+    primary:
+      embedding_space: harbor-cohere-embed-v4
+      deployments:
+        - name: gateway-embedding
+          provider: cohere
+          custom_llm_provider: litellm_proxy
+          model: ${HARBORRAG_EMBED_MODEL}
+          api_base: ${HARBORRAG_URL}
+          api_key: ${HARBORRAG_API_KEY}
+          expected_dimensions: 1536
+          capabilities:
+            batch: true
+            configurable_dimensions: true
+            default_dimensions: 1536
+            encoding_format: true
+            purpose: true
+            supported_purposes: [query, document]
+
+rerank:
+  default_model: primary
+  security:
+    allowed_providers: [litellm_proxy]
+  models:
+    primary:
+      deployments:
+        - name: gateway-rerank
+          provider: litellm_proxy
+          model: ${HARBORRAG_RERANKER_MODEL}
+          api_base: ${HARBORRAG_URL}
+          api_key: ${HARBORRAG_API_KEY}

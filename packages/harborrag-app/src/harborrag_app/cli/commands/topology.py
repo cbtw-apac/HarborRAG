@@ -16,7 +16,7 @@ from .summary_projection import app as summary_app
 from .topology_security import app as indexing_app
 
 app = typer.Typer(no_args_is_help=True, help="Configure and operate semantic topology enrichment.")
-config_app = typer.Typer(no_args_is_help=True, help="Validate and apply graph_build.yaml.")
+config_app = typer.Typer(no_args_is_help=True, help="Validate and apply config/graph/build.yaml.")
 resolution_app = typer.Typer(
     no_args_is_help=True, help="Audited, reversible entity identity decisions."
 )

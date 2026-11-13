@@ -12,8 +12,8 @@ def _set_provider(
     model: str,
 ) -> None:
     prefix = {
-        "CHAT": "HARBOR_CHAT",
-        "EMBED": "HARBOR_EMBED",
+        "CHAT": "HARBORRAG_CHAT",
+        "EMBED": "HARBORRAG_EMBED",
         "RERANK": "HARBOR_SMOKE_RERANK",
     }[family]
     monkeypatch.setenv(f"{prefix}_PROVIDER", provider)
@@ -27,7 +27,7 @@ def test_smoke_config_builders_accept_explicit_provider_credentials(
     _set_provider(monkeypatch, family="CHAT", provider="openai", model="openai/chat")
     _set_provider(monkeypatch, family="EMBED", provider="openai", model="openai/embed")
     _set_provider(monkeypatch, family="RERANK", provider="cohere", model="cohere/rerank")
-    monkeypatch.setenv("HARBOR_EMBED_EXPECTED_DIMENSIONS", "8")
+    monkeypatch.setenv("HARBORRAG_EMBED_EXPECTED_DIMENSIONS", "8")
 
     chat = config.chat_config()
     embed = config.embed_config()
@@ -41,7 +41,7 @@ def test_smoke_config_builders_accept_explicit_provider_credentials(
 def test_smoke_config_supports_ambient_cloud_credentials(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    prefix = "HARBOR_EMBED"
+    prefix = "HARBORRAG_EMBED"
     monkeypatch.setenv(f"{prefix}_PROVIDER", "vertex_ai")
     monkeypatch.setenv(f"{prefix}_MODEL", "vertex_ai/embedding-model")
     monkeypatch.setenv(f"{prefix}_ALLOW_AMBIENT_CREDENTIALS", "true")
@@ -56,12 +56,12 @@ def test_smoke_config_supports_ambient_cloud_credentials(
 def test_smoke_config_rejects_missing_or_placeholder_values(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("HARBOR_CHAT_PROVIDER", raising=False)
+    monkeypatch.delenv("HARBORRAG_CHAT_PROVIDER", raising=False)
     with pytest.raises(config.SmokeNotConfigured, match="missing required"):
         config.chat_config()
 
-    monkeypatch.setenv("HARBOR_CHAT_PROVIDER", "openai")
-    monkeypatch.setenv("HARBOR_CHAT_MODEL", "REPLACE_WITH_REAL_CHAT_MODEL")
+    monkeypatch.setenv("HARBORRAG_CHAT_PROVIDER", "openai")
+    monkeypatch.setenv("HARBORRAG_CHAT_MODEL", "REPLACE_WITH_REAL_CHAT_MODEL")
     with pytest.raises(config.SmokeNotConfigured, match="placeholder"):
         config.chat_config()
 
@@ -70,11 +70,11 @@ def test_smoke_config_rejects_invalid_typed_values(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _set_provider(monkeypatch, family="CHAT", provider="openai", model="openai/chat")
-    monkeypatch.setenv("HARBOR_CHAT_ALLOW_AMBIENT_CREDENTIALS", "sometimes")
+    monkeypatch.setenv("HARBORRAG_CHAT_ALLOW_AMBIENT_CREDENTIALS", "sometimes")
     with pytest.raises(config.SmokeConfigurationError, match="must be true/false"):
         config.chat_config()
 
-    monkeypatch.setenv("HARBOR_CHAT_ALLOW_AMBIENT_CREDENTIALS", "false")
+    monkeypatch.setenv("HARBORRAG_CHAT_ALLOW_AMBIENT_CREDENTIALS", "false")
     monkeypatch.setenv("HARBOR_SMOKE_TIMEOUT_SECONDS", "zero")
     with pytest.raises(config.SmokeConfigurationError, match="must be numeric"):
         config.chat_config()
@@ -84,7 +84,7 @@ def test_smoke_chat_config_supports_router_backend(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _set_provider(monkeypatch, family="CHAT", provider="openai", model="openai/chat")
-    monkeypatch.setenv("HARBOR_CHAT_BACKEND", "litellm_router")
+    monkeypatch.setenv("HARBORRAG_CHAT_BACKEND", "litellm_router")
 
     smoke_config = config.chat_config()
 
@@ -101,9 +101,9 @@ def test_smoke_chat_config_supports_proxy_backend(
         provider="litellm_proxy",
         model="gateway-chat",
     )
-    monkeypatch.setenv("HARBOR_CHAT_BACKEND", "litellm_proxy")
-    monkeypatch.setenv("HARBOR_CHAT_PROXY_API_BASE", "https://proxy.example.test")
-    monkeypatch.setenv("HARBOR_CHAT_PROXY_API_KEY", "proxy-key")
+    monkeypatch.setenv("HARBORRAG_CHAT_BACKEND", "litellm_proxy")
+    monkeypatch.setenv("HARBORRAG_CHAT_PROXY_API_BASE", "https://proxy.example.test")
+    monkeypatch.setenv("HARBORRAG_CHAT_PROXY_API_KEY", "proxy-key")
 
     smoke_config = config.chat_config()
 

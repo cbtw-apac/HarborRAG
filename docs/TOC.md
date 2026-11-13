@@ -22,7 +22,10 @@
 - [Configuration](users/configuration/README.md)
   - [Connector Configuration](users/configuration/connector-config.md)
   - [Parser Configuration](users/configuration/parser-config.md)
+  - [Chunking Configuration](users/configuration/chunking-config.md)
+  - [Graph Build Configuration](users/configuration/graph-build-config.md)
   - [Model Configuration](users/configuration/model-config.md)
+  - [Runtime Settings](users/configuration/runtime-settings.md)
   - [Engine Configuration](users/configuration/config-file-reference.md)
   - [Tenant and Workspace Status](users/configuration/workspace-mode.md)
 - [MCP Tools](users/detailed-guides/mcp-server/README.md)
@@ -62,4 +65,4 @@
 - [Changelog](../CHANGELOG.md)
 - [License](../LICENSE)
 
-Last reviewed: 2026-08-27
+Last reviewed: 2026-11-09

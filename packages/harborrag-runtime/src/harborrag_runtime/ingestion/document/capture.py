@@ -137,10 +137,12 @@ class DocumentCaptureStages:
                     raw, metadata={**raw.metadata, "pdf_engine_override": request.pdf_engine}
                 )
             )
-            parsed = await asyncio.to_thread(
-                self._dependencies.parser.parse,
-                parse_input,
+            parser = (
+                self._dependencies.parser
+                if self._dependencies.run_tools is None
+                else self._dependencies.run_tools.parser_for(request.run_settings)
             )
+            parsed = await asyncio.to_thread(parser.parse, parse_input)
             marks.append(perf_counter())
             normalized = await asyncio.to_thread(
                 self._dependencies.normalizer.normalize,

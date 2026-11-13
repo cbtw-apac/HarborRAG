@@ -10,18 +10,26 @@ from harborrag_core.ingestion import IngestionTask
 from harborrag_runtime.ingestion_contracts import (
     IngestionRetryRequest,
     PreparedSourceSubmission,
+    RunSettings,
 )
 from harborrag_runtime.source_query import ProcessingProfileInput, SourceQuery
 
 
 def source_from_task(task: IngestionTask) -> PreparedSourceSubmission:
-    """Rebuild the safe workflow input for a retried durable submission."""
+    """Rebuild the safe workflow input for a retried durable submission.
+
+    The pinned ``ingestion.concurrency`` is restored from the run's settings; without
+    one the workflow default applies.
+    """
 
     request = task.request
     processing = _mapping(request.get("processing"), "processing")
     query = _mapping(request.get("query"), "query")
     filters = query.get("filters")
     limit = query.get("limit")
+    run_settings = RunSettings.from_json(request.get("run_settings"))
+    # TODO: restore the boot knob and an explicit --document-concurrency on recovery.
+    concurrency = run_settings.document_concurrency if run_settings else None
     return PreparedSourceSubmission(
         task_id=task.task_id,
         tenant_id=_required_text(request, "tenant_id"),
@@ -45,6 +53,8 @@ def source_from_task(task: IngestionTask) -> PreparedSourceSubmission:
             ),
         ),
         force_reprocess=request.get("force_reprocess") is True,
+        **({"document_concurrency": concurrency} if concurrency is not None else {}),
+        run_settings=run_settings,
     )
 
 
@@ -108,6 +118,3 @@ def _processing_profile(stored: Mapping[str, object]) -> ProcessingProfileInput:
 
 def _optional_text(value: object) -> str | None:
     return str(value) if value is not None else None
-
-
-__all__ = ["retry_from_task", "source_from_task"]

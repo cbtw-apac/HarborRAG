@@ -15,8 +15,14 @@ logger = logging.getLogger("harborrag.app.workflow_control.memory")
 
 
 def memory_context_request(identity: MemoryIdentity, question: str) -> MemoryContextRequest:
-    """Build identity for explicitly requested memory maintenance operations."""
+    """Build identity for explicitly requested memory maintenance operations.
 
+    Raises:
+        ValueError: The turn is a one-off question with no session.
+    """
+
+    if identity.session_id is None:
+        raise ValueError("a one-off question has no conversation memory")
     return MemoryContextRequest(
         tenant_id=identity.tenant_id,
         principal_id=identity.principal_id,
@@ -66,11 +72,3 @@ def empty_memory_context(question: str) -> MemoryContext:
         rewritten=False,
         summary_written=False,
     )
-
-
-__all__ = [
-    "RECENT_EXCHANGES",
-    "empty_memory_context",
-    "memory_context_request",
-    "recent_memory_context",
-]

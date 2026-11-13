@@ -13,7 +13,7 @@ from typing import Literal
 import yaml
 from pydantic import ValidationError
 
-from harborrag_app.cli.project import UnsafeProjectError, active_project, find_legacy_checkout
+from harborrag_app.cli.project import active_project
 from harborrag_app.workflow_control.errors import public_error_message, validation_error_detail
 from harborrag_core.contracts.errors import HarborConfigurationError
 from harborrag_runtime.config import ConnectorCatalog, describe_model_catalog
@@ -23,21 +23,16 @@ from .checks import Check
 logger = logging.getLogger("harborrag.app.cli.doctor.environment")
 
 
-def _in_checkout() -> bool:
-    try:
-        return active_project() is None and find_legacy_checkout() is not None
-    except UnsafeProjectError:
-        return False
-
-
 def env_hint(kind: Literal["models", "connector", "database", "services", "settings"]) -> str:
     """The file (or command) that supplies ``kind`` in the current mode.
 
-    A project keeps everything in its ``.env`` and its compose file; a repository checkout
-    splits the same values across ``env/.env.*`` and starts services with dev.sh.
+    A project directory from an earlier release keeps everything in its ``.env`` and its
+    compose file. A repository checkout, the supported setup, splits the same values across
+    ``env/.env.*`` and starts services with dev.sh; outside both, the hint names the
+    checkout's files too.
     """
 
-    if not _in_checkout():
+    if active_project() is not None:
         return "docker compose up -d" if kind == "services" else ".env"
     return {
         "models": "env/.env.models",
@@ -51,7 +46,7 @@ def env_hint(kind: Literal["models", "connector", "database", "services", "setti
 def _models_hint() -> str:
     return (
         f"Set the provider key in {env_hint('models')} "
-        "(it is referenced as ${VAR} in config/models.yaml)."
+        "(it is referenced as ${VAR} in config/models/models.yaml)."
     )
 
 
@@ -105,7 +100,7 @@ def settings_error_detail(exc: Exception) -> str:
 def check_error_detail(exc: Exception) -> str:
     """Describe a failed check without echoing expanded configuration values.
 
-    ``config/models.yaml`` interpolates ``${VAR}`` eagerly, so a pydantic error's
+    ``config/models/models.yaml`` interpolates ``${VAR}`` eagerly, so a pydantic error's
     ``input_value={...}`` dump can carry the provider key, and a composition failure can
     carry HARBORRAG_CONTROL_DB_URL with its password. Neither may be forwarded.
 
@@ -228,14 +223,3 @@ def source_path_checks(catalog: ConnectorCatalog) -> list[Check]:
             detail = f"{variable} points to an existing directory"
             checks.append(Check("source path", "environment", "ok", detail))
     return checks
-
-
-__all__ = [
-    "check_error_detail",
-    "env_hint",
-    "credentials_check",
-    "models_check",
-    "packages_check",
-    "settings_error_detail",
-    "source_path_checks",
-]

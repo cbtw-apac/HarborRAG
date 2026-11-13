@@ -165,6 +165,3 @@ async def close_memory_embedder(embedder: MemoryEmbedder | None) -> None:
 
     if isinstance(embedder, _MemoryEmbedder):
         await embedder.aclose()
-
-
-__all__ = ["build_memory_embedder", "close_memory_embedder"]

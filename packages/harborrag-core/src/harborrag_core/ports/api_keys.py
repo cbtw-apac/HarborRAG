@@ -51,6 +51,3 @@ class ApiKeyManager(Protocol):
         ...
 
     async def list_for_tenant(self, tenant_id: str) -> list[ApiKeyRecord]: ...
-
-
-__all__ = ["ApiKeyManager", "ApiKeyReader", "ApiKeyRecord", "AuthStoreUnavailable"]

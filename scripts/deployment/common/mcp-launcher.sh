@@ -57,7 +57,11 @@ prepare_compose() {
     export HARBORRAG_MCP_ENV_FILE="${ROOT_DIR}/${MCP_ENV_FILE}"
     export HARBORRAG_MODEL_ENV_FILE="${ROOT_DIR}/${MODEL_ENV_FILE}"
     export HARBORRAG_MCP_IMAGE="${MCP_IMAGE}"
-    mapfile -t service_compose < <(compose_command "${MCP_COMPOSE_FILE}")
+    service_compose=()
+    local argument
+    while IFS= read -r argument; do
+        service_compose+=("${argument}")
+    done < <(compose_command "${MCP_COMPOSE_FILE}")
 }
 
 # Build one image when asked to or when it is missing. Build output goes to
@@ -66,8 +70,11 @@ build_image() {
     local rebuild="$1" image="$2" label="$3" compose_file="$4" service="$5"
     if ((rebuild)) || ! docker image inspect "${image}" >/dev/null 2>&1; then
         echo "Building HarborRAG ${label} image..." >&2
-        local -a compose
-        mapfile -t compose < <(compose_command "${compose_file}")
+        local -a compose=()
+        local argument
+        while IFS= read -r argument; do
+            compose+=("${argument}")
+        done < <(compose_command "${compose_file}")
         "${compose[@]}" build "${service}" >&2
     fi
 }

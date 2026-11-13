@@ -14,6 +14,7 @@ from harborrag_core.ingestion import (
     ProcessingProfile,
 )
 from harborrag_core.invariants import HarborInvariantError
+from harborrag_runtime.ingestion_contracts import RunSettings
 
 from ..document.models import DocumentReleaseRequest
 from ..limits import (
@@ -42,6 +43,7 @@ class SourceIngestionRequest:
     settings_revision: int = 0
     pdf_engine: str | None = None
     chunking_max_tokens: int | None = None
+    run_settings: RunSettings | None = None
 
     def __post_init__(self) -> None:
         text_values = (

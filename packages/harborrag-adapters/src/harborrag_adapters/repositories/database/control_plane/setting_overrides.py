@@ -17,7 +17,7 @@ from .session import SessionFactory
 
 
 def _row_to_domain(row: SettingOverrideRow) -> SettingOverride:
-    # The DB's ck_setting_overrides_scope_level check constraint guarantees this,
+    # The DB's ck_runtime_settings_scope_level check constraint guarantees this,
     # but SQLAlchemy's column type is plain str.
     return SettingOverride(
         tenant_id=row.tenant_id,
@@ -35,7 +35,7 @@ def _row_to_domain(row: SettingOverrideRow) -> SettingOverride:
 
 @dataclass(slots=True)
 class SqlSettingOverrideRepository:
-    """SettingOverrideRepositoryPort over the setting_overrides table."""
+    """SettingOverrideRepositoryPort over the runtime_settings table."""
 
     sessions: SessionFactory
 

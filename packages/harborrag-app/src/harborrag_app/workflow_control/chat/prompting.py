@@ -13,7 +13,7 @@ from harborrag_runtime.memory import MemoryContext
 
 from ..memory.identity import MemoryIdentity
 from .memory_block import memory_block
-from .presenters import citation_data, citation_marker
+from .presenters import citation_data, citation_marker, source_heading
 
 if TYPE_CHECKING:
     from .evidence import ChatEvidence
@@ -40,9 +40,9 @@ ROUTING = (
     "than merging them into one answer. "
     "Answer from this conversation when the question is about the "
     "conversation or about the user. Use the sources for questions about the "
-    "indexed material, and cite each one by copying its exact [Source N: ...] label. "
-    "Never alter text inside that label. Name the document and section in the sentence "
-    "as well so a reader can understand the provenance. When neither "
+    "indexed material, and cite each one with its bracketed number, such as [1], one "
+    "number per bracket. Name the document and section in the sentence as well so a "
+    "reader can understand the provenance. When neither "
     "the conversation nor the sources answers the question, say so plainly "
     "instead of guessing."
 )
@@ -62,6 +62,7 @@ def build_chat_request(  # noqa: PLR0913 - explicit prompt assembly inputs
     context: MemoryContext | None = None,
     model: str | None = None,
     evidence: ChatEvidence | None = None,
+    trace_id: str | None = None,
 ) -> HarborChatRequest:
     """Fold remembered context, retrieved evidence, and the question into one request.
 
@@ -78,6 +79,9 @@ def build_chat_request(  # noqa: PLR0913 - explicit prompt assembly inputs
     what its tenant may use. ``None`` leaves the field unset so the client
     resolves its configured default, which is what every caller got before
     model selection existed.
+
+    ``trace_id`` is the request's trace id, so the model call's telemetry is
+    found by the id the caller was given.
     """
 
     history = (
@@ -106,6 +110,7 @@ def build_chat_request(  # noqa: PLR0913 - explicit prompt assembly inputs
     )
     metadata = request.metadata.model_copy(
         update={
+            "trace_id": trace_id,
             "tenant_id": identity.tenant_id,
             "user_id": identity.user_id,
             "conversation_id": identity.session_id,
@@ -165,10 +170,8 @@ def _source_label(index: int, result: RetrievalResult) -> str:
     ingested before titles were surfaced has nothing else to be known by.
     """
 
-    metadata = result.metadata
-    parts = [citation_marker(index, result)]
-    parts.append(f"(document_id={metadata.get('document_id', 'unknown')})")
-    return " ".join(parts)
+    document_id = result.metadata.get("document_id", "unknown")
+    return f"{citation_marker(index, result)} {source_heading(result)} (document_id={document_id})"
 
 
 def history_messages(messages: Sequence[ConversationMessage]) -> tuple[HarborChatMessage, ...]:
@@ -186,10 +189,3 @@ def history_messages(messages: Sequence[ConversationMessage]) -> tuple[HarborCha
         elif message.role == "assistant":
             replayed.append(HarborChatMessage.assistant(message.content))
     return tuple(replayed)
-
-
-__all__ = [
-    "build_chat_request",
-    "history_messages",
-    "prompt_text",
-]

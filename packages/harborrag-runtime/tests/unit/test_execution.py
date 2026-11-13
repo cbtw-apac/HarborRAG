@@ -321,9 +321,17 @@ async def test_temporal_executor_submits_controls_and_reads_results(
             cls.connect_calls += 1
             return client
 
-    stores = SimpleNamespace(connections=object(), revisions=object(), aclose=AsyncMock())
+    stores = SimpleNamespace(
+        connections=object(),
+        revisions=object(),
+        engine=object(),
+        config_store=object(),
+        aclose=AsyncMock(),
+    )
     monkeypatch.setattr(temporal_module, "IngestionTemporalClient", ClientFactory)
+    config = SimpleNamespace(start=AsyncMock(), aclose=AsyncMock())
     monkeypatch.setattr(temporal_module, "build_connection_stores", Mock(return_value=stores))
+    monkeypatch.setattr(temporal_module, "build_config_provider", Mock(return_value=config))
     monkeypatch.setattr(
         temporal_module, "resolve_request_connection", AsyncMock(return_value="connection")
     )
@@ -346,6 +354,8 @@ async def test_temporal_executor_submits_controls_and_reads_results(
 
     assert ClientFactory.connect_calls == 1
     stores.aclose.assert_awaited_once_with()
+    config.start.assert_awaited_once_with()
+    config.aclose.assert_awaited_once_with()
     assert (reference.task_id, reference.workflow_id) == ("task-1", "workflow-1")
     assert result.status == "completed"
     assert (result.discovered, result.published, result.unchanged, result.failed) == (
@@ -407,7 +417,7 @@ def test_submission_maps_public_request_without_losing_query_controls(
 
     connection = object()
 
-    def capture(_settings, source, *, connection: object):
+    def capture(_settings, source, *, connection: object, **_overrides: object):
         nonlocal captured
         captured = (source, connection)
         return expected

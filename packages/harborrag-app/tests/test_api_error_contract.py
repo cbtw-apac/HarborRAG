@@ -235,7 +235,7 @@ def test_a_chat_validation_error_uses_the_catalog(client: TestClient) -> None:
     assert response.status_code == 422
     error = _error(response)
     assert error["code"] == "validation_error"
-    assert {"field": "prompt", "issue": "Field required"} in error["details"]
+    assert {"field": "message", "issue": "Field required"} in error["details"]
 
 
 def test_a_valid_client_trace_id_is_kept(client: TestClient) -> None:

@@ -110,8 +110,10 @@ def test_invocation_cwd_falls_back_to_the_cwd_once_the_process_moves_on(
 def _checkout_under_a_stray_project(tmp_path: Path) -> tuple[Path, Path]:
     home = scaffold(tmp_path / "h")
     checkout = home / "co"
-    (checkout / "config").mkdir(parents=True)
-    (checkout / "config" / "connectors.yaml").write_text("connectors: {}\n", encoding="utf-8")
+    (checkout / "config" / "sources").mkdir(parents=True)
+    (checkout / "config" / "sources" / "connectors.yaml").write_text(
+        "connectors: {}\n", encoding="utf-8"
+    )
     return home.resolve(), checkout.resolve()
 
 
@@ -125,11 +127,13 @@ def test_a_nearer_checkout_stops_the_walk_before_an_ancestor_marker(tmp_path: Pa
 
 
 def test_a_projects_own_config_directory_still_resolves_to_the_project(tmp_path: Path) -> None:
-    """Every scaffolded project ships config/connectors.yaml next to its marker."""
+    """Every scaffolded project ships config/sources/connectors.yaml next to its marker."""
 
     home, _checkout = _checkout_under_a_stray_project(tmp_path)
-    (home / "config").mkdir()
-    (home / "config" / "connectors.yaml").write_text("connectors: {}\n", encoding="utf-8")
+    (home / "config" / "sources").mkdir(parents=True)
+    (home / "config" / "sources" / "connectors.yaml").write_text(
+        "connectors: {}\n", encoding="utf-8"
+    )
 
     project = project_module.find_project(home / "config")
 

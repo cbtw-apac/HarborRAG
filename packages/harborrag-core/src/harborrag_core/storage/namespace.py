@@ -37,10 +37,3 @@ def tenant_namespace(
             "beginning with a letter"
         )
     return f"{prefix}_{tenant}"
-
-
-__all__ = [
-    "DEFAULT_STORAGE_NAMESPACE_PREFIX",
-    "STORAGE_NAMESPACE_PREFIX_PATTERN",
-    "tenant_namespace",
-]

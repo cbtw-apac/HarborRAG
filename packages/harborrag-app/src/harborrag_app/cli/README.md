@@ -1,384 +1,278 @@
 # HarborRAG CLI
 
-The `harborrag_app.cli` package is the operator-facing command-line boundary.
-It renders workflow, retrieval, and chat results, but delegates all operations to the
-same transport-neutral application service used by the Control Plane API.
+Find where each `harborrag` command lives, how the CLI loads its environment, and the
+failure modes worth knowing before you change this package. The `harborrag_app.cli`
+package is the operator-facing command line. It renders workflow, retrieval and chat
+results, and delegates every operation to the same transport-neutral application service
+as the Control Plane API.
 
-The installed command is `harborrag`.
+These notes are for contributors. What each command does for a user is in the
+[CLI reference](../../../../../docs/users/cli-reference/README.md), and
+`uv run harborrag COMMAND --help` lists every option.
 
-## Install and run
+## Install and run from a checkout
 
-From a source checkout, install the production runtime dependencies required
-by ingestion and hybrid retrieval:
+The CLI runs from inside a HarborRAG repository checkout. Install the production
+dependencies that ingestion and hybrid retrieval need:
 
 ```bash
 uv sync --package harborrag-app --extra production
 uv run harborrag --help
 ```
 
-The base package is sufficient for help and presentation code. Live commands
-also require their configured services:
+The base package is enough for help and presentation code. Live commands also need their
+services:
 
-- `doctor` and `ingest` require Temporal;
-- `chat` requires the configured chat provider and model credentials;
-- `retrieve` requires the configured embedding provider, Qdrant, FalkorDB,
-  and the ingestion object store;
-- production control-plane composition requires its SQL database.
+- `doctor` checks the project, the catalogs, the environment and the local services, and
+  Temporal only with `--temporal`.
+- `ingest start` and the observe and control actions need Temporal; `ingest run` runs the
+  ingestion in the current process, without Temporal or a worker.
+- `chat` needs the configured chat model and its credentials.
+- `retrieve` needs the configured embedding model, Qdrant, FalkorDB and the ingestion
+  object store.
+- Writes from a checkout need the stack's Postgres as the control database; see
+  [Point a checkout at the stack's control database](#point-a-checkout-at-the-stacks-control-database).
 
-The repository development topology can be started with:
+Start the repository's development stack with:
 
 ```bash
 scripts/deployment/dev.sh up
 ```
 
-Build and run the non-root CLI image from the repository root:
+The non-root CLI image, `deploy/docker/Dockerfile.cli`, is built and run as described in
+[Build the CLI and MCP images](../../../../../docs/developers/deployment/README.md#build-the-cli-and-mcp-images).
+
+## Find a command
+
+The eight top-level commands, in the order `harborrag --help` groups them, and the
+`ingest` actions:
+
+| Command | What it does | Code in this folder |
+| --- | --- | --- |
+| `harborrag doctor` | Check project, catalogs, environment and local services; Temporal only with `--temporal` | `commands/doctor.py`, `doctor/` |
+| `harborrag auth` | Create, list and revoke MCP reader keys (`auth keys create`, `list`, `revoke`) | `commands/auth.py`, `commands/auth_keys.py` |
+| `harborrag config` | Show or apply a settings file as one revision (`import`); export stored overrides (`export`) | `commands/config.py`, `config_views.py` |
+| `harborrag chat` | Answer one message, grounded in retrieval, with session memory | `commands/chat.py` |
+| `harborrag retrieve` | Search the indexed corpus | `commands/retrieve.py` |
+| `harborrag ingest run` | Run an ingestion in the current process, without Temporal | `commands/ingest_run.py` |
+| `harborrag ingest start` | Submit a durable ingestion run | `commands/ingest.py` |
+| `harborrag ingest status` | Read current progress and attention queues | `commands/ingest.py` |
+| `harborrag ingest wait` | Wait for the final result | `commands/ingest.py` |
+| `harborrag ingest watch` | Follow a run with the inline Rich progress block | `commands/ingest.py` |
+| `harborrag ingest pause` | Request a durable pause | `commands/ingest.py` |
+| `harborrag ingest resume` | Resume a paused run | `commands/ingest.py` |
+| `harborrag ingest cancel` | Cancel at a safe workflow boundary | `commands/ingest.py` |
+| `harborrag topology` | Configure and operate semantic topology enrichment | `commands/topology.py`, `commands/topology_security.py` |
+| `harborrag source` | Manage stored connections (`list`, `show`, `add`, `update`, `test`, `sync`, `remove`) | `commands/source.py`, `source_support.py`, `source_views.py` |
+
+`main.py` registers the commands and resolves the checkout or project directory before
+any command builds a service; `project.py` holds that lookup.
+
+## Load the environment files
+
+What the CLI reads from `env/` is in
+[Run from a repository checkout](../../../../../docs/users/cli-reference/README.md#run-from-a-repository-checkout).
+The loading is in `environment.py`:
+
+- `env/.env.connector`, `env/.env.parser` and `env/.env.models` are loaded on startup,
+  the same files Compose hands to the worker. An exported or inline variable still wins
+  over the file.
+- `CONNECTOR_ENV_FILE`, `PARSER_ENV_FILE` and `MODEL_ENV_FILE` relocate those files,
+  exactly as in `scripts/deployment/dev.sh`.
+- `env/.env.api` and `env/.env.database` are not loaded wholesale: they point services at
+  in-cluster hostnames and at the API's own control-plane DSN, which a host CLI cannot
+  reach. From the checkout's `env/.env.database`, the CLI reads only the MinIO root pair
+  (the host reaches the same MinIO on `localhost`) and an uncommented
+  `HARBORRAG_CONTROL_DB_URL` line, with the `HARBORRAG_SECRETS_ENCRYPTION_KEY` that
+  database's secrets are stored under. The `POSTGRES_*` values alone never select the
+  database.
+- `DATABASE_ENV_FILE` names another database file and is honoured in any directory.
+
+## Point a checkout at the stack's control database
+
+From a checkout, every ingest and connection write refuses the local SQLite control
+database until `HARBORRAG_CONTROL_DB_URL` points at the stack's Postgres. The commands it
+covers, the message and the fix are in
+[Run from a repository checkout](../../../../../docs/users/cli-reference/README.md#run-from-a-repository-checkout).
+The check is `checkout_write_refusal()` in `environment.py`.
+
+Once the variable is set, every checkout command migrates that database, so rebuild the
+images after each pull:
 
 ```bash
-docker build -f deploy/docker/Dockerfile.cli -t harborrag-cli .
-docker run --rm \
-  --env-file env/.env.models \
-  harborrag-cli chat "Explain HarborRAG" --json
+scripts/deployment/dev.sh up --build
 ```
 
-The image contains the tracked configuration and prompt templates. Mount
-`config/` at `/app/config:ro` when an operator-managed configuration should
-replace the image copy. Database, Temporal, and retrieval commands additionally
-need their service environment variables and network connectivity.
+## Address a connection
 
-## Command overview
+`ingest run|start CONNECTOR` takes the connection's `source_key`. How that key is formed,
+and why a source type such as `local` or an imported key under another `--tenant` fails
+with `ConnectionNotFoundError`, is in
+[Name the connector](../../../../../docs/users/cli-reference/README.md#name-the-connector).
+How `config/sources/connectors.yaml` is imported once into the control database is in
+[Connector configuration](../../../../../docs/users/configuration/connector-config.md).
 
-| Command | Purpose |
-| --- | --- |
-| `harborrag doctor` | Check Temporal connectivity and readiness |
-| `harborrag chat` | Generate a retrieval-grounded response with conversation memory |
-| `harborrag ingest start` | Submit a durable ingestion run |
-| `harborrag ingest status` | Read current progress and attention queues |
-| `harborrag ingest wait` | Wait for the terminal result |
-| `harborrag ingest watch` | Open the interactive Textual dashboard |
-| `harborrag ingest pause` | Request a durable pause |
-| `harborrag ingest resume` | Resume a paused run |
-| `harborrag ingest cancel` | Cancel at a safe workflow boundary |
-| `harborrag retrieve` | Run tenant-scoped Qdrant and FalkorDB retrieval |
+Three things the reference does not spell out:
 
-Use `harborrag COMMAND --help` or
-`harborrag ingest ACTION --help` for the authoritative option list.
+- An imported entry whose variable is unset is stored with status `error` and an issue
+  such as `environment variable JIRA_BASE_URL is not set`, so `harborrag source list`
+  shows it among the connections needing attention.
+- `--connection-id` is not `--connector-id`: it sets the logical connection identity of
+  the run and defaults to the connector name.
+- Credentials must also be present in the worker, which runs in its own container and
+  does the fetching. Compose supplies them from `env/.env.connector` through `env_file:`,
+  so a worker started before an edit keeps the old values until it restarts.
 
-## Diagnostics
+A zero exit from `ingest start` without `--wait` means the workflow was submitted, not
+that it succeeded. Credentials and connectivity are only exercised once the run reaches
+its fetch stage, so a bad token still submits cleanly and fails afterwards. Use `--wait`,
+or check `harborrag ingest status RUN_ID`, before treating a run as done.
 
-```bash
-harborrag doctor
-harborrag doctor --json
-```
+## Follow and control a run
 
-`doctor` connects to the configured Temporal frontend and reports its target,
-namespace, and readiness. It does not submit a workflow.
+`ingest watch`, `ingest start --wait` and `ingest run` draw the same inline Rich progress
+block (`progress_view.py`, `following.py`). Polling, timeouts, Ctrl-C, pause, resume and
+cancel behaviour are in
+[Follow a run](../../../../../docs/users/cli-reference/README.md#follow-a-run).
 
-## Chat
+Cancellation waits for a safe source-batch boundary, persists `CANCELLED` and drains
+eligible projection cleanup jobs. Activity retries are automatic. To replay a terminal
+failure, submit a new run for the same source scope; the pipeline resumes from raw,
+canonical, chunk or projection artifacts when their fingerprints remain reusable.
 
-```bash
-harborrag chat \
-  "Explain HarborRAG" \
-  --tenant DEFAULT \
-  --json
-```
-
-The command uses the server-owned default prompt and retrieval-grounded chat
-service. Omit `--session` for the first turn; the JSON response contains the
-generated session ID. Reuse it with `--session` to recall the two latest
-PostgreSQL-backed turns.
-
-## Ingestion
-
-`--connector-id` takes a **configured connector name** - a key under `connectors:`
-in `config/connectors.yaml` - not a provider type. (`--connector` is an accepted alias for
-the same option; prefer `--connector-id`, which says what the value is.) The shipped
-configuration defines `harborrag-workspace` (provider `local`), `confluence-main`, and
-`jira-main`, so `--connector-id local` fails with
-`Unknown configured connector: 'local'`. List the configured names with:
-
-```bash
-python -c "import yaml; print(*yaml.safe_load(open('config/connectors.yaml'))['connectors'])"
-```
-
-Each connector resolves settings and credentials from the environment variables
-named in its `environment:` and `secrets:` blocks. Every one of them must be set
-before the run is accepted:
-
-| Connector | Required environment |
-| --- | --- |
-| `harborrag-workspace` | `LOCAL_SOURCE_PATH` |
-| `confluence-main` | `CONFLUENCE_BASE_URL`, `CONFLUENCE_SPACE_KEY`, `CONFLUENCE_EMAIL`, `CONFLUENCE_TOKEN` |
-| `jira-main` | `JIRA_BASE_URL`, `JIRA_PROJECT_KEY`, `JIRA_TOKEN`, `JIRA_EMAIL` |
-
-**You do not need to set these on the command line.** The CLI loads
-`env/.env.connector`, `env/.env.parser`, and `env/.env.models` on startup - the
-same files compose hands to the worker - so credentials configured once are
-picked up by every command. An exported or inline variable still wins over the
-file. `env/.env.api` and `env/.env.database` are deliberately not loaded: they
-point at in-cluster hostnames a host CLI cannot reach. `CONNECTOR_ENV_FILE`,
-`PARSER_ENV_FILE`, and `MODEL_ENV_FILE` relocate the files, exactly as in
-`scripts/deployment/dev.sh`.
-
-A missing variable fails fast and names both the variable and the field it feeds:
-`Connector 'jira-main' requires environment variable 'JIRA_BASE_URL' for 'base_url'`.
-
-With `env/.env.connector` populated, a run is just:
-
-```bash
-harborrag ingest start \
-  --tenant tenant-1 \
-  --connector-id jira-main \
-  --limit 100
-```
-
-`--connector-id` and `--connector` are the same option. Do not confuse either with
-`--connection-id`, which sets the stable logical connection identity and defaults to
-the connector name.
-
-The local connector works the same way:
-
-```bash
-harborrag ingest start \
-  --tenant tenant-1 \
-  --connector-id harborrag-workspace \
-  --limit 100
-```
-
-`JIRA_PROJECT_KEY` accepts a comma-separated list (`PROJ,OPS`). `JIRA_TOKEN` is an
-Atlassian API token, and on Cloud it is paired with `JIRA_EMAIL` for basic auth.
-
-> Credentials must also be present in the **worker**, which runs in its own
-> container and does the actual fetching. Compose supplies them from
-> `env/.env.connector` via `env_file:`, so editing that one file covers both the CLI
-> and the worker - but a worker started before the edit keeps the old values until
-> it is restarted.
-
-> **A zero exit from `ingest start` means the workflow was submitted, not that it
-> succeeded.** Credentials and connectivity are only exercised once the run reaches
-> its Fetch stage, so a bad token still submits cleanly and fails afterwards. Use
-> `--wait`, or check `harborrag ingest status <run-id>`, before treating a run as
-> done.
-
-Omit `--limit` to process every discovered document. A run ID is generated
-when omitted. Connection and source-scope IDs are deterministic unless supplied
-explicitly:
-
-```bash
-harborrag ingest start \
-  --tenant tenant-1 \
-  --connector harborrag-workspace \
-  --run-id release-notes-2026-07 \
-  --connection-id engineering-files \
-  --source-scope-id engineering-release-notes \
-  --pattern '*.md' \
-  --no-attachments \
-  --wait
-```
-
-`--wait` keeps the command attached until Temporal returns the terminal run
-summary. The connector name must match an enabled connector in the worker's
-configuration.
-
-### Schema errors during ingestion
+## Diagnose a control-plane schema error
 
 Commands that do real work refuse to start when the control-plane database is not
-usable, and say why:
+usable:
 
-```
-✗ Control plane is not ready. Refusing to run against a database whose schema
-  may be stale; run 'harborrag doctor' for diagnostics.
-```
-
-`harborrag doctor` is exempt - it stays available precisely when the control plane
-is degraded.
-
-The message deliberately does not interpolate the underlying database error. With `--json`
-you get `{"error_type": "ControlPlaneUnavailable"}` and nothing more; the detail is
-**logged**, not returned, so read the process log (or run `harborrag doctor`) to find out
-which migration failed.
-
-If you reach a missing-column error instead (for example
-`no such column: source_scopes.tenant_id`), the migrations did not run. Boot only
-logs that and continues, so check the startup line:
-
-```
-ERROR harborrag.runtime.composition Control-plane migrations failed ... error=...
+```text
+Control plane is not ready. Refusing to run against a database whose schema may be stale; run 'harborrag doctor' for diagnostics.
 ```
 
-`table <name> already exists` there means the schema was created without Alembic
-recording it, so the runner replays from the first revision and collides. Stamp
-the version table at the revision the schema already matches, then upgrade:
+`harborrag doctor` is exempt: it stays available precisely when the control plane is
+degraded. The message deliberately leaves out the underlying database error. With
+`--json` the data is `{"error_type": "ControlPlaneUnavailable"}` and nothing more; the
+detail is logged, not returned, so read the process log (or run `harborrag doctor`) to
+find out which migration failed. The check is in `runner.py`.
+
+When the migrations themselves fail, composition stops with
+`control-plane migrations failed; inspect the startup logs` and logs an `ERROR` line from
+`harborrag.runtime.composition` whose message reads:
+
+```text
+Control-plane migrations failed database_scheme=... error_type=... hint=...
+```
+
+A `hint=` saying the schema exists but is not stamped means the schema was created
+without Alembic recording it, so the runner replays from the first revision and collides
+with `table <name> already exists`. Stamp the version table at the revision the schema
+already matches, then upgrade:
 
 ```bash
-python - <<'PY'
+uv run python - <<'PY'
 from alembic import command
 from harborrag_adapters.repositories.database.control_plane import migrations
 cfg = migrations._build_config("sqlite+aiosqlite:///./harborrag_control.db")
-command.stamp(cfg, "0007")   # the revision the existing schema matches
+command.stamp(cfg, "0007")
 command.upgrade(cfg, "head")
 PY
 ```
 
-### Observe a run
+Replace `0007` with the revision the existing schema matches, and the URL with your
+control database.
+
+## Retrieve without leaking content
+
+`retrieve` options and the two checkout variables it needs are in
+[Retrieve evidence](../../../../../docs/users/cli-reference/README.md#retrieve-evidence).
+Document content is left out of the output by default. Use `--include-content` only when
+the terminal and downstream consumers may receive source text.
+
+The CLI process must point at the same object-store root, active index generation,
+collection, graph namespace and embedding space as the ingestion worker.
+
+### Share one object store with the worker
+
+Qdrant stores vectors and chunk references; the canonical chunk bodies live in the
+S3-compatible object store. `retrieve` reads those bodies, so it must point at the store
+the worker wrote them to.
+
+The Compose worker uses `http://minio:9000` on the shared Docker network, while a CLI run
+on the host defaults to `http://localhost:9000`: the same MinIO container through its
+published port, so they agree by default. They diverge if you change `MINIO_API_PORT`,
+bind MinIO to a different address, or run the CLI against a different deployment.
+
+When they disagree, ingestion reports success and retrieval then fails on a missing
+object even though the vectors are present. Point the CLI at the worker's endpoint with
+`HARBORRAG_OBJECT_STORE_ENDPOINT_URL` (plus the matching credentials), or run `retrieve`
+inside the worker's environment.
+
+## Control output and logging
+
+The JSON envelope and exit codes are in
+[Read JSON output and exit codes](../../../../../docs/users/cli-reference/README.md#read-json-output-and-exit-codes).
+Logs stay on stderr. Disable color globally with either form:
 
 ```bash
-harborrag ingest status RUN_ID
-harborrag ingest wait RUN_ID
-harborrag ingest watch RUN_ID --refresh 1.5
+uv run harborrag --no-color ingest status RUN_ID
+NO_COLOR=1 uv run harborrag ingest status RUN_ID
 ```
 
-- `status` performs one non-blocking status query;
-- `wait` blocks for the final result;
-- `watch` opens a full-screen dashboard and polls every second by default.
+Set `HARBORRAG_LOG_LEVEL=INFO` or `DEBUG` for diagnostic logs. The CLI defaults to
+`WARNING` so normal and JSON output stay concise.
 
-The dashboard refresh interval accepts values from 0.25 through 60 seconds.
-Its footer exposes refresh, pause, resume, cancellation, and quit controls.
-See [dashboard/README.md](dashboard/README.md) for the presentation boundary.
+## Configure the runtime
 
-### Control a run
-
-```bash
-harborrag ingest pause RUN_ID
-harborrag ingest resume RUN_ID
-harborrag ingest cancel RUN_ID
-```
-
-Cancellation waits for a safe source-batch boundary, persists `CANCELLED`, and
-drains eligible projection cleanup jobs. Activity retries are automatic. To
-replay a terminal failure, submit a new run for the same source scope; the
-pipeline resumes from raw, canonical, chunk, or projection artifacts when
-their fingerprints remain reusable.
-
-## Hybrid retrieval
-
-```bash
-harborrag retrieve \
-  "deployment requirements" \
-  --tenant tenant-1 \
-  --top-k 5
-```
-
-Retrieval:
-
-1. embeds the query using the configured query embedding deployment;
-2. searches active, tenant-scoped Qdrant vectors;
-3. expands matching chunk context through FalkorDB;
-4. fuses vector and graph rankings;
-5. loads canonical chunk text from the ingestion object store.
-
-Document content is omitted from output by default:
-
-```bash
-harborrag retrieve \
-  "deployment requirements" \
-  --tenant tenant-1 \
-  --top-k 5 \
-  --include-content
-```
-
-Only use `--include-content` when the terminal and downstream consumers are
-authorized to receive source text. The CLI process must point at the same
-object-store root, active index generation, collection, graph namespace, and
-embedding space used by the ingestion worker.
-
-## Machine-readable output
-
-Every one-shot command supports `--json`:
-
-```bash
-harborrag ingest status RUN_ID --json
-harborrag chat "Explain HarborRAG" --json
-harborrag retrieve "deployment requirements" \
-  --tenant tenant-1 \
-  --json |
-  jq .
-```
-
-JSON mode writes exactly one stable envelope to stdout:
-
-```json
-{"data":{},"error":null,"ok":true}
-```
-
-Logs remain on stderr, and Rich spinners, panels, and ANSI styling are
-suppressed. Successful operations exit with status 0; validation and runtime
-failures exit with a non-zero status.
-
-For human-readable commands, disable color globally:
-
-```bash
-harborrag --no-color ingest status RUN_ID
-NO_COLOR=1 harborrag ingest status RUN_ID
-```
-
-Set `HARBORRAG_LOG_LEVEL=INFO` or `DEBUG` for diagnostic logs. The CLI defaults
-to `WARNING` so normal and JSON output remain concise.
-
-## Runtime configuration
-
-The CLI constructs production application composition for every invocation.
-Relevant `HARBORRAG_` variables include:
+The CLI builds the production application composition for every invocation. These are
+the `HARBORRAG_` variables it reads most often; every runtime variable is in the
+[engine configuration reference](../../../../../docs/users/configuration/config-file-reference.md).
 
 | Variable | Default | Used by |
 | --- | --- | --- |
 | `HARBORRAG_ENV` | `dev` | Runtime safety policy |
-| `HARBORRAG_CONTROL_DB_URL` | local SQLite | Control-plane migrations and diagnostics |
-| `HARBORRAG_TEMPORAL_CONFIG_PATH` | `config/temporal.yaml` | Temporal connection, queues, retries, worker, health, and workflow configuration |
-| `HARBORRAG_TEMPORAL_TARGET` | value from YAML | Optional `doctor` and ingestion override |
+| `HARBORRAG_CONTROL_DB_URL` | local SQLite | Control-plane migrations, connections, run state and diagnostics |
+| `HARBORRAG_TEMPORAL_CONFIG_PATH` | `config/temporal.yaml` | Temporal connection, queues, retries, worker, health and workflow configuration |
+| `HARBORRAG_TEMPORAL_TARGET` | value from YAML | Optional `doctor --temporal` and ingestion override |
 | `HARBORRAG_TEMPORAL_NAMESPACE` | value from YAML | Optional workflow namespace override |
 | `HARBORRAG_TEMPORAL_TLS` | value from YAML | Optional TLS override for a managed Temporal endpoint |
 | `HARBORRAG_TEMPORAL_API_KEY` | unset | Secret API credential; keep it outside tracked YAML |
-| `HARBORRAG_MODEL_CONFIG_PATH` | `config/models.yaml` | Chat and query embedding configuration |
+| `HARBORRAG_MODEL_CONFIG_PATH` | `config/models/models.yaml` | Chat and query embedding configuration |
 | `HARBORRAG_QDRANT_URL` | `http://localhost:6333` | Vector retrieval |
 | `HARBORRAG_FALKORDB_HOST` | `localhost` | Graph expansion |
 | `HARBORRAG_FALKORDB_PORT` | `6379` | Graph expansion |
-| `HARBORRAG_OBJECT_STORE_ENDPOINT_URL` | `http://localhost:9000` | S3/MinIO object store holding canonical chunk content |
+| `HARBORRAG_OBJECT_STORE_ENDPOINT_URL` | `http://localhost:9000` | S3 or MinIO object store holding canonical chunk content |
 | `HARBORRAG_OBJECT_STORE_ACCESS_KEY_ID` | unset | Object-store credential |
 | `HARBORRAG_OBJECT_STORE_SECRET_ACCESS_KEY` | unset | Object-store credential |
 | `HARBORRAG_STORAGE_NAMESPACE_PREFIX` | `harborrag` | Per-tenant store namespace `{prefix}_{tenant_id}`: Qdrant collection stem, FalkorDB graph, object-store key prefix (replaces the removed `HARBORRAG_QDRANT_COLLECTION_PREFIX`) |
 | `HARBORRAG_FALKORDB_GRAPH` | `harborrag` | Graph projection name |
-| `HARBORRAG_LOG_LEVEL` | `WARNING` for CLI | Diagnostic logging |
+| `HARBORRAG_CORPUS_ACCESS_MODE` | `source_acl` | Whether retrieval reads the shared corpus or the caller's source permissions |
+| `HARBORRAG_CORPUS_SHARED_TENANT_ID` | unset | Tenant whose retrieval reads the shared corpus in `tenant_shared` mode |
+| `HARBORRAG_LOG_LEVEL` | `WARNING` for the CLI | Diagnostic logging |
 
-Plaintext connections to non-loopback services fail closed unless their
-explicit `HARBORRAG_*_ALLOW_INSECURE_REMOTE` development-network option is
-enabled. Do not use those opt-outs on an untrusted network.
+Plaintext connections to non-loopback services fail closed unless their explicit
+`HARBORRAG_*_ALLOW_INSECURE_REMOTE` development-network option is enabled. Do not use
+those opt-outs on an untrusted network.
 
-### The CLI and the worker must share one object store
-
-Qdrant stores vectors and chunk *references*; the canonical chunk bodies live in the
-S3-compatible object store. `retrieve` reads those bodies, so it must point at the same
-store the worker wrote them to.
-
-The Compose worker uses `http://minio:9000` on the shared Docker network, while a CLI run
-on the host defaults to `http://localhost:9000` - the same MinIO container through its
-published port, so they agree by default. They diverge if you change `MINIO_API_PORT`, bind
-MinIO to a different address, or run the CLI against a different deployment.
-
-When they disagree, ingestion reports success and retrieval then fails on a missing object
-even though the vectors are present. Point the CLI at the worker's endpoint with
-`HARBORRAG_OBJECT_STORE_ENDPOINT_URL` (plus the matching credentials), or run `retrieve`
-inside the worker's environment.
-
-## Package boundary
+## Keep the package boundary
 
 This package may:
 
 - define Typer commands and validate command-line arguments;
-- render `AppResponse` values with Rich or Textual;
+- render `AppResponse` values with Rich;
 - manage one application-service lifecycle per invocation;
 - emit stable JSON and exit codes for automation.
 
 It must not:
 
-- call connectors, parsers, repositories, or Temporal SDK handles directly;
+- call connectors, parsers, repositories or Temporal SDK handles directly;
 - implement workflow or retrieval business rules;
-- import FastAPI to provide CLI behavior;
-- expose secret or unreviewed provider exception text.
+- import FastAPI to provide CLI behaviour;
+- expose secrets or unreviewed provider exception text.
 
 Run its focused tests from the repository root:
 
 ```bash
-pytest \
+uv run pytest \
   packages/harborrag-app/tests/test_ingestion_cli_rendering.py \
   packages/harborrag-app/tests/test_ingestion_service_cli.py \
   packages/harborrag-app/tests/test_retrieval_cli.py

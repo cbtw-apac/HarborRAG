@@ -3,18 +3,24 @@
 from __future__ import annotations
 
 import asyncio
+import getpass
 import logging
+import socket
 import uuid
 from collections.abc import AsyncGenerator, Mapping
+from typing import cast, get_args
 
 from harborrag_core.contracts.errors import HarborUnavailableError
 from harborrag_core.contracts.events import HarborEvent
+from harborrag_core.ports.events import EventBusPort
 from harborrag_runtime.composition import CompositionRoot, ControlPlaneRepositories
 from harborrag_runtime.config.connectors.importing import import_connectors_once
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.config.settings_seed import seed_setting_overrides_once
 
 from ..chat import ChatApplicationService, ChatClientMixin
+from ..chat.scope import ControlPlaneConnectionCatalog
+from ..control_plane.connection_views import IngestionLinks
 from ..control_plane.connections import ConnectionService
 from ..control_plane.effect_recovery import (
     EFFECT_RECOVERY_LEASE_NAME,
@@ -23,15 +29,25 @@ from ..control_plane.effect_recovery import (
 )
 from ..control_plane.projects import ProjectService
 from ..control_plane.settings import SettingsService
-from ..errors import failure_response
+from ..errors import IngestionNotFoundError, failure_response
 from ..ingestion.client import PublicIngestionClientMixin
 from ..ingestion.connection_sources import ConnectionSourceInputBuilder
 from ..ingestion.direct import DirectIngestionClientMixin, DirectIngestionOperations
 from ..ingestion.durable import DurableIngestionOperations
+from ..ingestion.failure_inbox import FailureInboxService
 from ..ingestion.failures import FailuresService
-from ..ingestion.ports import SourceInputBuilder
+from ..ingestion.operations import ControlAction, IngestionOperations
+from ..ingestion.ports import PublicTaskStore, SourceInputBuilder
 from ..ingestion.presenters import STATUS_NAMES, TERMINAL_STATES
-from ..ingestion.progress_bridge import LEASE_NAME, LEASE_TTL_SECONDS, sync_ingestion_progress
+from ..ingestion.progress_bridge import (
+    LEASE_NAME,
+    LEASE_TTL_SECONDS,
+    RUN_COMPLETED,
+    STREAMED_EVENTS,
+    event_prefix,
+    sync_ingestion_progress,
+    sync_run,
+)
 from ..ingestion.service import IngestionApplicationService
 from ..memory import (
     ConversationDirectoryService,
@@ -56,6 +72,11 @@ from .resources import AppResources
 REMOVAL_RECOVERY_LEASE_NAME = "connection_removal_recovery"
 
 logger = logging.getLogger("harborrag.app.workflow_control.composition.service")
+
+
+def _operator() -> str:
+    """The local operator, for the run's event trail; access control is the DB credential."""
+    return f"{getpass.getuser()}@{socket.gethostname()}"
 
 
 class AppService(
@@ -139,6 +160,10 @@ class AppService(
             index=index,
             extraction=self._extraction,
             usage=usage,
+            config=getattr(getattr(composition, "control_plane", None), "config", None),
+            catalog=ControlPlaneConnectionCatalog(
+                lambda: self._control_plane().connections, self._resources.task_registry
+            ),
         )
         self._durable = DurableIngestionOperations(
             self._settings,
@@ -155,6 +180,21 @@ class AppService(
             removal=self._resources.connection_removal,
             instance_id=self._instance_id,
         )
+        self._ingestion_operations = IngestionOperations(
+            connections=lambda: self._control_plane().connections,
+            runs=self._resources.task_registry,
+            actions=self._public_ingestions,
+            links=IngestionLinks(
+                temporal_ui_url=self._settings.temporal_ui_url,
+                temporal_namespace=self._settings.temporal_namespace,
+                grafana_url=self._settings.grafana_url,
+            ),
+        )
+        self._failure_inbox = FailureInboxService(
+            connections=lambda: self._control_plane().connections,
+            runs=self._resources.task_registry,
+            actions=self._public_ingestions,
+        )
         self._project_service = ProjectService(
             control_plane=self._control_plane,
             runs=self._resources.task_registry,
@@ -163,19 +203,29 @@ class AppService(
         self._settings_service = SettingsService(control_plane=self._control_plane)
 
     @property
+    def ingestion_operations(self) -> IngestionOperations:
+        """Run reads behind the ``/v1/admin/ingestions`` routes."""
+        return self._ingestion_operations
+
+    @property
+    def failure_inbox(self) -> FailureInboxService:
+        """Failure inbox behind the ``/v1/admin/failures`` routes."""
+        return self._failure_inbox
+
+    @property
     def connection_service(self) -> ConnectionService:
         """Connection use cases behind the ``/v1/admin`` connection routes."""
         return self._connection_service
 
     @property
+    def settings_service(self) -> SettingsService:
+        """Runtime settings use cases behind the ``/v1/admin/settings`` routes."""
+        return self._settings_service
+
+    @property
     def project_service(self) -> ProjectService:
         """Project use cases behind the ``/v1/admin/projects`` routes."""
         return self._project_service
-
-    @property
-    def settings_service(self) -> SettingsService:
-        """Setting-override use cases behind the ``/v1/admin/settings`` routes."""
-        return self._settings_service
 
     @property
     def failures_service(self) -> FailuresService:
@@ -312,49 +362,55 @@ class AppService(
             )
 
         return await sync_ingestion_progress(
-            store, self._resources.event_bus(), still_leader=still_leader
+            store,
+            self._resources.event_bus(),
+            still_leader=still_leader,
         )
 
     async def stream_ingestion_events(
         self, task_id: str, *, after_seq: int | None = None
     ) -> AsyncGenerator[HarborEvent, None]:
-        """Backlog replay then a live tail of a task's progress events.
+        """Backlog replay then a live tail of a task's events, ending after ``run.completed``.
 
-        ``after_seq`` resumes a reconnecting client (Last-Event-ID) after its
-        last-seen sequence instead of replaying the full backlog. Subscribes
-        before reading the backlog so nothing published in the gap between
-        the two is ever dropped (a harmless duplicate at worst, since every
-        progress payload is a full snapshot). Stops after a "task.<id>.done"
-        event, or immediately after the backlog if the task's persisted
-        state is already terminal, since the progress bridge only ever
-        touches active (PENDING/RUNNING) tasks.
+        ``after_seq`` resumes a reconnecting client (Last-Event-ID) after its last-seen
+        sequence. The backlog is read in pages until a short page arrives. The stream
+        subscribes before reading it so nothing published in between is dropped; an event
+        delivered by both is yielded once, so sequences only increase.
 
-        ``live`` is closed in a ``finally`` so an abandoned caller -- e.g.
-        the SSE route's client disconnecting while this generator is
-        suspended mid-backlog, before it ever reaches the live tail --
-        deterministically unsubscribes instead of leaving the subscription
-        registered until the event bus's GC finalizer happens to run.
+        The stream finishes a run itself: after the backlog and on every idle check it
+        re-reads the run, and if the run ended without a stored ``run.completed`` it appends
+        one (at most once across streams and replicas) and replays it. A watcher therefore
+        never depends on the progress bridge having seen the run end.
+
+        ``live`` is closed in a ``finally`` so an abandoned caller deterministically
+        unsubscribes instead of waiting for the event bus's GC finalizer.
         """
         task = await self._public_ingestions.get_task(task_id)
         store = await self._resources.public_task_store()
-        live = None
+        bus = self._resources.event_bus()
         terminal_names = {STATUS_NAMES[state] for state in TERMINAL_STATES}
-        if task["status"] not in terminal_names:
-            live = self._resources.event_bus().subscribe(f"task.{task_id}.")
+        live = None if task["status"] in terminal_names else bus.subscribe(event_prefix(task_id))
+        cursor = _StreamCursor(task_id, after_seq)
+        tail = None if live is None else _LiveTail(live)
+        check_ended = True
         try:
-            for event in await store.list_task_events(task_id, after_seq=after_seq):
+            async for event in _backlog(store, cursor):
                 yield event
-                if event.name.endswith(".done"):
+            while not cursor.done:
+                if check_ended and await _complete_if_ended(store, bus, task_id):
+                    async for event in _backlog(store, cursor):
+                        yield event
                     return
-            if live is None:
-                return
-            async for event in live:
-                yield event
-                if event.name.endswith(".done"):
+                if tail is None:
                     return
+                live_event = await tail.next(_END_CHECK_SECONDS)
+                check_ended = live_event is None
+                if live_event is not None:
+                    async for event in _deliver(store, cursor, live_event):
+                        yield event
         finally:
-            if live is not None:
-                await live.aclose()
+            if tail is not None:
+                await tail.close()
 
     async def start_ingestion(  # noqa: PLR0913 - stable service port
         self,
@@ -402,7 +458,31 @@ class AppService(
         return await self._durable.ingestion_result(run_id)
 
     async def control_ingestion(self, run_id: str, action: str) -> AppResponse:
-        return await self._durable.control_ingestion(run_id, action)
+        """Pause, resume or cancel a run on the same rules as the HTTP routes.
+
+        The acting principal is the local operator; a run the database does not know
+        is not found, as over HTTP.
+        """
+        try:
+            if action not in get_args(ControlAction):
+                raise ValueError(f"unsupported ingestion action: {action!r}")
+            task = await (await self._resources.task_registry()).get(run_id)
+            tenant_id = task.request.get("tenant_id") if task is not None else None
+            if not isinstance(tenant_id, str) or not tenant_id:
+                raise IngestionNotFoundError(f"ingestion {run_id!r} not found")
+            await self._ingestion_operations.act(
+                tenant_id=tenant_id,
+                ingestion_id=run_id,
+                action=cast(ControlAction, action),
+                actor=_operator(),
+            )
+            logger.info("Applied %r to ingestion run %r", action, run_id)
+            return AppResponse(True, {"run_id": run_id, "action": action})
+        except Exception as exc:  # noqa: BLE001 - stable error envelope
+            return failure_response(logger, exc, "apply %r to ingestion run %r", action, run_id)
+
+    async def start_config_provider(self) -> None:
+        await self._composition.start()
 
     async def aclose(self) -> None:
         try:
@@ -413,3 +493,111 @@ class AppService(
                 await self._resources.aclose()
             finally:
                 await self._composition.aclose()
+
+
+_END_CHECK_SECONDS = 2.0
+_REPLAY_PAGE_LIMIT = 500
+
+
+class _LiveTail:
+    """A live subscription read with a timeout that never cancels the subscription itself."""
+
+    def __init__(self, live: AsyncGenerator[HarborEvent, None]) -> None:
+        self._live = live
+        self._pending: asyncio.Future[HarborEvent] | None = None
+
+    async def next(self, timeout_seconds: float) -> HarborEvent | None:
+        """Return the next live event, or ``None`` when none arrived within the timeout."""
+        if self._pending is None:
+            self._pending = asyncio.ensure_future(anext(self._live))
+        done, _ = await asyncio.wait({self._pending}, timeout=timeout_seconds)
+        if not done:
+            return None
+        event, self._pending = self._pending.result(), None
+        return event
+
+    async def close(self) -> None:
+        """Cancel the pending read, then close the subscription."""
+        if self._pending is not None:
+            self._pending.cancel()
+            await asyncio.gather(self._pending, return_exceptions=True)
+        await self._live.aclose()
+
+
+class _StreamCursor:
+    """Where a run's event stream stands: the last sequence seen and whether it has ended."""
+
+    def __init__(self, task_id: str, after_seq: int | None) -> None:
+        self.last_seq = after_seq
+        self.done = False
+        self._completed = f"{event_prefix(task_id)}{RUN_COMPLETED}"
+        self.task_id = task_id
+
+    def take(self, event: HarborEvent) -> bool:
+        """Advance past ``event``; return whether it should be sent.
+
+        ``run.completed`` is always sent once, whatever its sequence, because a duplicate with
+        a higher sequence can overtake it. Only the four explorer events are sent.
+        """
+        if event.name == self._completed:
+            first = not self.done
+            self.done = True
+            self._advance(event)
+            return first
+        if event.seq is not None and self.last_seq is not None and event.seq <= self.last_seq:
+            return False
+        self._advance(event)
+        return event.name.removeprefix(event_prefix(self.task_id)) in STREAMED_EVENTS
+
+    def skipped_before(self, event: HarborEvent) -> bool:
+        """Whether stored events lie between the last one seen and ``event``."""
+        return event.seq is not None and event.seq > (self.last_seq or 0) + 1
+
+    def _advance(self, event: HarborEvent) -> None:
+        if event.seq is not None and (self.last_seq is None or event.seq > self.last_seq):
+            self.last_seq = event.seq
+
+
+async def _deliver(
+    store: PublicTaskStore, cursor: _StreamCursor, live_event: HarborEvent
+) -> AsyncGenerator[HarborEvent, None]:
+    """Yield ``live_event``, first reading back from the store any events the tail skipped."""
+    if cursor.skipped_before(live_event):
+        async for event in _backlog(store, cursor):
+            yield event
+    if cursor.take(live_event):
+        yield live_event
+
+
+async def _backlog(
+    store: PublicTaskStore, cursor: _StreamCursor
+) -> AsyncGenerator[HarborEvent, None]:
+    """Yield the stored events past the cursor that should be sent, up to ``run.completed``."""
+    async for event in _replay(store, cursor.task_id, cursor.last_seq):
+        if cursor.take(event):
+            yield event
+        if cursor.done:
+            return
+
+
+async def _replay(
+    store: PublicTaskStore, task_id: str, after_seq: int | None
+) -> AsyncGenerator[HarborEvent, None]:
+    """Yield the stored events after ``after_seq``, page by page until a short page."""
+    cursor = after_seq
+    while True:
+        page = await store.list_task_events(task_id, after_seq=cursor, limit=_REPLAY_PAGE_LIMIT)
+        for event in page:
+            yield event
+        if len(page) < _REPLAY_PAGE_LIMIT:
+            return
+        cursor = page[-1].seq
+
+
+async def _complete_if_ended(store: PublicTaskStore, bus: EventBusPort, task_id: str) -> bool:
+    """Store and publish the run's missing events when it has ended; whether it had."""
+    task = await store.get(task_id)
+    if task is None or task.status not in TERMINAL_STATES:
+        return False
+    await sync_run(store, bus, task)
+    return True

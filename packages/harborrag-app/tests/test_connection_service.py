@@ -16,7 +16,11 @@ from app_test_connections import (
     running_task,
 )
 
-from harborrag_app.workflow_control.control_plane.connection_views import ANY_VERSION
+from harborrag_app.workflow_control.control_plane.active_runs import SETTLE_ROUNDS
+from harborrag_app.workflow_control.control_plane.connection_views import (
+    ANY_VERSION,
+    ingestion_view,
+)
 from harborrag_app.workflow_control.control_plane.connections import (
     ConnectionKey,
     ConnectionWrite,
@@ -186,6 +190,92 @@ async def test_sync_starts_one_ingestion_at_a_time(world: ConnectionWorld) -> No
         await world.service.sync(CONNECTION_KEY, actor="u", item_refs=("ENG-1",))
 
 
+async def _store_as(world: ConnectionWorld, **changes: Any) -> None:
+    """Overwrite the stored test connection, skipping the validation ``put`` applies."""
+    stored = await world.control_plane.connections.get(
+        tenant_id=CONNECTION_KEY.tenant_id,
+        project_id=CONNECTION_KEY.project_id,
+        connection_id=CONNECTION_KEY.connection_id,
+    )
+    assert stored is not None
+    edit = changes.pop("credentials", None)
+    if edit is not None:
+        changes["credentials"] = edit(dict(stored.credentials))
+    await world.control_plane.connections.put(replace(stored, **changes))
+
+
+def _without_email(credentials: dict[str, Any]) -> dict[str, Any]:
+    credentials.pop("email")
+    return credentials
+
+
+def _cloud_pat(credentials: dict[str, Any]) -> dict[str, Any]:
+    return {**_without_email(credentials), "method": "pat"}
+
+
+@pytest.mark.parametrize(
+    ("edit", "issue"),
+    [
+        (_without_email, "required"),
+        (_cloud_pat, "email is required for JIRA Cloud API token auth"),
+    ],
+    ids=["schema", "connector"],
+)
+@pytest.mark.asyncio
+async def test_sync_refuses_a_connection_a_run_would_reject(
+    world: ConnectionWorld, edit: Any, issue: str
+) -> None:
+    await world.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u")
+    await _store_as(world, credentials=edit, status="error")
+
+    with pytest.raises(ConnectionValidationError) as invalid:
+        await world.service.sync(CONNECTION_KEY, actor="u")
+
+    assert [(i.field, i.issue) for i in invalid.value.issues] == [("credentials.email", issue)]
+    assert world.submitter.commands == []
+
+
+@pytest.mark.asyncio
+async def test_a_run_whose_workflow_ended_unrecorded_no_longer_blocks(
+    world: ConnectionWorld,
+) -> None:
+    await world.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u")
+    world.runs.active = running_task("ing_0", IngestionTaskState.RUNNING)
+    world.submitter.ended.add("ing_0")
+
+    assert not await world.service.connection_busy("acme", "cpm/cpm-tickets")
+    ingestion = await world.service.sync(CONNECTION_KEY, actor="u")
+
+    assert ingestion["ingestion_id"] == "ing_1"
+
+
+@pytest.mark.asyncio
+async def test_a_connection_whose_runs_keep_settling_stays_busy_after_the_bound(
+    world: ConnectionWorld, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    world.runs.active = running_task("ing_0", IngestionTaskState.RUNNING)
+    settles: list[str] = []
+
+    async def always_settles(task_id: str) -> bool:
+        settles.append(task_id)
+        return True
+
+    monkeypatch.setattr(world.submitter, "settle_if_ended", always_settles)
+
+    assert await world.service.connection_busy("acme", "cpm/cpm-tickets") is True
+    assert len(settles) == SETTLE_ROUNDS
+
+
+@pytest.mark.asyncio
+async def test_sync_starts_a_valid_connection_whatever_its_status(world: ConnectionWorld) -> None:
+    await world.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u")
+    await _store_as(world, status="needs_reauth")
+
+    ingestion = await world.service.sync(CONNECTION_KEY, actor="u")
+
+    assert ingestion["ingestion_id"] == "ing_1"
+
+
 @pytest.mark.asyncio
 async def test_put_with_sync_now_returns_the_ingestion(world: ConnectionWorld) -> None:
     result = await world.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u", sync_now=True)
@@ -232,6 +322,38 @@ async def test_a_failed_removal_keeps_the_row_deleting_and_resumes(world: Connec
     assert await world.service.resume_deletions() == 1
     with pytest.raises(HarborNotFoundError):
         await world.service.get(CONNECTION_KEY)
+
+
+@pytest.mark.asyncio
+async def test_a_test_with_an_unreadable_env_secret_is_not_an_auth_failure(
+    world: ConnectionWorld, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("MISSING_TOKEN", raising=False)
+    write = ConnectionWrite(
+        "jira", {**JIRA_WRITE.credentials, "api_token": {"secret_ref": "env:MISSING_TOKEN"}}, {}
+    )
+
+    report = await world.service.test(CONNECTION_KEY, write, origin="operator")
+
+    assert report["ok"] is False
+    assert report["error_category"] == "secret_unavailable"
+    auth = next(check for check in report["checks"] if check["name"] == "auth")
+    assert auth["message"] == (
+        "the secret is read from the worker's environment; the API cannot check it"
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_test_with_a_missing_stored_secret_says_so(world: ConnectionWorld) -> None:
+    await world.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u")
+    world.secrets.values.clear()
+
+    report = await world.service.test(CONNECTION_KEY, None)
+
+    assert report["ok"] is False
+    assert report["error_category"] == "secret_unavailable"
+    auth = next(check for check in report["checks"] if check["name"] == "auth")
+    assert auth["message"] == "a stored secret is missing"
 
 
 @pytest.mark.asyncio
@@ -500,7 +622,7 @@ _REPO = {"owner": "acme", "repo": "handbook"}
 async def test_only_operator_writes_may_set_an_env_reference(world: ConnectionWorld) -> None:
     by_reference = ConnectionWrite(
         "jira",
-        {**JIRA_WRITE.credentials, "api_token": {"secret_ref": "env:HARBOR_EMBED_API_KEY"}},
+        {**JIRA_WRITE.credentials, "api_token": {"secret_ref": "env:HARBORRAG_EMBED_API_KEY"}},
         {},
     )
 
@@ -656,6 +778,9 @@ async def test_ac8_the_connection_scopes_setting_revision_reaches_the_prepared_s
     """The run's `settings_revision` is the connection scope's revision, not a fake."""
     from dataclasses import replace
 
+    from harborrag_adapters.repositories.database.control_plane.config_store_adapter import (
+        SettingOverridesConfigStore,
+    )
     from harborrag_app.workflow_control.ingestion import connection_sources
     from harborrag_core.testing.control_plane_fakes import (
         FakeSettingOverrideRepository,
@@ -664,14 +789,16 @@ async def test_ac8_the_connection_scopes_setting_revision_reaches_the_prepared_s
     from harborrag_runtime.ingestion_contracts import SourceSubmission
 
     await world.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u_huy")
+    overrides = FakeSettingOverrideRepository()
     revisions = FakeSettingScopeRevisionRepository()
     await revisions.bump_if_match(
         "acme", "connection", "cpm/cpm-tickets", expected_revision=0, source="api", actor="u_huy"
     )
     control_plane = replace(
         world.control_plane,
-        setting_overrides=FakeSettingOverrideRepository(),
+        setting_overrides=overrides,
         setting_scope_revisions=revisions,
+        config=SettingOverridesConfigStore(overrides=overrides, revisions=revisions),
     )
 
     captured: dict[str, object] = {}
@@ -709,6 +836,9 @@ async def test_ac8_an_overridden_pdf_parser_and_max_tokens_reach_the_prepared_so
     """Explicit `parsing.pdf_parser`/`chunking.max_tokens` overrides reach the run."""
     from dataclasses import replace
 
+    from harborrag_adapters.repositories.database.control_plane.config_store_adapter import (
+        SettingOverridesConfigStore,
+    )
     from harborrag_app.workflow_control.ingestion import connection_sources
     from harborrag_core.domain.setting_override import SettingOverride
     from harborrag_core.testing.control_plane_fakes import (
@@ -737,7 +867,10 @@ async def test_ac8_an_overridden_pdf_parser_and_max_tokens_reach_the_prepared_so
         "acme", "connection", "cpm/cpm-tickets", expected_revision=0, source="api", actor="u_huy"
     )
     control_plane = replace(
-        world.control_plane, setting_overrides=overrides, setting_scope_revisions=revisions
+        world.control_plane,
+        setting_overrides=overrides,
+        setting_scope_revisions=revisions,
+        config=SettingOverridesConfigStore(overrides=overrides, revisions=revisions),
     )
 
     captured: dict[str, object] = {}
@@ -774,6 +907,9 @@ async def test_ac9_ingestion_concurrency_timeout_and_max_attempts_reach_the_prep
     """Explicit `ingestion.*` overrides reach the run; unset keys stay None."""
     from dataclasses import replace
 
+    from harborrag_adapters.repositories.database.control_plane.config_store_adapter import (
+        SettingOverridesConfigStore,
+    )
     from harborrag_app.workflow_control.ingestion import connection_sources
     from harborrag_core.domain.setting_override import SettingOverride
     from harborrag_core.testing.control_plane_fakes import (
@@ -806,7 +942,10 @@ async def test_ac9_ingestion_concurrency_timeout_and_max_attempts_reach_the_prep
         "acme", "connection", "cpm/cpm-tickets", expected_revision=0, source="api", actor="u_huy"
     )
     control_plane = replace(
-        world.control_plane, setting_overrides=overrides, setting_scope_revisions=revisions
+        world.control_plane,
+        setting_overrides=overrides,
+        setting_scope_revisions=revisions,
+        config=SettingOverridesConfigStore(overrides=overrides, revisions=revisions),
     )
 
     captured: dict[str, object] = {}
@@ -887,6 +1026,9 @@ async def test_ac10_a_running_ingestions_resolved_settings_survive_a_later_patch
     """
     from dataclasses import replace
 
+    from harborrag_adapters.repositories.database.control_plane.config_store_adapter import (
+        SettingOverridesConfigStore,
+    )
     from harborrag_app.workflow_control.ingestion import connection_sources
     from harborrag_core.domain.setting_override import SettingOverride
     from harborrag_core.testing.control_plane_fakes import (
@@ -915,7 +1057,10 @@ async def test_ac10_a_running_ingestions_resolved_settings_survive_a_later_patch
         "acme", "connection", "cpm/cpm-tickets", expected_revision=0, source="api", actor="u_huy"
     )
     control_plane = replace(
-        world.control_plane, setting_overrides=overrides, setting_scope_revisions=revisions
+        world.control_plane,
+        setting_overrides=overrides,
+        setting_scope_revisions=revisions,
+        config=SettingOverridesConfigStore(overrides=overrides, revisions=revisions),
     )
 
     captures: list[dict[str, object]] = []
@@ -1076,3 +1221,45 @@ async def test_a_save_that_keeps_losing_the_race_answers_conflict_and_leaks_no_s
 
     assert not isinstance(caught.value, HarborPreconditionFailedError)
     assert world.secrets.values == stored_before
+
+
+@pytest.mark.asyncio
+async def test_stats_errors_count_failed_documents_of_a_cancelled_latest_run(
+    world: ConnectionWorld,
+) -> None:
+    await world.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u_huy")
+    cancelled = running_task("ing_9", IngestionTaskState.CANCELLED)
+    world.runs.active = cancelled
+    world.runs.counts["ing_9"] = {"published": 3, "failed": 2}
+
+    view, _version = await world.service.get(CONNECTION_KEY)
+    ingestion = ingestion_view(cancelled, connection=None, progress=world.runs.counts["ing_9"])
+
+    assert view["stats"]["errors"] == 2 == ingestion["counters"]["failed"]
+    assert cancelled.summary.get("failed") is None
+
+
+@pytest.mark.asyncio
+async def test_stats_errors_is_zero_for_a_connection_that_never_ran(
+    world: ConnectionWorld,
+) -> None:
+    result = await world.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u_huy")
+
+    assert result.connection["stats"]["errors"] == 0
+
+
+@pytest.mark.asyncio
+async def test_list_batches_the_progress_of_every_latest_run(world: ConnectionWorld) -> None:
+    for name in ("one", "two", "three"):
+        key = replace(CONNECTION_KEY, connection_id=f"cpm-{name}")
+        await world.service.put(key, JIRA_WRITE, actor="u_huy")
+    world.runs.active = running_task("ing_7", IngestionTaskState.FAILED)
+    world.runs.counts["ing_7"] = {"failed": 4}
+    world.runs.progress_calls.clear()
+
+    items, _cursor = await world.service.list_page(tenant_id="acme")
+
+    assert len(items) == 3
+    assert [item["stats"]["errors"] for item in items] == [4, 4, 4]
+    assert world.runs.progress_calls == []
+    assert len(world.runs.batch_calls) == 1

@@ -73,16 +73,3 @@ def hash_matches(raw_key: str, stored_hash: str) -> bool:
     """Constant-time comparison; call only after ``parse_key`` accepted the key."""
 
     return secrets.compare_digest(hash_key(raw_key), stored_hash.lower())
-
-
-__all__ = [
-    "KEY_ENVIRONMENTS",
-    "KEY_ID_LENGTH",
-    "KeyEnvironment",
-    "NewKey",
-    "ParsedKey",
-    "generate_key",
-    "hash_key",
-    "hash_matches",
-    "parse_key",
-]

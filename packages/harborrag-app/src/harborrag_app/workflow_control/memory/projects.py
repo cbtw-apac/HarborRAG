@@ -38,6 +38,3 @@ async def require_project(
     project = await projects.get(project_id, tenant_ids=frozenset({tenant_id}))
     if project is None:
         raise HarborNotFoundError(PROJECT_NOT_FOUND)
-
-
-__all__ = ["PROJECT_NOT_FOUND", "project_lookup", "require_project"]

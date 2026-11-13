@@ -92,7 +92,7 @@ async def _recover_pending_control_plane_effects(app: FastAPI) -> None:
 
 
 async def _import_connectors_once(service: object) -> None:
-    """Carry an existing ``config/connectors.yaml`` into the database on the first start."""
+    """Carry an existing ``config/sources/connectors.yaml`` into the database on the first start."""
 
     importer = getattr(service, "import_connectors_once", None)
     if importer is None:
@@ -100,10 +100,24 @@ async def _import_connectors_once(service: object) -> None:
     try:
         imported = await importer()
     except Exception:
-        logger.exception("Importing config/connectors.yaml failed; add connections through the API")
+        logger.exception(
+            "Importing config/sources/connectors.yaml failed; add connections through the API"
+        )
         return
     if imported:
-        logger.info("Imported %d connections from config/connectors.yaml", imported)
+        logger.info("Imported %d connections from config/sources/connectors.yaml", imported)
+
+
+async def _seed_settings_once(service: object) -> None:
+    """Seed ``config/settings.yaml`` into an empty settings log, else report drift."""
+
+    seeder = getattr(service, "seed_settings_once", None)
+    if seeder is None:
+        return
+    try:
+        await seeder()
+    except Exception:
+        logger.exception("Seeding settings from the settings file failed; use the settings API")
 
 
 async def _seed_setting_overrides_once(service: object) -> None:
@@ -175,6 +189,8 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Long-term memory extraction runs on a bounded in-process worker pool
     # owned by this process, so it starts with the app and is drained -- not
     # cancelled -- on shutdown, letting queued exchanges finish.
+    if hasattr(service, "start_config_provider"):
+        await service.start_config_provider()
     owns_memory_extraction = getattr(service, "has_memory_extraction", False)
     if owns_memory_extraction:
         await service.start_memory_extraction()

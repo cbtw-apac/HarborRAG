@@ -339,6 +339,3 @@ async def _dispose(client: AsyncHarborChatClientProtocol | None) -> None:
         await client.aclose()
     except Exception:
         logger.warning("Disposing a tenant chat client failed", exc_info=True)
-
-
-__all__ = ["TenantChatClients", "TenantChatResolution", "TenantClientBuilder"]

@@ -1,50 +1,49 @@
-"""Authenticated completions with shared session, replay, and streaming semantics."""
+"""``POST /v1/chat/completions``: one cited answer, in a session or as a one-off question.
+
+The tenant comes from the credential (and ``X-Tenant-Id``), the session's owner from the
+verified user claim. A retry with the same ``Idempotency-Key`` and body replays the
+stored answer byte for byte.
+"""
 
 from __future__ import annotations
 
-from time import time
+import contextlib
 from typing import Annotated
-from uuid import uuid4
 
-from fastapi import APIRouter, Body, Depends, Header, Response
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Body, Depends, Header, Request, Response
 
 from harborrag_app.api.auth.access import require_role
-from harborrag_app.api.auth.dependencies import authorize_tenant
 from harborrag_app.api.auth.principal import Principal
+from harborrag_app.api.auth.tenancy import TenantDependency
 from harborrag_app.api.capacity_dependency import ApiCapacityDependency
-from harborrag_app.api.dependencies import ResponseContextDependency
 from harborrag_app.api.errors import documented_error_responses
-from harborrag_app.api.settings import ApiSettings
-from harborrag_app.workflow_control.memory import MemoryAccess
-from harborrag_core.contracts.errors import (
-    HarborConnectionError,
-    HarborNotFoundError,
-    HarborValidationError,
+from harborrag_app.api.middleware import current_trace_id
+from harborrag_app.workflow_control.chat import ChatExecutionOptions
+from harborrag_app.workflow_control.chat.completion import (
+    Completion,
+    RetrievalFound,
+    TurnCompleted,
 )
+from harborrag_core.contracts.errors import HarborConnectionError
 
-from . import dispatch
 from .completion_dependency import CompletionService, CompletionServiceDependency
-from .dependencies import ChatServiceDependency
+from .dispatch import chat_options
 from .replay import CompletionAttempt
-from .schemas import (
-    ChatCompletionRequest,
-    ChatCompletionResponse,
-    ChatMessageResponse,
-    ChatSessionCreateRequest,
-    ChatSessionResponse,
-    ChatUsageResponse,
-)
-from .streaming import stream_response
+from .schemas import ChatCompletionRequest, ChatCompletionResponse
+from .streaming import completion_stream
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
 
 ERROR_RESPONSES = documented_error_responses(
     {
-        422: "Invalid completion request; out-of-scope prompts return a completed refusal",
-        404: "Conversation session or project not found",
-        409: "No indexed content, busy conversation, or conflicting idempotency key",
-        503: "Chat service unavailable",
+        404: "The session does not exist or is not the caller's (not_found)",
+        409: "Another answer is being written in the session or with this Idempotency-Key "
+        "(session_busy), nothing is indexed in the scope (no_indexed_content), or the "
+        "request with this Idempotency-Key failed (invalid_state)",
+        422: "A field fails the schema (validation_error), a project or connection does not "
+        "exist (reference_not_found), mode advanced or auto (mode_unavailable), or a "
+        "connection outside the scope (connection_out_of_scope)",
+        503: "No chat model answered (llm_unavailable), or a store is unavailable",
     }
 )
 COMPLETION_RESPONSES: dict[int | str, dict[str, object]] = {
@@ -53,10 +52,8 @@ COMPLETION_RESPONSES: dict[int | str, dict[str, object]] = {
             "text/event-stream": {
                 "schema": {
                     "type": "string",
-                    "description": "response.started, retrieval.completed, response.output_text.delta, "
-                    "response.citations, response.warning, and exactly one "
-                    "response.completed or response.error. Scope refusals use response.completed "
-                    "with the same payload schema as JSON.",
+                    "description": "response.started, one response.output_text.delta with the "
+                    "answer, then response.completed with the JSON completion body",
                 }
             }
         }
@@ -65,234 +62,105 @@ COMPLETION_RESPONSES: dict[int | str, dict[str, object]] = {
 
 
 @router.post(
-    "/sessions",
-    response_model=ChatSessionResponse,
-    status_code=201,
-    responses=ERROR_RESPONSES,
-)
-async def create_chat_session(
-    request: ChatSessionCreateRequest,
-    service: ChatServiceDependency,
-    principal: Annotated[Principal, Depends(require_role("reader", tenant=False))],
-) -> ChatSessionResponse:
-    authorize_tenant(principal, request.tenant_id)
-    result = await service.create_chat_session(
-        tenant_id=request.tenant_id,
-        principal_id=principal.subject,
-        user_id=principal.user_id,
-    )
-    if not result.ok:
-        raise HarborConnectionError("Chat service is unavailable")
-    return ChatSessionResponse.model_validate(result.data)
-
-
-@router.post(
     "/completions",
     response_model=ChatCompletionResponse,
     responses=ERROR_RESPONSES | COMPLETION_RESPONSES,
-    summary="Create a retrieval chat completion",
-    description="Omit session_id to create a session. Set stream=true for SSE with the same final "
-    "completion payload. Use Idempotency-Key to safely replay a completed request.",
+    summary="Ask a question",
+    description="Answer in mode instant or classic, inside a session or as a one-off question "
+    "(leave out session_id). The same Idempotency-Key and body within 24 h returns the "
+    "stored answer without a second model call.",
 )
-async def create_chat_completion(
+async def create_chat_completion(  # noqa: PLR0913 - the route's dependencies
     request: Annotated[
         ChatCompletionRequest,
         Body(
             openapi_examples={
-                "existing_session": {
-                    "summary": "Continue a session",
-                    "description": "Use the session_id returned by an earlier completion.",
-                    "value": {
-                        "tenant_id": "DEFAULT",
-                        "session_id": "session-0b9c1f2e3d4a5b6c7d8e9f0a1b2c3d4e",
-                        "prompt": "What changed next?",
-                        "stream": False,
-                    },
+                "question": {
+                    "summary": "Ask a one-off question",
+                    "description": "Answered over the whole tenant and not stored.",
+                    "value": {"message": "What changed in the release policy?", "stream": False},
                 },
-                "new_session": {
-                    "summary": "Create a session",
+                "session_question": {
+                    "summary": "Ask in a session",
+                    "description": "Use a session_id from POST /v1/chat/sessions.",
                     "value": {
-                        "tenant_id": "DEFAULT",
-                        "prompt": "What changed in the release policy?",
+                        "session_id": "ses_0b9c1f2e3d4a5b6c7d8e9f0a1b2c3d4e",
+                        "message": "Who has Go and Kubernetes experience in Hanoi?",
+                        "mode": "classic",
                         "stream": False,
                     },
                 },
             }
         ),
     ],
+    http: Request,
     service: CompletionServiceDependency,
-    principal: Annotated[Principal, Depends(require_role("reader", tenant=False, bucket="chat"))],
-    context: ResponseContextDependency,
+    principal: Annotated[Principal, Depends(require_role("reader", bucket="chat"))],
+    tenant: TenantDependency,
     _capacity: ApiCapacityDependency,
-    header_key: Annotated[
+    idempotency_key: Annotated[
         str | None,
         Header(
             alias="Idempotency-Key",
-            description="Stable request key (1–128 characters); must match the body key if both "
-            "are supplied. Replays completed requests without another model call.",
+            min_length=1,
+            max_length=128,
+            pattern=r".*\S.*",
+            description="A retry with the same key and body within 24 h returns the stored result",
         ),
     ] = None,
-) -> ChatCompletionResponse | StreamingResponse:
-    if header_key is not None:
-        if request.idempotency_key is not None and request.idempotency_key != header_key:
-            raise HarborValidationError("Body and header idempotency keys must match")
-        if not header_key.strip() or len(header_key) > 128:
-            raise HarborValidationError("Idempotency-Key must contain 1 to 128 characters")
-        request = request.model_copy(update={"idempotency_key": header_key})
-    return await _complete_chat(
-        request, service, principal, context.response, settings=context.settings
+) -> Response:
+    """Answer one question with numbered citations."""
+
+    options = chat_options(request, principal, trace_id=current_trace_id(http))
+    attempt = CompletionAttempt.for_request(
+        service, request, tenant_id=tenant, principal=principal, key=idempotency_key
     )
-
-
-async def _require_session(
-    service: CompletionService,
-    request: ChatCompletionRequest,
-    principal: Principal,
-    session_id: str,
-) -> None:
-    if not await service.chat_session_exists(
-        session_id,
-        tenant_id=request.tenant_id,
-        principal_id=principal.subject,
-        user_id=principal.user_id,
-    ):
-        raise HarborNotFoundError("Conversation session was not found")
-
-
-async def _validate_request(
-    request: ChatCompletionRequest,
-    service: CompletionService,
-    principal: Principal,
-) -> None:
-    authorize_tenant(principal, request.tenant_id)
-    await service.validate_chat_model(request.model, tenant_id=request.tenant_id)
-    await service.validate_chat_project(request.project_id, tenant_id=request.tenant_id)
-    if request.session_id is not None:
-        await _require_session(service, request, principal, request.session_id)
-
-
-async def _complete_chat(
-    request: ChatCompletionRequest,
-    service: CompletionService,
-    principal: Principal,
-    response: Response,
-    *,
-    settings: ApiSettings,
-) -> ChatCompletionResponse | StreamingResponse:
-    await _validate_request(request, service, principal)
-    attempt = CompletionAttempt.for_request(service, request, principal)
-    replay = await attempt.claim()
-    response.headers["Cache-Control"] = "no-store"
-    response.headers["Idempotency-Replayed"] = str(replay is not None).lower()
-    # A streamed turn returns before this is set: its spend, and the failure it
-    # may record, are settled inside the stream rather than here.
-    dispatched = False
-    try:
-        refusal_message = (
-            await _classify_refusal(request, service, principal) if replay is None else None
-        )
-        if replay is not None:
-            await _require_session(service, request, principal, replay.session_id)
-        elif request.session_id is None:
-            created = await service.create_chat_session(
-                tenant_id=request.tenant_id,
-                principal_id=principal.subject,
-                user_id=principal.user_id,
-            )
-            if not created.ok:
-                raise HarborConnectionError("Chat service is unavailable")
-            session = ChatSessionResponse.model_validate(created.data)
-            request = request.model_copy(update={"session_id": session.session_id})
-        if refusal_message is not None:
-            return await _completed_refusal(request, principal, attempt, settings, refusal_message)
-        if request.stream:
-            return stream_response(
-                request, principal, settings=settings, attempt=attempt, replay=replay
-            )
-        if replay is not None:
-            return replay
-        dispatched = True
-        result = await dispatch.complete(service, request, principal)
-        if not result.ok:
-            raise HarborConnectionError("Chat service is unavailable")
-        payload = ChatCompletionResponse.model_validate({**result.data, "mode": request.mode})
-        await attempt.finish(payload)
-        return payload
-    except BaseException:
-        # Only a dispatched answer records an unreplayable failure. Admission
-        # classification has its own usage record. Everything before dispatch --
-        # a busy turn, an unavailable session store, a caller that went away --
-        # hands the answer key back instead of burning it.
-        if dispatched:
-            await attempt.finish()
-        else:
-            await attempt.release()
-        raise
-
-
-async def _classify_refusal(
-    request: ChatCompletionRequest, service: CompletionService, principal: Principal
-) -> str | None:
-    try:
-        await service.validate_completion_scope(
-            request.prompt,
-            MemoryAccess(
-                tenant_id=request.tenant_id,
-                principal_id=principal.subject,
-                user_id=principal.user_id,
-                project_id=request.project_id,
-                session_id=request.session_id,
-            ),
-            model=request.model,
-        )
-    except HarborValidationError as error:
-        if error.details.get("reason") != "out_of_scope":
-            raise
-        return str(error)
-    return None
-
-
-async def _completed_refusal(
-    request: ChatCompletionRequest,
-    principal: Principal,
-    attempt: CompletionAttempt,
-    settings: ApiSettings,
-    message: str,
-) -> ChatCompletionResponse | StreamingResponse:
-    refusal = _scope_refusal(request, message)
-    await attempt.finish(refusal)
+    body = await attempt.claim()
+    replayed = body is not None
+    if body is None:
+        completion = await _answer(service, request, tenant, principal, options, attempt)
+        body = ChatCompletionResponse.model_validate(completion.data()).model_dump_json()
+        await attempt.finish(body, session_id=completion.session_id)
     if request.stream:
-        return stream_response(
-            request,
-            principal,
-            settings=settings,
-            attempt=attempt,
-            replay=refusal,
-            replayed=False,
-        )
-    return refusal
-
-
-def _scope_refusal(request: ChatCompletionRequest, message: str) -> ChatCompletionResponse:
-    """Represent policy admission as a completion without claiming answer-model work."""
-
-    if request.session_id is None:
-        raise ValueError("completion session must be resolved before a refusal")
-    return ChatCompletionResponse(
-        completion_id=f"policy-{uuid4().hex}",
-        created=int(time()),
-        model="scope_gate",
-        provider="policy",
-        provider_model="scope_gate",
-        message=ChatMessageResponse(role="assistant", content=message),
-        outcome="refused",
-        refusal_reason="out_of_scope",
-        finish_reason="out_of_scope",
-        usage=ChatUsageResponse(prompt_tokens=0, completion_tokens=0, total_tokens=0),
-        retry_count=0,
-        fallback_count=0,
-        session_id=request.session_id,
-        mode=request.mode,
-        project_id=request.project_id,
-        memory_persisted=False,
+        return completion_stream(body, replayed=replayed)
+    return Response(
+        content=body,
+        media_type="application/json",
+        headers={"Cache-Control": "no-store", "Idempotency-Replayed": str(replayed).lower()},
     )
+
+
+async def _answer(  # noqa: PLR0913 - the turn's request, caller and claim
+    service: CompletionService,
+    request: ChatCompletionRequest,
+    tenant: str,
+    principal: Principal,
+    options: ChatExecutionOptions,
+    attempt: CompletionAttempt,
+) -> Completion:
+    """Run the turn, giving the key back on a failure before any model call and spending it after.
+
+    The turn yields ``RetrievalFound`` after every read and check it makes before its
+    first model call, so a failure until then (a store or retrieval outage, a busy
+    session, a refused request, a caller that went away) leaves the key reusable. From
+    then on a model may have been paid for, and a failure records the key as failed.
+
+    Raises:
+        HarborConnectionError: The turn ended without its answer.
+    """
+    spent = False
+    events = service.chat_answer(
+        request.message, tenant_id=tenant, principal_id=principal.subject, options=options
+    )
+    try:
+        async with contextlib.aclosing(events):
+            async for event in events:
+                if isinstance(event, RetrievalFound):
+                    spent = True
+                elif isinstance(event, TurnCompleted):
+                    return event.completion
+    except BaseException:
+        await (attempt.finish() if spent else attempt.release())
+        raise
+    await attempt.finish()
+    raise HarborConnectionError("The chat turn ended without its answer")

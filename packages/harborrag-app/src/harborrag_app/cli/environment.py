@@ -84,9 +84,9 @@ def load_project_environment(root: Path | None = None) -> tuple[Path, ...]:
 def _database_env_file(base: Path) -> Path | None:
     """The env/.env.database whose MinIO pair the CLI may use, if any.
 
-    Only a repo checkout runs the dev stack that file describes; a ``harborrag init``
-    project, or any other directory, that happens to hold one is not that stack. An
-    explicit ``DATABASE_ENV_FILE`` is the operator's choice and is honoured anywhere.
+    Only a repo checkout runs the dev stack that file describes; any other directory
+    that happens to hold one is not that stack. An explicit ``DATABASE_ENV_FILE`` is the
+    operator's choice and is honoured anywhere.
     """
 
     explicit = os.environ.get("DATABASE_ENV_FILE", "").strip()
@@ -161,8 +161,7 @@ _REFUSAL = (
     "control DB: the stores are shared with the stack but run state and connections would "
     "not be. Set HARBORRAG_CONTROL_DB_URL to "
     "the stack's Postgres, exported or as a line in env/.env.database (rebuild the images "
-    "first: scripts/deployment/dev.sh up --build), or run from a project created with "
-    "`harborrag init`."
+    "first: scripts/deployment/dev.sh up --build)."
 )
 
 
@@ -215,6 +214,3 @@ def refuse_checkout_write() -> None:
     if message is not None:
         typer.echo(message, err=True)
         raise typer.Exit(1)
-
-
-__all__ = ["checkout_write_refusal", "load_project_environment", "refuse_checkout_write"]

@@ -1,98 +1,84 @@
-# Live model smoke checks
+# Model smoke checks
 
-These standalone scripts make small, real chat, embedding, and reranking calls
-through the public Harbor clients. They verify provider authentication, LiteLLM
-transport wiring, Harbor response normalization, and a few provider-neutral
-output invariants.
+These standalone scripts send small, real chat, embedding and reranking requests through the
+public Harbor clients. A passing run shows that the provider accepts your credentials, the LiteLLM
+transport is wired correctly, and Harbor normalizes the response.
 
-These are not pytest tests. They never mock LiteLLM or a provider transport and
-may consume paid API quota. Run one family first, using a least-privilege test
-credential, before running the group script.
+They are not pytest tests: they never mock LiteLLM or the provider, and they can spend paid quota.
+Run one family with a least-privilege test credential before the group script, and read the shared
+[safety rules and exit codes](../../README.md#real-system-smoke-tests) first.
 
-The shared safety rules and release-evidence guidance are in the
-[real smoke-test runbook](../../README.md#real-system-smoke-tests).
+## Before you start
 
-## Prerequisites
+- Run every command from the repository root.
+- Use the workspace environment from [CONTRIBUTING](../../../../../CONTRIBUTING.md#development-setup);
+  it includes LiteLLM, Pydantic and PyYAML. Do not narrow the sync to one package, because
+  `uv sync` then removes the rest of the workspace from the environment.
+- Make sure the machine can reach the provider or LiteLLM proxy, and check its pricing, quota and
+  model availability.
 
-- Run commands from the repository root.
-- Use Python 3.12.
-- Install the adapter's model and test dependencies.
-- Ensure the machine can reach the selected provider or LiteLLM proxy.
-- Review the provider's pricing, quota, and model availability.
+## Give the scripts their settings
 
-With `uv`, create or update the project environment with:
+The scripts read their own variables, one set per family:
 
-```bash
-uv sync --package harborrag-adapters --extra llm --extra test
-```
+| Family | Variable prefix | Script |
+| --- | --- | --- |
+| Chat | `HARBORRAG_CHAT_` | `chat.py` |
+| Embedding | `HARBORRAG_EMBED_` | `embed.py` |
+| Reranking | `HARBOR_SMOKE_RERANK_` | `rerank.py` |
 
-You can then use `uv run` in place of `python` in the examples below if the
-virtual environment is not activated.
+The application's model gateway values (`HARBORRAG_URL`, `HARBORRAG_API_KEY` and the gateway's
+model names) do not configure a smoke family. `HARBORRAG_CHAT_MODEL` and `HARBORRAG_EMBED_MODEL`
+are names the gateway values also use, so keep the smoke values in a separate file rather than in
+`env/.env.models`, for example `env/.env.models-smoke` (everything under `env/` is git-ignored).
+Copy the smoke examples from `env-example/.env.models.example` into it.
 
-## Quick config (no dotenv file)
+The scripts take each variable from, in order:
 
-Each script (`chat.py`, `embed.py`, `rerank.py`) has a "Quick config" block
-near the top with plain constants, e.g. `EMBED_MODEL`, `EMBED_API_KEY`,
-`BATCH`. Set the ones you need directly in the file and run the script - no
-`.env` file required. Leave a constant as `None` to fall back to the matching
-environment variable / dotenv value described below. Constants set in the
-file always take precedence over the environment.
+1. a variable already exported in your shell, which a file never replaces;
+2. the file `HARBOR_SMOKE_ENV_FILE` names;
+3. a `.env` file at the repository root, when `HARBOR_SMOKE_ENV_FILE` is unset.
 
-## Configure a dotenv file
-
-Copy only the model families you intend to exercise from the repo-root
-`env-example/.env.models.example`. Do not commit the populated file.
-
-The loader checks these sources in this order:
-
-1. Variables already exported in the process environment.
-2. The file selected by `HARBOR_SMOKE_ENV_FILE`.
-3. The repo-root `.env` when `HARBOR_SMOKE_ENV_FILE` is unset.
-
-Exported variables are never overwritten by values in the dotenv file. A file
-such as `env/.env.models` is not discovered automatically; select it explicitly:
+Select the file for one command:
 
 ```bash
-export HARBOR_SMOKE_ENV_FILE=env/.env.models
+HARBOR_SMOKE_ENV_FILE=env/.env.models-smoke \
+  uv run python packages/harborrag-adapters/tests/models/smoke/chat.py
 ```
 
-PowerShell equivalent:
+<details markdown="1"><summary>PowerShell</summary>
 
 ```powershell
-$env:HARBOR_SMOKE_ENV_FILE = "env/.env.models"
+$env:HARBOR_SMOKE_ENV_FILE = "env/.env.models-smoke"
+uv run python packages/harborrag-adapters/tests/models/smoke/chat.py
 ```
 
-You can also select the file for a single command:
+</details>
 
-```bash
-HARBOR_SMOKE_ENV_FILE=env/.env.models \
-  python packages/harborrag-adapters/tests/models/smoke/chat.py
-```
+### Minimum settings per family
 
-### Minimum configuration
+Each family needs a provider, the provider's model name and a way to authenticate. A value that
+still contains `REPLACE_WITH_REAL` counts as not set.
 
-Every enabled family requires a provider, a provider model identifier, and a
-usable authentication method.
-
-Chat with an explicit API key:
+Chat:
 
 ```dotenv
-HARBOR_CHAT_PROVIDER=openai
-HARBOR_CHAT_MODEL=openai/REPLACE_WITH_REAL_CHAT_MODEL
-HARBOR_CHAT_API_KEY=REPLACE_WITH_REAL_CHAT_API_KEY
+HARBORRAG_CHAT_PROVIDER=openai
+HARBORRAG_CHAT_MODEL=openai/REPLACE_WITH_REAL_CHAT_MODEL
+HARBORRAG_CHAT_API_KEY=REPLACE_WITH_REAL_CHAT_API_KEY
 ```
 
-Embeddings with an explicit API key:
+Embedding:
 
 ```dotenv
-HARBOR_EMBED_PROVIDER=openai
-HARBOR_EMBED_MODEL=openai/REPLACE_WITH_REAL_EMBEDDING_MODEL
-HARBOR_EMBED_API_KEY=REPLACE_WITH_REAL_EMBEDDING_API_KEY
-HARBOR_EMBED_SPACE=smoke-embedding-space-v1
-# HARBOR_EMBED_EXPECTED_DIMENSIONS=1536
+HARBORRAG_EMBED_PROVIDER=openai
+HARBORRAG_EMBED_MODEL=openai/REPLACE_WITH_REAL_EMBEDDING_MODEL
+HARBORRAG_EMBED_API_KEY=REPLACE_WITH_REAL_EMBEDDING_API_KEY
+HARBORRAG_EMBED_SPACE=smoke-embedding-space-v1
+# HARBORRAG_EMBED_EXPECTED_DIMENSIONS=1536
 ```
 
-Reranking with an explicit API key:
+Reranking:
 
 ```dotenv
 HARBOR_SMOKE_RERANK_PROVIDER=cohere
@@ -100,149 +86,115 @@ HARBOR_SMOKE_RERANK_MODEL=cohere/REPLACE_WITH_REAL_RERANK_MODEL
 HARBOR_SMOKE_RERANK_API_KEY=REPLACE_WITH_REAL_RERANK_API_KEY
 ```
 
-Replace all `REPLACE_WITH_REAL...` values. Placeholder values are rejected as
-not configured. Families omitted from the file are skipped by `run_all.py` and
-reported with exit code `2` when run individually.
+A family you leave out exits `2` when you run its script, and `run_all.py` skips it.
 
-For cloud providers that use ambient identity, omit the API key only when the
-provider supports it and opt in explicitly:
+### Optional settings
 
-```dotenv
-HARBOR_CHAT_ALLOW_AMBIENT_CREDENTIALS=true
-```
+- Ambient cloud identity instead of an API key, where the provider supports it:
+  `<PREFIX>ALLOW_AMBIENT_CREDENTIALS=true`, for example
+  `HARBORRAG_CHAT_ALLOW_AMBIENT_CREDENTIALS=true`.
+- Provider fields, each behind the family prefix: `API_BASE`, `API_VERSION`, `DEPLOYMENT_NAME`,
+  `CUSTOM_LLM_PROVIDER`, `HEADERS_JSON`, `EXTRA_LITELLM_PARAMS_JSON`, the AWS credential and role
+  fields, and the Vertex project, location and credentials fields. The template spells them out.
+- Request timeout for every family, in seconds (default `90`): `HARBOR_SMOKE_TIMEOUT_SECONDS=120`.
 
-Provider-specific fields are prefixed with the family name. Supported fields
-include `API_BASE`, `API_VERSION`, `DEPLOYMENT_NAME`, `CUSTOM_LLM_PROVIDER`,
-`HEADERS_JSON`, `EXTRA_LITELLM_PARAMS_JSON`, AWS credentials/role fields, and
-Vertex project, location, and credentials fields. See
-`env-example/.env.models.example` for
-the complete list and spelling.
+### Choose the chat backend
 
-### Chat backend selection
+`HARBORRAG_CHAT_BACKEND` picks how chat reaches the provider (default `direct_sdk`):
 
-Chat defaults to the `direct_sdk` backend. Select a backend with:
+- `direct_sdk`: LiteLLM calls the provider directly.
+- `litellm_router`: requests go through Harbor's LiteLLM Router integration.
+- `litellm_proxy`: requests go to a running LiteLLM Proxy, which also needs:
 
-```dotenv
-HARBOR_CHAT_BACKEND=direct_sdk
-```
+  ```dotenv
+  HARBORRAG_CHAT_PROXY_API_BASE=https://proxy.example.com
+  HARBORRAG_CHAT_PROXY_API_KEY=REPLACE_WITH_REAL_PROXY_KEY
+  # HARBORRAG_CHAT_PROXY_HEADERS_JSON={}
+  ```
 
-Supported values are:
+### Quick config in the script
 
-- `direct_sdk`: call the configured provider through LiteLLM directly.
-- `litellm_router`: exercise Harbor's LiteLLM Router integration.
-- `litellm_proxy`: call a running LiteLLM Proxy deployment.
-
-Proxy mode additionally requires:
-
-```dotenv
-HARBOR_CHAT_PROXY_API_BASE=https://proxy.example.com
-HARBOR_CHAT_PROXY_API_KEY=REPLACE_WITH_REAL_PROXY_KEY
-# HARBOR_CHAT_PROXY_HEADERS_JSON={}
-```
-
-The default request timeout is 90 seconds. Override it for all families with a
-positive numeric value:
-
-```dotenv
-HARBOR_SMOKE_TIMEOUT_SECONDS=120
-```
+`chat.py`, `embed.py` and `rerank.py` each start with plain constants, such as `EMBED_MODEL` and
+`BATCH`. A constant you set replaces the matching variable from the environment or the file; leave
+it `None` to use the variable. The scripts are tracked files, so set models there but keep API keys
+in the git-ignored dotenv file.
 
 ## Run the checks
 
-Run a single configured family first:
+Run one configured family first:
 
 ```bash
-python packages/harborrag-adapters/tests/models/smoke/chat.py
-python packages/harborrag-adapters/tests/models/smoke/embed.py
-python packages/harborrag-adapters/tests/models/smoke/rerank.py
+uv run python packages/harborrag-adapters/tests/models/smoke/chat.py
+uv run python packages/harborrag-adapters/tests/models/smoke/embed.py
+uv run python packages/harborrag-adapters/tests/models/smoke/rerank.py
 ```
 
-After the individual targets pass, run every configured family:
+Then run every configured family:
 
 ```bash
-python packages/harborrag-adapters/tests/models/smoke/run_all.py
+uv run python packages/harborrag-adapters/tests/models/smoke/run_all.py
 ```
 
-When using `uv` without activating the environment:
+Each request gets one attempt, with no deployment failover or model fallback, which keeps the cost
+low and a failure easy to read.
 
-```bash
-uv run --package harborrag-adapters --extra llm --extra test \
-  python packages/harborrag-adapters/tests/models/smoke/chat.py
-```
+## What a pass checks
 
-The checks deliberately use one attempt with no deployment failover or model
-fallback, limiting both cost and ambiguity during diagnosis.
-
-## What success verifies
-
-| Target | Real operation | Required result |
+| Script | Request | Passes when |
 | --- | --- | --- |
-| Chat | Sends a two-message prompt | Non-empty text, provider model, and request metadata |
-| Embed | Embeds two short strings as one batch | Two finite vectors with consistent positive dimensions |
-| Rerank | Reranks three documents and requests the top two | Two unique in-range indexes with finite relevance scores |
+| `chat.py` | A system and a user message | The answer is not empty and carries the provider model and request ID |
+| `embed.py` | Two short strings in one batch | Two finite vectors come back with the same positive dimension |
+| `rerank.py` | Three documents, top two requested | Two distinct in-range indexes come back with finite scores |
 
-Successful output contains only safe metadata such as the provider model,
-latency, dimensions, or result count. It does not print prompts, responses,
-embedding vectors, document text, credentials, headers, or raw provider bodies.
+A passing run prints the provider model and its latency, dimension or result count. `chat.py` also
+prints the answer, and `embed.py` the first five values of each vector; both inputs are fixed test
+strings. No script prints credentials, headers or raw provider bodies.
 
-## Exit codes
-
-| Code | Meaning | Next action |
-| --- | --- | --- |
-| `0` | The real provider operation passed | Record sanitized evidence if required |
-| `1` | Configuration was present, but validation or the provider call failed | Investigate the sanitized error |
-| `2` | The family is missing or still contains a placeholder | Configure it, or treat it as intentionally pending |
-
-`run_all.py` ignores code `2` for individual unconfigured families. It returns
-`0` when every configured family passes, `1` when any configured family fails,
-and `2` when no family is configured.
+`run_all.py` skips a family that exits `2`. It exits `0` when every configured family passes, `1`
+when any fails, and `2` when no family is configured.
 
 ## Troubleshooting
 
 ### The script says `not configured`
 
-- Confirm both `HARBOR_SMOKE_<FAMILY>_PROVIDER` and
-  `HARBOR_SMOKE_<FAMILY>_MODEL` are present.
-- Replace every `REPLACE_WITH_REAL...` placeholder.
-- If the file is not repo-root `.env`, set `HARBOR_SMOKE_ENV_FILE` to its path.
-- Check for an already exported variable: process variables take precedence
-  over the dotenv file, including stale or empty-looking shell configuration.
+- Check that the family's `PROVIDER` and `MODEL` variables are set: `HARBORRAG_CHAT_`,
+  `HARBORRAG_EMBED_` or `HARBOR_SMOKE_RERANK_` followed by `PROVIDER` and `MODEL`.
+- Replace every `REPLACE_WITH_REAL` placeholder.
+- If the file is not the repository-root `.env`, set `HARBOR_SMOKE_ENV_FILE` to its path.
+- Look for a variable already exported in your shell, even an empty-looking one: it wins over the
+  file.
 
-### Imports or optional dependencies fail
+### An import or optional dependency fails
 
-Re-run the `uv sync` command from the repository root. Confirm that the command
-uses Python 3.12 and the same environment where `harborrag-adapters`,
-`harborrag-core`, LiteLLM, Pydantic, and PyYAML were installed.
+Run the script from the repository root with the workspace environment, and resync it as
+[CONTRIBUTING](../../../../../CONTRIBUTING.md#development-setup) describes.
 
-### Authentication, model, or endpoint errors
+### Authentication, model or endpoint errors
 
-- Verify that the key is authorized for the exact provider and model.
-- Use the provider's LiteLLM model naming convention.
-- For OpenAI-compatible gateways, set `API_BASE` and, when required,
-  `CUSTOM_LLM_PROVIDER` or custom headers.
-- For Azure-style deployments, verify `API_BASE`, `API_VERSION`, and
-  `DEPLOYMENT_NAME` independently of the logical model name.
-- For `litellm_proxy`, verify the separate proxy URL and proxy key variables.
+- Check that the key is allowed to use that provider and model.
+- Use the provider's LiteLLM model name.
+- For an OpenAI-compatible gateway, set `API_BASE` and, when needed, `CUSTOM_LLM_PROVIDER` or
+  custom headers.
+- For an Azure-style deployment, check `API_BASE`, `API_VERSION` and `DEPLOYMENT_NAME` separately
+  from the model name.
+- For `litellm_proxy`, check the proxy URL and proxy key variables.
 
-### The request times out or appears to hang
+### The request times out or seems to hang
 
-Check DNS, firewall, VPN, proxy, and provider status from the same shell. LiteLLM
-may attempt to refresh its model-cost metadata before the provider operation;
-if that fetch fails, it normally warns and falls back to its packaged data.
-Provider request timeouts do not necessarily cap import-time network activity.
+Check DNS, firewall, VPN, proxy and the provider's status from the same shell. LiteLLM may try to
+refresh its model-cost data before the request; when that fails it warns and uses its packaged data.
+The request timeout does not cover network activity during import.
 
 ### Embedding dimensions fail validation
 
-Remove `HARBOR_EMBED_EXPECTED_DIMENSIONS` to discover the returned size,
-or set it to the positive dimension guaranteed by the selected provider model.
-Do not reuse an embedding-space name across models that produce incompatible
-vector spaces.
+Remove `HARBORRAG_EMBED_EXPECTED_DIMENSIONS` to see the size the model returns, or set it to the
+dimension the model guarantees. Do not reuse an embedding-space name for models whose vectors are
+not compatible.
 
-## Credential and output safety
+## Keep credentials and output safe
 
-- Use test credentials with the minimum required permissions and quota.
-- Keep populated dotenv files ignored and outside source control.
-- Never paste the dotenv file, raw headers, or provider response bodies into
-  test evidence or an issue.
-- The scripts redact common credential formats from errors, but review all
-  captured output before sharing it.
+- Use test credentials with the smallest permissions and quota that work.
+- Never paste the dotenv file, raw headers or provider response bodies into test evidence or an
+  issue.
+- The scripts redact common credential formats from errors, but read captured output before you
+  share it.

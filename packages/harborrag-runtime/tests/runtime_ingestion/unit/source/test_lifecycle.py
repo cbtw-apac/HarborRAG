@@ -188,6 +188,8 @@ async def test_graceful_cancellation_converges_task_state(
             documents=build_release_service(resources),
         )
         await service.discover(source_request("task-cancel"), DescriptorConnector())
+        discovered = await control.tasks.get("task-cancel")
+        assert discovered is not None and discovered.summary["discovered"]
 
         await service.cancel("task-cancel")
         await service.cancel("task-cancel")
@@ -195,7 +197,7 @@ async def test_graceful_cancellation_converges_task_state(
         task = await control.tasks.get("task-cancel")
         assert task is not None
         assert task.status == IngestionTaskState.CANCELLED
-        assert task.summary == {"cancelled_at_safe_boundary": True}
+        assert task.summary == {**discovered.summary, "cancelled_at_safe_boundary": True}
 
 
 @pytest.mark.asyncio

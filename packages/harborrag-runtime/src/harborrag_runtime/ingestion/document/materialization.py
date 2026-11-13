@@ -79,6 +79,11 @@ class DocumentMaterializationStages:
             return None
         document = await self._canonical(prepared, request=request)
         connector_type = request.source_identity.connector_type.value
+        chunker = (
+            self._dependencies.chunker
+            if self._dependencies.run_tools is None
+            else self._dependencies.run_tools.chunker_for(request.run_settings)
+        )
         plan = (
             None
             if request.chunking_max_tokens is None
@@ -87,7 +92,7 @@ class DocumentMaterializationStages:
             )
         )
         chunking = await asyncio.to_thread(
-            self._dependencies.chunker.chunk,
+            chunker.chunk,
             ChunkingRequest(
                 tenant_id=request.tenant_id,
                 document_version_id=prepared.document_version_id,
@@ -97,11 +102,15 @@ class DocumentMaterializationStages:
             ),
             plan,
         )
+        # An earlier attempt may have written this key before a chunk-metadata change
+        # (e.g. local created_at/updated_at), so the retry re-chunks to different
+        # bytes. The stored object is adopted, never replaced, and its index is rebuilt.
         artifacts = await self._dependencies.chunk_writer.put(
             document_id=prepared.document_id,
             document_version_id=prepared.document_version_id,
             chunks=chunking.chunks,
             context=self._context(request),
+            adopt_existing=True,
         )
         await self._lifecycle.record_chunks(
             prepared.document_version_id,

@@ -117,6 +117,3 @@ class ListSourcesTool(ReaderTool):
         return self.reference_store().issue(
             "cursor", payload, tenant_id=tenant_id, principal_id=principal_id
         )
-
-
-__all__ = ["ListSourcesTool"]

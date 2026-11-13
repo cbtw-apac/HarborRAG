@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createHarborClient, HarborApiRequestError } from "../src/index.ts";
 
-test("session helpers use public surface paths, paging, auth and per-request cancellation", async () => {
+test("session helpers use the chat session paths, paging, tenant, auth and per-request cancellation", async () => {
   const calls = [];
   const controller = new AbortController();
   const api = createHarborClient({
@@ -12,20 +12,21 @@ test("session helpers use public surface paths, paging, auth and per-request can
       calls.push({ url, method: init.method, body: init.body && JSON.parse(init.body) });
       assert.equal(init.headers.get("Authorization"), "Bearer token");
       assert.equal(init.headers.get("X-Trace"), "trace");
+      assert.equal(init.headers.get("X-Tenant-Id"), "ACME");
       assert.equal(init.signal, controller.signal);
-      return Response.json({ sessions: [], messages: [] });
+      return Response.json({ items: [], next_cursor: null });
     },
   });
-  const options = { signal: controller.signal, headers: { "X-Trace": "trace" } };
-  await api.createSession("chat", "ACME", options);
-  await api.listSessions("chat", { tenant: "ACME", cursor: "a+b", limit: 2 }, options);
-  await api.getSessionHistory("chat", "session:1", { tenant: "ACME", after: "msg:1", limit: 1 }, options);
+  const options = { signal: controller.signal, headers: { "X-Trace": "trace" }, tenant: "ACME" };
+  await api.createSession({ title: "Release policy", project_id: "demo" }, options);
+  await api.listSessions({ cursor: "a+b", limit: 2, q: "release" }, options);
+  await api.getSessionHistory("session:1", { cursor: "msg:1", limit: 1 }, options);
   assert.deepEqual(calls.map(c => [c.method, c.url.replace("https://example.test", "")]), [
     ["POST", "/v1/chat/sessions"],
-    ["GET", "/v1/chat/sessions?tenant=ACME&cursor=a%2Bb&limit=2"],
-    ["GET", "/v1/chat/sessions/session%3A1/messages?tenant=ACME&after=msg%3A1&limit=1"],
+    ["GET", "/v1/chat/sessions?cursor=a%2Bb&limit=2&q=release"],
+    ["GET", "/v1/chat/sessions/session%3A1/messages?cursor=msg%3A1&limit=1"],
   ]);
-  assert.deepEqual(calls[0].body, { tenant: "ACME" });
+  assert.deepEqual(calls[0].body, { title: "Release policy", project_id: "demo" });
   assert.equal(calls[1].body, undefined);
 });
 
@@ -38,10 +39,10 @@ test("session helpers reject HTTP errors and avoid fetching aborted or blank-ID 
       return Response.json({ error: { code: "not_found", message: "Not found" } }, { status: 404 });
     },
   });
-  await assert.rejects(api.getSessionHistory("chat", "missing"), HarborApiRequestError);
-  assert.throws(() => api.getSessionHistory("chat", " "), TypeError);
+  await assert.rejects(api.getSessionHistory("missing"), HarborApiRequestError);
+  assert.throws(() => api.getSessionHistory(" "), TypeError);
   const controller = new AbortController();
   controller.abort();
-  await assert.rejects(api.listSessions("chat", {}, { signal: controller.signal }), { name: "AbortError" });
+  await assert.rejects(api.listSessions({}, { signal: controller.signal }), { name: "AbortError" });
   assert.equal(fetches, 1);
 });

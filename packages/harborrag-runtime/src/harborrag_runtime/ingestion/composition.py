@@ -32,6 +32,7 @@ from .source.plan import SourcePlanRepository
 from .source.service import SourceIngestionService
 
 if TYPE_CHECKING:
+    from harborrag_core.ports.config_store import ConfigProvider
     from harborrag_engine.ingestion import ChunkingConfig, ChunkStrategy
 
     from .document.normalizers import SourceDocumentNormalizerBuilder
@@ -82,6 +83,7 @@ class IngestionRuntime:
     resource_targets: Mapping[str, str] = field(default_factory=dict)
     # What to check per resource label for the configured providers; same path.
     resource_hints: Mapping[str, str] = field(default_factory=dict)
+    config: ConfigProvider | None = None
     _started: bool = field(default=False, init=False)
 
     async def start(self) -> None:
@@ -108,6 +110,10 @@ class IngestionRuntime:
                 await self.object_store.ensure_buckets((RAW_BUCKET, ARTIFACT_BUCKET))
             except Exception as error:
                 raise self._unreachable("object_store", error) from error
+            config = getattr(self, "config", None)
+            if config is not None:
+                await config.start()
+                connected.append(config.aclose)
         except BaseException as error:
             logger.error(
                 "Ingestion runtime startup failed error_type=%s connected_resources=%d",
@@ -137,9 +143,15 @@ class IngestionRuntime:
         )
         return RuntimeConnectionError(f"Could not connect to or initialise {target}; {hint}")
 
+    async def _close_config(self) -> None:
+        config = getattr(self, "config", None)
+        if config is not None:
+            await config.aclose()
+
     async def close(self) -> None:
         if not self._started:
             await asyncio.gather(
+                self._close_config(),
                 asyncio.to_thread(self.connector_rate_limiter.close),
                 self.embed_client.aclose(),
                 self.telemetry.close(),
@@ -148,6 +160,7 @@ class IngestionRuntime:
             logger.debug("Ingestion runtime closed from unstarted state")
             return
         outcomes = await asyncio.gather(
+            self._close_config(),
             self.connector_pool.aclose(),
             self._close_connection_stores(),
             self.graph_repository.close(),

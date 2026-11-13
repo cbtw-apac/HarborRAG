@@ -21,22 +21,22 @@ if TYPE_CHECKING:
 _ATTACHMENT_PROVIDERS = frozenset({"confluence", "jira"})
 
 
-def _catalog_source(filename: str):
-    """Prefer a real `config/<filename>.yaml`; fall back to its example."""
-    real = CONFIG_DIR / f"{filename}.yaml"
+def _catalog_source(folder: str, filename: str):
+    """Prefer a real `config/<folder>/<filename>.yaml`; fall back to its example."""
+    real = CONFIG_DIR / folder / f"{filename}.yaml"
     if real.exists():
         return real
-    example = CONFIG_DIR / f"{filename}.example.yaml"
+    example = CONFIG_DIR / folder / f"{filename}.example.yaml"
     print(f"[config] {real.name} not found; falling back to {example.name}")
     return example
 
 
 def connector_catalog():
-    return load_connector_catalog(_catalog_source("connectors"))
+    return load_connector_catalog(_catalog_source("sources", "connectors"))
 
 
 def parser_catalog():
-    return load_parser_catalog(_catalog_source("parsers"))
+    return load_parser_catalog(_catalog_source("ingestion", "parsers"))
 
 
 def _connector_environment(provider: str) -> dict[str, str]:
@@ -97,7 +97,7 @@ def build_connector(
     parser: HarborParserRegistry | None = None,
     expected_provider: str | None = None,
 ) -> HarborConnector:
-    """Build one configured connection from `config/connectors.yaml`.
+    """Build one configured connection from `config/sources/connectors.yaml`.
 
     Raises:
         ConnectorConfigurationError: If the connection is undefined,

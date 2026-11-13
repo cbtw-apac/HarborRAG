@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING
 
+from harborrag_core.config_store import SettingsLevel
 from harborrag_core.domain.retrieval import RetrievalResult
 from harborrag_core.schemas.ids import TenantId
 from harborrag_core.security import AccessContext
 from harborrag_runtime.sdk import RetrievalLane, RetrievalMode, RetrievalRequest
 
+from ..retrieval.access import corpus_mode_for
+
 if TYPE_CHECKING:
+    from harborrag_core.ports.config_store import ConfigProvider
     from harborrag_runtime.config.settings import RuntimeSettings
     from harborrag_runtime.contracts import RetrievalResponse
     from harborrag_runtime.memory import MemoryContext
@@ -35,7 +39,6 @@ def relevant_results(
     lane cannot say", not "this is a poor match", and discarding on absence
     would silently empty the context for any backend that does not score.
     """
-
     if minimum <= 0.0:
         return tuple(results)
     return tuple(
@@ -43,37 +46,78 @@ def relevant_results(
     )
 
 
-async def search_documents(
+async def chat_top_k(
+    config: ConfigProvider | None, identity: MemoryIdentity, settings: RuntimeSettings
+) -> int:
+    """Return the ``retrieval.top_k`` override for the session's level, else the environment value.
+
+    A provider that cannot load a never-cached tenant raises ``HarborUnavailableError``.
+
+    Args:
+        config: Runtime settings provider; ``None`` uses the environment value.
+        identity: Session whose project, else tenant, is the settings level.
+        settings: Process settings holding ``chat_retrieval_top_k``.
+
+    Returns:
+        Passages chat retrieval returns.
+    """
+    if config is None:
+        return settings.chat_retrieval_top_k
+    effective = await config.effective(identity.tenant_id, _settings_level(identity))
+    override = effective.override("retrieval.top_k")
+    return override if isinstance(override, int) else settings.chat_retrieval_top_k
+
+
+async def chat_rerank(config: ConfigProvider | None, identity: MemoryIdentity) -> bool:
+    """Return whether ``retrieval.rerank`` is on for the session's level.
+
+    A provider that cannot load a never-cached tenant raises ``HarborUnavailableError``.
+
+    Args:
+        config: Runtime settings provider; ``None`` never reranks.
+        identity: Session whose project, else tenant, is the settings level.
+
+    Returns:
+        Whether chat retrieval reranks its passages.
+    """
+    if config is None:
+        return False
+    effective = await config.effective(identity.tenant_id, _settings_level(identity))
+    return effective.override("retrieval.rerank") is True
+
+
+def _settings_level(identity: MemoryIdentity) -> SettingsLevel:
+    """Return the project level when the session has a project, else the tenant level."""
+    if identity.project_id:
+        return SettingsLevel("project", project_id=identity.project_id)
+    return SettingsLevel("tenant")
+
+
+async def search_documents(  # noqa: PLR0913 - one keyword-only input per retrieval parameter
     runtime: HarborRAG,
     context: MemoryContext,
     *,
     identity: MemoryIdentity,
     settings: RuntimeSettings,
-    graph_search: bool | None,
+    observe_graph: bool,
+    top_k: int,
+    filters: Mapping[str, object],
+    rerank: bool,
 ) -> RetrievalResponse:
-    """Search the current question with the selected retrieval mode."""
-
-    graph_enabled = settings.chat_retrieval_graph_search if graph_search is None else graph_search
+    """Search the current question within ``filters``, observing the graph or reranking as asked."""
     return await runtime.retrieval.search(
         RetrievalRequest(
             access=AccessContext(
                 principal_id=identity.principal_id,
                 tenant_id=TenantId(identity.tenant_id),
-                # Only the configured shared tenant reads on the shared basis;
-                # every other tenant stays ACL-scoped.
-                corpus_mode=(
-                    settings.corpus_access_mode
-                    if identity.tenant_id == settings.corpus_shared_tenant_id
-                    else "source_acl"
-                ),
+                corpus_mode=corpus_mode_for(settings, identity.tenant_id),
             ),
             query=context.standalone_query,
-            top_k=settings.chat_retrieval_top_k,
+            top_k=top_k,
+            filters=dict(filters),
             lane=RetrievalLane.HYBRID,
-            observe_graph=graph_enabled,
-            mode=RetrievalMode.LOCAL_SEMANTIC if graph_enabled else RetrievalMode.FLAT,
+            observe_graph=observe_graph,
+            mode=RetrievalMode.LOCAL_SEMANTIC if observe_graph else RetrievalMode.FLAT,
+            rerank=rerank,
         )
     )
-
-
-__all__ = ["relevant_results", "search_documents"]

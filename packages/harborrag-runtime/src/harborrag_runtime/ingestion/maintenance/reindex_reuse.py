@@ -133,6 +133,3 @@ class ChunkReuseCoordinator:
                     artifact_column=column,
                     artifact=reference,
                 )
-
-
-__all__ = ["ChunkReuseCoordinator"]

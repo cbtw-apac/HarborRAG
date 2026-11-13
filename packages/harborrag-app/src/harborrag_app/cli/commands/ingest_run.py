@@ -36,7 +36,7 @@ def run(  # noqa: PLR0913 - Typer requires one parameter per public option
         str,
         typer.Argument(
             metavar="CONNECTOR",
-            help="Connection source_key, such as workspace or default/jira-cpm.",
+            help="Connection source_key, such as harborrag-workspace or default/jira-demo.",
         ),
     ],
     tenant_id: Annotated[
@@ -161,6 +161,3 @@ def parse_filters(value: str) -> dict[str, object]:
     if not isinstance(parsed, dict):
         raise ValueError("--filters-json must encode a JSON object")
     return {str(key): item for key, item in parsed.items()}
-
-
-__all__ = ["JsonOption", "parse_filters", "register_run", "run"]

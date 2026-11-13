@@ -141,6 +141,26 @@ _INGESTION = "ingestion", "Ingestion"
 
 _SPECS: tuple[SettingSpec, ...] = (
     _spec(
+        "retrieval.top_k",
+        "integer",
+        5,
+        TENANT_PROJECT_LEVELS,
+        "live",
+        "Passages the chat retrieval and the MCP vector_search return by default",
+        *_RETRIEVAL,
+        minimum=1,
+        maximum=100,
+    ),
+    _spec(
+        "retrieval.rerank",
+        "boolean",
+        False,
+        TENANT_PROJECT_LEVELS,
+        "live",
+        "Rerank chat retrieval passages with the model catalog's rerank model",
+        *_RETRIEVAL,
+    ),
+    _spec(
         "capture.max_document_mb",
         "integer",
         20,

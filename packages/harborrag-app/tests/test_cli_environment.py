@@ -89,9 +89,9 @@ def _clear_object_store(monkeypatch) -> None:
 
 
 def _mark_checkout(root: Path) -> None:
-    """A repository checkout is recognised by its config/connectors.yaml."""
+    """A repository checkout is recognised by its config/sources/connectors.yaml."""
 
-    _write(root, "config/connectors.yaml", "connectors: {}\n")
+    _write(root, "config/sources/connectors.yaml", "connectors: {}\n")
 
 
 def _activate_project(monkeypatch) -> None:
@@ -165,8 +165,8 @@ def test_unreadable_database_env_file_is_skipped(tmp_path: Path, monkeypatch) ->
 
 
 def test_minio_credentials_map_only_in_a_repo_checkout(tmp_path: Path, monkeypatch) -> None:
-    # A plain directory or a `harborrag init` project with an env/.env.database of its
-    # own is not the dev stack; its MinIO pair must not become the CLI's credentials.
+    # A plain directory with an env/.env.database of its own is not the dev stack; its
+    # MinIO pair must not become the CLI's credentials.
     _write(tmp_path, "env/.env.database", "MINIO_ROOT_USER=u\nMINIO_ROOT_PASSWORD=p\n")
     _clear_object_store(monkeypatch)
 

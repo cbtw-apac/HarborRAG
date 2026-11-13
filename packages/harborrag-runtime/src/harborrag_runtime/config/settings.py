@@ -93,6 +93,8 @@ class RuntimeSettings(MemorySettingsMixin, BaseSettings):
     temporal_worker_identity: str = "harborrag-runtime"
     temporal_api_key: SecretStr | None = None
     temporal_tls: bool = False
+    temporal_ui_url: str | None = None
+    grafana_url: str | None = None
     temporal_allow_insecure_remote: bool = False
     temporal_health_timeout_seconds: float = Field(default=5.0, gt=0)
     temporal_max_concurrent_activities: int = Field(default=2, ge=1, le=1000)
@@ -103,7 +105,7 @@ class RuntimeSettings(MemorySettingsMixin, BaseSettings):
     temporal_ingestion_batch_size: int = Field(default=200, ge=1, le=300)
     temporal_ingestion_document_concurrency: int = Field(default=8, ge=1, le=100)
     temporal_config_path: Path = Path("config/temporal.yaml")
-    schedule_config_path: Path = Path("config/schedules.yaml")
+    schedule_config_path: Path = Path("config/sources/schedules.yaml")
     # How often a worker exports schedule pause/overlap gauges by describing every
     # schedule. 0 disables it; with several replicas keep it on one of them.
     schedule_metrics_interval_seconds: float = Field(default=30.0, ge=0, le=3600)
@@ -117,14 +119,14 @@ class RuntimeSettings(MemorySettingsMixin, BaseSettings):
         default="harborrag-connector-rate",
         pattern=r"^[A-Za-z0-9._-]+$",
     )
-    connector_config_path: Path = Path("config/connectors.yaml")
+    connector_config_path: Path = Path("config/sources/connectors.yaml")
     # Seeds setting_overrides once on an empty install; see settings_seed.py.
     settings_seed_config_path: Path = Path("config/runtime_settings.yaml")
-    parser_config_path: Path = Path("config/parsers.yaml")
-    model_config_path: Path = Path("config/models.yaml")
-    graph_build_config_path: Path = Path("config/topology/graph_build.yaml")
+    parser_config_path: Path = Path("config/ingestion/parsers.yaml")
+    model_config_path: Path = Path("config/models/models.yaml")
+    graph_build_config_path: Path = Path("config/graph/build.yaml")
     # Optional: without the file, built-in chunking profiles and the structure refiner apply.
-    chunking_config_path: Path = Path("config/chunking.yaml")
+    chunking_config_path: Path = Path("config/ingestion/chunking.yaml")
     object_store_provider: str = Field(default="s3", min_length=1)
     object_store_root: Path = Path(".harborrag/objects")
     vector_provider: str = Field(default="qdrant", min_length=1)

@@ -130,11 +130,3 @@ def is_sensitive_field_name(value: object) -> bool:
     if matched == {"token"} and tokens & _COUNT_QUALIFIERS:
         return False
     return bool(matched)
-
-
-__all__ = [
-    "SENSITIVE_FIELD_TOKENS",
-    "canonical_field_name",
-    "canonical_field_tokens",
-    "is_sensitive_field_name",
-]

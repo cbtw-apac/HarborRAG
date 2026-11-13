@@ -38,17 +38,16 @@ def test_worker_config_paths_are_absolute_container_paths() -> None:
         )
         assert f"{variable}: /app/config/" in temporal
         assert f"${{{variable}:-" not in temporal
-    assert "../../config:/app/config:ro" not in temporal
 
 
-def test_api_mounts_config_while_worker_uses_baked_runtime_configuration() -> None:
+def test_api_and_worker_mount_the_same_config_directory() -> None:
     api = (ROOT / "deploy/compose/docker-compose.yml").read_text(encoding="utf-8")
     temporal = TEMPORAL_COMPOSE.read_text(encoding="utf-8")
     dockerfile = (ROOT / "deploy/docker/Dockerfile.temporal-worker").read_text(encoding="utf-8")
 
     assert "../../config:/app/config:ro" in api
-    assert "../../config:/app/config:ro" not in temporal
-    assert "../../config/temporal.yaml:/app/config/temporal.yaml:ro" in temporal
+    assert "../../config:/app/config:ro" in temporal
+    assert "../../config/temporal.yaml:/app/config/temporal.yaml:ro" not in temporal
     assert "COPY config ./config" in dockerfile
 
 
@@ -56,10 +55,10 @@ def test_api_and_worker_pin_the_executable_graph_build_policy() -> None:
     api = (ROOT / "deploy/compose/docker-compose.yml").read_text(encoding="utf-8")
     temporal = TEMPORAL_COMPOSE.read_text(encoding="utf-8")
 
-    expected = "HARBORRAG_GRAPH_BUILD_CONFIG_PATH: /app/config/topology/graph_build.yaml"
+    expected = "HARBORRAG_GRAPH_BUILD_CONFIG_PATH: /app/config/graph/build.yaml"
     assert expected in api
     assert expected in temporal
-    assert (ROOT / "config/topology/graph_build.yaml").is_file()
+    assert (ROOT / "config/graph/build.yaml").is_file()
 
 
 def test_temporal_secret_is_explicitly_scoped_to_api_and_worker() -> None:

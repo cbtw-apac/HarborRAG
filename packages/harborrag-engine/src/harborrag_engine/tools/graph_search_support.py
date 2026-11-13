@@ -47,9 +47,9 @@ def node_selector(value: str) -> str:
     """Reduce a canonical source item id to the provider id its graph node carries.
 
     vector_search hands out ``metadata.source_item_id`` values such as
-    ``jira://CPM/CPM-110455`` or ``jira://CPM/CPM-66246/attachments/256636``, while the
+    ``jira://DEMO/DEMO-123`` or ``jira://DEMO/DEMO-45/attachments/256636``, while the
     projection keys a source entity by the provider id it derives from that identity
-    (``CPM-110455``, ``256636``) and stores it as the node's logical_id. Deriving the
+    (``DEMO-123``, ``256636``) and stores it as the node's logical_id. Deriving the
     selector with the projection's own ``source_provider_id`` -- the URI scheme is the
     connector type -- keeps the two from drifting. Anything that is not a
     ``scheme://`` identity (node keys, chunk and document ids, titles) passes unchanged,
@@ -85,13 +85,3 @@ def completion(
     if diagnostics.get("projection_truncated") and "edge_limit" not in reasons:
         reasons.append("candidate_limit")
     return {"complete": not reasons, "reasons": reasons}
-
-
-__all__ = [
-    "COMPLETION_SCHEMA",
-    "backend_failure",
-    "completion",
-    "direction",
-    "node_selector",
-    "relations",
-]

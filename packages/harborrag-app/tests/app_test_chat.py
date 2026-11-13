@@ -1,163 +1,122 @@
-"""Chat behavior for the shared application-service test double."""
+"""Chat behaviour of the shared application-service test double: the real chat pipeline
+over a fake model, fake retrieval and the double's in-memory conversation store."""
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from types import SimpleNamespace
 
-from harborrag_app.workflow_control import AppResponse
-from harborrag_app.workflow_control.chat import ChatExecutionOptions
-from harborrag_core.contracts.errors import HarborNotFoundError, HarborValidationError
+from chat_service_fixtures import (
+    FakeChatFacade,
+    FakeConfigProvider,
+    FakeRetrievalFacade,
+    FakeRuntime,
+)
+
+from harborrag_app.workflow_control.chat import ChatApplicationService
+from harborrag_app.workflow_control.chat.scope import ConnectionSources
+from harborrag_app.workflow_control.memory import ConversationSessionService
+from harborrag_core.domain.retrieval import RetrievalResult
+from harborrag_runtime.config.settings import RuntimeSettings
+from harborrag_runtime.memory import InMemoryConversationMemory
+
+PASSAGES = (
+    RetrievalResult(
+        id="chk_4502",
+        text="Seven years of Go services and Kubernetes operators in Hanoi.",
+        score=0.82,
+        metadata={
+            "document_id": "doc_4502",
+            "document_title": "CPM-4502 Platform engineer, Hanoi",
+            "citation_locator": {"uri": "https://jira.example.test/browse/CPM-4502"},
+        },
+    ),
+    RetrievalResult(
+        id="chk_4411",
+        text="Five years of Go and Kubernetes, led the migration of the billing service. " * 8,
+        score=0.91,
+        metadata={
+            "document_id": "doc_4411",
+            "document_title": "CPM-4411 Senior Go engineer, Hanoi",
+            "citation_locator": {"page_start": 2, "page_end": 2},
+        },
+    ),
+)
+"""Two candidate passages of project ``cpm``; the second is longer than a snippet."""
+
+ANSWER = "Two candidates match: CPM-4411 [2] and CPM-4502 [1]; see also [9]. CPM-4411 [2] led it."
+"""Cites retrieval passage 2 first, then 1, then a passage that was never retrieved."""
 
 
-def require_allowed_model(
-    model: str | None,
-    *,
-    tenant_id: str,
-    allowed: set[str],
-    tenant_models: dict[str, set[str]],
-) -> None:
-    """Reject a model this tenant may not use, exactly as the runtime does."""
+class ProjectSets:
+    """``ProjectRepositoryPort`` over the double's ``known_projects`` and ``tenant_projects``."""
 
-    if model is None:
-        return
-    if model not in tenant_models.get(tenant_id, allowed):
-        raise HarborValidationError(f"model {model!r} is not available", {"field": "model"})
+    def __init__(self, owner: ChatServiceFixture) -> None:
+        self._owner = owner
+
+    async def get(self, project_id: str, *, tenant_ids: frozenset[str] | None) -> object | None:
+        tenants = tenant_ids or frozenset()
+        if project_id in self._owner.known_projects or any(
+            project_id in self._owner.tenant_projects.get(tenant, set()) for tenant in tenants
+        ):
+            return SimpleNamespace(id=project_id)
+        return None
+
+
+class FakeConnectionCatalog:
+    """The connections of each project with the source scopes and documents they have indexed."""
+
+    def __init__(self) -> None:
+        self.projects: dict[str, list[ConnectionSources]] = {}
+
+    def add(
+        self, project_id: str, ref: str, source_scope_ids: tuple[str, ...], *, documents: int
+    ) -> None:
+        """Give ``project_id`` one more connection."""
+        self.projects.setdefault(project_id, []).append(
+            ConnectionSources(ref=ref, source_scope_ids=source_scope_ids, published=documents > 0)
+        )
+
+    async def project_connections(
+        self, tenant_id: str, project_id: str
+    ) -> tuple[ConnectionSources, ...]:
+        del tenant_id
+        return tuple(self.projects.get(project_id, ()))
 
 
 class ChatServiceFixture:
-    chat_calls: list[dict[str, object]]
-    allowed_models: set[str]
-    tenant_models: dict[str, set[str]]
-    # The projects this double's control plane knows about. A ``project_id``
-    # outside it is a 404 on the JSON and the streaming path alike, exactly as
-    # ``require_project`` makes it in production.
+    """Compose the production chat service over in-memory and fake collaborators."""
+
+    conversations: InMemoryConversationMemory
     known_projects: set[str]
+    tenant_projects: dict[str, set[str]]
 
-    async def validate_completion_scope(self, query, access, *, model):
-        # Gate classification is covered with a real gate and controlled model
-        # in test_query_scope; endpoint fixtures record admission independently.
-        if not hasattr(self, "scope_calls"):
-            self.scope_calls = []
-        self.scope_calls.append((query, access, model))
+    def _compose_chat(self) -> None:
+        self.chat_runtime = FakeRuntime(
+            FakeChatFacade(answer=ANSWER), FakeRetrievalFacade(PASSAGES)
+        )
+        self.settings_overrides = FakeConfigProvider()
+        self.catalog = FakeConnectionCatalog()
+        self.use_chat_settings(RuntimeSettings())
 
-    async def validate_chat_project(self, project_id: str | None, *, tenant_id: str) -> None:
-        del tenant_id
-        if project_id is not None and project_id not in self.known_projects:
-            raise HarborNotFoundError("Project was not found")
+    def use_chat_settings(self, settings: RuntimeSettings) -> None:
+        """Rebuild the chat service with ``settings``, keeping every store and fake."""
 
-    async def validate_chat_model(self, model: str | None, *, tenant_id: str) -> None:
-        require_allowed_model(
-            model,
-            tenant_id=tenant_id,
-            allowed=self.allowed_models,
-            tenant_models=self.tenant_models,
+        self._sessions = ConversationSessionService(self.conversations)
+        self._chat = ChatApplicationService(
+            lambda: self.chat_runtime,  # type: ignore[arg-type, return-value]
+            settings,
+            memory=self.conversations,
+            projects=ProjectSets(self),  # type: ignore[arg-type]
+            config=self.settings_overrides,  # type: ignore[arg-type]
+            catalog=self.catalog,
         )
 
-    async def chat_completion(
-        self,
-        query: str,
-        *,
-        tenant_id: str,
-        principal_id: str,
-        options: ChatExecutionOptions,
-    ) -> AppResponse:
-        exists = await self.chat_session_exists(
-            options.session_id,
-            tenant_id=tenant_id,
-            principal_id=principal_id,
-            user_id=options.user_id,
-        )
-        if not exists:
-            raise HarborNotFoundError("Conversation session was not found")
-        await self.validate_chat_project(options.project_id, tenant_id=tenant_id)
-        self.chat_calls.append(self._chat_call(query, tenant_id, principal_id, options))
-        return AppResponse(True, self._chat_payload(options.session_id, options.project_id))
+    @property
+    def chat(self) -> FakeChatFacade:
+        """The fake model: ``requests`` are answer calls, ``gate_requests`` scope checks."""
+        return self.chat_runtime.chat
 
-    def chat_stream(
-        self,
-        query: str,
-        *,
-        tenant_id: str,
-        principal_id: str,
-        options: ChatExecutionOptions,
-    ) -> AsyncIterator[dict[str, object]]:
-        self.chat_calls.append(self._chat_call(query, tenant_id, principal_id, options))
-        return self._chat_stream_events(options.session_id)
-
-    @staticmethod
-    def _chat_call(
-        query: str,
-        tenant_id: str,
-        principal_id: str,
-        options: ChatExecutionOptions,
-    ) -> dict[str, object]:
-        return {
-            "query": query,
-            "tenant_id": tenant_id,
-            "principal_id": principal_id,
-            "system": options.system,
-            "graph_search": options.graph_search,
-            "session_id": options.session_id,
-            "project_id": options.project_id,
-            "user_id": options.user_id,
-            "model": options.model,
-        }
-
-    async def _chat_stream_events(
-        self,
-        session_id: str,
-    ) -> AsyncIterator[dict[str, object]]:
-        yield {
-            "kind": "citations",
-            "citations": ({"document_id": "doc-1", "chunk_id": "chunk-1", "score": 0.9},),
-            "session_id": session_id,
-        }
-        yield {
-            "kind": "chunk",
-            "chunk": {
-                "event": "text_delta",
-                "model": "primary",
-                "provider": "mock",
-                "provider_model": "mock-chat",
-                "content": "Harbor response",
-                "reasoning": None,
-                "finish_reason": None,
-                "usage": None,
-            },
-        }
-        yield {
-            "kind": "chunk",
-            "chunk": {
-                "event": "completed",
-                "model": "primary",
-                "provider": "mock",
-                "provider_model": "mock-chat",
-                "content": None,
-                "reasoning": None,
-                "finish_reason": "stop",
-                "usage": {"prompt_tokens": 5, "completion_tokens": 2, "total_tokens": 7},
-            },
-        }
-        yield {"kind": "result", "result": self._chat_payload(session_id)}
-
-    @staticmethod
-    def _chat_payload(session_id: str, project_id: str | None = None) -> dict[str, object]:
-        return {
-            "completion_id": "chat-1",
-            "created": 1_785_600_000,
-            "model": "primary",
-            "provider": "mock",
-            "provider_model": "mock-chat",
-            "message": {"role": "assistant", "content": "Harbor response"},
-            "finish_reason": "stop",
-            "usage": {"prompt_tokens": 5, "completion_tokens": 2, "total_tokens": 7},
-            "latency_ms": 1.5,
-            "retry_count": 0,
-            "fallback_count": 0,
-            "citations": [{"document_id": "doc-1", "chunk_id": "chunk-1", "score": 0.9}],
-            "session_id": session_id,
-            "project_id": project_id,
-        }
-
-
-__all__ = ["ChatServiceFixture"]
+    @property
+    def retrieval(self) -> FakeRetrievalFacade:
+        """The fake retrieval facade and the requests it received."""
+        return self.chat_runtime.retrieval

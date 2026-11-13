@@ -74,22 +74,30 @@ async def test_chat_completion_attaches_access_metadata_and_projects_response() 
         chat.request.messages[0].content
     )
     assert chat.request.messages[0].content.endswith("Question: Hello")
-    assert response.data["message"] == {
-        "role": "assistant",
-        "content": answer,
-    }
-    assert response.data["usage"]["total_tokens"] == 3
-    assert response.data["citations"] == (
+    assert response.data["answer"] == answer
+    # The scope check's call and the answer's call, two tokens in and one out each.
+    assert response.data["usage"]["prompt_tokens"] == 4
+    assert response.data["usage"]["completion_tokens"] == 2
+    assert response.data["citations"] == [
         {
-            "document_id": "doc-1",
+            "n": 1,
             "chunk_id": "chunk-1",
-            "score": 0.9,
-            "marker": '[Source 1: "doc-1" — source passage]',
-            "content": "HarborRAG is a retrieval-augmented generation platform.",
-        },
-    )
-    assert "deployment" not in response.data
-    assert "provider_metadata" not in response.data
+            "document_id": "doc-1",
+            "title": "doc-1",
+            "snippet": "HarborRAG is a retrieval-augmented generation platform.",
+            "url": None,
+            "page": None,
+        }
+    ]
+    assert set(response.data) == {
+        "completion_id",
+        "session_id",
+        "trace_id",
+        "mode",
+        "answer",
+        "citations",
+        "usage",
+    }
 
 
 @pytest.mark.asyncio

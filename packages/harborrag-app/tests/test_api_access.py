@@ -18,6 +18,8 @@ from harborrag_app.api.auth.access import api_routes, minimum_role
 from harborrag_app.api.auth.principal import ROLE_ORDER
 from harborrag_app.api.settings import ApiSettings
 from harborrag_app.workflow_control.control_plane.projects import ProjectService
+from harborrag_app.workflow_control.control_plane.settings_service import SettingsService
+from harborrag_core.config_store import SettingsRegistry
 from harborrag_core.domain.project import Project
 from harborrag_core.ports.api_keys import AuthStoreUnavailable
 from harborrag_engine.security.api_key_service import VerifiedKey
@@ -71,6 +73,9 @@ class _AccessApp(MockAppService):
             ]
         )
         self.connection_service = self.world.service
+        self.settings_service = SettingsService(
+            control_plane=lambda: self.world.control_plane, registry=SettingsRegistry.default()
+        )
         self.project_service = ProjectService(
             control_plane=lambda: self.world.control_plane,
             runs=self.world.service._runs,
@@ -165,7 +170,7 @@ def test_a_role_below_the_routes_minimum_is_forbidden(
             method,
             path,
             headers=headers,
-            params={"tenant_id": "acme"},
+            params={"tenant_id": "acme", "level": "connection:cpm/cpm-tickets"},
             json={"tenant_id": "acme", "prompt": "hello", "connection_id": "cpm-tickets"},
         )
         if ROLE_ORDER[role] < ROLE_ORDER[minimum]:  # type: ignore[index]
@@ -186,6 +191,9 @@ def test_every_v1_route_declares_its_minimum_role(client: TestClient) -> None:
     assert roles[("DELETE", "/v1/admin/projects/cpm")] == "admin"
     assert roles[("POST", "/v1/chat/completions")] == "reader"
     assert roles[("GET", "/v1/projects/cpm/connections")] == "reader"
+    assert roles[("GET", "/v1/admin/settings")] == "editor"
+    assert roles[("PATCH", "/v1/admin/settings")] == "admin"
+    assert roles[("GET", "/v1/admin/settings/schema")] == "editor"
 
 
 def test_another_tenants_project_is_not_found(client: TestClient) -> None:

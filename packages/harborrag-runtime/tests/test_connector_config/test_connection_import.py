@@ -138,7 +138,9 @@ async def test_applying_the_example_file_twice_writes_once(
 ) -> None:
     source = tmp_path / "docs"
     source.mkdir()
-    example = (REPO_ROOT / "config" / "connectors.example.yaml").read_text(encoding="utf-8")
+    example = (REPO_ROOT / "config" / "sources" / "connectors.example.yaml").read_text(
+        encoding="utf-8"
+    )
     projects, connections = stores
     service = ConnectionImportService(
         projects=projects, connections=connections, environ={"LOCAL_SOURCE_PATH": str(source)}
@@ -292,6 +294,26 @@ async def test_first_start_import_skips_an_install_with_carried_over_rows(
     assert plan is None
     stored, _ = await connections.list(tenant_ids=None)
     assert [connection.source_key for connection in stored] == [migrated.source_key]
+
+
+@pytest.mark.asyncio
+async def test_a_cloud_entry_missing_its_email_is_kept_with_the_api_token_method(
+    stores: Any,
+) -> None:
+    projects, connections = stores
+    importer = ConnectionImportService(
+        projects=projects,
+        connections=connections,
+        environ={"JIRA_BASE_URL": "https://acme.atlassian.net"},
+    )
+
+    plan = await importer.plan(_LEGACY, tenant_id="DEFAULT")
+
+    for source_key in ("jira-main", "Wiki.Main"):
+        change = next(change for change in plan.changes if change.source_key == source_key)
+        assert change.connection is not None and change.connection.status == "error"
+        assert change.connection.credentials["method"] == "api_token"
+        assert change.reason is not None and "credentials.email" in change.reason
 
 
 @pytest.mark.asyncio

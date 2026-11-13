@@ -5,12 +5,10 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, Self
 
-from harborrag_adapters.connectors.environment import without_environment_defaults
-
 from ...errors import ConnectorConfigurationError
 from ..providers import ConnectorConfigFactory, coerce_config_values
 from .registry import SourceTypeRegistry, source_types
-from .spec import FieldIssue, SourceTypeSpec, ValidatedConnection
+from .spec import ConnectionValidationError, FieldIssue, SourceTypeSpec, ValidatedConnection
 
 _PLACEHOLDER_SECRET = "placeholder"
 
@@ -72,7 +70,7 @@ class ConnectorConfigBuilder:
         return values
 
     def build(self) -> object:
-        """Construct the provider config dataclass without process-environment fallbacks.
+        """Construct the provider config dataclass.
 
         Returns:
             An instance of the provider's config dataclass.
@@ -83,8 +81,7 @@ class ConnectorConfigBuilder:
         """
         values = self.values()
         try:
-            with without_environment_defaults():
-                return self._factory(**values)
+            return self._factory(**values)
         except (TypeError, ValueError) as error:
             raise ConnectorConfigurationError(
                 f"{self._spec.source_type} connection config is invalid: {error}"
@@ -126,6 +123,36 @@ def to_connector_config(  # noqa: PLR0913 - the parts of one stored connection
         .tenant(tenant_id)
         .build()
     )
+
+
+def validate_connection(
+    spec: SourceTypeSpec,
+    credentials: Mapping[str, Any],
+    config: Mapping[str, Any],
+    tuning: Mapping[str, Any],
+    *,
+    tenant_id: str,
+) -> ValidatedConnection:
+    """Check a connection against its source type's schemas, then against its connector.
+
+    Args:
+        spec: The connection's source type.
+        credentials: Credentials; secrets as values or references.
+        config: What to sync.
+        tuning: Request settings.
+        tenant_id: Tenant that owns the connection.
+
+    Returns:
+        The validated credentials, config and tuning.
+
+    Raises:
+        ConnectionValidationError: A schema or the connector rejects the values.
+    """
+    validated = spec.validate(credentials, config, tuning)
+    issues = connector_config_issues(spec, validated, tenant_id=tenant_id)
+    if issues:
+        raise ConnectionValidationError(issues)
+    return validated
 
 
 def connector_config_issues(

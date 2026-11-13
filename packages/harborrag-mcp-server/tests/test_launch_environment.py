@@ -21,7 +21,7 @@ def _checkout(root: Path) -> None:
         "QDRANT_HTTP_PORT=7333\n",
         encoding="utf-8",
     )
-    (root / "env/.env.models").write_text("HARBOR_EMBED_API_KEY=secret\n", encoding="utf-8")
+    (root / "env/.env.models").write_text("HARBORRAG_EMBED_API_KEY=secret\n", encoding="utf-8")
     (root / "env/.env.mcp").write_text(
         "HARBORRAG_MCP_CONFIG_PATH=config/custom-mcp.yaml\n", encoding="utf-8"
     )
@@ -41,7 +41,7 @@ def test_checkout_environment_maps_local_backends_and_respects_process_overrides
     assert environment["HARBORRAG_QDRANT_URL"] == "https://remote.example/qdrant"
     assert environment["HARBORRAG_OBJECT_STORE_ACCESS_KEY_ID"] == "object-reader"
     assert environment["HARBORRAG_MCP_CONFIG_PATH"] == str(tmp_path / "config/custom-mcp.yaml")
-    assert environment["HARBORRAG_MODEL_CONFIG_PATH"] == str(tmp_path / "config/models.yaml")
+    assert environment["HARBORRAG_MODEL_CONFIG_PATH"] == str(tmp_path / "config/models/models.yaml")
 
 
 def test_explicit_environment_file_overrides_checkout_file_but_not_process_env(
@@ -49,12 +49,12 @@ def test_explicit_environment_file_overrides_checkout_file_but_not_process_env(
 ) -> None:
     _checkout(tmp_path)
     extra = tmp_path / "extra.env"
-    extra.write_text("POSTGRES_DB=other\nHARBOR_EMBED_API_KEY=other-key\n", encoding="utf-8")
-    environment = {"HARBOR_EMBED_API_KEY": "process-key"}
+    extra.write_text("POSTGRES_DB=other\nHARBORRAG_EMBED_API_KEY=other-key\n", encoding="utf-8")
+    environment = {"HARBORRAG_EMBED_API_KEY": "process-key"}
 
     load_launch_environment(checkout_root=tmp_path, env_files=[extra], environ=environment)
 
-    assert environment["HARBOR_EMBED_API_KEY"] == "process-key"
+    assert environment["HARBORRAG_EMBED_API_KEY"] == "process-key"
     assert environment["HARBORRAG_CONTROL_DB_URL"].endswith("/other")
 
 

@@ -20,6 +20,14 @@ def pending_source_task(request: SourceIngestionRequest) -> IngestionTask:
     """Build the one canonical, runtime-free task record for a source request."""
 
     query = request.query
+    pinned = (
+        {
+            "settings_revision": request.run_settings.settings_revision,
+            "run_settings": request.run_settings.to_json(),
+        }
+        if request.run_settings is not None
+        else {}
+    )
     return IngestionTask(
         task_id=request.task_id,
         source_scope_id=request.source_scope_id,
@@ -31,7 +39,6 @@ def pending_source_task(request: SourceIngestionRequest) -> IngestionTask:
             "connection_id": request.connection_id,
             "source_scope_id": request.source_scope_id,
             "configuration_fingerprint": request.configuration_fingerprint,
-            "settings_revision": request.settings_revision,
             "query": {
                 "path": query.path,
                 "pattern": query.pattern,
@@ -45,5 +52,6 @@ def pending_source_task(request: SourceIngestionRequest) -> IngestionTask:
             },
             "processing": request.processing.model_dump(mode="json"),
             "force_reprocess": request.force_reprocess,
+            **pinned,
         },
     )

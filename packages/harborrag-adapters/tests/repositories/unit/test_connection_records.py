@@ -92,3 +92,48 @@ async def test_connection_records_read_and_purge_only_their_connection(tmp_path:
             theirs
         ]
         assert await tasks.get("elsewhere") is not None
+
+
+@pytest.mark.asyncio
+async def test_the_source_scopes_and_published_state_of_many_connections_read_in_one_go(
+    tmp_path: Path,
+) -> None:
+    control_plane = make_control_plane(tmp_path)
+    async with control_plane:
+        for connection_id, scope in (
+            ("wiki", "scope-wiki"),
+            ("wiki", "scope-wiki-2"),
+            ("drafts", "scope-drafts"),
+            ("other", "scope-other"),
+        ):
+            await control_plane.source_scans.register_scope(
+                source_scope_id=scope,
+                connector_type="confluence",
+                connection_id=connection_id,
+                configuration_fingerprint="connection-1",
+            )
+        await _publish(control_plane, "wiki", "scope-wiki", "page-1")
+        await _publish(control_plane, "wiki", "scope-wiki", "page-2")
+        records = control_plane.connection_records
+        asked = ["wiki", "drafts", "missing"]
+
+        scopes = await records.source_scope_ids_by_connection(
+            tenant_id="DEFAULT", connection_ids=asked
+        )
+        published = await records.published_connection_ids(
+            tenant_id="DEFAULT", connection_ids=asked
+        )
+
+        assert scopes == {
+            "wiki": ["scope-wiki", "scope-wiki-2"],
+            "drafts": ["scope-drafts"],
+            "missing": [],
+        }
+        assert published == {"wiki"}
+        assert (
+            await records.published_connection_ids(tenant_id="OTHER", connection_ids=asked) == set()
+        )
+        assert (
+            await records.source_scope_ids_by_connection(tenant_id="DEFAULT", connection_ids=[])
+            == {}
+        )

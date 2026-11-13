@@ -80,6 +80,3 @@ class OpsPortMiddleware:
                 headers={"Content-Type": CONTENT_TYPE_PLAIN_0_0_4},
             )
         await response(scope, receive, send)
-
-
-__all__ = ["METRICS_PATH", "OpsPortMiddleware"]

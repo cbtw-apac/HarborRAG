@@ -28,7 +28,7 @@ def tenant_model_sources(
     """The catalog and secrets ports for per-tenant chat, or None to stay shared.
 
     ``None`` is the default and means every tenant keeps answering from the
-    process-wide ``config/models.yaml`` catalog, exactly as before.
+    process-wide ``config/models/models.yaml`` catalog, exactly as before.
     """
 
     if not settings.chat_tenant_catalogs_enabled:
@@ -44,6 +44,3 @@ def tenant_model_sources(
         )
         return None
     return TenantModelSources(catalog=catalog, secrets=secrets)
-
-
-__all__ = ["tenant_model_sources"]

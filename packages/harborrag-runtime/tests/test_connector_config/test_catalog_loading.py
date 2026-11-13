@@ -16,7 +16,9 @@ from .conftest import REPO_ROOT, write_config
 
 def test_repository_example_is_valid_and_builds_enabled_local_connector(caplog) -> None:
     with caplog.at_level(logging.INFO, logger="harborrag.runtime.config.connectors"):
-        catalog = load_connector_catalog(REPO_ROOT / "config" / "connectors.example.yaml")
+        catalog = load_connector_catalog(
+            REPO_ROOT / "config" / "sources" / "connectors.example.yaml"
+        )
 
     assert catalog.names(enabled_only=True) == ["harborrag-workspace"]
     assert catalog.names() == ["harborrag-workspace"]
@@ -27,7 +29,7 @@ def test_repository_example_is_valid_and_builds_enabled_local_connector(caplog) 
 
 
 def test_repository_runtime_connections_match_the_public_api_contract() -> None:
-    catalog = load_connector_catalog(REPO_ROOT / "config" / "connectors.yaml")
+    catalog = load_connector_catalog(REPO_ROOT / "config" / "sources" / "connectors.yaml")
 
     assert catalog.names() == [
         "confluence-main",
@@ -44,7 +46,7 @@ def test_repository_runtime_connections_match_the_public_api_contract() -> None:
 
 
 def test_unknown_connector_error_lists_configured_ids() -> None:
-    catalog = load_connector_catalog(REPO_ROOT / "config" / "connectors.yaml")
+    catalog = load_connector_catalog(REPO_ROOT / "config" / "sources" / "connectors.yaml")
 
     with pytest.raises(ConnectorConfigurationError) as captured:
         catalog.get("jira")
@@ -56,7 +58,7 @@ def test_unknown_connector_error_lists_configured_ids() -> None:
 
 
 def test_environment_mapped_source_path_is_deployment_path_independent() -> None:
-    catalog = load_connector_catalog(REPO_ROOT / "config" / "connectors.yaml")
+    catalog = load_connector_catalog(REPO_ROOT / "config" / "sources" / "connectors.yaml")
     definition = catalog.get("harborrag-workspace")
 
     host = connector_fingerprint(

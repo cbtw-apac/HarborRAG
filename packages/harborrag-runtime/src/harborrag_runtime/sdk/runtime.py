@@ -10,23 +10,39 @@ from typing import TYPE_CHECKING, cast
 from harborrag_core.ingestion import ExecutionCapabilityError
 from harborrag_core.invariants import HarborInvariantError
 from harborrag_core.models.chat import HarborChatRequest, HarborChatResponse, HarborChatStreamChunk
-from harborrag_engine.retrieval import RetrievalLane
+from harborrag_engine.retrieval import RetrievalLane as RetrievalLane
 
 from ..chat import ChatFacade, ChatPrompt, RuntimeChatService, TenantModelSources
 from ..contracts import (
     ExecutionMode,
-    GraphPathRequest,
-    GraphPathResponse,
-    GraphSubgraphRequest,
-    GraphSubgraphResponse,
-    GraphTripletRequest,
-    GraphTripletResponse,
     IngestionRequest,
     IngestionResult,
     IngestionStatus,
     IngestionTaskReference,
-    RetrievalRequest,
-    RetrievalResponse,
+)
+from ..contracts import (
+    GraphPathRequest as GraphPathRequest,
+)
+from ..contracts import (
+    GraphPathResponse as GraphPathResponse,
+)
+from ..contracts import (
+    GraphSubgraphRequest as GraphSubgraphRequest,
+)
+from ..contracts import (
+    GraphSubgraphResponse as GraphSubgraphResponse,
+)
+from ..contracts import (
+    GraphTripletRequest as GraphTripletRequest,
+)
+from ..contracts import (
+    GraphTripletResponse as GraphTripletResponse,
+)
+from ..contracts import (
+    RetrievalRequest as RetrievalRequest,
+)
+from ..contracts import (
+    RetrievalResponse as RetrievalResponse,
 )
 from ..execution import IngestionExecutor, build_ingestion_executor
 from ..execution.contracts import DurableIngestionExecutor
@@ -242,23 +258,3 @@ class HarborRAG:
         if self._executor is not None:
             await self._executor.aclose()
             self._executor = None
-
-
-__all__ = [
-    "ExecutionMode",
-    "GraphPathRequest",
-    "GraphPathResponse",
-    "GraphSubgraphRequest",
-    "GraphSubgraphResponse",
-    "GraphTripletRequest",
-    "GraphTripletResponse",
-    "HarborRAG",
-    "HarborRAGConfig",
-    "IngestionRequest",
-    "IngestionResult",
-    "IngestionStatus",
-    "IngestionTaskReference",
-    "RetrievalLane",
-    "RetrievalRequest",
-    "RetrievalResponse",
-]

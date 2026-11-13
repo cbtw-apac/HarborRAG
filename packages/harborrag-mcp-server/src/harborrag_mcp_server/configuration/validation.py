@@ -178,6 +178,3 @@ def _clamp_section(
         values[field_name] = maximum
         changed = True
     return changed
-
-
-__all__ = ["clamp_to_safety_maxima", "validate_tools"]
