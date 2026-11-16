@@ -29,6 +29,15 @@ from .normalization.schemas import space_identity
 DISCOVERY_DESCRIPTOR_KEY = "_confluence_discovery_descriptor"
 
 
+def _file_id(attachment: dict[str, Any] | None) -> str:
+    """The file UUID an attachment's body media node references, or '' when absent."""
+
+    if not attachment:
+        return ""
+    extensions = attachment.get("extensions") or {}
+    return str(extensions.get("fileId") or "").strip().casefold()
+
+
 class ConfluenceDescriptorBuilder:
     """Build page admission data and attachment records without downloading bytes."""
 
@@ -94,6 +103,13 @@ class ConfluenceDescriptorBuilder:
             if descriptor.status == "admitted"
         )
         source_version = self._source_version(content)
+        # Each listed attachment's file UUID, keyed by its bound record id. A body media node
+        # names the file by this UUID, so the relation carries it for the body-side match.
+        raw_by_id = {str(item.get("id") or ""): item for item in raw_attachments}
+        file_ids = {
+            record.id: _file_id(raw_by_id.get(str(record.metadata.get("attachment_id") or "")))
+            for record in bound_records
+        }
         relations = self._relations(
             content,
             parent=discovered,
@@ -115,7 +131,11 @@ class ConfluenceDescriptorBuilder:
                 "defer_attachments": True,
                 "attachment_names": [descriptor.title for descriptor in attachment_descriptors],
                 "relations": [
-                    self._relation_payload(relation, titles=self._ancestor_titles(content))
+                    self._relation_payload(
+                        relation,
+                        titles=self._ancestor_titles(content),
+                        file_ids=file_ids,
+                    )
                     for relation in relations
                 ],
             },
@@ -214,6 +234,7 @@ class ConfluenceDescriptorBuilder:
         relation: SourceRelationDescriptor,
         *,
         titles: dict[str, str],
+        file_ids: dict[str, str] | None = None,
     ) -> dict[str, object]:
         metadata: dict[str, object] = {"source_relation_version": relation.source_relation_version}
         # Carried on the payload, never on the descriptor: the descriptor feeds
@@ -228,6 +249,9 @@ class ConfluenceDescriptorBuilder:
         title = titles.get(relation.target_source_item_id)
         if title:
             metadata["target_title"] = title
+        file_id = (file_ids or {}).get(relation.target_source_item_id)
+        if file_id:
+            metadata["file_id"] = file_id
         return {
             "predicate": relation.relation_type.value,
             "target_id": relation.target_source_item_id,
