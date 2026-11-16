@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Mapping
 from dataclasses import replace
 from typing import Any
 
@@ -29,7 +30,7 @@ from .normalization.schemas import space_identity
 DISCOVERY_DESCRIPTOR_KEY = "_confluence_discovery_descriptor"
 
 
-def _file_id(attachment: dict[str, Any] | None) -> str:
+def _file_id(attachment: Mapping[str, Any] | None) -> str:
     """The file UUID an attachment's body media node references, or '' when absent."""
 
     if not attachment:
