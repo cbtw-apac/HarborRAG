@@ -70,7 +70,10 @@ class ConfluenceDocumentTransform:
             ],
             provenance=provenance,
             relations=self._merge_relations(
-                canonical.relations,
+                self._drop_superseded_attachment_refs(
+                    canonical.relations,
+                    document.relations,
+                ),
                 document.relations,
             ),
         )
@@ -118,6 +121,29 @@ class ConfluenceDocumentTransform:
         parser.feed(value)
         parser.close()
         return " ".join("".join(parser.fragments).split())
+
+    @staticmethod
+    def _drop_superseded_attachment_refs(
+        canonical: list[DocumentRelation],
+        prior: list[DocumentRelation],
+    ) -> list[DocumentRelation]:
+        """Drop body-derived attachment references when the connector already lists them.
+
+        The body's media node carries the attachment's file UUID, while the connector's
+        attachment list carries the v1 id (``att…``). When the prior stage supplied
+        ``has_attachment`` relations from that list, the body copy names the same file
+        under a second id, which the graph projects as an extra external stub. The list
+        is authoritative, so the body copy is dropped.
+        """
+
+        listed = any(relation.predicate == "has_attachment" for relation in prior)
+        if not listed:
+            return canonical
+        return [
+            relation
+            for relation in canonical
+            if not (relation.predicate == "has_attachment" and relation.target_type == "attachment")
+        ]
 
     @staticmethod
     def _merge_relations(*groups: list[DocumentRelation]) -> list[DocumentRelation]:

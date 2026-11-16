@@ -221,3 +221,43 @@ def test_merge_relations_prefers_the_first_group_on_key_collision():
     merged = ConfluenceDocumentTransform._merge_relations([canonical_relation], [stale_relation])
 
     assert merged == [canonical_relation]
+
+
+def test_drop_superseded_attachment_refs_removes_body_media_when_list_is_present():
+    body_media = DocumentRelation(
+        predicate="has_attachment",
+        target_id="e49188de-7713-4f2f-90f6-189d20aa15c9",
+        target_type="attachment",
+    )
+    listed = DocumentRelation(
+        predicate="has_attachment",
+        target_id="confluence://ENG/1/attachments/att44269579",
+        target_type="document",
+    )
+    link = DocumentRelation(
+        predicate="links_to",
+        target_id="confluence://ENG/2",
+        target_type="document",
+    )
+
+    kept = ConfluenceDocumentTransform._drop_superseded_attachment_refs(
+        [body_media, link],
+        [listed],
+    )
+
+    assert kept == [link]
+
+
+def test_drop_superseded_attachment_refs_keeps_body_media_when_no_list_was_supplied():
+    body_media = DocumentRelation(
+        predicate="has_attachment",
+        target_id="e49188de-7713-4f2f-90f6-189d20aa15c9",
+        target_type="attachment",
+    )
+
+    kept = ConfluenceDocumentTransform._drop_superseded_attachment_refs(
+        [body_media],
+        [],
+    )
+
+    assert kept == [body_media]
