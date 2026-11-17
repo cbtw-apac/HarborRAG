@@ -23,7 +23,7 @@ import socket
 from collections.abc import Mapping
 from dataclasses import dataclass
 from functools import lru_cache
-from ipaddress import IPv4Network, IPv6Address, IPv6Network, ip_address, ip_network
+from ipaddress import IPv4Address, IPv4Network, IPv6Address, IPv6Network, ip_address, ip_network
 from typing import Any, Self
 from urllib.parse import urlparse
 
@@ -38,6 +38,10 @@ from ..exceptions import FetchError
 ALLOWED_HOSTS_VARIABLE = "HARBORRAG_CONNECTOR_ALLOWED_HOSTS"
 USE_PROXY_VARIABLE = "HARBORRAG_CONNECTOR_USE_PROXY"
 _TRUE = frozenset({"1", "true", "yes", "on"})
+_NAT64_PREFIX = IPv6Network("64:ff9b::/96")
+_IPV4_COMPATIBLE_PREFIX = IPv6Network("::/96")
+_UNSPECIFIED_AND_LOOPBACK = IPv6Network("::/127")
+_IPV4_MASK = 0xFFFFFFFF
 
 
 class BlockedDestinationError(FetchError):
@@ -115,22 +119,37 @@ class DestinationPolicy:
     def check(self, host: str, address: str) -> None:
         """Refuse ``address`` unless it is public, or ``host`` or ``address`` is allowed.
 
+        An IPv6 address that carries an IPv4 address (IPv4-mapped, NAT64 or
+        IPv4-compatible) is judged by the IPv4 address it carries.
+
         Raises:
             BlockedDestinationError: The address is private and not allowed.
         """
-        peer = ip_address(address.split("%", 1)[0])
-        if isinstance(peer, IPv6Address) and peer.ipv4_mapped is not None:
-            peer = peer.ipv4_mapped
+        reached = ip_address(address.split("%", 1)[0])
+        peer = _embedded_ipv4(reached) or reached
         if peer.is_global and not peer.is_multicast:
             return
         if host.casefold().rstrip(".") in self.hosts:
             return
-        if any(peer in network for network in self.networks):
+        if any(peer in network or reached in network for network in self.networks):
             return
         raise BlockedDestinationError(
             f"{host} resolves to the private address {peer}; list the host or its network "
             f"in {ALLOWED_HOSTS_VARIABLE} to allow it"
         )
+
+
+def _embedded_ipv4(address: IPv4Address | IPv6Address) -> IPv4Address | None:
+    """Return the IPv4 address an IPv6 address carries as IPv4-mapped, NAT64 or IPv4-compatible."""
+    if not isinstance(address, IPv6Address):
+        return None
+    if address.ipv4_mapped is not None:
+        return address.ipv4_mapped
+    if address in _NAT64_PREFIX or (
+        address in _IPV4_COMPATIBLE_PREFIX and address not in _UNSPECIFIED_AND_LOOPBACK
+    ):
+        return IPv4Address(int(address) & _IPV4_MASK)
+    return None
 
 
 def guarded_session(policy: DestinationPolicy) -> requests.Session:
