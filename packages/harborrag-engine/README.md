@@ -117,6 +117,13 @@ repository root:
 uv run pytest packages/harborrag-engine/tests
 ```
 
+The retrieval tests, which need only core and engine, live in
+`packages/harborrag-engine/tests/retrieval/`. They share the in-memory fakes of
+`harborrag_engine.testing.retrieval_fakes` (embedding client, vector repository, chunk
+reader, graph repository, topology repository and a `resources()` builder), which import
+no test framework, so the runtime tests use them too. A fake that needs the runtime or an
+adapter stays in the suite that needs it.
+
 The default run skips tests marked `integration`. Select them explicitly:
 
 ```bash

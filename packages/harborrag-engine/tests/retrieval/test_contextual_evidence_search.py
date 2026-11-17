@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-from topology_retrieval_support import TopologyVectors
 
 from harborrag_core.indexing import (
     VectorFilter,
@@ -20,6 +19,7 @@ from harborrag_core.topology.permissions import (
     PermissionDependency,
 )
 from harborrag_engine.retrieval.service.contextual import ContextualEvidenceSearch
+from harborrag_engine.testing.retrieval_fakes import TopologyVectors
 
 PROFILE = ContextualIndexProfile(model="existing", dimension=3, deployment_revision="pinned")
 CONTEXT = StorageOperationContext.system("tenant-1")

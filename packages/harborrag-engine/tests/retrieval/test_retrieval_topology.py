@@ -3,19 +3,19 @@
 from __future__ import annotations
 
 import pytest
-from topology_retrieval_support import (
-    ActiveVersions,
-    CanonicalTopology,
-    TopologyVectors,
-    mention,
-    service,
-)
 
 from harborrag_core.indexing import VectorFilter, VectorFilterCondition
 from harborrag_core.ingestion import DocumentIdentityBuilder
 from harborrag_core.security import AccessContext
 from harborrag_core.topology.search import RetrievalMode
 from harborrag_engine.retrieval.service.contracts import RetrievalOptions
+from harborrag_engine.testing.retrieval_fakes import (
+    ActiveVersions,
+    CanonicalTopology,
+    TopologyVectors,
+    mention,
+    service,
+)
 from harborrag_engine.topology.retrieval import LocalTopologySearch
 
 LOCAL = RetrievalOptions(mode=RetrievalMode.LOCAL_SEMANTIC)

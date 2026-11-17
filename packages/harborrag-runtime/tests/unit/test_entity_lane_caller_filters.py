@@ -167,11 +167,15 @@ async def test_retrieve_hands_the_entity_lane_the_rest_of_the_callers_filter() -
     """The chunk filter the lane receives is the caller's, not the permission-scoped one."""
     from dataclasses import replace
 
-    from retrieval_test_support import policy, resources
-    from topology_retrieval_support import ActiveVersions, CanonicalTopology, TopologyVectors
-
     from harborrag_engine.retrieval.service.contracts import RetrievalOptions
     from harborrag_engine.retrieval.service.service import RuntimeRetrievalService
+    from harborrag_engine.testing.retrieval_fakes import (
+        ActiveVersions,
+        CanonicalTopology,
+        TopologyVectors,
+        policy,
+        resources,
+    )
 
     entities = RecordingEntities()
     service = RuntimeRetrievalService(

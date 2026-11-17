@@ -1,7 +1,12 @@
 from __future__ import annotations
 
 import pytest
-from retrieval_test_support import (
+
+from harborrag_core.ingestion import ActiveDocumentVersion
+from harborrag_engine.retrieval import RetrievalLane
+from harborrag_engine.retrieval.service.contracts import RetrievalOptions
+from harborrag_engine.retrieval.service.service import RuntimeRetrievalService
+from harborrag_engine.testing.retrieval_fakes import (
     FailingGraphRepository,
     FakeChunkReader,
     FakeEmbedClient,
@@ -9,17 +14,12 @@ from retrieval_test_support import (
     FakeVectorRepository,
     MixedVectorRepository,
 )
-from retrieval_test_support import (
+from harborrag_engine.testing.retrieval_fakes import (
     policy as _policy,
 )
-from retrieval_test_support import (
+from harborrag_engine.testing.retrieval_fakes import (
     resources as _resources,
 )
-
-from harborrag_core.ingestion import ActiveDocumentVersion
-from harborrag_engine.retrieval import RetrievalLane
-from harborrag_engine.retrieval.service.contracts import RetrievalOptions
-from harborrag_engine.retrieval.service.service import RuntimeRetrievalService
 
 
 @pytest.mark.asyncio

@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import pytest
-from topology_retrieval_support import CanonicalTopology, mention
 
 from harborrag_core.security import AccessContext
 from harborrag_core.topology.retrieval_policy import TopologyRetrievalPolicy
+from harborrag_engine.testing.retrieval_fakes import CanonicalTopology, mention
 from harborrag_engine.topology.retrieval import LocalTopologySearch
 
 ACCESS = AccessContext.system("tenant-1")

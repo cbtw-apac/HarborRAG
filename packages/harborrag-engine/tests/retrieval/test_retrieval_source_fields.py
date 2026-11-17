@@ -8,15 +8,19 @@ the matching issues, then searches their evidence and their attachments'.
 from __future__ import annotations
 
 import pytest
-from retrieval_test_support import FakeChunkReader, FakeEmbedClient, FakeVectorRepository
-from retrieval_test_support import policy as _policy
-from retrieval_test_support import resources as _resources
 
 from harborrag_core.contracts.errors import HarborValidationError
 from harborrag_core.indexing import FilterOperator, VectorFilter, VectorFilterCondition
 from harborrag_engine.retrieval.service.contracts import RetrievalOptions
 from harborrag_engine.retrieval.service.service import RuntimeRetrievalService
 from harborrag_engine.retrieval.service.source_fields import SourceFieldTrace, split_field_filters
+from harborrag_engine.testing.retrieval_fakes import (
+    FakeChunkReader,
+    FakeEmbedClient,
+    FakeVectorRepository,
+)
+from harborrag_engine.testing.retrieval_fakes import policy as _policy
+from harborrag_engine.testing.retrieval_fakes import resources as _resources
 
 ISSUE = "jira://CPM/CPM-116680"
 

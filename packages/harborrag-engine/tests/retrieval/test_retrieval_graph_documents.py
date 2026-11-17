@@ -1,13 +1,6 @@
 from __future__ import annotations
 
 import pytest
-from retrieval_test_support import FakeGraphRepository
-from retrieval_test_support import (
-    policy as _policy,
-)
-from retrieval_test_support import (
-    resources as _resources,
-)
 
 from harborrag_core.chunking import RelationType
 from harborrag_core.ingestion import (
@@ -20,6 +13,13 @@ from harborrag_core.ingestion import (
 )
 from harborrag_engine.retrieval.service.contracts import RetrievalOptions
 from harborrag_engine.retrieval.service.service import RuntimeRetrievalService
+from harborrag_engine.testing.retrieval_fakes import FakeGraphRepository
+from harborrag_engine.testing.retrieval_fakes import (
+    policy as _policy,
+)
+from harborrag_engine.testing.retrieval_fakes import (
+    resources as _resources,
+)
 
 
 def _document_node(node_key: str, node_kind: KnowledgeNodeKind, **overrides) -> GraphNodeRecord:

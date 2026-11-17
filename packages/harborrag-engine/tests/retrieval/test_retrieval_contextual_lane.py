@@ -5,13 +5,18 @@ from __future__ import annotations
 from dataclasses import replace
 
 import pytest
-from retrieval_test_support import policy, resources
-from topology_retrieval_support import ActiveVersions, CanonicalTopology, TopologyVectors
 
 from harborrag_core.indexing import VectorSearchResult
 from harborrag_core.topology.search import TopologyEvidence
 from harborrag_engine.retrieval.service.contracts import RetrievalOptions
 from harborrag_engine.retrieval.service.service import RuntimeRetrievalService
+from harborrag_engine.testing.retrieval_fakes import (
+    ActiveVersions,
+    CanonicalTopology,
+    TopologyVectors,
+    policy,
+    resources,
+)
 
 
 class ContextualLane:

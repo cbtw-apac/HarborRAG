@@ -5,8 +5,6 @@ from __future__ import annotations
 from dataclasses import replace
 
 import pytest
-from retrieval_test_support import policy, resources
-from topology_retrieval_support import ActiveVersions, CanonicalTopology, TopologyVectors, service
 
 from harborrag_core.domain.retrieval import RetrievalResult
 from harborrag_core.indexing import VectorSearchResult
@@ -16,6 +14,14 @@ from harborrag_engine.retrieval.service.contracts import RetrievalOptions
 from harborrag_engine.retrieval.service.evidence import select_evidence
 from harborrag_engine.retrieval.service.service import RuntimeRetrievalService
 from harborrag_engine.retrieval.service.topology import fuse_candidates
+from harborrag_engine.testing.retrieval_fakes import (
+    ActiveVersions,
+    CanonicalTopology,
+    TopologyVectors,
+    policy,
+    resources,
+    service,
+)
 
 LOCAL = RetrievalOptions(mode="local_semantic")
 

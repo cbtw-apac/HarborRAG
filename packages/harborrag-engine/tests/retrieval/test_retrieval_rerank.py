@@ -6,9 +6,6 @@ from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
-from retrieval_test_support import FakeVectorRepository
-from retrieval_test_support import policy as _policy
-from retrieval_test_support import resources as _resources
 
 from harborrag_core.domain.retrieval import RetrievalResult
 from harborrag_core.indexing import VectorSearchResult
@@ -22,6 +19,9 @@ from harborrag_engine.retrieval.service.service import (
     in_result_order,
     rerank_pool,
 )
+from harborrag_engine.testing.retrieval_fakes import FakeVectorRepository
+from harborrag_engine.testing.retrieval_fakes import policy as _policy
+from harborrag_engine.testing.retrieval_fakes import resources as _resources
 
 pytestmark = pytest.mark.unit
 
