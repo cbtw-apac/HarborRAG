@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-import os
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 from harborrag_core.config_store import SettingsLevel
@@ -15,7 +13,7 @@ from harborrag_engine.tools.budgets import ToolBudget
 from harborrag_engine.tools.catalog import build_reader_tool_catalog
 from harborrag_engine.tools.dispatcher import ToolInvoker
 from harborrag_engine.tools.references import KnowledgeReferenceStore
-from harborrag_mcp_server.audit import McpAuditLog
+from harborrag_mcp_server.audit import DEFAULT_AUDIT_PATH, McpAuditLog
 from harborrag_mcp_server.policy import McpToolPolicy
 from harborrag_mcp_server.server.base import BaseMcpServer, tool_reported_error
 
@@ -38,18 +36,15 @@ _VECTOR_SEARCH = "vector_search"
 
 
 def _shared_audit_log() -> McpAuditLog:
-    """Create the process audit trail on first use, not at import.
+    """Create the default process audit trail on first use, not at import.
 
-    The CLI imports this module before it loads ``--env-file`` and
-    ``--local-stack-root`` values, so reading the path at import ignored an
-    ``HARBORRAG_MCP_AUDIT_PATH`` set in those files.
+    The launched server passes its own ``McpAuditLog``; this default serves
+    in-process callers that name none.
     """
 
     global _default_audit_log  # noqa: PLW0603 - one process-wide trail by design
     if _default_audit_log is None:
-        _default_audit_log = McpAuditLog(
-            path=Path(os.environ.get("HARBORRAG_MCP_AUDIT_PATH", ".harborrag/mcp-audit.jsonl"))
-        )
+        _default_audit_log = McpAuditLog(path=DEFAULT_AUDIT_PATH)
     return _default_audit_log
 
 

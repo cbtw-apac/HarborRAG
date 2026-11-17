@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from harborrag_core.invariants import HarborInvariantError
+from harborrag_mcp_server.audit import DEFAULT_AUDIT_PATH, McpAuditLog
 from harborrag_mcp_server.configuration import McpConfigurationStore
 from harborrag_mcp_server.configuration.launch import load_launch_environment
 from harborrag_mcp_server.server import (
@@ -171,6 +172,7 @@ def _prepare_arguments(
         arguments.path = os.environ.get("HARBORRAG_MCP_PATH", "/mcp")
     if arguments.config is None:
         arguments.config = _default_config_path()
+    arguments.audit_path = Path(os.environ.get("HARBORRAG_MCP_AUDIT_PATH", DEFAULT_AUDIT_PATH))
 
 
 def _register_routes(  # noqa: PLR0913 - the launched server's parts
@@ -283,7 +285,7 @@ def main(argv: Sequence[str] | None = None, *, ui: bool = False) -> int:
     if not arguments.check and arguments.transport == "stdio":
         _reject_interactive_stdio(parser, sys.stdin)
     if arguments.check:
-        registry = McpServer()
+        registry = McpServer(audit=McpAuditLog(path=arguments.audit_path))
         _configure_registry(registry, arguments.config)
         transport = cast(
             "FastMCP[Any]",
@@ -310,6 +312,7 @@ def main(argv: Sequence[str] | None = None, *, ui: bool = False) -> int:
         corpus_mode=settings.corpus_access_mode,
         shared_tenant_id=settings.corpus_shared_tenant_id,
         config_provider=runtime.config_provider,
+        audit=McpAuditLog(path=arguments.audit_path),
     )
     configuration = _configure_registry(registry, arguments.config)
     transport = cast(

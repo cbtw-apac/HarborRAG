@@ -10,6 +10,8 @@ from hashlib import sha256
 from pathlib import Path
 from uuid import uuid4
 
+DEFAULT_AUDIT_PATH = Path(".harborrag/mcp-audit.jsonl")
+
 
 @dataclass(slots=True)
 class McpAuditLog:

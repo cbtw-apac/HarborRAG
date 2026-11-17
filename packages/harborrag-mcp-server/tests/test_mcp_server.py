@@ -77,9 +77,8 @@ def test_module_http_requires_a_strong_bearer_token(monkeypatch, capsys) -> None
 
 
 @pytest.mark.asyncio
-async def test_factory_registers_tools_on_real_fastmcp_transport(tmp_path, monkeypatch) -> None:
+async def test_factory_registers_tools_on_real_fastmcp_transport() -> None:
     fastmcp = pytest.importorskip("fastmcp")
-    monkeypatch.setenv("HARBORRAG_MCP_AUDIT_PATH", str(tmp_path / "audit.jsonl"))
 
     with pytest.raises(RuntimeError, match="requires authentication"):
         create_mcp_server()
