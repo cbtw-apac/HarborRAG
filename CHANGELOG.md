@@ -60,6 +60,7 @@ action.
 #### harborrag-adapters
 
 - **Breaking:** `guarded_session` requires a `DestinationPolicy` and the GitHub, Jira, Confluence and SharePoint connectors take a `destination_policy` constructor argument instead of reading `HARBORRAG_CONNECTOR_ALLOWED_HOSTS` and `HARBORRAG_CONNECTOR_USE_PROXY` when they open a session; code that builds these connectors outside the runtime without a policy reaches public addresses only, see the [upgrade guide](docs/users/upgrading.md#connectors-built-outside-the-runtime)
+- The SharePoint device-code sign-in (`harborrag_adapters.connectors.sharepoint.login`) sends its requests to Microsoft identity through the destination policy, built from `HARBORRAG_CONNECTOR_ALLOWED_HOSTS` and `HARBORRAG_CONNECTOR_USE_PROXY` by the command and public-only for `DeviceCodeLogin` built without a `destination_policy`, and refuses a tenant ID that is not a GUID or a domain name before it builds the endpoint URL
 - The destination policy refuses a private IPv4 address carried in NAT64 (`64:ff9b::/96`) or IPv4-compatible (`::/96`) IPv6 form, judging these addresses by the IPv4 address they carry; hosts and networks in `HARBORRAG_CONNECTOR_ALLOWED_HOSTS` keep working
 
 #### harborrag-app

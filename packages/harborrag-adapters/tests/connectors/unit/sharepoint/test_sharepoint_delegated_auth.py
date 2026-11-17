@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import base64
 import json
+import socket
 
 import pytest
 from harbor_test_builders import FakeResponse, FakeSession
 from sharepoint_http_test_helpers import sharepoint_client
 
 from harborrag_adapters.connectors.exceptions import AuthenticationError
+from harborrag_adapters.connectors.policies.network import BlockedDestinationError
 from harborrag_adapters.connectors.sharepoint.config import SharePointSiteConfig
 from harborrag_adapters.connectors.sharepoint.delegated import (
     DELEGATED_SCOPE,
@@ -230,6 +232,42 @@ def test_device_code_login_polls_until_signed_in(tmp_path):
     assert session.calls[0]["data"]["scope"] == DELEGATED_SCOPE
     assert session.calls[1]["data"]["grant_type"] == DEVICE_CODE_GRANT
     assert _cache(tmp_path).load_refresh_token() == "refresh-1"
+
+
+def test_device_code_login_puts_a_guid_or_domain_tenant_in_the_url_path(tmp_path):
+    for tenant_id in ("0f9c3a52-6b1e-4d7a-8c21-5e4b7a9d1f30", "contoso.onmicrosoft.com"):
+        session = FakeSession(responses=[FakeResponse(status_code=200, _json={})])
+        login = DeviceCodeLogin(_cache(tmp_path, tenant_id=tenant_id), session=session)
+
+        with pytest.raises(AuthenticationError, match="device code"):
+            login.run(prompt=lambda _m: None)
+
+        assert session.calls[0]["url"] == (
+            f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/devicecode"
+        )
+
+
+@pytest.mark.parametrize(
+    "tenant_id", ["a/b", "tenant?x=1", "tenant#frag", "user@host", "two words", "..", ""]
+)
+def test_device_code_login_refuses_a_tenant_id_that_is_not_a_path_segment(tmp_path, tenant_id):
+    session = FakeSession()
+    login = DeviceCodeLogin(_cache(tmp_path, tenant_id=tenant_id), session=session)
+
+    with pytest.raises(ValueError, match="tenant_id must be a plain id"):
+        login.run(prompt=lambda _m: None)
+
+    assert session.calls == []
+
+
+def test_device_code_login_refuses_a_private_identity_host_by_default(tmp_path, monkeypatch):
+    def resolve_to_loopback(host, port, **_kwargs):
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", port))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", resolve_to_loopback)
+
+    with pytest.raises(BlockedDestinationError, match="login.microsoftonline.com"):
+        DeviceCodeLogin(_cache(tmp_path)).run(prompt=lambda _m: None)
 
 
 def test_device_code_login_surfaces_identity_error(tmp_path):

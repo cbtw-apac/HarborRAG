@@ -345,7 +345,11 @@ uv run python -m harborrag_adapters.connectors.sharepoint.login \
 The IDs default to `MICROSOFT_TENANT_ID` and `MICROSOFT_CLIENT_ID`. When they are not
 exported, the command reads those two values, and nothing else, from
 `env/.env.connector` (or `$CONNECTOR_ENV_FILE`) relative to the current directory, so
-from a checkout the command without arguments is enough.
+from a checkout the command without arguments is enough. A connection's own configuration
+does not read these two variables. The command refuses a tenant ID that is not a GUID or a
+domain name such as `contoso.onmicrosoft.com`, and it reaches Microsoft identity only
+through the destination policy: public addresses, plus the hosts and proxy setting of
+`HARBORRAG_CONNECTOR_ALLOWED_HOSTS` and `HARBORRAG_CONNECTOR_USE_PROXY`.
 
 The command prints a code to enter at `https://microsoft.com/devicelogin`, then stores
 the refresh token in
