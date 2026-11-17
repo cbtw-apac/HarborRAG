@@ -27,6 +27,7 @@ from harborrag_app.cli.paging import (
     collect_pages,
 )
 from harborrag_app.cli.tenant_guard import confirm_deletion
+from harborrag_app.cli.typer_app import new_typer
 from harborrag_app.operations.local import LocalOperations
 from harborrag_app.operations.schemas.connections import (
     ConnectionPage,
@@ -37,7 +38,7 @@ from harborrag_app.operations.scope import ConnectionRef, Scope
 from harborrag_core.domain.connection import ConnectionStatus
 from harborrag_runtime.application.control_plane.connection_models import WriteOrigin
 
-app = typer.Typer(help="Manage connections.", no_args_is_help=True)
+app = new_typer(help="Manage connections.", no_args_is_help=True)
 
 _REF_HELP = "expected PROJECT_ID/CONNECTION_ID, for example default/harborrag-workspace; "
 _REF_HINT = "list them with harborrag connections list"

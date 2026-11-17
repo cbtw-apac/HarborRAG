@@ -16,10 +16,11 @@ from harborrag_app.cli.globals import (
     current_globals,
 )
 from harborrag_app.cli.invoke import run_operation
+from harborrag_app.cli.typer_app import new_typer
 from harborrag_app.operations.local import LocalOperations
 from harborrag_app.operations.scope import Scope
 
-app = typer.Typer(help="List the installed source types.", no_args_is_help=True)
+app = new_typer(help="List the installed source types.", no_args_is_help=True)
 
 
 class CategoryName(StrEnum):

@@ -15,6 +15,7 @@ from typing import Annotated, Any
 import typer
 
 from harborrag_app.cli.exit_codes import USAGE
+from harborrag_app.cli.typer_app import new_typer
 
 LEGACY: Mapping[tuple[str, str], str] = {
     ("source", "list"): "connections list",
@@ -72,7 +73,7 @@ def _group_hint(name: str) -> Callable[..., None]:
 
 
 def _group(name: str) -> typer.Typer:
-    group = typer.Typer(
+    group = new_typer(
         add_completion=False,
         invoke_without_command=True,
         context_settings=_NO_HELP,

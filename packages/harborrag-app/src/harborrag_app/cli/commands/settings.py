@@ -18,10 +18,11 @@ from harborrag_app.cli.globals import (
     current_globals,
 )
 from harborrag_app.cli.invoke import run_operation
+from harborrag_app.cli.typer_app import new_typer
 from harborrag_app.operations.local import LocalOperations
 from harborrag_app.operations.scope import Scope
 
-app = typer.Typer(help="Read and change settings.", no_args_is_help=True)
+app = new_typer(help="Read and change settings.", no_args_is_help=True)
 
 _LEVEL_HELP = "tenant, project:ID or connection:PROJECT_ID/CONNECTION_ID."
 LevelOption = Annotated[str, typer.Option("--level", metavar="LEVEL", help=_LEVEL_HELP)]

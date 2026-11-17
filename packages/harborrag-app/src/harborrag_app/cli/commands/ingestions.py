@@ -33,12 +33,13 @@ from harborrag_app.cli.paging import (
     LimitOption,
     collect_pages,
 )
+from harborrag_app.cli.typer_app import new_typer
 from harborrag_app.operations.local import LocalOperations
 from harborrag_app.operations.schemas.connections import IngestionStartRequest
 from harborrag_app.operations.schemas.ingestions import IngestionListQuery, IngestionPage
 from harborrag_app.operations.scope import ConnectionRef, Scope
 
-app = typer.Typer(help="Start, follow and control ingestion runs.", no_args_is_help=True)
+app = new_typer(help="Start, follow and control ingestion runs.", no_args_is_help=True)
 
 IngestionArgument = Annotated[
     str, typer.Argument(metavar="INGESTION_ID", help="Run id, as ingestions list prints it.")

@@ -23,6 +23,7 @@ from harborrag_app.cli.paging import (
     LimitOption,
     collect_pages,
 )
+from harborrag_app.cli.typer_app import new_typer
 from harborrag_app.operations.local import LocalOperations
 from harborrag_app.operations.schemas.ingestions import (
     FailurePage,
@@ -31,7 +32,7 @@ from harborrag_app.operations.schemas.ingestions import (
 )
 from harborrag_app.operations.scope import Scope
 
-app = typer.Typer(help="List and retry failed items.", no_args_is_help=True)
+app = new_typer(help="List and retry failed items.", no_args_is_help=True)
 
 ConnectionRefOption = Annotated[
     str | None,

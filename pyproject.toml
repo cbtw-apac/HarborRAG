@@ -39,7 +39,7 @@ Documentation = "https://github.com/cbtw-apac/HarborRAG/tree/main/docs"
 
 [project.optional-dependencies]
 dev = [
-    "click>=8.1,<9",
+    "click>=8.4.0,<9",
     "packaging>=24,<27",
     "python-dotenv>=1,<2",
     "pytest>=9.0.3",

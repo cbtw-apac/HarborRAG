@@ -34,12 +34,13 @@ from harborrag_app.cli.globals import (
 )
 from harborrag_app.cli.invoke import LocalSetupError, ReportedError, run_standalone
 from harborrag_app.cli.project import invocation_path
+from harborrag_app.cli.typer_app import new_typer
 from harborrag_app.operations.errors import ErrorBody
 from harborrag_core.invariants import HarborInvariantError
 
 logger = logging.getLogger("harborrag.app.cli.auth_keys")
 
-app = typer.Typer(no_args_is_help=True, help="Hashed, tenant-bound MCP reader keys with a TTL.")
+app = new_typer(no_args_is_help=True, help="Hashed, tenant-bound MCP reader keys with a TTL.")
 
 _DURATION_RE = re.compile(r"^(\d{1,6})([dhm])$")  # bounded: no OverflowError from timedelta
 _UNITS = {"d": timedelta(days=1), "h": timedelta(hours=1), "m": timedelta(minutes=1)}

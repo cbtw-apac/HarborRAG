@@ -28,6 +28,7 @@ from harborrag_app.cli.commands import (
 )
 from harborrag_app.cli.environment import load_project_environment
 from harborrag_app.cli.project import ProjectError, activate_from_argv, activate_legacy_checkout
+from harborrag_app.cli.typer_app import new_typer
 from harborrag_core.observability.process_logging import (
     LEVEL_ENV_VAR,
     _ManagedStreamHandler,
@@ -53,7 +54,7 @@ _NO_PROJECT_MESSAGE = (
 # keeps `-o json` output on stdout parseable at any level.
 _DEFAULT_CLI_LOG_LEVEL = "WARNING"
 
-app = typer.Typer(
+app = new_typer(
     name="harborrag",
     help="[bold cyan]Operate HarborRAG ingestion workflows.[/bold cyan]",
     epilog="[dim]Use 'harborrag COMMAND --help' for command-specific options.[/dim]",

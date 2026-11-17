@@ -561,3 +561,17 @@ def test_a_success_still_prints_the_warnings_it_logged(
     assert code == 0
     assert json.loads(out)["role"] == "owner"
     assert "Control-plane schema check skipped" in err
+
+
+@pytest.mark.parametrize(
+    ("argv", "suggestion"),
+    [(("chatt",), "'chat'"), (("projects", "lst"), "'list'")],
+)
+def test_a_mistyped_command_prints_the_suggestion_once(
+    argv: tuple[str, ...], suggestion: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    code, _, err = _run(capsys, *argv)
+
+    assert code == 2
+    assert err.count("Did you mean") == 1
+    assert f"Did you mean {suggestion}?" in err

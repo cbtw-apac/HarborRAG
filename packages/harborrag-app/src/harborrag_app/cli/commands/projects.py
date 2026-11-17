@@ -25,11 +25,12 @@ from harborrag_app.cli.paging import (
     collect_pages,
 )
 from harborrag_app.cli.tenant_guard import confirm_deletion
+from harborrag_app.cli.typer_app import new_typer
 from harborrag_app.operations.local import LocalOperations
 from harborrag_app.operations.schemas.connections import ProjectPage, ProjectWriteRequest
 from harborrag_app.operations.scope import Scope
 
-app = typer.Typer(help="Manage projects.", no_args_is_help=True)
+app = new_typer(help="Manage projects.", no_args_is_help=True)
 
 ProjectArgument = Annotated[
     str, typer.Argument(metavar="PROJECT", help="Project id, for example harborrag-workspace.")

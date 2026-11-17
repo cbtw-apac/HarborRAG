@@ -26,12 +26,13 @@ from harborrag_app.cli.globals import (
     current_globals,
 )
 from harborrag_app.cli.invoke import Outcome, run_operation
+from harborrag_app.cli.typer_app import new_typer
 from harborrag_app.operations.local import LocalOperations
 from harborrag_app.operations.scope import Scope
 from harborrag_core.contracts.errors import HarborValidationError
 from harborrag_runtime.application.control_plane.settings_import import SettingsImporter
 
-app = typer.Typer(
+app = new_typer(
     no_args_is_help=True,
     help="Import and export runtime settings: the overrides stored in the control database.",
 )
