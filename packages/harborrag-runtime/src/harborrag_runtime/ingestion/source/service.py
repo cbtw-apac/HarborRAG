@@ -12,6 +12,7 @@ from harborrag_adapters.repositories.database import (
 )
 from harborrag_adapters.repositories.errors import HarborStorageValidationError
 from harborrag_core.ingestion import IngestionTaskState
+from harborrag_engine.ingestion.release.service import DocumentReleaseService
 from harborrag_engine.ingestion.source.models import (
     PlannedDocuments,
     RelationRepairProgress,
@@ -24,7 +25,6 @@ from harborrag_engine.ingestion.source.models import (
 from harborrag_engine.ingestion.source.tasks import pending_source_task, source_scan_id
 
 from ...errors import VectorIndexSchemaError
-from ..document.service import DocumentReleaseService
 from ..maintenance.relation_repair import GraphRelationRepairService
 from .discovery import SourceDiscoveryPlanner
 from .documents import SourceDocumentService

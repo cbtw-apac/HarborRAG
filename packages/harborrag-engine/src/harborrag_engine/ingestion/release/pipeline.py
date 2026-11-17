@@ -17,7 +17,7 @@ from harborrag_engine.ingestion.release.stage_models import PreparedDocumentStag
 
 from .preparation import DocumentPreparationStages
 
-logger = logging.getLogger("harborrag.runtime.ingestion.document_pipeline")
+logger = logging.getLogger("harborrag.engine.ingestion.release.pipeline")
 
 
 def tag_failure_stage(error: BaseException, stage: str) -> None:

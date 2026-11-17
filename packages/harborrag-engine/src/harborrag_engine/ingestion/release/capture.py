@@ -37,7 +37,7 @@ from harborrag_engine.ingestion.release.stage_models import (
     RawCaptureStageResult,
 )
 
-logger = logging.getLogger("harborrag.runtime.ingestion.capture")
+logger = logging.getLogger("harborrag.engine.ingestion.release.capture")
 
 
 class DocumentCaptureStages:

@@ -8,9 +8,9 @@ from harborrag_adapters.connectors.base import BaseConnector
 from harborrag_adapters.connectors.harbor_connector import HarborConnector
 from harborrag_adapters.repositories.database import IngestionControlPlaneDatabase
 from harborrag_core.ingestion import DocumentIngestionOutcome, IngestionTaskState
+from harborrag_engine.ingestion.release.service import DocumentReleaseService
 from harborrag_engine.ingestion.source.models import PlannedDocumentRelease, SourceDispatchSummary
 
-from ..document.service import DocumentReleaseService
 from .documents import SourceDocumentService
 
 

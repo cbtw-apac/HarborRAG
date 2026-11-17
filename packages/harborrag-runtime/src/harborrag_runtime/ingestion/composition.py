@@ -21,14 +21,14 @@ from harborrag_core.ingestion import ProcessingProfile
 from harborrag_core.ports import KnowledgeGraphRepositoryPort
 from harborrag_core.ports.storage import ObjectStorePort, VectorRepositoryPort
 from harborrag_engine.ingestion.maintenance.cleanup import ProjectionCleanupService
+from harborrag_engine.ingestion.maintenance.reindex import DocumentReindexService
+from harborrag_engine.ingestion.release.pipeline import DocumentStagePipeline
+from harborrag_engine.ingestion.release.service import DocumentReleaseService
 from harborrag_runtime.composition.connection_stores import ConnectionStores
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.errors import RuntimeConnectionError
 
 from .connections import ConnectionHealth, ConnectionResolver, ConnectorPool
-from .document.pipeline import DocumentStagePipeline
-from .document.service import DocumentReleaseService
-from .maintenance.reindex import DocumentReindexService
 from .maintenance.relation_repair import GraphRelationRepairService
 from .maintenance.retention import RetiredVersionPurgeService
 from .observability import IngestionTelemetry

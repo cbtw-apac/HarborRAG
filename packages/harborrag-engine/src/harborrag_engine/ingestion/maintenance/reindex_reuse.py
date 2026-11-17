@@ -10,9 +10,8 @@ from harborrag_engine.ingestion.release.dependencies import DocumentReleaseDepen
 from harborrag_engine.ingestion.release.lifecycle import DocumentVersionLifecycle
 from harborrag_engine.ingestion.release.materialization_helpers import representation_artifact_name
 from harborrag_engine.ingestion.release.models import DocumentReleaseRequest
+from harborrag_engine.ingestion.release.pipeline import DocumentStagePipeline
 from harborrag_engine.ingestion.release.stage_models import PreparedDocumentStage
-
-from ..document.pipeline import DocumentStagePipeline
 
 
 class ChunkReuseCoordinator:

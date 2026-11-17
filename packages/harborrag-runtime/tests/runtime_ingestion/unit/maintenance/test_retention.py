@@ -30,10 +30,8 @@ from harborrag_core.ingestion import (
 from harborrag_core.schemas.object_store import PutObjectRequest
 from harborrag_core.storage import StorageFamily, StorageOperationContext
 from harborrag_engine.ingestion.maintenance.cleanup import ProjectionCleanupService
-from harborrag_runtime.ingestion import (
-    DocumentReleaseService,
-    RetiredVersionPurgeService,
-)
+from harborrag_engine.ingestion.release.service import DocumentReleaseService
+from harborrag_runtime.ingestion import RetiredVersionPurgeService
 from harborrag_runtime.ingestion.maintenance.retention import RetiredVersionPurgeBatch
 
 from ...fixtures.connectors import SourceConnector

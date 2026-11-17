@@ -16,12 +16,9 @@ from harborrag_core.ingestion import (
 )
 from harborrag_core.storage import StorageOperationContext
 from harborrag_engine.ingestion.maintenance.cleanup import ProjectionCleanupService
-from harborrag_runtime.ingestion import (
-    DocumentReindexService,
-    DocumentReleaseService,
-    ReindexRequest,
-    SourceIngestionService,
-)
+from harborrag_engine.ingestion.maintenance.reindex import DocumentReindexService, ReindexRequest
+from harborrag_engine.ingestion.release.service import DocumentReleaseService
+from harborrag_runtime.ingestion import SourceIngestionService
 
 from ...fixtures.connectors import LinkedDocumentsConnector
 from ...fixtures.release import (

@@ -38,11 +38,11 @@ from harborrag_engine.ingestion.maintenance.reindex_plan import (
 from harborrag_engine.ingestion.release.dependencies import DocumentReleaseDependencies
 from harborrag_engine.ingestion.release.lifecycle import DocumentVersionLifecycle
 from harborrag_engine.ingestion.release.models import DocumentReleaseRequest
+from harborrag_engine.ingestion.release.pipeline import DocumentStagePipeline
 
-from ..document.pipeline import DocumentStagePipeline
 from .reindex_reuse import ChunkReuseCoordinator
 
-logger = logging.getLogger("harborrag.runtime.ingestion.reindex")
+logger = logging.getLogger("harborrag.engine.ingestion.maintenance.reindex")
 
 
 @dataclass(frozen=True, slots=True)

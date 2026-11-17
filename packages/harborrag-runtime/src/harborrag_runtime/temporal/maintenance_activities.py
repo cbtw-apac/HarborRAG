@@ -11,9 +11,9 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from harborrag_engine.ingestion.maintenance.cleanup import ProjectionCleanupBatch
+from harborrag_engine.ingestion.maintenance.reindex import ReindexRequest
 from harborrag_runtime.ingestion.composition import IngestionRuntime
 from harborrag_runtime.ingestion.failure_classification import ingestion_failure_classifier
-from harborrag_runtime.ingestion.maintenance.reindex import ReindexRequest
 from harborrag_runtime.ingestion.maintenance.retention import RetiredVersionPurgeBatch
 from harborrag_runtime.ingestion.observability import (
     IngestionStage,

@@ -8,7 +8,8 @@ from pathlib import Path
 import pytest
 
 from harborrag_core.chunking import RelationType
-from harborrag_runtime.ingestion import DocumentReleaseService, SourceIngestionService
+from harborrag_engine.ingestion.release.service import DocumentReleaseService
+from harborrag_runtime.ingestion import SourceIngestionService
 
 from ...fixtures.release import (
     build_control_plane,

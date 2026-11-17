@@ -27,9 +27,9 @@ harborrag_engine/
 │   ├── chunking/            # deterministic route and evidence chunking
 │   ├── representations/     # dense and sparse representation policy
 │   ├── projections/         # vector and graph projection batches and their verification
-│   ├── release/             # document release stage models, lifecycle, materialization and projection
+│   ├── release/             # document release stages, pipeline, service, lifecycle, materialization and projection
 │   ├── source/              # source ingestion request models and task records
-│   ├── maintenance/         # cleanup and reindex planning over core ports
+│   ├── maintenance/         # cleanup, reindex planning and the reindex service over core ports
 │   ├── operations.py        # ingestion runs as the API's `Ingestion` object
 │   ├── presenters.py        # public projections, request hashing and cursors
 │   ├── failure_inbox.py     # failed documents of a tenant and their retry

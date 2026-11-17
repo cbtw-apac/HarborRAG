@@ -13,11 +13,8 @@ from harborrag_core.ingestion import (
     ReindexJobState,
     SourceAdmissionDecision,
 )
-from harborrag_runtime.ingestion import (
-    DocumentReindexService,
-    DocumentReleaseService,
-    ReindexRequest,
-)
+from harborrag_engine.ingestion.maintenance.reindex import DocumentReindexService, ReindexRequest
+from harborrag_engine.ingestion.release.service import DocumentReleaseService
 
 from ...fixtures.connectors import (
     DeterministicEmbedClient,
@@ -64,9 +61,9 @@ async def test_release_publishes_and_unchanged_replay_skips_expensive_stages(
         with (
             caplog.at_level(
                 logging.DEBUG,
-                logger="harborrag.runtime.ingestion.document_pipeline",
+                logger="harborrag.engine.ingestion.release.pipeline",
             ),
-            caplog.at_level(logging.DEBUG, logger="harborrag.runtime.ingestion.capture"),
+            caplog.at_level(logging.DEBUG, logger="harborrag.engine.ingestion.release.capture"),
         ):
             first = await service.release(
                 release_request(source_version="1"),
@@ -393,8 +390,8 @@ async def test_retried_publish_of_an_already_active_version_is_a_replay(
     raise "document version in ACTIVE cannot publish".
     """
     from harborrag_core.ingestion import SourceAdmissionDecision
+    from harborrag_engine.ingestion.release.pipeline import DocumentStagePipeline
     from harborrag_engine.ingestion.release.stage_models import PreparedDocumentStage
-    from harborrag_runtime.ingestion.document.pipeline import DocumentStagePipeline
 
     control = build_control_plane(tmp_path)
     store = MemoryObjectStore()

@@ -44,11 +44,9 @@ from harborrag_engine.ingestion import (
 )
 from harborrag_engine.ingestion.release.dependencies import DocumentReleaseDependencies
 from harborrag_engine.ingestion.release.models import DocumentReleaseRequest
+from harborrag_engine.ingestion.release.service import DocumentReleaseService
 from harborrag_engine.ingestion.source.models import SourceIngestionRequest
-from harborrag_runtime.ingestion import (
-    DocumentReleaseService,
-    GraphRelationRepairService,
-)
+from harborrag_runtime.ingestion import GraphRelationRepairService
 from harborrag_runtime.ingestion.failure_classification import ingestion_failure_classifier
 
 from .connectors import (

@@ -13,9 +13,7 @@ from harborrag_core.ingestion import (
 )
 from harborrag_core.storage import StorageOperationContext
 from harborrag_engine.ingestion.maintenance.cleanup import ProjectionCleanupService
-from harborrag_runtime.ingestion import (
-    DocumentReleaseService,
-)
+from harborrag_engine.ingestion.release.service import DocumentReleaseService
 
 from ...fixtures.connectors import SourceConnector
 from ...fixtures.release import (

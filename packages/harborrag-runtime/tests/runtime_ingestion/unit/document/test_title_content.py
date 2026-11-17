@@ -22,11 +22,8 @@ from harborrag_core.ingestion import (
     SourceAdmissionDecision,
     SourceBinding,
 )
-from harborrag_runtime.ingestion import (
-    DocumentReindexService,
-    DocumentReleaseService,
-    ReindexRequest,
-)
+from harborrag_engine.ingestion.maintenance.reindex import DocumentReindexService, ReindexRequest
+from harborrag_engine.ingestion.release.service import DocumentReleaseService
 
 from ...fixtures.connectors import DeterministicEmbedClient, SourceConnector, TextParser
 from ...fixtures.release import (

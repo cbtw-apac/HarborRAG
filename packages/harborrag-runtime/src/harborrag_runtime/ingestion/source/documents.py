@@ -16,9 +16,9 @@ from harborrag_core.ingestion import (
 )
 from harborrag_core.schemas.ids import DocumentId, DocumentVersionId
 from harborrag_engine.ingestion.release.models import DocumentReleaseOutcome
+from harborrag_engine.ingestion.release.service import DocumentReleaseService
 from harborrag_engine.ingestion.source.models import PlannedDocumentRelease
 
-from ..document.service import DocumentReleaseService
 from ..failure_classification import ingestion_failure_classifier
 
 logger = logging.getLogger("harborrag.runtime.ingestion.source_documents")

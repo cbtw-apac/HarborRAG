@@ -3,10 +3,13 @@
 Contributor notes for `harborrag_runtime.ingestion`, grouped by application
 responsibility:
 
-- `document/` owns one document release and its durable stage boundaries.
+- `document/` owns connector-aware canonical normalization and the per-run parser and
+  chunker choice. The release stages, pipeline and service live in
+  `harborrag_engine.ingestion.release`.
 - `source/` owns discovery, bounded dispatch, retry and source finalization.
-- `maintenance/` owns operations over already-published data: cleanup, relation repair,
-  connector-free reindexing and the retention of retired document versions.
+- `maintenance/` owns operations over already-published data: relation repair, projection
+  administration and the retention of retired document versions. Connector-free reindexing
+  lives in `harborrag_engine.ingestion.maintenance.reindex`.
 - The package root owns cross-cutting composition, processing profiles, connection
   resolution and telemetry.
 
@@ -17,11 +20,10 @@ and white-box tests.
 ## Dependency direction
 
 ```text
-document  <- source
-document  <- maintenance
-maintenance <- source finalization
+engine release <- source
+maintenance    <- source finalization
 
-composition/runtime_builder -> document + source + maintenance
+composition/runtime_builder -> document + source + maintenance + engine release
 ```
 
 Maintenance uses structural protocols when it needs only part of a source contract. That
