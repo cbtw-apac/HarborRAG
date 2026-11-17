@@ -15,6 +15,7 @@ from configured_inspection import (
     inspect_configured_source,
 )
 
+from harborrag_adapters.connectors.policies.network import DestinationPolicy
 from harborrag_core.ingestion.connector_contracts import ConnectorQuery
 from harborrag_core.ingestion.source_query import SourceQuery
 from harborrag_runtime.config import (
@@ -169,7 +170,12 @@ def _select_sources() -> tuple[SourceSelection, ...]:
         )
         if definition is None:
             raise AssertionError(f"no enabled {provider} connector is configured")
-        connector = definition.build(connector_kwargs={"parser": parser})
+        connector = definition.build(
+            connector_kwargs={
+                "parser": parser,
+                "destination_policy": DestinationPolicy.from_environ(),
+            }
+        )
         fingerprint = connector_fingerprint(
             catalog_version=catalog.version,
             definition=definition,
