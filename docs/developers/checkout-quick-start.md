@@ -169,11 +169,12 @@ uv run harborrag doctor
 
 `doctor` prints one line per check and ends with the tenants that hold data. It exits 0 when
 every required check passes, 6 when only service checks fail, and 1 when a configuration
-check fails; `-o json` prints the same report as JSON. In a checkout, the `source path` and
-`connector credentials` checks fail until `env/.env.connector` sets `LOCAL_SOURCE_PATH` and
-the credentials of the enabled remote connections. The stack does not need them for
-`harborrag-workspace`: `dev.sh` mounts `docs/` into the worker when `LOCAL_SOURCE_PATH` is
-unset.
+check fails; `-o json` prints the same report as JSON. In a fresh checkout,
+`connector credentials` warns until `env/.env.connector` holds the credentials of the
+enabled remote connections, and `source path` warns when `HARBORRAG_LOCAL_SOURCE_ROOT`
+names a container path such as `/data/sources`. Warnings do not change the exit code, and
+the stack does not need those values for `harborrag-workspace`: `dev.sh` mounts `docs/`
+into the worker when `LOCAL_SOURCE_PATH` is unset.
 
 The Temporal UI is at <http://localhost:8080>, and `dev.sh api` prints the API health URL,
 `http://127.0.0.1:8000/healthz` by default.

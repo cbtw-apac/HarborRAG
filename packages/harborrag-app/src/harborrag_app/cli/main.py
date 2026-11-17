@@ -153,11 +153,8 @@ def main(argv: list[str] | None = None) -> int:
         origin = Path.cwd()
         try:
             project = activate_from_argv(args)
-            # A checkout supplies catalogs without a marker file, so it is only consulted
-            # once marker discovery has come up empty -- and only for a command that needs
-            # catalogs, so `doctor` keeps reporting on the directory the user is in.
             checkout = (
-                activate_legacy_checkout() if project is None and _requires_project(args) else None
+                activate_legacy_checkout() if project is None and _needs_catalogs(args) else None
             )
         except ProjectError as exc:
             print(f"harborrag: {exc}", file=sys.stderr)
@@ -211,6 +208,12 @@ def _command_name(args: list[str]) -> str | None:
 def _activates_project(args: list[str]) -> bool:
     """Everything except pure help output runs inside the enclosing project."""
     return not any(arg in _HELP_FLAGS for arg in args)
+
+
+def _needs_catalogs(args: list[str]) -> bool:
+    """True when the command reads catalogs: every project command, and ``doctor``."""
+
+    return _command_name(args) == "doctor" or _requires_project(args)
 
 
 def _requires_project(args: list[str]) -> bool:

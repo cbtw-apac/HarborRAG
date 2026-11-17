@@ -252,8 +252,8 @@ uv run python scripts/check_dependency_direction.py
 `harborrag doctor` checks the checkout's catalogs and the local services, Temporal included.
 Its service checks fail until the stack is running, so run it after
 [starting the local stack](quick-start.md#3-start-the-local-stack). In a checkout, the
-`source path` and `connector credentials` checks also fail until `env/.env.connector` sets
-`LOCAL_SOURCE_PATH` and the remote connections' credentials.
+`connector credentials` check warns until `env/.env.connector` holds the remote
+connections' credentials; a warning does not fail `doctor`.
 
 After a PyPI install, check that the SDK imports:
 

@@ -82,6 +82,7 @@ def project(
     for name in (
         *GATEWAY_VARIABLES,
         "LOCAL_SOURCE_PATH",
+        "HARBORRAG_LOCAL_SOURCE_ROOT",
         "HARBORRAG_QDRANT_URL",
         "HARBORRAG_PROJECT",
     ):

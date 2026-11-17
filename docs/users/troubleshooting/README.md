@@ -6,8 +6,9 @@ them from inside a clone of the repository, with `uv run harborrag …`.
 ## Start with `harborrag doctor`
 
 `doctor` checks the setup one line at a time: the project, the Python clients, the
-connector, parser and model catalogs, blank credential variables, the local source folder,
-and the local services, Temporal included. It ends with the tenants that hold data.
+connector, parser and model catalogs, the local source root, the credential variables of
+remote connectors, and the local services, Temporal included. It ends with the tenants
+that hold data.
 
 ```bash
 uv run harborrag doctor
@@ -16,15 +17,14 @@ uv run harborrag doctor
 Each ✗ line names the problem, and the hint under it names the `env/.env.*` file or the
 `scripts/deployment/dev.sh` command that fixes it. `doctor` exits 1 while a required
 configuration check fails, and 6 when only service checks fail; a warning does not count.
-Run it from the repository root: unlike the other commands it does not walk up to the
-clone. The [CLI reference](../cli-reference/README.md#check-the-setup) lists every check.
+Like the other commands, it walks up from the current directory to the clone, so you can
+run it from any folder inside. The
+[CLI reference](../cli-reference/README.md#check-the-setup) lists every check.
 
 | Symptom | Likely cause | Fix |
 | --- | --- | --- |
-| `project` warns `no harborrag.yaml found; using the current directory` in a clone | `doctor` looks for a project marker file, which a clone does not have | Expected; ignore it |
-| `doctor` fails with `Connector configuration file does not exist: …/config/sources/connectors.yaml` | It ran from a subfolder of the clone | `cd` to the repository root and run it again |
-| `source path` fails with `LOCAL_SOURCE_PATH is not set` | The check reads the host variable `LOCAL_SOURCE_PATH`, not `HARBORRAG_LOCAL_SOURCE_ROOT` | Set `LOCAL_SOURCE_PATH` in `env/.env.connector` to the folder to ingest |
-| `connector credentials` fails with `blank: …` and the command exits 1 on a fresh clone | An enabled remote connector (Jira, Confluence or SharePoint) has blank URL or credential variables | Fill them in `env/.env.connector`, or set `enabled: false` on the connectors you do not use in `config/sources/connectors.yaml` |
+| `source path` warns that `HARBORRAG_LOCAL_SOURCE_ROOT` does not name a directory on this host | The value is a container path such as `/data/sources`, which only the API and workers have | Expected when you ingest through the stack; `connections test` on a `local_file` connection reports `"ok": false` and exits 8 for the same reason. Set the variable to a folder on this machine to test locally |
+| `connector credentials` warns `blank credentials for: …` | An enabled remote connector (Jira, Confluence or SharePoint) has blank URL or credential variables | Nothing to fix if you do not use them. Otherwise fill them in `env/.env.connector`, or set `enabled: false` on the connectors you do not use in `config/sources/connectors.yaml` |
 
 ## Installation and imports
 

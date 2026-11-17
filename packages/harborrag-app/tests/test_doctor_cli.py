@@ -262,19 +262,58 @@ def test_doctor_reports_installed_clients_as_ok(tmp_path: Path, monkeypatch, cap
     assert checks["python packages"]["status"] == "ok"
 
 
-def test_doctor_flags_blank_connector_credentials(tmp_path: Path, monkeypatch, capsys) -> None:
+def test_doctor_warns_about_blank_connector_credentials_and_still_passes(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
     project(tmp_path, monkeypatch, api_key="sk-test", connectors="github")
     for name in ("GITHUB_TOKEN", "GITHUB_REPOSITORY_URL"):
         monkeypatch.delenv(name, raising=False)
-    unreachable(monkeypatch)
+    reachable(monkeypatch)
     monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
 
-    cli.main(["doctor", "-o", "json"])
+    code = cli.main(["doctor", "-o", "json"])
 
     checks = {c["name"]: c for c in json.loads(capsys.readouterr().out)["checks"]}
-    assert checks["connector credentials"]["status"] == "fail"
-    assert "GITHUB_TOKEN" in checks["connector credentials"]["detail"]
-    assert "source path" not in checks
+    credentials = checks["connector credentials"]
+    assert code == 0
+    assert credentials["status"] == "warn"
+    assert credentials["required"] is False
+    assert "github" in credentials["detail"]
+    assert "GITHUB_TOKEN" not in credentials["detail"]
+
+
+def test_doctor_judges_the_local_source_root_not_a_catalog_variable(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    project(tmp_path, monkeypatch, api_key="sk-test", connectors="github")
+    monkeypatch.delenv("HARBORRAG_LOCAL_SOURCE_ROOT", raising=False)
+    reachable(monkeypatch)
+    monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
+
+    code = cli.main(["doctor", "-o", "json"])
+
+    row = {c["name"]: c for c in json.loads(capsys.readouterr().out)["checks"]}["source path"]
+    assert code == 0
+    assert row["status"] == "ok"
+    assert "HARBORRAG_LOCAL_SOURCE_ROOT" in row["detail"]
+    assert "unset" in row["detail"]
+
+
+def test_doctor_warns_when_the_local_source_root_is_missing_on_this_host(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    project(tmp_path, monkeypatch, api_key="sk-test")
+    monkeypatch.setenv("HARBORRAG_LOCAL_SOURCE_ROOT", str(tmp_path / "container-only"))
+    reachable(monkeypatch)
+    monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
+
+    code = cli.main(["doctor", "-o", "json"])
+
+    row = {c["name"]: c for c in json.loads(capsys.readouterr().out)["checks"]}["source path"]
+    assert code == 0
+    assert row["status"] == "warn"
+    assert row["required"] is False
+    assert "container-only" not in json.dumps(row)
 
 
 def test_report_separates_readiness_from_the_raw_fail_count() -> None:

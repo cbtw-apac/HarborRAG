@@ -38,7 +38,7 @@ from .environment import (
     models_check,
     packages_check,
     settings_error_detail,
-    source_path_checks,
+    source_root_check,
 )
 
 logger = logging.getLogger("harborrag.app.cli.doctor.suite")
@@ -89,28 +89,29 @@ async def run_doctor(*, service_factory: Callable[[], BaseAppService]) -> Doctor
 
 
 def _project_check() -> Check:
-    project = active_project()
-    if project is None:
-        try:
-            project = find_project()
-        except ProjectError as exc:
-            return Check(
-                "project",
-                "project",
-                "fail",
-                str(exc),
-                hint="Pass --project to use it deliberately.",
-            )
-    if project is None:
+    try:
+        project = active_project() or find_project()
+        checkout = None if project is not None else find_legacy_checkout()
+    except ProjectError as exc:
         return Check(
             "project",
             "project",
-            "warn",
-            f"no {PROJECT_FILE} found; using the current directory",
-            hint=_PROJECT_HINT,
-            required=False,
+            "fail",
+            str(exc),
+            hint="Pass --project to use it deliberately.",
         )
-    return Check("project", "project", "ok", str(project.root))
+    if project is not None:
+        return Check("project", "project", "ok", str(project.root))
+    if checkout is not None:
+        return Check("project", "project", "ok", f"repository checkout {checkout}")
+    return Check(
+        "project",
+        "project",
+        "warn",
+        f"no {PROJECT_FILE} found; using the current directory",
+        hint=_PROJECT_HINT,
+        required=False,
+    )
 
 
 def _settings(checks: list[Check]) -> RuntimeSettings | None:
@@ -166,8 +167,8 @@ def _configuration_checks(settings: RuntimeSettings) -> list[Check]:
         checks.append(Check("parsers catalog", "config", "fail", str(exc), hint=_PROJECT_HINT))
     checks.append(_chunking_check(settings))
     checks.append(models_check(settings.model_config_path))
+    checks.append(source_root_check())
     if catalog is not None:
-        checks.extend(source_path_checks(catalog))
         credentials = credentials_check(catalog)
         if credentials is not None:
             checks.append(credentials)

@@ -17,6 +17,10 @@ from harborrag_app.cli.project import active_project
 from harborrag_core.contracts.errors import HarborConfigurationError
 from harborrag_runtime.application.errors import public_error_message, validation_error_detail
 from harborrag_runtime.config import ConnectorCatalog, describe_model_catalog
+from harborrag_runtime.config.connectors.models.local_file import (
+    LOCAL_SOURCE_ROOT_VARIABLE,
+    local_source_root,
+)
 
 from .checks import Check
 
@@ -121,8 +125,12 @@ def check_error_detail(exc: Exception) -> str:
 
 
 def credentials_check(catalog: ConnectorCatalog) -> Check | None:
-    """Every URL/secret variable a remote connector references must be non-empty."""
-    blank: list[str] = []
+    """Warn about enabled remote connectors whose URL or secret variables are blank.
+
+    A fresh checkout ships remote connectors with blank credentials, and a local run does
+    not need them, so this reports the connectors that cannot sync yet and never fails.
+    """
+    unconfigured: set[str] = set()
     remote = 0
     for definition in catalog.connectors.values():
         if not definition.enabled or definition.provider == "local":
@@ -132,21 +140,19 @@ def credentials_check(catalog: ConnectorCatalog) -> Check | None:
             *definition.setting_environment.values(),
             *definition.secret_environment.values(),
         )
-        blank.extend(
-            f"{definition.name}: {variable}"
-            for variable in references
-            if not os.environ.get(variable, "").strip()
-        )
+        if any(not os.environ.get(variable, "").strip() for variable in references):
+            unconfigured.add(definition.name)
     if not remote:
         return None
-    if blank:
-        detail = "blank: " + ", ".join(sorted(set(blank)))
+    if unconfigured:
+        detail = f"blank credentials for: {', '.join(sorted(unconfigured))}"
         return Check(
             "connector credentials",
             "environment",
-            "fail",
+            "warn",
             detail,
-            hint=f"Set the variables named above in {env_hint('connector')}.",
+            hint=f"Set each connector's variables in {env_hint('connector')} before syncing it.",
+            required=False,
         )
     return Check(
         "connector credentials", "environment", "ok", f"{remote} remote connector(s) configured"
@@ -201,30 +207,20 @@ def models_check(path: Path) -> Check:
     return Check("models catalog", "config", "ok", detail)
 
 
-def source_path_checks(catalog: ConnectorCatalog) -> list[Check]:
-    """Check that each local source connector has a readable source path.
+def source_root_check() -> Check:
+    """Report the folder ``local_file`` connections must stay inside.
 
-    Never echo the value: a catalog can name any variable here.
-
-    Never echo the value, in this branch either: a catalog can name any variable here, and the
-    resolved path is not the operator's question.
+    Reads ``HARBORRAG_LOCAL_SOURCE_ROOT`` as the operations do. Unset means no restriction
+    for the CLI. The value is never echoed. A root absent on this host is a warning, since
+    the API and workers resolve it in their own filesystem.
     """
-    checks: list[Check] = []
-    for definition in catalog.connectors.values():
-        variable = dict(definition.setting_environment).get("source_path")
-        if not definition.enabled or definition.provider != "local" or variable is None:
-            continue
-        value = os.environ.get(variable, "")
-        if not value:
-            hint = f"Set {variable} in {env_hint('connector')} to the folder to ingest."
-            checks.append(
-                Check("source path", "environment", "fail", f"{variable} is not set", hint=hint)
-            )
-        elif not Path(value).expanduser().is_dir():
-            detail = f"{variable} does not point to an existing directory"
-            hint = f"Check {variable} in {env_hint('connector')}."
-            checks.append(Check("source path", "environment", "fail", detail, hint=hint))
-        else:
-            detail = f"{variable} points to an existing directory"
-            checks.append(Check("source path", "environment", "ok", detail))
-    return checks
+    root = local_source_root()
+    if root is None:
+        detail = f"{LOCAL_SOURCE_ROOT_VARIABLE} is unset; local_file connections may use any path"
+        return Check("source path", "environment", "ok", detail)
+    if not root.is_dir():
+        detail = f"{LOCAL_SOURCE_ROOT_VARIABLE} does not name a directory on this host"
+        hint = f"Fine when only the API and workers mount it; otherwise check {LOCAL_SOURCE_ROOT_VARIABLE}."
+        return Check("source path", "environment", "warn", detail, hint=hint, required=False)
+    detail = f"{LOCAL_SOURCE_ROOT_VARIABLE} points to an existing directory"
+    return Check("source path", "environment", "ok", detail)
