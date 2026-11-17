@@ -41,12 +41,19 @@ Register one `ConnectorProviderDefinition` holding the connector class, typed co
 aliases, constructor dependency names, config path fields and default document kind. Runtime
 configuration and construction derive their behaviour from this definition; do not add
 parallel provider-name switches. A connector that opens HTTP sessions lists
-`"destination_policy": "destination_policy"` among its constructor dependencies, takes a
-`DestinationPolicy` argument and creates every session with
-`guarded_session(destination_policy)`. The runtime builds the policy once from the
-environment. A connector built without one gets the default policy, which reaches public
-addresses only, and never reads the environment itself. Users then configure the provider
-as described in
+`"destination_policy": "destination_policy"` among its constructor dependencies, takes an
+optional `destination_policy: DestinationPolicy | None = None` argument and creates every
+session with `guarded_session(destination_policy or DestinationPolicy())`:
+
+```python
+from harborrag_adapters.connectors.policies.network import DestinationPolicy, guarded_session
+
+self.session = guarded_session(destination_policy or DestinationPolicy())
+```
+
+The runtime builds the policy once from the environment. A connector built without one gets
+the default policy, which reaches public addresses only, and never reads the environment
+itself. Users then configure the provider as described in
 [Connector Configuration](../../users/configuration/connector-config.md).
 
 Use fakes in tests; do not ship a provider `mock.py` as a substitute for production behaviour.

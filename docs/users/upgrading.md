@@ -555,10 +555,14 @@ the audit log to the default `.harborrag/mcp-audit.jsonl`. Pass
 #### Connectors built outside the runtime
 
 The runtime reads `HARBORRAG_CONNECTOR_ALLOWED_HOSTS` and `HARBORRAG_CONNECTOR_USE_PROXY`
-once, when it composes the API or a worker, and hands the resulting
-`DestinationPolicy` to every connector it builds, the connection test and
-`ingestions start --inline` included. Connectors no longer read these variables when they
-open a session, and `guarded_session` requires a policy. A GitHub, Jira, Confluence or
+once, when it composes the API or an ingestion runtime, and hands the resulting
+`DestinationPolicy` to the connectors that ingestion builds: workers, inline runs such as
+`ingestions start --inline`, and SDK direct mode. The connection test (`connections test`
+and its API route) uses the same policy. A connector built from a config file with
+`ConnectorDefinition.build` or `ConnectorCatalog.build`, or with `build_connector` or
+`build_connector_from_parts` and no `destination_policy`, gets the strict default. Connectors
+no longer read these variables when they open a session, and `guarded_session` requires a
+policy. A GitHub, Jira, Confluence or
 SharePoint connector that your own code builds with `HarborConnector` or the connector
 class, without the runtime, now reaches public addresses only, whatever the environment
 says. To reach a private host, pass `destination_policy=DestinationPolicy.from_environ()`,

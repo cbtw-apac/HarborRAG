@@ -60,6 +60,7 @@ action.
 #### harborrag-adapters
 
 - **Breaking:** `guarded_session` requires a `DestinationPolicy` and the GitHub, Jira, Confluence and SharePoint connectors take a `destination_policy` constructor argument instead of reading `HARBORRAG_CONNECTOR_ALLOWED_HOSTS` and `HARBORRAG_CONNECTOR_USE_PROXY` when they open a session; code that builds these connectors outside the runtime without a policy reaches public addresses only, see the [upgrade guide](docs/users/upgrading.md#connectors-built-outside-the-runtime)
+- The destination policy refuses a private IPv4 address carried in NAT64 (`64:ff9b::/96`) or IPv4-compatible (`::/96`) IPv6 form, judging these addresses by the IPv4 address they carry; hosts and networks in `HARBORRAG_CONNECTOR_ALLOWED_HOSTS` keep working
 
 #### harborrag-app
 
@@ -112,6 +113,7 @@ action.
 
 #### harborrag-runtime
 
+- **Breaking:** `ConnectorPool` and `ConnectionService` require a `destination_policy` keyword argument, and `run_checks` takes a `destination_policy` parameter after `tenant_id`; `build_connector`, `build_connector_from_parts` and connectors built from a config file with `ConnectorDefinition.build` or `ConnectorCatalog.build` reach public addresses only unless the caller passes `destination_policy`, see the [upgrade guide](docs/users/upgrading.md#connectors-built-outside-the-runtime)
 - **Breaking:** `config/` is organised by domain (`sources/`, `ingestion/`, `graph/`, `models/`, `mcp/`) and every default path follows; a deployment that sets each `HARBORRAG_*_CONFIG_PATH` keeps working
 - **Breaking:** `config/models/models.yaml` sends chat, embedding and reranking through one LiteLLM proxy gateway and reads `HARBORRAG_URL`, `HARBORRAG_API_KEY`, `HARBORRAG_CHAT_MODEL`, `HARBORRAG_EMBED_MODEL` and `HARBORRAG_RERANKER_MODEL` instead of a provider, model and API key per family
 - **Breaking:** the shipped embedding model is the gateway's, in the embedding space `harbor-cohere-embed-v4`; its vectors have the same 1536 dimensions as before, so re-ingest every source in `force` mode
