@@ -132,7 +132,7 @@ def credentials_check(catalog: ConnectorCatalog) -> Check | None:
     A fresh checkout ships remote connectors with blank credentials, and a local run does
     not need them, so this reports the connectors that cannot sync yet and never fails.
     """
-    unconfigured: set[str] = set()
+    unconfigured: dict[str, list[str]] = {}
     remote = 0
     for definition in catalog.connectors.values():
         if not definition.enabled or definition.provider == "local":
@@ -142,19 +142,21 @@ def credentials_check(catalog: ConnectorCatalog) -> Check | None:
             *definition.setting_environment.values(),
             *definition.secret_environment.values(),
         )
-        if any(not os.environ.get(variable, "").strip() for variable in references):
-            unconfigured.add(definition.name)
+        blank = sorted(
+            {variable for variable in references if not os.environ.get(variable, "").strip()}
+        )
+        if blank:
+            unconfigured[definition.name] = blank
     if not remote:
         return None
     if unconfigured:
         detail = f"blank credentials for: {', '.join(sorted(unconfigured))}"
+        variables = "; ".join(
+            f"{name}: {', '.join(blank)}" for name, blank in sorted(unconfigured.items())
+        )
+        hint = f"Set these in {env_hint('connector')} before syncing the connector: {variables}."
         return Check(
-            "connector credentials",
-            "environment",
-            "warn",
-            detail,
-            hint=f"Set each connector's variables in {env_hint('connector')} before syncing it.",
-            required=False,
+            "connector credentials", "environment", "warn", detail, hint=hint, required=False
         )
     return Check(
         "connector credentials", "environment", "ok", f"{remote} remote connector(s) configured"
@@ -212,14 +214,22 @@ def models_check(path: Path) -> Check:
 def source_root_check() -> Check:
     """Report the folder ``local_file`` connections must stay inside.
 
-    Reads ``HARBORRAG_LOCAL_SOURCE_ROOT`` as the operations do. Unset means no restriction
-    for the CLI. The value is never echoed. A root absent on this host is a warning, since
-    the API and workers resolve it in their own filesystem.
+    Reads ``HARBORRAG_LOCAL_SOURCE_ROOT`` as the operations do. Unset is a warning: the CLI
+    and ``connectors.yaml`` then accept any path, but the API refuses every ``local_file``
+    connection. The value is never echoed. A root absent on this host is also a warning,
+    since the API and workers resolve it in their own filesystem.
     """
     root = local_source_root()
     if root is None:
-        detail = f"{LOCAL_SOURCE_ROOT_VARIABLE} is unset; local_file connections may use any path"
-        return Check("source path", "environment", "ok", detail)
+        detail = (
+            f"{LOCAL_SOURCE_ROOT_VARIABLE} is unset; the CLI accepts any local_file path, "
+            "the API refuses every local_file connection"
+        )
+        hint = (
+            f"Set {LOCAL_SOURCE_ROOT_VARIABLE} in the API and worker environment, and for the "
+            f"CLI on its line in {env_hint('database')}."
+        )
+        return Check("source path", "environment", "warn", detail, hint=hint, required=False)
     if not root.is_dir():
         detail = f"{LOCAL_SOURCE_ROOT_VARIABLE} does not name a directory on this host"
         hint = f"Fine when only the API and workers mount it; otherwise check {LOCAL_SOURCE_ROOT_VARIABLE}."

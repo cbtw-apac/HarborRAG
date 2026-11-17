@@ -24,6 +24,7 @@ run it from any folder inside. The
 | Symptom | Likely cause | Fix |
 | --- | --- | --- |
 | `source path` warns that `HARBORRAG_LOCAL_SOURCE_ROOT` does not name a directory on this host | The value is a container path such as `/data/sources`, which only the API and workers have | Expected when you ingest through the stack; `connections test` on a `local_file` connection reports `"ok": false` and exits 8 for the same reason. Set the variable to a folder on this machine to test locally |
+| `source path` warns that `HARBORRAG_LOCAL_SOURCE_ROOT` is unset | The CLI accepts any `local_file` path, but the API refuses every `local_file` connection while the root is unset | Set `HARBORRAG_LOCAL_SOURCE_ROOT` in the API and worker environment, and for the CLI on its line in `env/.env.database` |
 | `connector credentials` warns `blank credentials for: …` | An enabled remote connector (Jira, Confluence or SharePoint) has blank URL or credential variables | Nothing to fix if you do not use them. Otherwise fill them in `env/.env.connector`, or set `enabled: false` on the connectors you do not use in `config/sources/connectors.yaml` |
 
 ## Installation and imports

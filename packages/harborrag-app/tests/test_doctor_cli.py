@@ -56,7 +56,7 @@ def test_doctor_json_lists_checks_and_fails_on_missing_services(
     names = {check["name"]: check for check in payload["checks"]}
     assert names["project"]["status"] == "ok"
     assert names["models catalog"]["status"] == "ok"
-    assert names["source path"]["status"] == "ok"
+    assert names["source path"]["status"] == "warn"
     assert names["qdrant"]["status"] == "fail"
     assert names["temporal"]["status"] == "fail"
     assert payload["diagnostics"]["runtime"]["ready"] is True
@@ -280,6 +280,25 @@ def test_doctor_warns_about_blank_connector_credentials_and_still_passes(
     assert credentials["required"] is False
     assert "github" in credentials["detail"]
     assert "GITHUB_TOKEN" not in credentials["detail"]
+    assert "github: GITHUB_REPOSITORY_URL, GITHUB_TOKEN" in credentials["hint"]
+
+
+def test_doctor_names_only_the_blank_variables_never_their_values(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    project(tmp_path, monkeypatch, api_key="sk-test", connectors="github")
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.setenv("GITHUB_REPOSITORY_URL", "https://example.invalid/demo-repo")
+    reachable(monkeypatch)
+    monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
+
+    cli.main(["doctor", "-o", "json"])
+
+    out = capsys.readouterr().out
+    checks = {c["name"]: c for c in json.loads(out)["checks"]}
+    assert "github: GITHUB_TOKEN" in checks["connector credentials"]["hint"]
+    assert "GITHUB_REPOSITORY_URL" not in checks["connector credentials"]["hint"]
+    assert "demo-repo" not in out
 
 
 def test_doctor_judges_the_local_source_root_not_a_catalog_variable(
@@ -294,9 +313,14 @@ def test_doctor_judges_the_local_source_root_not_a_catalog_variable(
 
     row = {c["name"]: c for c in json.loads(capsys.readouterr().out)["checks"]}["source path"]
     assert code == 0
-    assert row["status"] == "ok"
+    assert row["status"] == "warn"
+    assert row["required"] is False
     assert "HARBORRAG_LOCAL_SOURCE_ROOT" in row["detail"]
     assert "unset" in row["detail"]
+    assert "CLI" in row["detail"] and "API refuses" in row["detail"]
+    assert "HARBORRAG_LOCAL_SOURCE_ROOT" in row["hint"]
+    assert "API and worker" in row["hint"]
+    assert environment.env_hint("database") in row["hint"]
 
 
 def test_doctor_warns_when_the_local_source_root_is_missing_on_this_host(
