@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from dataclasses import replace
 
+from harborrag_adapters.connectors.policies.network import DestinationPolicy
 from harborrag_adapters.connectors.rate_limiting import ConnectorRateLimiter
 from harborrag_adapters.models.embed import HarborEmbedClient, HarborEmbedClientConfig
 from harborrag_adapters.models.runtime import ResourceOwnership
@@ -204,6 +205,7 @@ class IngestionRuntimeBuilder:
                 revisions=stores.revisions,
                 secrets=default_secret_resolver(stores.secrets),
                 parser=parser,
+                destination_policy=DestinationPolicy.from_environ(),
                 rate_limiter=rate_limiter,
             ),
             connection_health=ConnectionHealth(stores.connections),

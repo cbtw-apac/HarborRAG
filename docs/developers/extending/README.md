@@ -40,7 +40,12 @@ reported through `skipped` rather than silently omitted.
 Register one `ConnectorProviderDefinition` holding the connector class, typed config factory,
 aliases, constructor dependency names, config path fields and default document kind. Runtime
 configuration and construction derive their behaviour from this definition; do not add
-parallel provider-name switches. Users then configure the provider as described in
+parallel provider-name switches. A connector that opens HTTP sessions lists
+`"destination_policy": "destination_policy"` among its constructor dependencies, takes a
+`DestinationPolicy` argument and creates every session with
+`guarded_session(destination_policy)`. Runtime builds the policy once from the
+environment; a connector built without one gets the default policy, which reaches public
+addresses only, and never reads the environment itself. Users then configure the provider as described in
 [Connector Configuration](../../users/configuration/connector-config.md).
 
 Use fakes in tests; do not ship a provider `mock.py` as a substitute for production behaviour.

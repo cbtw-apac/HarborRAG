@@ -544,6 +544,19 @@ with the routes they served. The replacements are methods of `AppService`; of th
 | `control_ingestion(run_id, action)` | `pause(task_id)`, `resume(task_id)` or `cancel(task_id)`, one method per action |
 | `retrieve(query, ...)` | `HarborRAG().retrieval.search(RetrievalRequest(...))` of `harborrag_runtime.sdk`, or `harborrag_engine.retrieval.service.service.RuntimeRetrievalService.retrieve` |
 
+#### Connectors built outside the runtime
+
+The runtime reads `HARBORRAG_CONNECTOR_ALLOWED_HOSTS` and `HARBORRAG_CONNECTOR_USE_PROXY`
+once, when it composes the API or a worker, and hands the resulting
+`DestinationPolicy` to every connector it builds, the connection test and
+`ingestions start --inline` included. Connectors no longer read these variables when they
+open a session, and `guarded_session` requires a policy. A GitHub, Jira, Confluence or
+SharePoint connector that your own code builds with `HarborConnector` or the connector
+class, without the runtime, now reaches public addresses only, whatever the environment
+says. To reach a private host, pass `destination_policy=DestinationPolicy.from_environ()`,
+or a policy you build, from `harborrag_adapters.connectors.policies.network`. The
+deployment's environment variables and their effect do not change.
+
 ### HTTP API changes
 
 #### Routes, errors and limits

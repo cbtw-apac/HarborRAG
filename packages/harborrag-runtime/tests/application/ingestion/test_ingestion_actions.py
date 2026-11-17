@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 
+from harborrag_adapters.connectors.policies.network import DestinationPolicy
 from harborrag_adapters.repositories.database import IngestionControlPlaneDatabase
 from harborrag_core.contracts.errors import (
     HarborAlreadyRunningError,
@@ -536,5 +537,6 @@ async def _connection_service(
         runs=provide_runs,
         ingestions=ingestions,
         removal=lambda: None,  # type: ignore[arg-type,return-value]
+        destination_policy=DestinationPolicy(),
         instance_id="test",
     )

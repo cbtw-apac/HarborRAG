@@ -8,6 +8,10 @@ from types import SimpleNamespace
 
 import pytest
 
+from harborrag_adapters.connectors.policies.network import (
+    ALLOWED_HOSTS_VARIABLE,
+    DestinationPolicy,
+)
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.ingestion import runtime_builder
 from harborrag_runtime.ingestion.connections import ConnectorPool
@@ -155,6 +159,20 @@ def test_build_wires_injected_infrastructure_into_every_service(
     assert wired.model_telemetry_flags == [settings.langfuse_enabled]
     assert runtime.retention is not None
     assert runtime.sources is not None and runtime.reindex is not None
+
+
+def test_build_gives_the_connector_pool_the_policy_read_from_the_environment(
+    wired: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv(ALLOWED_HOSTS_VARIABLE, "jira.example.com,10.20.0.0/16")
+    settings = RuntimeSettings(connector_config_path=wired.connector_config, **_REPOSITORY_CONFIGS)
+
+    runtime = IngestionRuntimeBuilder(settings, normalizer_builder=_FakeNormalizerBuilder()).build()
+    monkeypatch.setenv(ALLOWED_HOSTS_VARIABLE, "")
+
+    assert runtime.connector_pool._destination_policy == DestinationPolicy.from_environ(
+        {ALLOWED_HOSTS_VARIABLE: "jira.example.com,10.20.0.0/16"}
+    )
 
 
 def test_explicit_embedding_settings_skip_the_catalog_defaults(

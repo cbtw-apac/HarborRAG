@@ -6,6 +6,7 @@ from typing import Any
 
 import pytest
 
+from harborrag_adapters.connectors.policies.network import DestinationPolicy
 from harborrag_core.contracts.errors import (
     HarborInUseError,
     HarborNotFoundError,
@@ -48,6 +49,7 @@ def services() -> tuple[ProjectService, ConnectionService, ControlPlaneRepositor
         runs=provide_runs,
         ingestions=Submitter(runs),
         removal=lambda: removal,  # type: ignore[arg-type,return-value]
+        destination_policy=DestinationPolicy(),
         instance_id="test",
     )
     projects = ProjectService(

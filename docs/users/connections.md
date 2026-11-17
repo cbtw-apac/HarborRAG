@@ -489,6 +489,8 @@ and `env/.env.api` (tests):
 HARBORRAG_CONNECTOR_ALLOWED_HOSTS=jira.acme.internal,10.20.0.0/16
 ```
 
+Each process reads these variables once, when it starts, so a change needs a restart.
+
 Connectors ignore `HTTP_PROXY` and `HTTPS_PROXY` and connect directly, so a proxy
 variable never switches these checks off. To send connector traffic through a proxy,
 also set `HARBORRAG_CONNECTOR_USE_PROXY=true` in both env files. HarborRAG then checks

@@ -9,6 +9,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
+from harborrag_adapters.connectors.policies.network import DestinationPolicy
 from harborrag_core.domain.project import Project
 from harborrag_core.domain.settings import WorkspaceSettings
 from harborrag_core.ingestion import IngestionTask, IngestionTaskState, TaskDocumentPage, TaskPage
@@ -224,6 +225,7 @@ def connection_world(projects: list[Project]) -> ConnectionWorld:
         runs=provide_runs,
         ingestions=submitter,
         removal=lambda: removal,  # type: ignore[arg-type,return-value]
+        destination_policy=DestinationPolicy(),
         instance_id="test",
     )
     return ConnectionWorld(service, control_plane, secrets, runs, submitter, removal)

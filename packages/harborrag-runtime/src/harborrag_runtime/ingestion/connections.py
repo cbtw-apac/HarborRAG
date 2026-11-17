@@ -25,6 +25,7 @@ from typing import Any
 
 from harborrag_adapters.connectors.file_filters import normalize_extension
 from harborrag_adapters.connectors.harbor_connector import HarborConnector
+from harborrag_adapters.connectors.policies.network import DestinationPolicy
 from harborrag_adapters.connectors.rate_limiting import ConnectorRateLimiter
 from harborrag_adapters.connectors.registry import connector_registry
 from harborrag_adapters.parsers import HarborParserRegistry
@@ -167,6 +168,7 @@ def build_connector(
     *,
     parser: HarborParserRegistry | None = None,
     rate_limiter: ConnectorRateLimiter | None = None,
+    destination_policy: DestinationPolicy | None = None,
 ) -> HarborConnector:
     """Construct the connector a snapshot describes.
 
@@ -175,6 +177,8 @@ def build_connector(
         secret_values: Plaintext for each credential field held as a reference.
         parser: Attachment parser; connectors that accept one run without it otherwise.
         rate_limiter: Shared limiter for connectors that use one.
+        destination_policy: Hosts connectors may reach beyond public addresses; without
+            one, connectors reach public addresses only.
 
     Returns:
         A ready-to-connect connector facade.
@@ -192,6 +196,7 @@ def build_connector(
         secret_values=secret_values,
         parser=parser,
         rate_limiter=rate_limiter,
+        destination_policy=destination_policy,
     )
 
 
@@ -205,10 +210,12 @@ def build_connector_from_parts(  # noqa: PLR0913 - the parts of one connection
     secret_values: Mapping[str, str],
     parser: HarborParserRegistry | None = None,
     rate_limiter: ConnectorRateLimiter | None = None,
+    destination_policy: DestinationPolicy | None = None,
 ) -> HarborConnector:
     """Construct a connector from validated parts; credentials may hold raw values.
 
-    The connection test uses this for form values that were never saved.
+    The connection test uses this for form values that were never saved. Without a
+    ``destination_policy`` the connector reaches public addresses only.
     """
     spec = source_types.get(source_type)
     refused = spec.policy_issues(config)
@@ -230,6 +237,7 @@ def build_connector_from_parts(  # noqa: PLR0913 - the parts of one connection
     available: dict[str, object | None] = {
         "attachment_parser": parser,
         "rate_limiter": rate_limiter,
+        "destination_policy": destination_policy,
     }
     definition = connector_registry.get_definition(spec.provider)
     kwargs = {
@@ -265,13 +273,23 @@ class ConnectorPool:
     Entries are keyed by ``(tenant_id, fingerprint, task_id)``: every activity of
     one run shares a connector, while a later run, or the same run after an
     edit, builds its own from the snapshot it started with.
+
+    Args:
+        revisions: Stored snapshots the run connectors are built from.
+        secrets: Resolves the credential references of a snapshot.
+        destination_policy: Hosts connectors may reach beyond public addresses; every
+            connector the pool builds receives it.
+        parser: Attachment parser for connectors that accept one.
+        rate_limiter: Limiter shared by the connectors that use one.
+        capacity: Connectors kept before the least recently used is closed.
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913 - the stores and settings the pool composes
         self,
         *,
         revisions: ConnectionRevisionRepositoryPort,
         secrets: SecretResolver,
+        destination_policy: DestinationPolicy,
         parser: HarborParserRegistry | None = None,
         rate_limiter: ConnectorRateLimiter | None = None,
         capacity: int = DEFAULT_POOL_CAPACITY,
@@ -280,6 +298,7 @@ class ConnectorPool:
         self._secrets = secrets
         self._parser = parser
         self._rate_limiter = rate_limiter
+        self._destination_policy = destination_policy
         self._capacity = capacity
         self._entries: OrderedDict[tuple[str, str, str], HarborConnector] = OrderedDict()
         self._locks: dict[tuple[str, str, str], asyncio.Lock] = {}
@@ -341,6 +360,7 @@ class ConnectorPool:
             secret_values,
             parser=self._parser,
             rate_limiter=self._rate_limiter,
+            destination_policy=self._destination_policy,
         )
         logger.info(
             "Connection connector built source_type=%s fingerprint=%s",

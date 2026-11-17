@@ -11,6 +11,7 @@ from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
+from harborrag_adapters.connectors.policies.network import DestinationPolicy
 from harborrag_runtime.config.connectors.models import SourceTypeSpec, ValidatedConnection
 from harborrag_runtime.config.errors import ConnectorConfigurationError
 from harborrag_runtime.ingestion.connection_checks import (
@@ -28,12 +29,13 @@ TEST_WORKERS = 4
 _TEST_EXECUTOR = ThreadPoolExecutor(max_workers=TEST_WORKERS, thread_name_prefix="connection-test")
 
 
-async def run_checks(
+async def run_checks(  # noqa: PLR0913 - one connection test's inputs
     spec: SourceTypeSpec,
     validated: ValidatedConnection,
     effective: Mapping[str, Any],
     secret_values: Mapping[str, str],
     tenant_id: str,
+    destination_policy: DestinationPolicy,
 ) -> ConnectionTestReport:
     """Build the connector and run its check chain, ending the wait at the deadline.
 
@@ -43,6 +45,7 @@ async def run_checks(
         effective: The credentials as they would be stored, secrets included.
         secret_values: The resolved secret values the connector reads.
         tenant_id: Tenant the connector is built for.
+        destination_policy: Hosts the connector may reach beyond public addresses.
 
     Returns:
         The report of the checks, or a timed-out report when the deadline passed.
@@ -59,6 +62,7 @@ async def run_checks(
                 config=validated.config,
                 tuning=tuning,
                 secret_values=secret_values,
+                destination_policy=destination_policy,
             )
         except ConnectorConfigurationError as error:
             report = ConnectionTestReport()

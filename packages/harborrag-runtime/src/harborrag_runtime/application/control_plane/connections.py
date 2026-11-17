@@ -14,6 +14,7 @@ from dataclasses import replace
 from typing import TYPE_CHECKING, Any, Final
 from uuid import uuid4
 
+from harborrag_adapters.connectors.policies.network import DestinationPolicy
 from harborrag_core.base import utc_now
 from harborrag_core.contracts.errors import (
     HarborAlreadyRunningError,
@@ -89,22 +90,25 @@ class ConnectionService:
         runs: Returns the run registry of connections.
         ingestions: Starts ingestions and settles runs that ended unrecorded.
         removal: Returns the stores a connection removal clears.
+        destination_policy: Hosts a connection test may reach beyond public addresses.
         instance_id: ID of this process, which names the holder of a connection sync lease.
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913 - the stores and settings the service composes
         self,
         *,
         control_plane: Callable[[], ControlPlaneRepositories],
         runs: Callable[[], Awaitable[ConnectionRuns]],
         ingestions: IngestionSubmitter,
         removal: Callable[[], ConnectionRemoval],
+        destination_policy: DestinationPolicy,
         instance_id: str,
     ) -> None:
         self._control_plane = control_plane
         self._runs = runs
         self._ingestions = ingestions
         self._removal = removal
+        self._destination_policy = destination_policy
         self._instance_id = instance_id
         self._background: set[asyncio.Task[None]] = set()
         self._removing: set[tuple[str, str]] = set()
@@ -377,7 +381,14 @@ class ConnectionService:
             report.passed("schema")
             report.secret_unavailable(unavailable)
             return report.as_dict()
-        report = await run_checks(spec, validated, effective, secret_values, key.tenant_id)
+        report = await run_checks(
+            spec,
+            validated,
+            effective,
+            secret_values,
+            key.tenant_id,
+            self._destination_policy,
+        )
         return report.as_dict()
 
     async def sync(  # noqa: PLR0913 - the caller, its type and the run options

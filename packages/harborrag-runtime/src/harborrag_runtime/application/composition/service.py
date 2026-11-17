@@ -7,6 +7,7 @@ import logging
 import uuid
 from collections.abc import AsyncGenerator
 
+from harborrag_adapters.connectors.policies.network import DestinationPolicy
 from harborrag_core.contracts.errors import HarborUnavailableError
 from harborrag_core.contracts.events import HarborEvent, event_prefix
 from harborrag_core.ports.events import EventBusPort
@@ -170,6 +171,7 @@ class AppService(
             runs=self._resources.task_registry,
             ingestions=self._public_ingestions,
             removal=self._resources.connection_removal,
+            destination_policy=DestinationPolicy.from_environ(),
             instance_id=self._instance_id,
         )
         self._ingestion_operations = IngestionOperations(

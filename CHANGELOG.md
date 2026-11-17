@@ -57,6 +57,10 @@ action.
 
 ### Changed
 
+#### harborrag-adapters
+
+- **Breaking:** `guarded_session` requires a `DestinationPolicy` and the GitHub, Jira, Confluence and SharePoint connectors take a `destination_policy` constructor argument instead of reading `HARBORRAG_CONNECTOR_ALLOWED_HOSTS` and `HARBORRAG_CONNECTOR_USE_PROXY` when they open a session; code that builds these connectors outside the runtime without a policy reaches public addresses only, see the [upgrade guide](docs/users/upgrading.md#connectors-built-outside-the-runtime)
+
 #### harborrag-app
 
 - **Breaking:** `GET /v1/admin/ingestions/{ingestion_id}/events` sends `run.status`, `stage.progress`, `document.failed` and `run.completed`, replacing `task.<id>.progress`, `.done` and `.control`:
