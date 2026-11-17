@@ -22,6 +22,10 @@ pip install harborrag-engine
 harborrag_engine/
 ├── ingestion/
 │   ├── admission.py         # source change and version planning
+│   ├── base.py              # BaseDocumentNormalizer and BaseChunker
+│   ├── tables.py            # flat table artifact builder
+│   ├── title_content.py     # title fallback for documents whose body normalizes to nothing
+│   ├── recovery.py          # workflow inputs rebuilt from durable task requests
 │   ├── normalizer.py        # canonical normalization between parser output and ingestion
 │   ├── normalizers/         # source-aware normalizer routing and builder
 │   ├── chunking/            # deterministic route and evidence chunking

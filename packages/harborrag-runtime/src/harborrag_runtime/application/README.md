@@ -20,7 +20,7 @@ imports an app or MCP-server module.
 | `ingestion/` | Ingestion ports, recovery, run-progress events and inline execution; presentation and the failure inbox live in `harborrag_engine.ingestion`; starting a run (`starter.py`) and following its events (`follower.py`); durable submission goes through the ingestion application service |
 | `scheduling/` | Reconciling `config/sources/schedules.yaml` into the schedule engine |
 | `control_plane/` | Projects, connections, active runs, runtime settings (the level and role rules, the PATCH refusals, import and export), tenant data checks, and recovery of control-plane side effects |
-| `composition/` | The `AppService` facade, its resource lifecycle and service selection |
+| `composition/` | The `AppService` facade, its resource lifecycle, service selection and the `DestinationPolicy` it hands to connection checks |
 | `ports.py`, `schemas.py`, `errors.py` | `BaseAppService`, `AppResponse` and secret-safe error envelopes, shared by the whole package |
 
 ## Inputs and outputs
@@ -32,7 +32,7 @@ Transport arguments go in; an `AppResponse` comes out. `get_app_service()` and
 ## Must not
 
 - import an app or MCP-server module;
-- import adapter implementations;
+- import adapter implementations, apart from the `DestinationPolicy` type that composition, connection tests and connection writes receive from the runtime;
 - implement ingestion business rules;
 - leave a use case's sequencing, existence checks or error translation to a transport:
   an operation calls one service method and maps its result;

@@ -43,9 +43,10 @@ configuration and construction derive their behaviour from this definition; do n
 parallel provider-name switches. A connector that opens HTTP sessions lists
 `"destination_policy": "destination_policy"` among its constructor dependencies, takes a
 `DestinationPolicy` argument and creates every session with
-`guarded_session(destination_policy)`. Runtime builds the policy once from the
-environment; a connector built without one gets the default policy, which reaches public
-addresses only, and never reads the environment itself. Users then configure the provider as described in
+`guarded_session(destination_policy)`. The runtime builds the policy once from the
+environment. A connector built without one gets the default policy, which reaches public
+addresses only, and never reads the environment itself. Users then configure the provider
+as described in
 [Connector Configuration](../../users/configuration/connector-config.md).
 
 Use fakes in tests; do not ship a provider `mock.py` as a substitute for production behaviour.

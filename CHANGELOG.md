@@ -108,7 +108,7 @@ action.
 #### harborrag-mcp-server
 
 - The MCP server reads `config/mcp/server.yaml` and, with the file key store, `config/mcp/keys.yaml`
-- `harborrag-mcp` reads `HARBORRAG_MCP_AUDIT_PATH` once at launch and passes the path to the server; code that builds `McpServer()` or calls `create_mcp_server()` without a registry gets the default `.harborrag/mcp-audit.jsonl` and no longer reads the variable
+- `harborrag-mcp` reads `HARBORRAG_MCP_AUDIT_PATH` once at launch and passes the path to the server; code that builds `McpServer(...)` or calls `create_mcp_server()` without a registry gets the default `.harborrag/mcp-audit.jsonl` and no longer reads the variable, so pass `audit=McpAuditLog(path=...)` to choose the path; see the [upgrade guide](docs/users/upgrading.md#mcp-server-built-in-python)
 
 #### harborrag-runtime
 

@@ -471,28 +471,28 @@ connection with `"method": "api_token"` and the `email`; the stored token is kep
 
   | Old logger | New logger |
   | --- | --- |
+  | `harborrag.app.api.chat` | `harborrag.runtime.application.chat.replay` |
+  | `harborrag.app.api.readiness` | `harborrag.app.operations.readiness` |
   | `harborrag.app.workflow_control.chat` | `harborrag.runtime.application.chat.service` and `harborrag.runtime.application.chat.events` |
   | `harborrag.app.workflow_control.chat.query_scope` | `harborrag.runtime.application.chat.query_scope` |
-  | `harborrag.app.api.chat` | `harborrag.runtime.application.chat.replay` |
   | `harborrag.app.workflow_control.composition.*` | `harborrag.runtime.application.composition.*` |
   | `harborrag.app.workflow_control.control_plane.*` | `harborrag.runtime.application.control_plane.*` |
   | `harborrag_app.workflow_control.control_plane.settings_import` (named by module, outside the `harborrag` root) | `harborrag.runtime.application.control_plane.settings_import` |
   | `harborrag.app.workflow_control.ingestion` | `harborrag.runtime.application.ingestion.service` and `harborrag.engine.ingestion.failure_inbox` |
   | `harborrag.app.workflow_control.ingestion.connection_sources`, `.direct` and `.progress_bridge` | the same names under `harborrag.runtime.application.ingestion` |
   | `harborrag.app.workflow_control.ingestion.durable` and `harborrag.app.workflow_control.retrieval` | removed with their modules |
-  | `harborrag.app.workflow_control.scheduling` | `harborrag.runtime.application.scheduling.service` |
-  | `harborrag.app.workflow_control.memory` | `harborrag.runtime.application.memory.composition` and `.context`, `harborrag.memory.usage`, and `harborrag.memory.messages` and `harborrag.memory.titles` |
-  | `harborrag.app.workflow_control.memory.extraction` | `harborrag.runtime.application.memory.extraction` |
+  | `harborrag.app.workflow_control.memory` | `harborrag.runtime.application.memory.composition` and `.context`, `harborrag.memory.usage`, `harborrag.memory.messages` and `harborrag.memory.titles` |
   | `harborrag.app.workflow_control.memory.administration` | `harborrag.memory.administration` and `harborrag.memory.erasure` |
-  | `harborrag.app.api.readiness` | `harborrag.app.operations.readiness` |
+  | `harborrag.app.workflow_control.memory.extraction` | `harborrag.runtime.application.memory.extraction` |
+  | `harborrag.app.workflow_control.scheduling` | `harborrag.runtime.application.scheduling.service` |
+  | `harborrag.runtime.ingestion.capture` | `harborrag.engine.ingestion.release.capture` |
+  | `harborrag.runtime.ingestion.cleanup` | `harborrag.engine.ingestion.maintenance.cleanup` |
+  | `harborrag.runtime.ingestion.document_pipeline` | `harborrag.engine.ingestion.release.pipeline` |
+  | `harborrag.runtime.ingestion.reindex` | `harborrag.engine.ingestion.maintenance.reindex` |
+  | `harborrag.runtime.ingestion.version_lifecycle` | `harborrag.engine.ingestion.release.lifecycle` |
   | `harborrag.runtime.retrieval` | `harborrag.engine.retrieval.service.service`, `harborrag.engine.retrieval.service.graph_observation` and `harborrag.engine.retrieval.service.result_loader` |
   | `harborrag.runtime.retrieval.permissions` | `harborrag.engine.retrieval.service.permissions` |
   | `harborrag.runtime.retrieval.topology` | `harborrag.engine.retrieval.service.topology` |
-  | `harborrag.runtime.ingestion.cleanup` | `harborrag.engine.ingestion.maintenance.cleanup` |
-  | `harborrag.runtime.ingestion.version_lifecycle` | `harborrag.engine.ingestion.release.lifecycle` |
-  | `harborrag.runtime.ingestion.capture` | `harborrag.engine.ingestion.release.capture` |
-  | `harborrag.runtime.ingestion.document_pipeline` | `harborrag.engine.ingestion.release.pipeline` |
-  | `harborrag.runtime.ingestion.reindex` | `harborrag.engine.ingestion.maintenance.reindex` |
   | `harborrag.runtime.tools.*` | `harborrag.engine.tools.<module>` (`documents` is `document_tools`, `entities` is `find_entities`, `readers` is `reader_tools`, `sources` is `source_list_tool`; `vector_search` keeps its name; `graph_search` splits into `graph_search` and `graph_search_support`) |
 
 #### Python import paths and service methods
@@ -505,31 +505,30 @@ old package in the first column and applying the pointer rule.
 
 | Old import path (2.0.0a2) | New import path | Pointer rule |
 | --- | --- | --- |
+| `harborrag_adapters.connectors.schemas` | `harborrag_core.ingestion.connector_contracts` | `ConnectorQuery`, `ConnectorSkip`, `ConnectorMetadata` and `ConnectorCapabilities` are no longer importable from `harborrag_adapters.connectors` |
+| `harborrag_adapters.topology.{evidence,output_policy}` | `harborrag_core.topology.<module>` | `LLMEntityExtractor` stays in `harborrag_adapters.topology` |
+| `harborrag_app.api.auth.principal` | `harborrag_app.operations.principal` | |
+| `harborrag_app.api.*` request and response models | `harborrag_app.operations.schemas.<resource>` | One module per resource: `chat`, `connections`, `ingestions`, `me`, `settings` and `common`. The models changed with the HTTP API, so check each field |
 | `harborrag_app.workflow_control` | `harborrag_runtime.application` | Keep the rest of the path: `workflow_control.chat.service` is `application.chat.service`, and `AppResponse`, `BaseAppService` and the `AppService` composition follow the same rule. `harborrag_app` no longer exports `AppResponse` or `BaseAppService` |
 | `harborrag_app.workflow_control.chat.memory_block` | `harborrag_engine.chat.memory_block` | Chat modules stay in `application.chat`, except this one |
 | `harborrag_app.workflow_control.ingestion.{models,presenters,recovery}` | `harborrag_engine.ingestion.{models,presenters,recovery}` | The failure inbox is `harborrag_engine.ingestion.failure_inbox` |
-| `harborrag_app.workflow_control.memory.{access,administration,erasure,messages,projects,titles}` | `harborrag_memory.<module>` | Session, context and extraction modules stay in `harborrag_runtime.application.memory` |
-| `harborrag_runtime.application.memory.{usage,locks,presenters,directory}` | `harborrag_memory.{usage,locks,presenters,directory}` | `ModelCall`, `record_model_usage`, `SessionLocks`, `ConversationTurnBusyError`, `ConversationDirectoryService` and the presenter functions keep their names; `harborrag_runtime.application.memory` no longer re-exports them. The error classes keep their `error_code` and HTTP status |
-| `harborrag_runtime.application.memory.identity.MemoryIdentity` | `harborrag_core.domain.identity.MemoryIdentity` | `harborrag_runtime.application.memory` no longer exports it |
 | `harborrag_app.workflow_control.ingestion.progress_bridge.event_prefix` | `harborrag_core.contracts.events.event_prefix` | The rest of `progress_bridge` is `harborrag_runtime.application.ingestion.progress_bridge`. Stored and bus event names are unchanged |
-| `harborrag_app.api.auth.principal` | `harborrag_app.operations.principal` | |
-| `harborrag_app.api.*` request and response models | `harborrag_app.operations.schemas.<resource>` | One module per resource: `chat`, `connections`, `ingestions`, `me`, `settings` and `common`. The models changed with the HTTP API, so check each field |
-| `harborrag_runtime.retrieval.<module>` | `harborrag_engine.retrieval.service.<module>` | Applies to every module except `facades` and `composition`, which stay; `service` is `harborrag_engine.retrieval.service.service`. `RuntimeRetrievalService.connect` is removed: call `connect_retrieval_service(settings)` from `harborrag_runtime.retrieval.composition`. `RetrievalOptions`, `RetrievalPolicy`, `RetrievalResources` and the other types of `contracts` are in `harborrag_engine.retrieval.service.contracts`; `harborrag_runtime.retrieval` no longer re-exports them |
+| `harborrag_app.workflow_control.memory.{access,administration,erasure,messages,projects,titles,usage,locks,presenters,directory}` | `harborrag_memory.<module>` | `ModelCall`, `record_model_usage`, `SessionLocks`, `ConversationTurnBusyError`, `ConversationDirectoryService` and the presenter functions keep their names, and `harborrag_runtime.application.memory` no longer re-exports them. The error classes keep their `error_code` and HTTP status. Session, context and extraction modules stay in `harborrag_runtime.application.memory` |
+| `harborrag_app.workflow_control.memory.identity.MemoryIdentity` | `harborrag_core.domain.identity.MemoryIdentity` | `harborrag_runtime.application.memory` no longer exports it |
+| `harborrag_engine.ingestion.policies` | `harborrag_core.ingestion.policies` | |
 | `harborrag_runtime.ingestion.document.{models,stage_models,capture_decisions,materialization_helpers,projection_coordinator}` | `harborrag_engine.ingestion.release.<module>` | `DocumentReleaseRequest` and `DocumentReleaseOutcome` are in `release.models`; `harborrag_runtime.ingestion` and `.ingestion.document` no longer re-export them |
 | `harborrag_runtime.ingestion.document.{lifecycle,dependencies,projection_material,materialization,projection}` | `harborrag_engine.ingestion.release.<module>` | `DocumentReleaseDependencies` is in `release.dependencies`, and `harborrag_runtime.ingestion` and `.ingestion.document` no longer export it. It now requires a `failures` classifier, and `parser_for` and `chunker_for` callables replace its `run_tools` field. `DocumentVersionLifecycle` requires `failures` too. `run_tools` stays in `harborrag_runtime.ingestion.document` |
 | `harborrag_runtime.ingestion.document.{capture,preparation,pipeline,service}` | `harborrag_engine.ingestion.release.<module>` | Connector arguments are typed `harborrag_engine.ingestion.release.dependencies.RawDocumentLoader`, a structural type with one method, `load(record) -> RawDocument`, which every connector satisfies. The pipeline reads its stage order from `harborrag_core.ingestion.stages.DOCUMENT_STAGE_ORDER`. `DocumentReleaseService` is no longer exported from `harborrag_runtime.ingestion`, and neither it nor `DocumentStagePipeline` is exported from `.ingestion.document` |
-| `harborrag_runtime.ingestion.maintenance.{reindex,reindex_reuse}` | `harborrag_engine.ingestion.maintenance.<module>` | `DocumentReindexService`, `ReindexRequest` and `source_identity_from_canonical` are no longer exported from `harborrag_runtime.ingestion`; import them from `harborrag_engine.ingestion.maintenance.reindex` |
 | `harborrag_runtime.ingestion.document.normalizers.{builder,router}` | `harborrag_engine.ingestion.normalizers.<module>` | `builtins` and `transform` stay in `harborrag_runtime.ingestion.document.normalizers` |
+| `harborrag_runtime.ingestion.maintenance.{reindex,reindex_reuse}` | `harborrag_engine.ingestion.maintenance.<module>` | `DocumentReindexService`, `ReindexRequest` and `source_identity_from_canonical` are no longer exported from `harborrag_runtime.ingestion`; import them from `harborrag_engine.ingestion.maintenance.reindex` |
 | `harborrag_runtime.ingestion.maintenance.{cleanup,reindex_plan,relation_supersession}` | `harborrag_engine.ingestion.maintenance.<module>` | |
 | `harborrag_runtime.ingestion.source.{models,tasks}` | `harborrag_engine.ingestion.source.<module>` | `SourceIngestionRequest` and `SourceIngestionOutcome` are in `source.models` |
-| `harborrag_runtime.topology.{derived_cleanup,inspection,reservation_deadline}` | `harborrag_engine.topology.<module>` | |
+| `harborrag_runtime.ingestion.limits`, `harborrag_runtime.source_query` | `harborrag_core.ingestion.limits`, `harborrag_core.ingestion.source_query` | `SourceQuery` and `ProcessingProfileInput` are no longer importable from `harborrag_runtime.temporal.schemas`, and `SourceSubmission` not from `harborrag_runtime.temporal.submission` |
 | `harborrag_runtime.ingestion_contracts.{SourceSubmission,PreparedSourceSubmission,IngestionRetryRequest}` | `harborrag_core.ingestion.run_contracts` | `harborrag_runtime.ingestion_contracts` keeps only the execution gateway types |
-| `harborrag_runtime.source_query`, `harborrag_runtime.ingestion.limits` | `harborrag_core.ingestion.source_query`, `harborrag_core.ingestion.limits` | `SourceQuery` and `ProcessingProfileInput` are no longer importable from `harborrag_runtime.temporal.schemas`, and `SourceSubmission` not from `harborrag_runtime.temporal.submission` |
-| `harborrag_runtime.tokenization` | `harborrag_core.chunking.tokenization` | |
 | `harborrag_runtime.memory.in_memory` | `harborrag_memory.tiers.in_memory` | |
-| `harborrag_adapters.connectors.schemas` | `harborrag_core.ingestion.connector_contracts` | `ConnectorQuery`, `ConnectorSkip`, `ConnectorMetadata` and `ConnectorCapabilities` are no longer importable from `harborrag_adapters.connectors` |
-| `harborrag_adapters.topology.{evidence,output_policy}` | `harborrag_core.topology.<module>` | `LLMEntityExtractor` stays in `harborrag_adapters.topology` |
-| `harborrag_engine.ingestion.policies` | `harborrag_core.ingestion.policies` | |
+| `harborrag_runtime.retrieval.<module>` | `harborrag_engine.retrieval.service.<module>` | Applies to every module except `facades` and `composition`, which stay; `service` is `harborrag_engine.retrieval.service.service`. `RuntimeRetrievalService.connect` is removed: call `connect_retrieval_service(settings)` from `harborrag_runtime.retrieval.composition`. `RetrievalOptions`, `RetrievalPolicy`, `RetrievalResources` and the other types of `contracts` are in `harborrag_engine.retrieval.service.contracts`; `harborrag_runtime.retrieval` no longer re-exports them |
+| `harborrag_runtime.tokenization` | `harborrag_core.chunking.tokenization` | |
+| `harborrag_runtime.topology.{derived_cleanup,inspection,reservation_deadline}` | `harborrag_engine.topology.<module>` | |
 
 Removed from `BaseAppService` (`harborrag_runtime.application.ports`; `AppService` loses
 them too). The other methods that 2.0.0a2 had on it for projects, sources, settings,
@@ -543,6 +542,15 @@ with the routes they served. The replacements are methods of `AppService`; of th
 | `ingestion_status(run_id)` and `ingestion_result(run_id)` | `get_task(task_id)`, which returns the run's public task document and raises `IngestionNotFoundError` for an unknown run |
 | `control_ingestion(run_id, action)` | `pause(task_id)`, `resume(task_id)` or `cancel(task_id)`, one method per action |
 | `retrieve(query, ...)` | `HarborRAG().retrieval.search(RetrievalRequest(...))` of `harborrag_runtime.sdk`, or `harborrag_engine.retrieval.service.service.RuntimeRetrievalService.retrieve` |
+
+#### MCP server built in Python
+
+`harborrag-mcp` and `python -m harborrag_mcp_server` read `HARBORRAG_MCP_AUDIT_PATH` once
+at launch and pass the path to the server. Code that builds `McpServer(...)` itself, or
+calls `create_mcp_server()` without a registry, no longer reads the variable: it writes
+the audit log to the default `.harborrag/mcp-audit.jsonl`. Pass
+`audit=McpAuditLog(path=...)` from `harborrag_mcp_server.audit` to choose the path; see
+[Setup and integration](detailed-guides/mcp-server/setup-and-integration.md#use-from-python).
 
 #### Connectors built outside the runtime
 
