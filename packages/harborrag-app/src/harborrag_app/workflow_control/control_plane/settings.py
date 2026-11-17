@@ -28,6 +28,7 @@ from harborrag_core.domain.setting_registry import (
 from harborrag_core.ports.control_plane import (
     SettingOverrideRepositoryPort,
     SettingScopeRevisionRepositoryPort,
+    SettingsPatchRepositoryPort,
 )
 from harborrag_runtime.composition import ControlPlaneRepositories
 
@@ -143,6 +144,11 @@ class SettingsService:
         assert port is not None, "composition did not wire SettingScopeRevisionRepositoryPort"
         return port
 
+    def _patches(self) -> SettingsPatchRepositoryPort:
+        port = self.control_plane().setting_patches
+        assert port is not None, "composition did not wire SettingsPatchRepositoryPort"
+        return port
+
     async def _ensure_scope_exists(
         self, tenant_id: str, scope_level: ScopeLevel, scope_id: str
     ) -> None:
@@ -231,6 +237,11 @@ class SettingsService:
         overrides_repo = self._overrides()
         row_scope_id = _scope_id_for_tenant(tenant_id, scope_level, scope_id)
         current = await overrides_repo.get_at(tenant_id, scope_level, row_scope_id)
+        # Ancestors of this scope, excluding it: what a deleted key here falls
+        # back to is whatever the nearest ancestor override says, not the
+        # registry default.
+        ancestor_chain = _ancestor_chain(tenant_id, scope_level, scope_id)[:-1]
+        ancestor_index: dict[tuple[ScopeLevel, str, str], Any] | None = None
         planned: list[SettingsChange] = []
         for key, new_value in changes.items():
             try:
@@ -241,9 +252,20 @@ class SettingsService:
                 raise HarborValidationError(f"{key} cannot be overridden at level {scope_level!r}")
             before = current.get(key, spec.default)
             if new_value is None:
-                planned.append(
-                    SettingsChange(key=key, before=before, after=spec.default, applies=spec.applies)
-                )
+                if ancestor_index is None:
+                    overrides = await overrides_repo.list_for_tenant(tenant_id)
+                    ancestor_index = {(o.scope_level, o.scope_id, o.key): o.value for o in overrides}
+                after = spec.default
+                for level_name, sid in ancestor_chain:
+                    row_sid = _scope_id_for_tenant(tenant_id, level_name, sid)
+                    found = ancestor_index.get((level_name, row_sid, key))
+                    if found is not None:
+                        after = found
+                if spec.applies == "reindex" and after != before:
+                    raise ReindexRequiredError(
+                        f"{key} requires reindex=true, not accepted before v2.1"
+                    )
+                planned.append(SettingsChange(key=key, before=before, after=after, applies=spec.applies))
                 continue
             try:
                 spec.validate_value(new_value)
@@ -259,28 +281,32 @@ class SettingsService:
             revision = await self._revisions().get(tenant_id, scope_level, row_scope_id)
             return SettingsChangeResult(revision=revision, dry_run=True, changed=planned)
 
-        new_revision = await self._revisions().bump_if_match(
+        deletes = [change.key for change in planned if changes[change.key] is None]
+        puts = [
+            SettingOverride(
+                tenant_id=tenant_id,
+                scope_level=scope_level,
+                scope_id=row_scope_id,
+                key=change.key,
+                value=change.after,
+                created_by=actor,
+                updated_by=actor,
+            )
+            for change in planned
+            if changes[change.key] is not None
+        ]
+        # One transaction for the revision bump and every override write, so a
+        # failure midway rolls back the bump too, and the row lock on the
+        # scope's revision covers the whole write -- a concurrent PATCH on the
+        # same scope cannot land between the bump and these writes.
+        new_revision = await self._patches().apply(
             tenant_id,
             scope_level,
             row_scope_id,
             expected_revision=expected_revision,
             source="api",
             actor=actor,
+            puts=puts,
+            deletes=deletes,
         )
-        for change in planned:
-            if changes[change.key] is None:
-                await overrides_repo.delete(tenant_id, scope_level, row_scope_id, change.key)
-                continue
-            await overrides_repo.put(
-                SettingOverride(
-                    tenant_id=tenant_id,
-                    scope_level=scope_level,
-                    scope_id=row_scope_id,
-                    key=change.key,
-                    value=change.after,
-                    created_by=actor,
-                    updated_by=actor,
-                ),
-                expected_version=None,
-            )
         return SettingsChangeResult(revision=new_revision, dry_run=False, changed=planned)

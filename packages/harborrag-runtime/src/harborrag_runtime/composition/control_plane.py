@@ -23,6 +23,7 @@ from harborrag_core.ports.control_plane import (
     ProviderRepositoryPort,
     SettingOverrideRepositoryPort,
     SettingScopeRevisionRepositoryPort,
+    SettingsPatchRepositoryPort,
     SettingsRepositoryPort,
 )
 from harborrag_core.ports.conversation import ConversationHistoryRepository
@@ -71,6 +72,7 @@ class ControlPlaneRepositories:
     connection_revisions: ConnectionRevisionRepositoryPort | None = None
     setting_overrides: SettingOverrideRepositoryPort | None = None
     setting_scope_revisions: SettingScopeRevisionRepositoryPort | None = None
+    setting_patches: SettingsPatchRepositoryPort | None = None
     config_store: SettingsStore | None = None
     config: ConfigProvider | None = None
 
@@ -154,6 +156,9 @@ class CompositionRoot:
         )
         from harborrag_adapters.repositories.database.control_plane.setting_overrides import (
             SqlSettingOverrideRepository,
+        )
+        from harborrag_adapters.repositories.database.control_plane.setting_patches import (
+            SqlSettingPatchRepository,
         )
         from harborrag_adapters.repositories.database.control_plane.setting_scope_revisions import (
             SqlSettingScopeRevisionRepository,
@@ -243,6 +248,7 @@ class CompositionRoot:
             model_catalog=SqlTenantModelCatalog(sessions),
             setting_overrides=SqlSettingOverrideRepository(sessions),
             setting_scope_revisions=SqlSettingScopeRevisionRepository(sessions),
+            setting_patches=SqlSettingPatchRepository(sessions),
             config_store=config_store,
             config=config_provider,
         )

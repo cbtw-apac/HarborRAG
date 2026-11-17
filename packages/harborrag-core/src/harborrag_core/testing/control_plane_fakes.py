@@ -7,6 +7,7 @@ doubles used by both the test suite and local/dev composition.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
@@ -443,6 +444,45 @@ class FakeSettingScopeRevisionRepository:
         self.revisions[identity] = current + 1
         self.records[identity] = {"revision": current + 1, "source": source, "actor": actor}
         return current + 1
+
+
+@dataclass(slots=True)
+class FakeSettingsPatchRepository:
+    """Dict-backed SettingsPatchRepositoryPort, delegating to the two fakes it wraps.
+
+    A fake has no concurrent callers to race, so this only needs to reproduce
+    the real repository's end state, not its locking.
+    """
+
+    overrides: FakeSettingOverrideRepository
+    revisions: FakeSettingScopeRevisionRepository
+
+    async def apply(
+        self,
+        tenant_id: str,
+        scope_level: ScopeLevel,
+        scope_id: str,
+        *,
+        expected_revision: int,
+        source: str,
+        actor: str | None,
+        puts: Sequence[SettingOverride],
+        deletes: Sequence[str],
+    ) -> int:
+        """Bump the scope's revision and write every override change; return the new revision."""
+        new_revision = await self.revisions.bump_if_match(
+            tenant_id,
+            scope_level,
+            scope_id,
+            expected_revision=expected_revision,
+            source=source,
+            actor=actor,
+        )
+        for key in deletes:
+            await self.overrides.delete(tenant_id, scope_level, scope_id, key)
+        for override in puts:
+            await self.overrides.put(override, expected_version=None)
+        return new_revision
 
 
 @dataclass(slots=True)

@@ -7,6 +7,7 @@ never on the adapter classes.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any, Protocol, TypedDict, TypeVar
 
 from harborrag_core.contracts.events import HarborEvent
@@ -296,6 +297,34 @@ class SettingScopeRevisionRepositoryPort(Protocol):
 
         ``source`` identifies what caused the bump (``"api"``, ``"seed"``, ...);
         ``actor`` is the acting principal's subject, when there is one.
+
+        Raises:
+            HarborPreconditionFailedError: ``expected_revision`` does not match
+                the stored revision (0 when the scope has never been written).
+        """
+
+
+class SettingsPatchRepositoryPort(Protocol):
+    """Apply one `PATCH /v1/admin/settings` write as a single atomic unit.
+
+    The revision bump and every override write for the scope must commit or
+    fail together, under the same row lock, so a concurrent PATCH cannot
+    observe (or clobber) a bumped revision with only some keys written.
+    """
+
+    async def apply(
+        self,
+        tenant_id: str,
+        scope_level: ScopeLevel,
+        scope_id: str,
+        *,
+        expected_revision: int,
+        source: str,
+        actor: str | None,
+        puts: Sequence[SettingOverride],
+        deletes: Sequence[str],
+    ) -> int:
+        """Bump the scope's revision and write every override change; return the new revision.
 
         Raises:
             HarborPreconditionFailedError: ``expected_revision`` does not match

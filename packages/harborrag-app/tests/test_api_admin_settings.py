@@ -23,6 +23,7 @@ from harborrag_core.testing.control_plane_fakes import (
     FakeProjectRepository,
     FakeSettingOverrideRepository,
     FakeSettingScopeRevisionRepository,
+    FakeSettingsPatchRepository,
 )
 
 
@@ -64,6 +65,7 @@ class _CP:
     setting_scope_revisions: FakeSettingScopeRevisionRepository
     projects: FakeProjectRepository
     connections: FakeConnectionRepository
+    setting_patches: FakeSettingsPatchRepository
 
 
 def _project(project_id: str, tenant_id: str = "acme") -> Project:
@@ -87,9 +89,11 @@ class _SettingsApp(MockAppService):
 
     def __init__(self) -> None:
         super().__init__()
+        overrides = FakeSettingOverrideRepository()
+        revisions = FakeSettingScopeRevisionRepository()
         self.cp = _CP(
-            FakeSettingOverrideRepository(),
-            FakeSettingScopeRevisionRepository(),
+            overrides,
+            revisions,
             FakeProjectRepository({"cpm": _project("cpm"), "other": _project("other")}),
             FakeConnectionRepository(
                 {
@@ -97,6 +101,7 @@ class _SettingsApp(MockAppService):
                     "cpm-docs": _connection("cpm", "cpm-docs"),
                 }
             ),
+            FakeSettingsPatchRepository(overrides, revisions),
         )
         self.settings_service = SettingsService(control_plane=lambda: self.cp)
 

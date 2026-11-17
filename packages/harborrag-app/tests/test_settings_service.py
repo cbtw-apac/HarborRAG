@@ -19,6 +19,7 @@ from harborrag_core.testing.control_plane_fakes import (
     FakeProjectRepository,
     FakeSettingOverrideRepository,
     FakeSettingScopeRevisionRepository,
+    FakeSettingsPatchRepository,
 )
 
 
@@ -30,6 +31,7 @@ class _CP:
     setting_scope_revisions: FakeSettingScopeRevisionRepository
     projects: FakeProjectRepository
     connections: FakeConnectionRepository
+    setting_patches: FakeSettingsPatchRepository
 
 
 def _project(project_id: str, tenant_id: str = "acme") -> Project:
@@ -49,9 +51,11 @@ def _connection(project_id: str, connection_id: str, tenant_id: str = "acme") ->
 
 
 def _service() -> tuple[SettingsService, _CP]:
+    overrides = FakeSettingOverrideRepository()
+    revisions = FakeSettingScopeRevisionRepository()
     cp = _CP(
-        FakeSettingOverrideRepository(),
-        FakeSettingScopeRevisionRepository(),
+        overrides,
+        revisions,
         FakeProjectRepository(
             {
                 "cpm": _project("cpm"),
@@ -64,6 +68,7 @@ def _service() -> tuple[SettingsService, _CP]:
                 "cpm-docs": _connection("cpm", "cpm-docs"),
             }
         ),
+        FakeSettingsPatchRepository(overrides, revisions),
     )
     return SettingsService(control_plane=lambda: cp), cp
 
@@ -266,6 +271,79 @@ async def test_patch_null_value_removes_the_override() -> None:
     )
     assert result.changed[0].after == 1100  # falls back to the registry default
     assert await cp.setting_overrides.get_at("acme", "tenant", "acme") == {}
+
+
+@pytest.mark.asyncio
+async def test_patch_null_value_falls_back_to_the_nearest_ancestor_override() -> None:
+    service, cp = _service()
+    await cp.setting_overrides.put(
+        _override("acme", "tenant", "acme", "chunking.max_tokens", 512), expected_version=None
+    )
+    await cp.setting_overrides.put(
+        _override("acme", "project", "cpm", "chunking.max_tokens", 384), expected_version=None
+    )
+    result = await service.patch(
+        "acme",
+        "project",
+        "cpm",
+        {"chunking.max_tokens": None},
+        expected_revision=0,
+        actor="tester",
+        dry_run=False,
+    )
+    assert result.changed[0].after == 512  # the tenant override, not the registry default
+
+
+@pytest.mark.asyncio
+async def test_patch_rejects_removing_an_embedding_override_that_changes_the_effective_model() -> (
+    None
+):
+    """Deleting the override exposes the tenant's model, which still needs reindex=true."""
+    service, cp = _service()
+    await cp.setting_overrides.put(
+        _override("acme", "tenant", "acme", "models.embedding", "openai:text-embedding-3-small"),
+        expected_version=None,
+    )
+    await cp.setting_overrides.put(
+        _override("acme", "project", "cpm", "models.embedding", "openai:text-embedding-3-large"),
+        expected_version=None,
+    )
+    with pytest.raises(ReindexRequiredError):
+        await service.patch(
+            "acme",
+            "project",
+            "cpm",
+            {"models.embedding": None},
+            expected_revision=0,
+            actor="tester",
+            dry_run=False,
+        )
+
+
+@pytest.mark.asyncio
+async def test_patch_allows_removing_an_embedding_override_that_does_not_change_the_model() -> (
+    None
+):
+    """Project and tenant agree on the model, so dropping the project override is a no-op."""
+    service, cp = _service()
+    await cp.setting_overrides.put(
+        _override("acme", "tenant", "acme", "models.embedding", "openai:text-embedding-3-large"),
+        expected_version=None,
+    )
+    await cp.setting_overrides.put(
+        _override("acme", "project", "cpm", "models.embedding", "openai:text-embedding-3-large"),
+        expected_version=None,
+    )
+    result = await service.patch(
+        "acme",
+        "project",
+        "cpm",
+        {"models.embedding": None},
+        expected_revision=0,
+        actor="tester",
+        dry_run=False,
+    )
+    assert result.changed[0].after == "openai:text-embedding-3-large"  # the tenant override
 
 
 @pytest.mark.asyncio
