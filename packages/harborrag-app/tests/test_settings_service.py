@@ -218,6 +218,46 @@ async def test_patch_rejects_an_out_of_range_value_as_validation_error() -> None
         )
 
 
+@pytest.mark.parametrize(
+    "duration",
+    ["PT0S", "PT0.5S", "PT30S", "P8D", "not-a-duration"],
+)
+@pytest.mark.asyncio
+async def test_patch_rejects_an_activity_timeout_outside_temporal_bounds(duration: str) -> None:
+    """A duration the registry's own `string` type check lets through, but that
+    the parser rejects (PT0S, PT0.5S) or Temporal's 60s-7d bounds reject
+    (PT30S too short, P8D too long), must not be saved."""
+    service, _cp = _service()
+    with pytest.raises(HarborValidationError):
+        await service.patch(
+            "acme",
+            "tenant",
+            "acme",
+            {"ingestion.activity_timeout": duration},
+            expected_revision=0,
+            actor="tester",
+            dry_run=False,
+        )
+
+
+@pytest.mark.asyncio
+async def test_patch_accepts_an_activity_timeout_inside_temporal_bounds() -> None:
+    service, cp = _service()
+    result = await service.patch(
+        "acme",
+        "tenant",
+        "acme",
+        {"ingestion.activity_timeout": "P1D"},
+        expected_revision=0,
+        actor="tester",
+        dry_run=False,
+    )
+    assert result.changed[0].after == "P1D"
+    assert (await cp.setting_overrides.get_at("acme", "tenant", "acme"))[
+        "ingestion.activity_timeout"
+    ] == "P1D"
+
+
 @pytest.mark.asyncio
 async def test_patch_rejects_a_stale_revision() -> None:
     service, _cp = _service()

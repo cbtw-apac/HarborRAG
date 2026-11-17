@@ -43,6 +43,8 @@ class SourceIngestionRequest:
     settings_revision: int = 0
     pdf_engine: str | None = None
     chunking_max_tokens: int | None = None
+    ingestion_activity_timeout_seconds: int | None = None
+    ingestion_max_attempts: int | None = None
     run_settings: RunSettings | None = None
 
     def __post_init__(self) -> None:

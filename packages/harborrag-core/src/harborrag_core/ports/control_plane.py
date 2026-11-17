@@ -332,6 +332,40 @@ class SettingsPatchRepositoryPort(Protocol):
         """
 
 
+class SettingsSeedRepositoryPort(Protocol):
+    """Write the one-time `config/settings.yaml` seed as a single atomic unit.
+
+    Every override, the tenant scope's revision, and the workspace marker
+    recording that the seed ran must commit together. Writing them as
+    separate commits means a crash partway through (e.g. the second override
+    write fails) leaves earlier overrides committed with no revision bump and
+    no marker -- `setting_overrides` is then non-empty forever, which blocks
+    every later boot's retry while silently serving that incomplete
+    configuration.
+    """
+
+    async def seed(
+        self,
+        *,
+        tenant_id: str,
+        overrides: Sequence[SettingOverride],
+        workspace_tenant_id: str,
+        marker_key: str,
+        marker_value: dict[str, Any],
+    ) -> None:
+        """Write every override, bump the tenant scope's revision to 1, and record the marker.
+
+        ``workspace_tenant_id`` seeds a brand-new workspace-settings document's
+        own (unrelated, legacy) tenant identity when none exists yet; an
+        existing document's tenant identity is left untouched.
+
+        Raises:
+            HarborConflictError: `setting_overrides` already holds rows, or
+                the tenant scope's revision is already non-zero -- this seed
+                would otherwise overwrite state it does not own.
+        """
+
+
 class ProviderRepositoryPort(Protocol):
     """Model provider registry (plan §5.5). See ``ProjectRepositoryPort`` for ``tenant_ids``."""
 

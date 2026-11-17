@@ -9,23 +9,36 @@ from __future__ import annotations
 
 import hashlib
 import logging
-from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
 import yaml
 
+from harborrag_core.contracts.errors import HarborConflictError
 from harborrag_core.domain.setting_override import SYSTEM_ACTOR, SettingOverride
 from harborrag_core.ports.control_plane import (
+    LeaseRepositoryPort,
     SettingOverrideRepositoryPort,
-    SettingScopeRevisionRepositoryPort,
     SettingsRepositoryPort,
+    SettingsSeedRepositoryPort,
 )
+from harborrag_runtime.ingestion.durations import require_activity_timeout_seconds
 
 logger = logging.getLogger("harborrag.runtime.config.settings_seed")
 
 SEED_MARKER_KEY = "settings_yaml_seed"
 DRIFT_EVENT = "config_yaml_drift"
+
+# Guards the marker-check-then-write below: two processes starting at once can
+# both read "no marker, table empty" before either writes. Without this, the
+# slower process's stale plan can still land after the faster one is already
+# serving -- even overwriting an operator edit made through the API in
+# between. The lease makes only one process actually enter that sequence;
+# every other process's attempt this boot is skipped outright (never
+# retried mid-boot), which is safe because a boot that skips seeding gets
+# another chance on the next restart.
+SEED_LEASE_NAME = "settings_yaml_seed_lease"
+SEED_LEASE_TTL_SECONDS = 120.0
 
 
 def _file_hash(path: Path) -> str:
@@ -66,6 +79,12 @@ def _parse_overrides(path: Path, default_tenant_id: str) -> list[SettingOverride
     settings = raw.get("settings", {})
     if not isinstance(settings, dict):
         raise ValueError("config.yaml 'settings' must be a mapping of key to value")
+    for key, value in settings.items():
+        # The registry's own type check accepts any string for this key; only
+        # this parse (and its Temporal bounds) knows whether the duration it
+        # names is actually usable, so it must run before the value is stored.
+        if key == "ingestion.activity_timeout":
+            require_activity_timeout_seconds(str(value))
     return [
         SettingOverride(
             tenant_id=tenant_id,
@@ -80,21 +99,32 @@ def _parse_overrides(path: Path, default_tenant_id: str) -> list[SettingOverride
     ]
 
 
-async def seed_setting_overrides_once(
+async def seed_setting_overrides_once(  # noqa: PLR0913 - the stores and the file it reads once
     path: Path,
     *,
     overrides: SettingOverrideRepositoryPort,
     workspace: SettingsRepositoryPort,
-    revisions: SettingScopeRevisionRepositoryPort,
+    leases: LeaseRepositoryPort,
+    seed_writer: SettingsSeedRepositoryPort,
+    holder: str,
     default_tenant_id: str = "DEFAULT",
 ) -> list[SettingOverride] | None:
     """Seed tenant-level overrides from `path` the first time an install boots with none.
 
-    Runs only when: `path` exists, no earlier seed was recorded, and the
-    `setting_overrides` table is completely empty (an operator may have written
-    rows by hand before any marker existed; this never overwrites those). A
-    seed that fails validation is logged and left for the operator to fix and
-    retry on the next boot -- it never writes a partial seed or a marker.
+    Runs only when: `path` exists, this process wins the `SEED_LEASE_NAME`
+    lease (so at most one process of a multi-process boot ever reaches the
+    checks below), no earlier seed was recorded, and the `setting_overrides`
+    table is completely empty (an operator may have written rows by hand
+    before any marker existed; this never overwrites those). A seed that
+    fails validation is logged and left for the operator to fix and retry on
+    the next boot -- it never writes a partial seed or a marker.
+
+    `seed_writer` commits every override, the revision bump, and the marker
+    as one transaction: a failure partway through rolls all of it back, so
+    the next boot's empty-table check still holds and retries cleanly,
+    instead of leaving `setting_overrides` non-empty with no revision or
+    marker -- which would otherwise block every later retry while silently
+    serving that incomplete configuration forever.
 
     Once a marker is recorded, later boots never re-read the file. If its
     content changes after that, this logs `config_yaml_drift` instead of
@@ -105,6 +135,8 @@ async def seed_setting_overrides_once(
         The overrides written, or None if seeding did not run.
     """
     if not path.is_file():
+        return None
+    if not await leases.try_acquire(SEED_LEASE_NAME, holder, ttl_seconds=SEED_LEASE_TTL_SECONDS):
         return None
     doc = await workspace.get()
     marker = doc.data.get(SEED_MARKER_KEY)
@@ -128,25 +160,24 @@ async def seed_setting_overrides_once(
     except (ValueError, KeyError) as exc:
         logger.error("Settings seed from %s failed validation: %s", path, exc)
         return None
-    for override in planned:
-        await overrides.put(override, expected_version=None)
     tenant_id = planned[0].tenant_id if planned else default_tenant_id
-    if planned:
-        await revisions.bump_if_match(
-            tenant_id, "tenant", tenant_id, expected_revision=0, source="seed", actor=None
-        )
-    await workspace.put(
-        replace(
-            doc,
-            data={
-                **doc.data,
-                SEED_MARKER_KEY: {
-                    "path": str(path),
-                    "hash": current_hash,
-                    "tenant_id": tenant_id,
-                    "settings": {o.key: o.value for o in planned},
-                },
+    try:
+        await seed_writer.seed(
+            tenant_id=tenant_id,
+            overrides=planned,
+            workspace_tenant_id=doc.tenant_id,
+            marker_key=SEED_MARKER_KEY,
+            marker_value={
+                "path": str(path),
+                "hash": current_hash,
+                "tenant_id": tenant_id,
+                "settings": {o.key: o.value for o in planned},
             },
         )
-    )
+    except HarborConflictError:
+        # Lost a race the lease should have prevented (or an operator wrote
+        # rows between the checks above and this write); the next boot
+        # re-evaluates from scratch rather than retrying here.
+        logger.warning("Settings seed from %s raced another writer; skipped", path)
+        return None
     return planned

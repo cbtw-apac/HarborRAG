@@ -57,7 +57,7 @@ class ProjectRow(Base):
     version: Mapped[int] = mapped_column(sa.Integer, default=1, server_default="1", nullable=False)
 
 
-class SettingOverrideRow(Base):
+class RuntimeSettingRow(Base):
     """runtime_settings: one key's value at one scope, resolved default -> tenant -> project -> connection."""
 
     __tablename__ = "runtime_settings"
@@ -82,7 +82,7 @@ class SettingOverrideRow(Base):
     )
 
 
-class SettingScopeRevisionRow(Base):
+class RuntimeSettingRevisionRow(Base):
     """runtime_settings_revisions: one monotonic revision per scope, for ETag/If-Match."""
 
     __tablename__ = "runtime_settings_revisions"

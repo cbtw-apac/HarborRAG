@@ -8,8 +8,8 @@ from dataclasses import dataclass
 import sqlalchemy as sa
 
 from harborrag_adapters.repositories.database.control_plane.schemas import (
-    SettingOverrideRow,
-    SettingScopeRevisionRow,
+    RuntimeSettingRevisionRow,
+    RuntimeSettingRow,
 )
 from harborrag_core.contracts.errors import HarborPreconditionFailedError
 from harborrag_core.domain.setting_override import SettingOverride
@@ -51,7 +51,7 @@ class SqlSettingPatchRepository:
         now = utc_now()
         async with self.sessions.begin() as session:
             revision_row = await session.get(
-                SettingScopeRevisionRow,
+                RuntimeSettingRevisionRow,
                 (tenant_id, scope_level, scope_id),
                 with_for_update=True,
             )
@@ -61,7 +61,7 @@ class SqlSettingPatchRepository:
             new_revision = current + 1
             if revision_row is None:
                 session.add(
-                    SettingScopeRevisionRow(
+                    RuntimeSettingRevisionRow(
                         tenant_id=tenant_id,
                         scope_level=scope_level,
                         scope_id=scope_id,
@@ -79,23 +79,23 @@ class SqlSettingPatchRepository:
 
             for key in deletes:
                 await session.execute(
-                    sa.delete(SettingOverrideRow).where(
-                        SettingOverrideRow.tenant_id == tenant_id,
-                        SettingOverrideRow.scope_level == scope_level,
-                        SettingOverrideRow.scope_id == scope_id,
-                        SettingOverrideRow.key == key,
+                    sa.delete(RuntimeSettingRow).where(
+                        RuntimeSettingRow.tenant_id == tenant_id,
+                        RuntimeSettingRow.scope_level == scope_level,
+                        RuntimeSettingRow.scope_id == scope_id,
+                        RuntimeSettingRow.key == key,
                     )
                 )
 
             for override in puts:
                 row = await session.get(
-                    SettingOverrideRow,
+                    RuntimeSettingRow,
                     (override.tenant_id, override.scope_level, override.scope_id, override.key),
                     with_for_update=True,
                 )
                 if row is None:
                     session.add(
-                        SettingOverrideRow(
+                        RuntimeSettingRow(
                             tenant_id=override.tenant_id,
                             scope_level=override.scope_level,
                             scope_id=override.scope_id,

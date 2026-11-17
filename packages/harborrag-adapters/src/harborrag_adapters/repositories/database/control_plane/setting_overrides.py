@@ -7,7 +7,7 @@ from typing import cast
 
 import sqlalchemy as sa
 
-from harborrag_adapters.repositories.database.control_plane.schemas import SettingOverrideRow
+from harborrag_adapters.repositories.database.control_plane.schemas import RuntimeSettingRow
 from harborrag_core.contracts.errors import HarborPreconditionFailedError
 from harborrag_core.domain.setting_override import SettingOverride
 from harborrag_core.domain.setting_registry import ScopeLevel
@@ -16,8 +16,8 @@ from .mapping import utc_now
 from .session import SessionFactory
 
 
-def _row_to_domain(row: SettingOverrideRow) -> SettingOverride:
-    # The DB's ck_setting_overrides_scope_level check constraint guarantees this,
+def _row_to_domain(row: RuntimeSettingRow) -> SettingOverride:
+    # The DB's ck_runtime_settings_scope_level check constraint guarantees this,
     # but SQLAlchemy's column type is plain str.
     return SettingOverride(
         tenant_id=row.tenant_id,
@@ -35,7 +35,7 @@ def _row_to_domain(row: SettingOverrideRow) -> SettingOverride:
 
 @dataclass(slots=True)
 class SqlSettingOverrideRepository:
-    """SettingOverrideRepositoryPort over the setting_overrides table."""
+    """SettingOverrideRepositoryPort over the runtime_settings table."""
 
     sessions: SessionFactory
 
@@ -43,10 +43,10 @@ class SqlSettingOverrideRepository:
         self, tenant_id: str, scope_level: ScopeLevel, scope_id: str
     ) -> dict[str, object]:
         """Raw overrides stored at exactly this scope (no merging with other levels)."""
-        statement = sa.select(SettingOverrideRow).where(
-            SettingOverrideRow.tenant_id == tenant_id,
-            SettingOverrideRow.scope_level == scope_level,
-            SettingOverrideRow.scope_id == scope_id,
+        statement = sa.select(RuntimeSettingRow).where(
+            RuntimeSettingRow.tenant_id == tenant_id,
+            RuntimeSettingRow.scope_level == scope_level,
+            RuntimeSettingRow.scope_id == scope_id,
         )
         async with self.sessions() as session:
             rows = await session.scalars(statement)
@@ -54,7 +54,7 @@ class SqlSettingOverrideRepository:
 
     async def list_for_tenant(self, tenant_id: str) -> list[SettingOverride]:
         """Every override in ``tenant_id``, across all scopes, for resolution and export."""
-        statement = sa.select(SettingOverrideRow).where(SettingOverrideRow.tenant_id == tenant_id)
+        statement = sa.select(RuntimeSettingRow).where(RuntimeSettingRow.tenant_id == tenant_id)
         async with self.sessions() as session:
             rows = await session.scalars(statement)
             return [_row_to_domain(row) for row in rows]
@@ -71,7 +71,7 @@ class SqlSettingOverrideRepository:
         """
         async with self.sessions.begin() as session:
             row = await session.get(
-                SettingOverrideRow,
+                RuntimeSettingRow,
                 (override.tenant_id, override.scope_level, override.scope_id, override.key),
                 with_for_update=True,
             )
@@ -79,7 +79,7 @@ class SqlSettingOverrideRepository:
                 if expected_version is not None:
                     raise HarborPreconditionFailedError("setting override does not exist yet")
                 session.add(
-                    SettingOverrideRow(
+                    RuntimeSettingRow(
                         tenant_id=override.tenant_id,
                         scope_level=override.scope_level,
                         scope_id=override.scope_id,
@@ -105,11 +105,11 @@ class SqlSettingOverrideRepository:
         self, tenant_id: str, scope_level: ScopeLevel, scope_id: str, key: str
     ) -> None:
         """Remove one override; a missing row is not an error."""
-        statement = sa.delete(SettingOverrideRow).where(
-            SettingOverrideRow.tenant_id == tenant_id,
-            SettingOverrideRow.scope_level == scope_level,
-            SettingOverrideRow.scope_id == scope_id,
-            SettingOverrideRow.key == key,
+        statement = sa.delete(RuntimeSettingRow).where(
+            RuntimeSettingRow.tenant_id == tenant_id,
+            RuntimeSettingRow.scope_level == scope_level,
+            RuntimeSettingRow.scope_id == scope_id,
+            RuntimeSettingRow.key == key,
         )
         async with self.sessions.begin() as session:
             await session.execute(statement)
@@ -118,6 +118,6 @@ class SqlSettingOverrideRepository:
         """Total override rows across every tenant, for the empty-database seed guard."""
         async with self.sessions() as session:
             result = await session.scalar(
-                sa.select(sa.func.count()).select_from(SettingOverrideRow)
+                sa.select(sa.func.count()).select_from(RuntimeSettingRow)
             )
             return int(result or 0)

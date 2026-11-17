@@ -31,9 +31,38 @@ from harborrag_core.ports.control_plane import (
     SettingsPatchRepositoryPort,
 )
 from harborrag_runtime.composition import ControlPlaneRepositories
+from harborrag_runtime.ingestion.durations import require_activity_timeout_seconds
 
 _PROJECT_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,62}$")
 _CONNECTION_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,62}$")
+
+
+def _check_activity_timeout(value: Any) -> None:
+    """``ingestion.activity_timeout`` is a `string` in the registry, but only a
+    duration inside Temporal's activity-timeout bounds is actually usable.
+
+    Rejecting it here, instead of only when `_resolved_workflow_options`
+    rebuilds Temporal options for a run, keeps a bad override from being
+    saved and then failing every later submission on that scope.
+    """
+    try:
+        require_activity_timeout_seconds(str(value))
+    except ValueError as exc:
+        raise HarborValidationError(
+            str(exc), details={"field": "ingestion.activity_timeout"}
+        ) from exc
+
+
+def _no_extra_check(value: Any) -> None:
+    del value
+
+
+# Keyed validators beyond what SettingSpec.validate_value's generic type check
+# covers, for keys whose on-disk shape (e.g. `string`) is looser than the
+# value's real-world constraints.
+_EXTRA_VALUE_CHECKS: dict[str, Callable[[Any], None]] = {
+    "ingestion.activity_timeout": _check_activity_timeout,
+}
 
 
 class EffectiveValue(TypedDict):
@@ -271,6 +300,7 @@ class SettingsService:
                 spec.validate_value(new_value)
             except ValueError as exc:
                 raise HarborValidationError(str(exc), details={"field": key}) from exc
+            _EXTRA_VALUE_CHECKS.get(key, _no_extra_check)(new_value)
             if spec.applies == "reindex" and new_value != before:
                 raise ReindexRequiredError(f"{key} requires reindex=true, not accepted before v2.1")
             planned.append(

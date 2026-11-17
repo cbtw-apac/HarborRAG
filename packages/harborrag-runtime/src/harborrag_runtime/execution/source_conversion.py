@@ -44,6 +44,8 @@ def to_source_request(source: PreparedSourceSubmission) -> SourceIngestionReques
         settings_revision=source.settings_revision,
         pdf_engine=source.pdf_engine,
         chunking_max_tokens=source.chunking_max_tokens,
+        ingestion_activity_timeout_seconds=source.ingestion_activity_timeout_seconds,
+        ingestion_max_attempts=source.ingestion_max_attempts,
         run_settings=source.run_settings,
     )
 

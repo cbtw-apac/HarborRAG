@@ -486,6 +486,46 @@ class FakeSettingsPatchRepository:
 
 
 @dataclass(slots=True)
+class FakeSettingsSeedRepository:
+    """Dict-backed SettingsSeedRepositoryPort, delegating to the three fakes it wraps.
+
+    A fake has no concurrent callers and no partial commits to race, so this
+    only needs to reproduce the real repository's end state and conflict
+    checks, not its locking.
+    """
+
+    overrides: FakeSettingOverrideRepository
+    revisions: FakeSettingScopeRevisionRepository
+    workspace: FakeSettingsRepository
+
+    async def seed(
+        self,
+        *,
+        tenant_id: str,
+        overrides: Sequence[SettingOverride],
+        workspace_tenant_id: str,
+        marker_key: str,
+        marker_value: dict[str, Any],
+    ) -> None:
+        """Write every override, bump the tenant scope's revision to 1, and record the marker."""
+        if await self.overrides.count_all() > 0:
+            raise HarborConflictError(
+                "setting_overrides already holds rows; refusing to seed over them"
+            )
+        identity = (tenant_id, "tenant", tenant_id)
+        if self.revisions.revisions.get(identity, 0) != 0:
+            raise HarborConflictError(f"tenant {tenant_id!r} scope already has a revision")
+        for override in overrides:
+            await self.overrides.put(override, expected_version=None)
+        if overrides:
+            self.revisions.revisions[identity] = 1
+            self.revisions.records[identity] = {"revision": 1, "source": "seed", "actor": None}
+        del workspace_tenant_id  # the caller derives it from the same workspace.get() as doc
+        doc = self.workspace.settings
+        self.workspace.settings = replace(doc, data={**doc.data, marker_key: marker_value})
+
+
+@dataclass(slots=True)
 class FakeProviderRepository:
     """Dict-backed ProviderRepositoryPort."""
 

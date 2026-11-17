@@ -19,7 +19,10 @@ def source_from_task(task: IngestionTask) -> PreparedSourceSubmission:
     """Rebuild the safe workflow input for a retried durable submission.
 
     The pinned ``ingestion.concurrency`` is restored from the run's settings; without
-    one the workflow default applies.
+    one the workflow default applies. The connection-scope ``pdf_engine``,
+    ``chunking_max_tokens``, ``ingestion_activity_timeout_seconds`` and
+    ``ingestion_max_attempts`` overrides are restored the same way, from the
+    top-level keys `pending_source_task` stamped onto the stored request.
     """
 
     request = task.request
@@ -30,6 +33,14 @@ def source_from_task(task: IngestionTask) -> PreparedSourceSubmission:
     run_settings = RunSettings.from_json(request.get("run_settings"))
     # TODO: restore the boot knob and an explicit --document-concurrency on recovery.
     concurrency = run_settings.document_concurrency if run_settings else None
+    # Connection-scope overrides `pending_source_task` stamped onto the stored
+    # request at submission time (same source as `settings_revision`): without
+    # these, a deferred start rebuilt from this task would silently fall back
+    # to the worker's defaults instead of the overrides actually in effect.
+    pdf_engine = _optional_text(request.get("pdf_engine"))
+    chunking_max_tokens = request.get("chunking_max_tokens")
+    activity_timeout_seconds = request.get("ingestion_activity_timeout_seconds")
+    max_attempts = request.get("ingestion_max_attempts")
     return PreparedSourceSubmission(
         task_id=task.task_id,
         tenant_id=_required_text(request, "tenant_id"),
@@ -54,6 +65,18 @@ def source_from_task(task: IngestionTask) -> PreparedSourceSubmission:
         ),
         force_reprocess=request.get("force_reprocess") is True,
         **({"document_concurrency": concurrency} if concurrency is not None else {}),
+        pdf_engine=pdf_engine,
+        **(
+            {"chunking_max_tokens": chunking_max_tokens}
+            if isinstance(chunking_max_tokens, int)
+            else {}
+        ),
+        **(
+            {"ingestion_activity_timeout_seconds": activity_timeout_seconds}
+            if isinstance(activity_timeout_seconds, int)
+            else {}
+        ),
+        **({"ingestion_max_attempts": max_attempts} if isinstance(max_attempts, int) else {}),
         run_settings=run_settings,
     )
 

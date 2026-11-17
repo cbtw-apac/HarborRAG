@@ -34,6 +34,21 @@ def pending_source_task(request: SourceIngestionRequest) -> IngestionTask:
         if request.run_settings is not None
         else {}
     )
+    # Connection-scope overrides resolved once at submission (same `setting_overrides`
+    # source as `settings_revision`). Without these, a deferred start rebuilt later
+    # from this stored request (`source_from_task`) would silently drop them: capture
+    # skips the PDF engine override, materialization skips the chunk-token cap, and
+    # the workflow options lose the activity timeout/retry overrides entirely.
+    overridden = {
+        key: value
+        for key, value in (
+            ("pdf_engine", request.pdf_engine),
+            ("chunking_max_tokens", request.chunking_max_tokens),
+            ("ingestion_activity_timeout_seconds", request.ingestion_activity_timeout_seconds),
+            ("ingestion_max_attempts", request.ingestion_max_attempts),
+        )
+        if value is not None
+    }
     return IngestionTask(
         task_id=request.task_id,
         source_scope_id=request.source_scope_id,
@@ -60,5 +75,6 @@ def pending_source_task(request: SourceIngestionRequest) -> IngestionTask:
             "force_reprocess": request.force_reprocess,
             **pinned,
             **scoped,
+            **overridden,
         },
     )

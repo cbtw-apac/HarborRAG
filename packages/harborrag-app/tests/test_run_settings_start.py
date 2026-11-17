@@ -19,7 +19,14 @@ from harborrag_core.testing.control_plane_fakes import (
 )
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.config_store.defaults import registry_for
-from harborrag_runtime.ingestion_contracts import RunSettings, SourceSubmission
+from harborrag_runtime.execution.source_conversion import to_source_request
+from harborrag_runtime.ingestion.source.tasks import pending_source_task
+from harborrag_runtime.ingestion_contracts import (
+    PreparedSourceSubmission,
+    RunSettings,
+    SourceSubmission,
+)
+from harborrag_runtime.source_query import ProcessingProfileInput, SourceQuery
 
 pytestmark = pytest.mark.unit
 
@@ -122,6 +129,73 @@ def test_recovery_without_a_pinned_concurrency_keeps_the_default() -> None:
     task = _stored_task(RunSettings("rev_4", None, 256, None))
 
     assert source_from_task(task).document_concurrency == 8
+
+
+def test_a_deferred_start_restores_every_connection_scope_override() -> None:
+    """A task persisted by `pending_source_task`, then rebuilt by `source_from_task`
+    (the path `recover_pending_submissions` and an idempotent resubmit both take),
+    must not silently drop the connection's `pdf_engine`, `chunking_max_tokens`,
+    `ingestion_activity_timeout_seconds` or `ingestion_max_attempts` overrides.
+    """
+    prepared = PreparedSourceSubmission(
+        task_id="run-1",
+        tenant_id="tenant-1",
+        connector_name="docs",
+        connector_type="local",
+        connection_id="docs",
+        source_scope_id="scope",
+        configuration_fingerprint="fp",
+        processing=ProcessingProfileInput(
+            parser_profile="p",
+            normalizer_version="n",
+            chunk_strategy="c",
+            dense_encoder_profile="d",
+            sparse_encoder_profile="s",
+            graph_projection_version="g",
+        ),
+        query=SourceQuery(),
+        pdf_engine="docling",
+        chunking_max_tokens=256,
+        ingestion_activity_timeout_seconds=120,
+        ingestion_max_attempts=2,
+    )
+    task = pending_source_task(to_source_request(prepared))
+
+    rebuilt = source_from_task(task)
+
+    assert rebuilt.pdf_engine == "docling"
+    assert rebuilt.chunking_max_tokens == 256
+    assert rebuilt.ingestion_activity_timeout_seconds == 120
+    assert rebuilt.ingestion_max_attempts == 2
+
+
+def test_a_deferred_start_without_overrides_restores_none() -> None:
+    prepared = PreparedSourceSubmission(
+        task_id="run-1",
+        tenant_id="tenant-1",
+        connector_name="docs",
+        connector_type="local",
+        connection_id="docs",
+        source_scope_id="scope",
+        configuration_fingerprint="fp",
+        processing=ProcessingProfileInput(
+            parser_profile="p",
+            normalizer_version="n",
+            chunk_strategy="c",
+            dense_encoder_profile="d",
+            sparse_encoder_profile="s",
+            graph_projection_version="g",
+        ),
+        query=SourceQuery(),
+    )
+    task = pending_source_task(to_source_request(prepared))
+
+    rebuilt = source_from_task(task)
+
+    assert rebuilt.pdf_engine is None
+    assert rebuilt.chunking_max_tokens is None
+    assert rebuilt.ingestion_activity_timeout_seconds is None
+    assert rebuilt.ingestion_max_attempts is None
 
 
 def _stored_task(pinned: RunSettings) -> IngestionTask:

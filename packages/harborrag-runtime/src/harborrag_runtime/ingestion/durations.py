@@ -4,6 +4,11 @@ from __future__ import annotations
 
 import re
 
+from harborrag_runtime.temporal_models import (
+    MAX_ACTIVITY_TIMEOUT_SECONDS,
+    MIN_ACTIVITY_TIMEOUT_SECONDS,
+)
+
 _ISO8601_DURATION = re.compile(
     r"^P(?:(?P<days>\d+)D)?"
     r"(?:T(?:(?P<hours>\d+)H)?(?:(?P<minutes>\d+)M)?(?:(?P<seconds>\d+)S)?)?$"
@@ -29,4 +34,25 @@ def parse_iso8601_duration_seconds(value: str) -> int:
     )
     if seconds <= 0:
         raise ValueError(f"invalid ISO 8601 duration: {value!r}")
+    return seconds
+
+
+def require_activity_timeout_seconds(value: str) -> int:
+    """Parse ``ingestion.activity_timeout`` and enforce Temporal's activity bounds.
+
+    A duration that parses but falls outside what `ActivityTimeoutConfig`
+    accepts (60 seconds to 7 days) would otherwise be stored successfully
+    here and only fail later, when a run actually resolves and applies it.
+
+    Raises:
+        ValueError: ``value`` is not a valid ISO 8601 duration, or its seconds
+            fall outside 60 seconds to 7 days.
+    """
+
+    seconds = parse_iso8601_duration_seconds(value)
+    if not MIN_ACTIVITY_TIMEOUT_SECONDS <= seconds <= MAX_ACTIVITY_TIMEOUT_SECONDS:
+        raise ValueError(
+            f"ingestion.activity_timeout must be between {MIN_ACTIVITY_TIMEOUT_SECONDS} "
+            f"seconds and {MAX_ACTIVITY_TIMEOUT_SECONDS} seconds, got {value!r}"
+        )
     return seconds
