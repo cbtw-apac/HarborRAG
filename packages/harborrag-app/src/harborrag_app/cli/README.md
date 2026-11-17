@@ -73,7 +73,7 @@ One module per command group in `commands/`:
 | `harborrag chat` | none | `commands/chat.py` |
 | `harborrag config` | `import`, `export` | `commands/config.py` |
 | `harborrag doctor` | none | `commands/doctor.py`, `doctor/` |
-| `harborrag auth keys` | `create`, `list`, `revoke` | `commands/auth.py`, `commands/auth_keys.py` |
+| `harborrag auth keys` | `create`, `list`, `revoke`; own options and own JSON envelope, no global options | `commands/auth.py`, `commands/auth_keys.py` |
 | `harborrag source`, `harborrag ingest` (hidden) | the old names | `commands/legacy.py` |
 
 The legacy stubs accept any arguments, `--help` and `-h` included, print the command that
@@ -238,9 +238,13 @@ the `HARBORRAG_` variables it reads most often; every runtime variable is in the
 | `HARBORRAG_OBJECT_STORE_SECRET_ACCESS_KEY` | unset | Object-store credential |
 | `HARBORRAG_STORAGE_NAMESPACE_PREFIX` | `harborrag` | Per-tenant store namespace `{prefix}_{tenant_id}`: Qdrant collection stem, FalkorDB graph, object-store key prefix |
 | `HARBORRAG_FALKORDB_GRAPH` | `harborrag` | Graph projection name |
-| `HARBORRAG_CORPUS_ACCESS_MODE` | `source_acl` | Whether chat retrieval reads the shared corpus or the caller's source permissions |
+| `HARBORRAG_CORPUS_ACCESS_MODE` | `source_acl` | Whether chat retrieval reads the shared corpus or the caller's source permissions; from a checkout `chat` finds no sources unless this is `tenant_shared` and the next variable is set |
 | `HARBORRAG_CORPUS_SHARED_TENANT_ID` | unset | Tenant whose retrieval reads the shared corpus in `tenant_shared` mode |
 | `HARBORRAG_LOG_LEVEL` | `WARNING` for the CLI | Diagnostic logging |
+
+The CLI does not read `env/.env.api` or `env/.env.temporal`, so export the two corpus
+variables before `chat`; see
+[Ask a grounded question](../../../../../docs/users/cli-reference/README.md#ask-a-grounded-question).
 
 `chat` reads its passages from the same object store the worker wrote them to. The
 Compose worker uses `http://minio:9000` on the shared Docker network, while the CLI on
@@ -261,7 +265,9 @@ This package may:
 - call the operations through `run_operation`, which builds one application service
   (`harborrag_runtime.application`) per invocation;
 - print bodies and errors in the shape the HTTP route answers, and exit with the codes
-  in `exit_codes.py`.
+  in `exit_codes.py`. Three commands are the exceptions: `auth keys` prints its own
+  `{"ok": …}` JSON and exits 1 on every failure, `doctor` prints its own report and
+  exits 0, 1 or 6, and `config export` writes YAML to stdout.
 
 It must not:
 

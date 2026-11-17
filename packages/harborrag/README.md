@@ -28,8 +28,9 @@ described there may be missing from it or behave differently.
 A bare `pip install harborrag` installs the runtime and the public facade but no
 third-party provider clients. Other extras add one provider client each (`qdrant`,
 `falkordb`, `postgres`, `s3`, `redis`), the model client for chat, embeddings and
-reranking (`chat`), the Temporal client (`temporal`), the HTTP API (`server`) or the MCP
-server (`mcp`). `all` adds all of them. See
+reranking (`chat`), the Temporal client (`temporal`), the HTTP API (`server`), the MCP
+server (`mcp`), the `harborrag` command (`cli`) or the conversation memory package
+(`memory`). `all` adds all of them. See
 [Choose the extras you need](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/getting-started/installation.md#choose-the-extras-you-need).
 
 ## Quick start

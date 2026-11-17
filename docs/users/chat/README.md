@@ -20,6 +20,8 @@ through the [MCP tools](../detailed-guides/mcp-server/README.md) instead.
   nothing ingested, a question answers `409 no_indexed_content` and no model
   is called.
 - A configured chat model; see [Chat models](models.md).
+- For the CLI, two shared-corpus variables exported in your shell; see
+  [Ask from the CLI](#ask-from-the-cli).
 - The API address. On the development stack the API listens on
   `http://127.0.0.1:8000`; `scripts/deployment/dev.sh up` starts it together
   with the services it needs.
@@ -36,6 +38,10 @@ curl --fail-with-body http://127.0.0.1:8000/v1/chat/completions \
 
 You should get a JSON answer with `answer`, `citations` and `usage`; see
 [Read the answer](#read-the-answer).
+If `citations` is empty although content is ingested, check the API's corpus access
+mode: it defaults to `source_acl`, and neither the API's Compose service nor any
+`env-example/` template sets `tenant_shared`. See
+[Troubleshooting](../troubleshooting/README.md#retrieval-chat-and-mcp).
 
 The development stack runs with `HARBORRAG_AUTH_MODE=none` and needs no
 credential. With authentication on, add `--header 'Authorization: Bearer <token>'`;
@@ -265,9 +271,11 @@ Renaming and deleting a session come back in v2.1.
 
 ## Ask from the CLI
 
-From a repository checkout, the CLI does not read the worker's
-`env/.env.temporal`, so first export the shared-corpus settings in the shell
-you ask from, or retrieval finds nothing:
+From a repository checkout, the CLI does not read `env/.env.api` or
+`env/.env.temporal`, so it keeps the default `source_acl` mode, in which a
+caller with no source permissions gets no sources. First export the
+shared-corpus settings in the shell you ask from, naming the tenant you ask in,
+or retrieval finds nothing:
 
 ```bash
 export HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared
@@ -291,7 +299,8 @@ How the command behaves:
   `POST /v1/chat/sessions`; the command cannot create one.
 - `--connection-ref PROJECT_ID/CONNECTION_ID` narrows the search to a
   connection; repeat it for more.
-- `--mode` is `classic` (the default) or `instant`.
+- `--mode` is `classic` (the default) or `instant`; `advanced` and `auto`
+  pass validation but answer `422 mode_unavailable` until v2.1.0.
 - `--tenant` picks the tenant: `HARBORRAG_TENANT_ID`, else the CLI profile's,
   else `DEFAULT`.
 - `-o json` prints the completion body, the same as the HTTP answer; in a

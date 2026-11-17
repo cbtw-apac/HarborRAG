@@ -16,9 +16,15 @@ uv run harborrag doctor
 Each ✗ line names the problem, and the hint under it names the `env/.env.*` file or the
 `scripts/deployment/dev.sh` command that fixes it. `doctor` exits 1 while a required
 configuration check fails, and 6 when only service checks fail; a warning does not count.
-In a clone, the `project` line warns
-`no harborrag.yaml found; using the current directory`, which is expected. The
-[CLI reference](../cli-reference/README.md#check-the-setup) lists every check.
+Run it from the repository root: unlike the other commands it does not walk up to the
+clone. The [CLI reference](../cli-reference/README.md#check-the-setup) lists every check.
+
+| Symptom | Likely cause | Fix |
+| --- | --- | --- |
+| `project` warns `no harborrag.yaml found; using the current directory` in a clone | `doctor` looks for a project marker file, which a clone does not have | Expected; ignore it |
+| `doctor` fails with `Connector configuration file does not exist: …/config/sources/connectors.yaml` | It ran from a subfolder of the clone | `cd` to the repository root and run it again |
+| `source path` fails with `LOCAL_SOURCE_PATH is not set` | The check reads the host variable `LOCAL_SOURCE_PATH`, not `HARBORRAG_LOCAL_SOURCE_ROOT` | Set `LOCAL_SOURCE_PATH` in `env/.env.connector` to the folder to ingest |
+| `connector credentials` fails with `blank: …` and the command exits 1 on a fresh clone | An enabled remote connector (Jira, Confluence or SharePoint) has blank URL or credential variables | Fill them in `env/.env.connector`, or set `enabled: false` on the connectors you do not use in `config/sources/connectors.yaml` |
 
 ## Installation and imports
 
@@ -129,7 +135,8 @@ Chat answers over HTTP and the CLI only; the MCP server exposes retrieval tools 
 
 | Symptom | Likely cause | Fix |
 | --- | --- | --- |
-| `uv run harborrag chat` finds nothing from a clone | The CLI does not read `env/.env.temporal`, so it keeps the default `source_acl` access mode, in which its principal may read no source | Export `HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared` and `HARBORRAG_CORPUS_SHARED_TENANT_ID=DEFAULT`, the values the worker template sets; see [Ask a grounded question](../cli-reference/README.md#ask-a-grounded-question) |
+| `uv run harborrag chat` answers that no sources were retrieved, or its answer has no citations | The CLI does not read `env/.env.api` or `env/.env.temporal`, so it keeps the default `source_acl` access mode, in which a caller with no source permissions gets no sources | Export `HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared` and `HARBORRAG_CORPUS_SHARED_TENANT_ID=<tenant>` in the CLI's shell; see [Ask a grounded question](../cli-reference/README.md#ask-a-grounded-question) |
+| HTTP chat answers without citations although content is ingested | The API's Compose service does not set `HARBORRAG_CORPUS_ACCESS_MODE`, and no `env-example/` template does, so the API runs the default `source_acl` unless `env/.env.api` sets it; only the worker's Compose service passes both variables through | Add both variables to `env/.env.api` and restart the API; see [Read access inside a tenant](../configuration/workspace-mode.md#read-access-inside-a-tenant) |
 | Chat fails with `environment variable HARBORRAG_URL is not set`, or names another gateway value | `config/models/models.yaml` expands the gateway URL, key and model names before the first call | Fill in `env/.env.models`, or inject the same values through the deployment's secret manager; see [Model configuration](../configuration/model-config.md#the-shipped-gateway-catalog) |
 | Answers got worse after a change of `HARBORRAG_EMBED_MODEL`, with no error | The stored vectors come from the previous embedding model; both models write 1536 dimensions, so nothing fails | Re-ingest every connection with `uv run harborrag ingestions start PROJECT_ID/CONNECTION_ID --mode force`; see [Model configuration](../configuration/model-config.md#the-shipped-gateway-catalog) |
 | HTTP chat returns `409 no_indexed_content` | Nothing is published in the session's or the question's projects | Ingest a connection of that project first; see [Chat](../chat/README.md#handle-errors) |

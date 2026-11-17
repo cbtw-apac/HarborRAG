@@ -137,7 +137,7 @@ script that means to create the tenant. Answering no exits 1. This check runs on
 the CLI; the HTTP contract does not change.
 
 `projects delete` and `connections delete` ask too, before they remove anything, and
-need `--yes` without a terminal.
+need `--yes` without a terminal; without it the command stops with exit 2.
 
 ## Read the output
 
@@ -214,6 +214,15 @@ where the CLI runs; see
 [Manage projects and connections](#manage-projects-and-connections). A run that
 succeeded with some failed items also exits 0.
 
+Three commands print outside this envelope and table:
+
+- `auth keys` prints `{"ok": true, "data": …}` on success, in every case and with no
+  `-o` option. A failure prints `{"ok": false, "error_code": …, "detail": …}` on stderr
+  and exits 1, whatever the cause; it does not use the codes above.
+- `doctor` prints its own report and exits 0, 1 or 6 as
+  [Check the setup](#check-the-setup) describes.
+- `config export` writes YAML to stdout, or to `--file`.
+
 ## Run from a repository checkout
 
 The CLI finds the checkout by walking up from the current directory to the nearest
@@ -221,7 +230,8 @@ directory that holds `config/sources/connectors.yaml`, and runs from there. When
 not the current directory and stderr is a terminal, it says so on stderr:
 `harborrag: using repository checkout DIR`. A script that reads stderr does not see the
 notice. Outside a checkout and without a project directory, every command except
-`doctor` stops with exit 1:
+`doctor` stops with exit 1. `doctor` does not walk up: run it from the repository root
+(see [Check the setup](#check-the-setup)).
 
 ```text
 harborrag: no project found. Run it inside a HarborRAG repository checkout, or pass --project DIR for a directory containing harborrag.yaml.
@@ -274,9 +284,10 @@ uv run harborrag projects create engineering --project-name "Engineering"
 ```
 
 A connection's body file is the same JSON as the HTTP `PUT`, in JSON or YAML:
-`source_type`, `name`, `credentials`, `config` and `advanced`. A Swagger UI template
-saved to a file works as is. `harborrag source-types list` describes the fields each
-source type takes.
+`source_type`, `name`, `credentials`, `config` and `advanced`. `credentials` and
+`config` are required on `create` and `update`, as over HTTP, even when empty. A
+Swagger UI template saved to a file works as is. `harborrag source-types list`
+describes the fields each source type takes.
 
 ```yaml
 source_type: jira
@@ -297,6 +308,20 @@ uv run harborrag connections test engineering/jira-main -f jira-main.yaml
 uv run harborrag connections create engineering/jira-main -f jira-main.yaml
 ```
 
+A `local_file` connection has no secrets, so its `credentials` is an empty mapping:
+
+```yaml
+source_type: local_file
+name: Team docs
+credentials: {}
+config:
+  source_path: /data/sources
+```
+
+`connections test -f` is lenient: it treats a missing `credentials` or `config` as
+empty, so a body that tests fine can still be refused by `create` with a missing-field
+error.
+
 - A secret is a value, or `{secret_ref: env:NAME}`, in the file. `connections create` and
   `connections update` also take `--secret-prompt api_token`: leave the secret out of the
   file and type it without echo. Never put a secret on the command line. A secret left
@@ -306,7 +331,8 @@ uv run harborrag connections create engineering/jira-main -f jira-main.yaml
 - `update` replaces `config` whole, and `advanced` when the file has it; start an update
   from `harborrag connections get REF -o yaml`.
 - `test` checks sign-in, reachability and a sample of items without saving. Without
-  `-f` it tests the saved connection.
+  `-f` it tests the saved connection. When a check fails it prints `"ok": false` and
+  still exits 0; read `ok` from the output.
 - In local mode `test` runs its checks in the CLI's process, so it checks a `local_file`
   connection's folder on the machine where the CLI runs, as `--inline` reads it. The
   stack's `default/harborrag-workspace` names `/data/sources`, which exists only in the
@@ -314,6 +340,12 @@ uv run harborrag connections create engineering/jira-main -f jira-main.yaml
   passes.
 - `delete` removes the connection's documents, stored secrets and row in the
   background, and prints the job; `--purge` also drops its ingestion history.
+
+`projects delete` removes only an empty project: while the project has connections it
+fails with `409 in_use`, exit 4, and removes nothing. `--cascade` also removes its
+connections, documents and secrets in the background and prints the job. A project
+without connections is deleted at once, with or without `--cascade`, and the command
+prints nothing in JSON and YAML and `Done.` in a table.
 
 The fields, statuses and errors are in [Connections](../connections.md).
 
@@ -381,7 +413,8 @@ or a worker, for development. It refuses `--wait`, which it already does, and
 unchanged, failed}`, and exits 0 when `status` is `COMPLETED` or `PARTIAL`, else 8.
 
 `--inline` reads the files on this machine, so a `local_file` connection's `source_path`
-must be a directory here. It must also lie inside `HARBORRAG_LOCAL_SOURCE_ROOT` when the
+must be a directory here; if it is not, `--inline` refuses the connection, as shown
+below. It must also lie inside `HARBORRAG_LOCAL_SOURCE_ROOT` when the
 CLI has one; the template of `env/.env.database` sets `/data/sources`. The stack's
 connections name the folder as the containers see it: `default/harborrag-workspace`
 reads `/data/sources`. On a machine without that directory, `--inline` refuses such a
@@ -397,6 +430,18 @@ error 422 validation_error: connection default/harborrag-workspace cannot run in
 `chat` calls `POST /v1/chat/completions` with `stream: false` and prints the answer with
 its numbered citations; `-o json` prints the completion body.
 
+From a checkout, the CLI does not read `env/.env.api` or `env/.env.temporal`, so it
+keeps the default `source_acl` access mode, in which a caller with no source permissions
+gets no sources, and the search finds nothing. Before the first `chat`, export the shared
+corpus settings in the shell you ask from, naming the tenant you ask in:
+
+```bash
+export HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared
+export HARBORRAG_CORPUS_SHARED_TENANT_ID=DEFAULT
+```
+
+Then ask:
+
 ```bash
 uv run harborrag chat "Explain HarborRAG in one paragraph." -o json
 ```
@@ -404,16 +449,8 @@ uv run harborrag chat "Explain HarborRAG in one paragraph." -o json
 Without `--session-id` it asks a one-off question, which stores nothing;
 `--project-id` limits a one-off question to a project. `--session-id` continues a
 session created over HTTP. `--connection-ref` narrows the search to a connection, and
-`--mode` picks `classic` (the default) or `instant`.
-
-From a checkout, the CLI does not read `env/.env.temporal`, so it keeps the default
-`source_acl` access mode, in which its principal may read no source, and the search
-finds nothing. Export the values the worker template sets before you run `chat`:
-
-```bash
-export HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared
-export HARBORRAG_CORPUS_SHARED_TENANT_ID=DEFAULT
-```
+`--mode` picks `classic` (the default) or `instant`. `advanced` and `auto` pass
+validation but answer `422 mode_unavailable`, exit 2, until v2.1.0.
 
 The routes and the answer's fields are in the [Chat guide](../chat/README.md).
 
@@ -429,7 +466,7 @@ uv run harborrag doctor
 - the optional Python clients the local stack needs;
 - the connector, parser and model catalogs and the chunking policy;
 - the source folder of the enabled local connector, and blank URL and credential
-  variables of remote connectors;
+  variables of enabled remote connectors;
 - the control plane, Postgres, Temporal, Qdrant, the graph database and the object
   store, with the same checks as `/readyz`.
 
@@ -450,6 +487,21 @@ Tenants with data: DEFAULT
 A failed check prints the hint that fixes it. `doctor` exits 0 when every required
 check passes, 6 when only service checks failed, and 1 when a configuration check
 failed. `-o json` prints `{"checks", "ready", "summary", "tenants", "diagnostics"}`.
+
+What to expect from a checkout:
+
+- Run `doctor` from the repository root. It does not walk up to the checkout as the
+  other commands do; from a subfolder it fails with a missing
+  `config/sources/connectors.yaml` path and exits 1.
+- The `project` line warns `no harborrag.yaml found; using the current directory`. That
+  is expected in a checkout, and a warning does not change the exit code.
+- The source-folder check reads the host variable `LOCAL_SOURCE_PATH`, not
+  `HARBORRAG_LOCAL_SOURCE_ROOT`, and fails while it is unset or names no directory. Set
+  it in `env/.env.connector`.
+- The `connector credentials` check fails while an enabled remote connector has blank
+  variables. The shipped catalog enables three remote connectors, so a fresh checkout
+  exits 1 until you fill in `env/.env.connector` or set `enabled: false` on the
+  connectors you do not use in `config/sources/connectors.yaml`.
 
 ## Read and change runtime settings
 
@@ -521,6 +573,9 @@ uv run harborrag auth keys revoke --reason "laptop replaced" --key-id KEY_ID
 - `revoke` revokes one key by ID, or with `--tenant` and `--owner` every active key of
   one owner in a tenant. The reason is recorded in the audit trail.
 
-`auth keys` takes none of the global options; its `--tenant` is its own required option.
+`auth keys` takes none of the global options, and its output is the `{"ok": …}` JSON
+described in [Read errors and exit codes](#read-errors-and-exit-codes). Its `--tenant`
+is its own option: required on `create` and `list`, and on `revoke` used only together
+with `--owner`.
 Lifetime limits, the key format and how the MCP server checks keys are in
 [Tenant-bound reader keys and shared corpus access](../detailed-guides/mcp-server/setup-and-integration.md#tenant-bound-reader-keys-and-shared-corpus-access).

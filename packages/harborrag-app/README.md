@@ -96,12 +96,24 @@ for the file format, pausing a schedule during an incident, and monitoring.
 `harborrag chat` calls `POST /v1/chat/completions`: it retrieves the passages that match a
 question and answers with numbered citations.
 
+From a checkout, the CLI does not read `env/.env.api`, so before `chat` export the
+shared-corpus settings; with the default `source_acl` mode a caller with no source
+permissions gets no sources. Name the tenant you ask in:
+
+```bash
+export HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared
+export HARBORRAG_CORPUS_SHARED_TENANT_ID=DEFAULT
+```
+
+Then ask:
+
 ```bash
 uv run harborrag chat "Explain HarborRAG in one paragraph." -o json
 ```
 
-From a checkout, chat also needs the two variables in
-[Ask a grounded question](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/cli-reference/README.md#ask-a-grounded-question).
+The
+[CLI reference](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/cli-reference/README.md#ask-a-grounded-question)
+has the options.
 Search without a chat model is served by the
 [MCP tools](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/detailed-guides/mcp-server/README.md);
 the HTTP API has no separate retrieval routes.

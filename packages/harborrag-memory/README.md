@@ -191,8 +191,9 @@ settings, described in
    `summary_trigger_fraction * recent_max_tokens` and both a model and a repository are
    configured:
    - Summarize everything older than the last `summary_keep_messages`, fold in the prior
-     summary, and save it under the deterministic ID `summary:<session_id>`, so a session
-     never accumulates duplicates.
+     summary, and save it under a deterministic ID, `summary:` plus the SHA-256 of the tenant, user and
+     session IDs, so a session never accumulates duplicates and two tenants that reuse a
+     session ID do not share one.
    - `source_message_ids` lists only the messages that refresh folded in, so the row never
      grows without bound; `metadata["last_covered_message_id"]` is the frontier.
      Previously covered messages are left out of later refreshes, so unchanged history

@@ -100,8 +100,8 @@ yet, or if selectors, relations or directions are unclear.
 Graph selectors take three exact forms:
 
 - a `node_key`
-- a `logical_id`
-- an exact, complete `title`, matched case-insensitively and never partially;
+- a `provider_id`
+- an exact, complete title (`exact_title`), matched case-insensitively and never partially;
   chunk nodes have no title
 
 In practice, pass a `chunk_id` from `vector_search`, which is also its `Chunk`
