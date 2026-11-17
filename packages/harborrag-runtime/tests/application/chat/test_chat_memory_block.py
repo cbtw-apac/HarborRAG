@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 
 import pytest
 
+from harborrag_core.domain.identity import MemoryIdentity
 from harborrag_core.domain.retrieval import RetrievalResult
 from harborrag_core.ports.conversation import ConversationMessage
 from harborrag_core.ports.memory import Memory, MemoryOwner, MemoryScope, MemoryType
@@ -16,7 +17,6 @@ from harborrag_runtime.application.chat.prompting import (
     history_messages,
     prompt_text,
 )
-from harborrag_runtime.application.memory import MemoryIdentity
 from harborrag_runtime.memory import MemoryContext
 
 pytestmark = pytest.mark.unit

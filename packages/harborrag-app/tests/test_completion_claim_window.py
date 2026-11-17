@@ -8,7 +8,7 @@ from annotated_types import Le
 
 from harborrag_app.api.settings import ApiSettings
 from harborrag_core.ports.completion_requests import STALE_CLAIM_SECONDS
-from harborrag_runtime.application.memory.locks import SessionLocks
+from harborrag_memory.locks import SessionLocks
 
 
 def _upper_bound(field: str) -> float:

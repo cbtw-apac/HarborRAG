@@ -17,6 +17,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 
+from harborrag_core.domain.identity import MemoryIdentity
 from harborrag_core.domain.retrieval import RetrievalResult
 from harborrag_core.models.chat import (
     HarborChatStreamChunk,
@@ -25,9 +26,8 @@ from harborrag_core.models.chat import (
 )
 from harborrag_core.ports.conversation import ConversationMessage
 from harborrag_memory.messages import answer_message, append_message, question_message
+from harborrag_memory.usage import ModelCall, record_model_usage
 
-from ..memory.identity import MemoryIdentity
-from ..memory.usage import ModelCall, record_model_usage
 from .preparation import ChatTurnResources
 from .presenters import citation_data, cited_results
 

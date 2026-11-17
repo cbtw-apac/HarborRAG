@@ -11,13 +11,11 @@ from harborrag_core.domain.identity import DEFAULT_USER
 from harborrag_core.testing.control_plane_fakes import FakePendingEffectRepository
 from harborrag_engine.ingestion.models import IngestionCreateCommand
 from harborrag_memory.administration import MemoryAdministrationService
+from harborrag_memory.directory import ConversationDirectoryService
 from harborrag_memory.tiers.in_memory import InMemoryConversationMemory
 from harborrag_runtime.application import AppResponse, BaseAppService
 from harborrag_runtime.application.chat import ChatClientMixin
-from harborrag_runtime.application.memory import (
-    ConversationDirectoryService,
-    MemoryAdminClientMixin,
-)
+from harborrag_runtime.application.memory import MemoryAdminClientMixin
 from harborrag_runtime.sdk import RetrievalLane, RetrievalMode
 from harborrag_runtime.testing.chat_service_double import ChatServiceFixture
 from harborrag_runtime.testing.memory_fakes import FakeMemoryIndex, FakeMemoryStore

@@ -16,6 +16,8 @@ from harborrag_engine.ingestion.failure_inbox import FailureInboxService
 from harborrag_engine.ingestion.operations import IngestionOperations
 from harborrag_engine.ingestion.presenters import STATUS_NAMES, TERMINAL_STATES
 from harborrag_memory.administration import MemoryAdministrationService
+from harborrag_memory.directory import ConversationDirectoryService
+from harborrag_memory.locks import SessionLocks
 from harborrag_memory.projects import project_lookup
 from harborrag_runtime.composition import CompositionRoot, ControlPlaneRepositories
 from harborrag_runtime.config.connectors.importing import import_connectors_once
@@ -51,7 +53,6 @@ from ..ingestion.progress_bridge import (
 from ..ingestion.service import IngestionApplicationService
 from ..ingestion.starter import IngestionStarter
 from ..memory import (
-    ConversationDirectoryService,
     ConversationSessionService,
     MemoryAdminClientMixin,
     MemoryExtractionQueue,
@@ -60,7 +61,6 @@ from ..memory import (
     long_term_memory_index,
     model_usage_records,
 )
-from ..memory.locks import SessionLocks
 from ..ports import BaseAppService
 from ..scheduling.service import ScheduleApplicationService
 from ..schemas import AppResponse

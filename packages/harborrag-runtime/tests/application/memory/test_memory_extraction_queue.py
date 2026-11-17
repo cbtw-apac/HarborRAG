@@ -10,11 +10,11 @@ import pytest
 
 from harborrag_core.base import utc_now
 from harborrag_core.contracts.errors import HarborConnectionError
+from harborrag_core.domain.identity import MemoryIdentity
 from harborrag_core.ports.conversation import ConversationIdentity, ConversationMessage
 from harborrag_core.ports.memory import Memory, MemoryOwner, MemoryQuery
 from harborrag_memory.tiers.in_memory import InMemoryConversationMemory
 from harborrag_runtime.application.chat import ChatApplicationService, ChatExecutionOptions
-from harborrag_runtime.application.memory import MemoryIdentity
 from harborrag_runtime.application.memory.extraction import (
     MemoryExtractionQueue,
     dropped_extractions,

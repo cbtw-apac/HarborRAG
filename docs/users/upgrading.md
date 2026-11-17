@@ -481,7 +481,7 @@ connection with `"method": "api_token"` and the `email`; the stored token is kep
   | `harborrag.app.workflow_control.ingestion.connection_sources`, `.direct` and `.progress_bridge` | the same names under `harborrag.runtime.application.ingestion` |
   | `harborrag.app.workflow_control.ingestion.durable` and `harborrag.app.workflow_control.retrieval` | removed with their modules |
   | `harborrag.app.workflow_control.scheduling` | `harborrag.runtime.application.scheduling.service` |
-  | `harborrag.app.workflow_control.memory` | `harborrag.runtime.application.memory.composition`, `.context` and `.usage`, and `harborrag.memory.messages` and `harborrag.memory.titles` |
+  | `harborrag.app.workflow_control.memory` | `harborrag.runtime.application.memory.composition` and `.context`, `harborrag.memory.usage`, and `harborrag.memory.messages` and `harborrag.memory.titles` |
   | `harborrag.app.workflow_control.memory.extraction` | `harborrag.runtime.application.memory.extraction` |
   | `harborrag.app.workflow_control.memory.administration` | `harborrag.memory.administration` and `harborrag.memory.erasure` |
   | `harborrag.app.api.readiness` | `harborrag.app.operations.readiness` |
@@ -505,7 +505,9 @@ old package in the first column and applying the pointer rule.
 | `harborrag_app.workflow_control` | `harborrag_runtime.application` | Keep the rest of the path: `workflow_control.chat.service` is `application.chat.service`, and `AppResponse`, `BaseAppService` and the `AppService` composition follow the same rule. `harborrag_app` no longer exports `AppResponse` or `BaseAppService` |
 | `harborrag_app.workflow_control.chat.memory_block` | `harborrag_engine.chat.memory_block` | Chat modules stay in `application.chat`, except this one |
 | `harborrag_app.workflow_control.ingestion.{models,presenters,recovery}` | `harborrag_engine.ingestion.{models,presenters,recovery}` | The failure inbox is `harborrag_engine.ingestion.failure_inbox` |
-| `harborrag_app.workflow_control.memory.{access,administration,erasure,messages,projects,titles}` | `harborrag_memory.<module>` | Session, context, usage and extraction modules stay in `harborrag_runtime.application.memory` |
+| `harborrag_app.workflow_control.memory.{access,administration,erasure,messages,projects,titles}` | `harborrag_memory.<module>` | Session, context and extraction modules stay in `harborrag_runtime.application.memory` |
+| `harborrag_runtime.application.memory.{usage,locks,presenters,directory}` | `harborrag_memory.{usage,locks,presenters,directory}` | `ModelCall`, `record_model_usage`, `SessionLocks`, `ConversationTurnBusyError`, `ConversationDirectoryService` and the presenter functions keep their names; `harborrag_runtime.application.memory` no longer re-exports them. The error classes keep their `error_code` and HTTP status |
+| `harborrag_runtime.application.memory.identity.MemoryIdentity` | `harborrag_core.domain.identity.MemoryIdentity` | `harborrag_runtime.application.memory` no longer exports it |
 | `harborrag_app.api.auth.principal` | `harborrag_app.operations.principal` | |
 | `harborrag_app.api.*` request and response models | `harborrag_app.operations.schemas.<resource>` | One module per resource: `chat`, `connections`, `ingestions`, `me`, `settings` and `common`. The models changed with the HTTP API, so check each field |
 | `harborrag_runtime.retrieval.<module>` | `harborrag_engine.retrieval.service.<module>` | Applies to every module except `facades` and `composition`, which stay; `service` is `harborrag_engine.retrieval.service.service`. `RuntimeRetrievalService.connect` is removed: call `connect_retrieval_service(settings)` from `harborrag_runtime.retrieval.composition`. `RetrievalOptions`, `RetrievalPolicy`, `RetrievalResources` and the other types of `contracts` are in `harborrag_engine.retrieval.service.contracts`; `harborrag_runtime.retrieval` no longer re-exports them |

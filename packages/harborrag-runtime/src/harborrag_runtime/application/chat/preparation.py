@@ -11,6 +11,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
+from harborrag_core.domain.identity import MemoryIdentity
 from harborrag_core.models.chat import HarborChatRequest
 from harborrag_core.ports.config_store import ConfigProvider
 from harborrag_core.ports.conversation import ConversationHistoryRepository
@@ -21,7 +22,6 @@ from harborrag_runtime.memory import MemoryContext
 from harborrag_runtime.sdk import HarborRAG
 
 from ..memory.context import empty_memory_context, recent_memory_context
-from ..memory.identity import MemoryIdentity
 from .evidence import ChatEvidence
 from .options import ChatExecutionOptions
 from .prompting import build_chat_request, history_messages

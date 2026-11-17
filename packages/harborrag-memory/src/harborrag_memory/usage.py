@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
+from harborrag_core.domain.identity import MemoryIdentity
 from harborrag_core.models.chat import (
     HarborChatResponse,
     HarborChatStreamChunk,
@@ -22,9 +23,7 @@ from harborrag_core.models.chat import (
 )
 from harborrag_core.ports.usage import ModelUsageRecord, ModelUsageRepository
 
-from .identity import MemoryIdentity
-
-logger = logging.getLogger("harborrag.runtime.application.memory.usage")
+logger = logging.getLogger("harborrag.memory.usage")
 
 
 @dataclass(frozen=True, slots=True)

@@ -12,16 +12,17 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from harborrag_memory.presenters import memory_data
+
 from ..schemas import AppResponse
 from .extraction import drain_extraction_queue
-from .presenters import memory_data
 
 if TYPE_CHECKING:
     from harborrag_core.ports.memory import MemoryScope
     from harborrag_memory.access import MemoryAccess
     from harborrag_memory.administration import MemoryAdministrationService
+    from harborrag_memory.directory import ConversationDirectoryService
 
-    from .directory import ConversationDirectoryService
     from .extraction import MemoryExtractionQueue
 
 

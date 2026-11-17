@@ -19,6 +19,7 @@ from harborrag_core.contracts.errors import (
     HarborValidationError,
     UnknownReferenceError,
 )
+from harborrag_core.domain.identity import MemoryIdentity
 from harborrag_core.models.chat import StreamEventType
 from harborrag_core.models.errors import HarborChatError
 from harborrag_core.ports.control_plane import ProjectRepositoryPort
@@ -31,16 +32,15 @@ from harborrag_core.ports.memory import MemoryIndex, MemoryRepository
 from harborrag_core.ports.usage import ModelUsageRepository
 from harborrag_engine.chat.scope import ConnectionCatalog, RetrievalScope, resolve_scope
 from harborrag_memory.access import MemoryAccess
+from harborrag_memory.locks import SessionLocks
 from harborrag_memory.messages import ExchangeRecord, record_exchange
 from harborrag_memory.projects import require_project
 from harborrag_memory.titles import conversation_title
+from harborrag_memory.usage import ModelCall, record_model_usage
 from harborrag_runtime.application.errors import failure_response
 from harborrag_runtime.application.memory.extraction import (
     MemoryExtractionQueue,
 )
-from harborrag_runtime.application.memory.identity import MemoryIdentity
-from harborrag_runtime.application.memory.locks import SessionLocks
-from harborrag_runtime.application.memory.usage import ModelCall, record_model_usage
 from harborrag_runtime.application.schemas import AppResponse
 from harborrag_runtime.config.settings import RuntimeSettings
 

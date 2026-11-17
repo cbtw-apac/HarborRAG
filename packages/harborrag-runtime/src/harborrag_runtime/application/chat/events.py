@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import logging
 
+from harborrag_core.domain.identity import MemoryIdentity
 from harborrag_runtime.application.errors import failure_response
-from harborrag_runtime.application.memory.identity import MemoryIdentity
 
 from .options import ChatExecutionOptions
 from .preparation import PreparedTurn

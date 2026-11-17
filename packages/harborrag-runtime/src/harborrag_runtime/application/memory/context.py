@@ -5,10 +5,9 @@ from __future__ import annotations
 import logging
 from dataclasses import replace
 
+from harborrag_core.domain.identity import MemoryIdentity
 from harborrag_core.ports.conversation import ConversationHistoryRepository
 from harborrag_runtime.memory import MemoryContext, MemoryContextRequest
-
-from .identity import MemoryIdentity
 
 RECENT_EXCHANGES = 3
 logger = logging.getLogger("harborrag.runtime.application.memory.context")

@@ -14,13 +14,12 @@ from harborrag_runtime.sdk import RetrievalLane, RetrievalMode, RetrievalRequest
 from ..retrieval.access import corpus_mode_for
 
 if TYPE_CHECKING:
+    from harborrag_core.domain.identity import MemoryIdentity
     from harborrag_core.ports.config_store import ConfigProvider
     from harborrag_runtime.config.settings import RuntimeSettings
     from harborrag_runtime.contracts import RetrievalResponse
     from harborrag_runtime.memory import MemoryContext
     from harborrag_runtime.sdk import HarborRAG
-
-    from ..memory.identity import MemoryIdentity
 
 
 def relevant_results(

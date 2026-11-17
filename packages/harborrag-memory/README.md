@@ -421,6 +421,10 @@ Where the code lives:
   caller's remembered data, and the durable deletion intents behind it.
 - `messages.py`, `projects.py` and `titles.py`: per-turn message records, project
   validation and conversation titles.
+- `directory.py`: listing, reading and renaming the conversations one user owns.
+- `usage.py`: per-turn model-usage records, written best effort.
+- `locks.py`: per-session turn serialization and the session-busy errors.
+- `presenters.py`: public projections of stored memories and conversation rows.
 - `schemas.py`: stable re-exports of the core-owned memory contracts.
 - `identity.py`: the one derivation of the conversation identity an owner maps to.
 - `config.py`: `MemoryManagerConfig`, including the default recent-turn limit.

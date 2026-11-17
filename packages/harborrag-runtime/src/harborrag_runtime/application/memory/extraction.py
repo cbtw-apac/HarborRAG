@@ -32,12 +32,11 @@ from typing import TYPE_CHECKING
 from .context import memory_context_request
 
 if TYPE_CHECKING:
+    from harborrag_core.domain.identity import MemoryIdentity
     from harborrag_core.ports.conversation import ConversationMessage
     from harborrag_core.ports.memory import MemoryIndex, MemoryRepository
     from harborrag_runtime.memory import MemoryContextRequest
     from harborrag_runtime.sdk import HarborRAG
-
-    from .identity import MemoryIdentity
 
 type RuntimeProvider = Callable[[], "HarborRAG"]
 type _Item = tuple["MemoryContextRequest", tuple["ConversationMessage", ...]]

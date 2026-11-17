@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
+from harborrag_core.domain.identity import MemoryIdentity
 from harborrag_core.domain.retrieval import RetrievalResult
 from harborrag_core.models.chat import HarborChatMessage, HarborChatRequest
 from harborrag_core.ports.conversation import ConversationMessage
@@ -12,7 +13,6 @@ from harborrag_core.ports.memory import Memory
 from harborrag_engine.chat.memory_block import memory_block
 from harborrag_runtime.memory import MemoryContext
 
-from ..memory.identity import MemoryIdentity
 from .presenters import citation_data, citation_marker, source_heading
 
 if TYPE_CHECKING:
