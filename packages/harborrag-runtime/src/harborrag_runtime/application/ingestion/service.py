@@ -18,7 +18,7 @@ from harborrag_core.contracts.errors import (
     IngestionNotFoundError,
     IngestionRetryConflictError,
 )
-from harborrag_core.contracts.events import HarborEvent
+from harborrag_core.contracts.events import HarborEvent, event_prefix
 from harborrag_core.ingestion import IngestionTask, IngestionTaskState
 from harborrag_core.ingestion.run_contracts import (
     IngestionRetryRequest,
@@ -53,7 +53,7 @@ from .ports import (
     TaskIdFactory,
     TaskStoreProvider,
 )
-from .progress_bridge import CONTROL_AUDIT, event_prefix
+from .progress_bridge import CONTROL_AUDIT
 from .retry_selection import retryable_document_ids
 
 logger = logging.getLogger("harborrag.runtime.application.ingestion.service")

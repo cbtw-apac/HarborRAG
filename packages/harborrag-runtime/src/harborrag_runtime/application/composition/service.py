@@ -8,7 +8,7 @@ import uuid
 from collections.abc import AsyncGenerator
 
 from harborrag_core.contracts.errors import HarborUnavailableError
-from harborrag_core.contracts.events import HarborEvent
+from harborrag_core.contracts.events import HarborEvent, event_prefix
 from harborrag_core.ports.events import EventBusPort
 from harborrag_engine.chat.scope import ControlPlaneConnectionCatalog
 from harborrag_engine.control_plane.connection_views import IngestionLinks
@@ -46,7 +46,6 @@ from ..ingestion.progress_bridge import (
     LEASE_TTL_SECONDS,
     RUN_COMPLETED,
     STREAMED_EVENTS,
-    event_prefix,
     sync_ingestion_progress,
     sync_run,
 )

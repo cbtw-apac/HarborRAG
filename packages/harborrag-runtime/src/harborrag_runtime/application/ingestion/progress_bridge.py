@@ -15,7 +15,7 @@ from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Any
 
-from harborrag_core.contracts.events import HarborEvent
+from harborrag_core.contracts.events import HarborEvent, event_prefix
 from harborrag_core.ingestion import IngestionTask
 from harborrag_core.ingestion.stages import spec_stage
 from harborrag_core.ports.events import EventBusPort
@@ -49,11 +49,6 @@ must match the lease seeded by control-plane migration 0017.
 """
 LEASE_TTL_SECONDS = _DEFAULT_TICK_INTERVAL_SECONDS * 4
 """Lease lifetime of a few tick intervals, so a crashed leader's lease lapses quickly."""
-
-
-def event_prefix(task_id: str) -> str:
-    """Return the routing prefix of a run's stored and bus event names."""
-    return f"task.{task_id}."
 
 
 async def sync_ingestion_progress(

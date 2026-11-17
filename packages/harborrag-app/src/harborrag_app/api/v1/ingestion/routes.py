@@ -40,8 +40,7 @@ from harborrag_app.operations.schemas.ingestions import (
     IngestionPage,
     RetryFailuresRequest,
 )
-from harborrag_core.contracts.events import HarborEvent
-from harborrag_runtime.application.ingestion.progress_bridge import event_prefix
+from harborrag_core.contracts.events import HarborEvent, event_prefix
 
 HEARTBEAT_SECONDS = 15.0
 _SSE_HEADERS = {"Cache-Control": "no-store", "X-Accel-Buffering": "no"}
