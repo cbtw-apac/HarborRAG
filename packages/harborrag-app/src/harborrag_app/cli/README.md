@@ -147,8 +147,11 @@ The loading is in `environment.py`:
   (the host reaches the same MinIO on `localhost`), `HARBORRAG_LOCAL_SOURCE_ROOT`, and an
   uncommented `HARBORRAG_CONTROL_DB_URL` line, with the
   `HARBORRAG_SECRETS_ENCRYPTION_KEY` that database's secrets are stored under. The
-  `POSTGRES_*` values alone never select the database.
-- `DATABASE_ENV_FILE` names another database file and is honoured in any directory.
+  `POSTGRES_*` values alone never select the database. From the checkout's `env/.env.api`
+  it reads only `HARBORRAG_CORPUS_ACCESS_MODE` and `HARBORRAG_CORPUS_SHARED_TENANT_ID`, so
+  `chat` reads the corpus in the mode the API does; blank values are skipped.
+- `DATABASE_ENV_FILE` and `API_ENV_FILE` name other files for those selected keys and are
+  honoured in any directory.
 
 From a checkout, every write refuses the local SQLite control database until
 `HARBORRAG_CONTROL_DB_URL` points at the stack's Postgres. The check is
@@ -238,12 +241,12 @@ the `HARBORRAG_` variables it reads most often; every runtime variable is in the
 | `HARBORRAG_OBJECT_STORE_SECRET_ACCESS_KEY` | unset | Object-store credential |
 | `HARBORRAG_STORAGE_NAMESPACE_PREFIX` | `harborrag` | Per-tenant store namespace `{prefix}_{tenant_id}`: Qdrant collection stem, FalkorDB graph, object-store key prefix |
 | `HARBORRAG_FALKORDB_GRAPH` | `harborrag` | Graph projection name |
-| `HARBORRAG_CORPUS_ACCESS_MODE` | `source_acl` | Whether chat retrieval reads the shared corpus or the caller's source permissions; from a checkout `chat` finds no sources unless this is `tenant_shared` and the next variable is set |
+| `HARBORRAG_CORPUS_ACCESS_MODE` | `source_acl` | Whether chat retrieval reads the shared corpus or the caller's source permissions; the shipped `env-example/.env.api.example` sets `tenant_shared`, and a checkout's CLI reads it from `env/.env.api` |
 | `HARBORRAG_CORPUS_SHARED_TENANT_ID` | unset | Tenant whose retrieval reads the shared corpus in `tenant_shared` mode |
 | `HARBORRAG_LOG_LEVEL` | `WARNING` for the CLI | Diagnostic logging |
 
-The CLI does not read `env/.env.api` or `env/.env.temporal`, so export the two corpus
-variables before `chat`; see
+From a checkout the CLI reads only the two corpus-mode lines of `env/.env.api` (the file
+named by `API_ENV_FILE`), where an exported variable outranks the file; see
 [Ask a grounded question](../../../../../docs/users/cli-reference/README.md#ask-a-grounded-question).
 
 `chat` reads its passages from the same object store the worker wrote them to. The

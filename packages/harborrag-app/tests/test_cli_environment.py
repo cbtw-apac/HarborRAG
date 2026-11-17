@@ -451,3 +451,79 @@ def test_an_exported_local_source_root_outranks_the_file(tmp_path: Path, monkeyp
     load_project_environment(tmp_path)
 
     assert os.environ["HARBORRAG_LOCAL_SOURCE_ROOT"] == "/srv/docs"
+
+
+_CORPUS_MODE = "HARBORRAG_CORPUS_ACCESS_MODE"
+_CORPUS_TENANT = "HARBORRAG_CORPUS_SHARED_TENANT_ID"
+_API_ENV = (
+    "HARBORRAG_ENV=dev\n"
+    "HARBORRAG_CONTROL_DB_URL=postgresql+asyncpg://x@postgres/db\n"
+    f"{_CORPUS_MODE}=tenant_shared\n"
+    f"{_CORPUS_TENANT}=DEFAULT\n"
+)
+
+
+def _clear_corpus_mode(monkeypatch) -> None:
+    _clear_control_db(monkeypatch)
+    for name in (_CORPUS_MODE, _CORPUS_TENANT, "API_ENV_FILE", "HARBORRAG_ENV"):
+        monkeypatch.setenv(name, "")
+        monkeypatch.delenv(name)
+
+
+def test_checkout_reads_only_the_corpus_mode_keys_from_the_api_file(
+    tmp_path: Path, monkeypatch
+) -> None:
+    path = _write(tmp_path, "env/.env.api", _API_ENV)
+    _mark_checkout(tmp_path)
+    _clear_corpus_mode(monkeypatch)
+
+    loaded = load_project_environment(tmp_path)
+
+    assert os.environ[_CORPUS_MODE] == "tenant_shared"
+    assert os.environ[_CORPUS_TENANT] == "DEFAULT"
+    assert "HARBORRAG_ENV" not in os.environ
+    assert _CONTROL_DB not in os.environ
+    assert loaded == (path,)
+
+
+def test_an_exported_corpus_mode_outranks_the_api_file(tmp_path: Path, monkeypatch) -> None:
+    _write(tmp_path, "env/.env.api", _API_ENV)
+    _mark_checkout(tmp_path)
+    _clear_corpus_mode(monkeypatch)
+    monkeypatch.setenv(_CORPUS_MODE, "source_acl")
+
+    load_project_environment(tmp_path)
+
+    assert os.environ[_CORPUS_MODE] == "source_acl"
+    assert os.environ[_CORPUS_TENANT] == "DEFAULT"
+
+
+def test_blank_corpus_mode_lines_are_not_applied(tmp_path: Path, monkeypatch) -> None:
+    _write(tmp_path, "env/.env.api", f"{_CORPUS_MODE}=\n{_CORPUS_TENANT}=\n")
+    _mark_checkout(tmp_path)
+    _clear_corpus_mode(monkeypatch)
+
+    assert load_project_environment(tmp_path) == ()
+    assert _CORPUS_MODE not in os.environ
+
+
+def test_api_env_file_override_is_honoured_anywhere(tmp_path: Path, monkeypatch) -> None:
+    custom = _write(tmp_path, "elsewhere/api.env", _API_ENV)
+    _clear_corpus_mode(monkeypatch)
+    _activate_project(monkeypatch)
+    monkeypatch.setenv("API_ENV_FILE", str(custom))
+
+    loaded = load_project_environment(tmp_path)
+
+    assert os.environ[_CORPUS_MODE] == "tenant_shared"
+    assert loaded == (custom,)
+
+
+def test_corpus_mode_is_not_read_from_an_api_file_outside_a_checkout(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _write(tmp_path, "env/.env.api", _API_ENV)
+    _clear_corpus_mode(monkeypatch)
+
+    assert load_project_environment(tmp_path) == ()
+    assert _CORPUS_MODE not in os.environ

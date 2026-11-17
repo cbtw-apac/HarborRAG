@@ -249,17 +249,17 @@ If every document fails, check the gateway values from step 2. For other errors,
 ## 6. Ask a question
 
 The `harborrag` command searches as `cli:` followed by your user name on this machine,
-which has no permissions on individual sources, so by default it finds nothing. Let it read
-everything ingested into the `DEFAULT` *tenant*, the isolated set of sources and data that
-this tutorial uses. The ingestion workers use the same setting from `env/.env.temporal`,
-which the command does not read:
+which has no permissions on individual sources. The `env/.env.api` that `bootstrap` created
+therefore sets `HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared` and
+`HARBORRAG_CORPUS_SHARED_TENANT_ID=DEFAULT`, which lets chat read everything ingested into
+the `DEFAULT` *tenant*, the isolated set of sources and data that this tutorial uses. The
+API and the ingestion workers (from `env/.env.temporal`) use the same setting, and the
+command reads these two lines from `env/.env.api`; nothing needs exporting. Removing the
+lines returns the tenant to `source_acl`, where chat reads only sources the caller has
+permissions for; see
+[Read access inside a tenant](../users/configuration/workspace-mode.md#read-access-inside-a-tenant).
 
-```bash
-export HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared
-export HARBORRAG_CORPUS_SHARED_TENANT_ID=DEFAULT
-```
-
-These exports last for the current shell. Ask the chat model for an answer grounded in the
+Ask the chat model for an answer grounded in the
 passages that match your question. It calls your gateway, so it can cost a little:
 
 ```bash
@@ -268,7 +268,9 @@ uv run harborrag chat "Summarise what the HarborRAG documentation covers in thre
 
 The answer cites its sources as `[1]`, `[2]` and so on, and below it lists each number with
 the title of the document it points to. An answer with no citations means the search found
-nothing: check that the two exports above ran in this shell.
+nothing: run `uv run harborrag doctor` and check that its `corpus mode` row says
+`tenant_shared`. If your `env/.env.api` came from an older checkout, add the two lines above
+to it and restart the API with `scripts/deployment/dev.sh api`.
 
 That is the whole loop: change documents, run `ingestions start`, then `chat`.
 

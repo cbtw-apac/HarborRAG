@@ -668,3 +668,60 @@ def test_doctor_control_plane_hint_says_shell_in_checkout_mode(
     plane = _doctor_checks(capsys)["control plane"]
     assert "shell" in plane["hint"]
     assert "env/.env.database" not in plane["hint"]
+
+
+def _corpus_mode_row(capsys) -> dict[str, object]:
+    return {c["name"]: c for c in json.loads(capsys.readouterr().out)["checks"]}["corpus mode"]
+
+
+def test_doctor_reports_shared_corpus_mode_for_the_acting_tenant(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    project(tmp_path, monkeypatch, api_key="sk-test")
+    monkeypatch.setenv("HARBORRAG_CORPUS_ACCESS_MODE", "tenant_shared")
+    monkeypatch.setenv("HARBORRAG_CORPUS_SHARED_TENANT_ID", "DEFAULT")
+    reachable(monkeypatch)
+    monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
+
+    code = cli.main(["doctor", "-o", "json"])
+
+    row = _corpus_mode_row(capsys)
+    assert code == 0
+    assert row["status"] == "ok"
+    assert row["group"] == "config"
+    assert row["detail"] == "tenant_shared for tenant DEFAULT"
+
+
+def test_doctor_warns_when_the_acting_tenant_reads_by_source_acl(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    project(tmp_path, monkeypatch, api_key="sk-test")
+    monkeypatch.setenv("HARBORRAG_CORPUS_ACCESS_MODE", "tenant_shared")
+    monkeypatch.setenv("HARBORRAG_CORPUS_SHARED_TENANT_ID", "DEFAULT")
+    reachable(monkeypatch)
+    monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
+
+    code = cli.main(["doctor", "--tenant", "other", "-o", "json"])
+
+    row = _corpus_mode_row(capsys)
+    assert code == 0
+    assert row["status"] == "warn"
+    assert row["required"] is False
+    assert row["detail"] == "source_acl for tenant other"
+    assert "workspace mode" in str(row["hint"])
+
+
+def test_doctor_warns_by_default_when_no_corpus_mode_is_set(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    project(tmp_path, monkeypatch, api_key="sk-test")
+    monkeypatch.delenv("HARBORRAG_CORPUS_ACCESS_MODE", raising=False)
+    monkeypatch.delenv("HARBORRAG_CORPUS_SHARED_TENANT_ID", raising=False)
+    reachable(monkeypatch)
+    monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
+
+    code = cli.main(["doctor", "-o", "json"])
+
+    row = _corpus_mode_row(capsys)
+    assert code == 0
+    assert row["status"] == "warn"

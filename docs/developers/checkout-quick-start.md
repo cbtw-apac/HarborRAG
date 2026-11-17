@@ -227,9 +227,11 @@ admission fast path, not an error: it skips parsing, chunking and encoding. Use
 
 ### 9. Chat over the ingested documents
 
-[Quick Start step 6](../getting-started/quick-start.md#6-ask-a-question) exports
-`HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared` and `HARBORRAG_CORPUS_SHARED_TENANT_ID=DEFAULT`,
-then runs `chat`. Without those exports, chat from a checkout finds no passages.
+[Quick Start step 6](../getting-started/quick-start.md#6-ask-a-question) explains the corpus
+mode: the `env/.env.api` template sets `HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared` and
+`HARBORRAG_CORPUS_SHARED_TENANT_ID=DEFAULT`, and the CLI reads those two lines from that
+file. An `env/.env.api` copied from an older template needs them added, or chat from a
+checkout finds no passages; `uv run harborrag doctor` shows the mode in its `corpus mode` row.
 
 Chat is retrieval-grounded and makes a real provider request, so it can incur charges. It
 asks a one-off question, which stores nothing; `-o json` prints the HTTP completion body:

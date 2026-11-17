@@ -428,17 +428,18 @@ error 422 validation_error: connection default/harborrag-workspace cannot run in
 `chat` calls `POST /v1/chat/completions` with `stream: false` and prints the answer with
 its numbered citations; `-o json` prints the completion body.
 
-From a checkout, the CLI does not read `env/.env.api` or `env/.env.temporal`, so it
-keeps the default `source_acl` access mode, in which a caller with no source permissions
-gets no sources, and the search finds nothing. Before the first `chat`, export the shared
-corpus settings in the shell you ask from, naming the tenant you ask in:
+The CLI reads the corpus mode from the API's env file, so it answers from the same
+documents as HTTP chat. The shipped `env-example/.env.api.example` sets
+`HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared` and `HARBORRAG_CORPUS_SHARED_TENANT_ID=DEFAULT`,
+and from a checkout the CLI reads exactly those two lines of `env/.env.api` (the file named
+by `API_ENV_FILE` when you set it), and nothing else in that file. An exported variable
+outranks the file. Only the shared tenant reads the whole corpus; any other tenant stays on
+`source_acl`, where a caller with no source permissions gets no sources. To return the
+`DEFAULT` tenant to `source_acl`, remove both lines and restart the API. An `env/.env.api`
+created from an older template has neither line: add them, then restart the API.
+`harborrag doctor` shows the `corpus mode` for the tenant the CLI acts in.
 
-```bash
-export HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared
-export HARBORRAG_CORPUS_SHARED_TENANT_ID=DEFAULT
-```
-
-Then ask:
+Ask:
 
 ```bash
 uv run harborrag chat "Explain HarborRAG in one paragraph." -o json
@@ -495,6 +496,9 @@ What to expect from a checkout:
   any path. When it names a directory that does not exist on this machine, for example
   `/data/sources`, which only the containers have, the line warns, because the API and
   workers resolve it in their own filesystem.
+- The `corpus mode` line names the mode chat uses for the tenant the command acts in. It
+  is `ok` for `tenant_shared` and warns for `source_acl`, where chat reads only the sources
+  the caller has permissions for. See [Ask a grounded question](#ask-a-grounded-question).
 - The `connector credentials` line warns, and names the connectors, while an enabled
   remote connector has blank variables. The shipped catalog enables three, so a fresh
   checkout warns until you fill in `env/.env.connector` or set `enabled: false` on the

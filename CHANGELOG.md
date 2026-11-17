@@ -64,6 +64,8 @@ action.
 
 #### harborrag-app
 
+- `env-example/.env.api.example` sets `HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared` and `HARBORRAG_CORPUS_SHARED_TENANT_ID=DEFAULT`, so chat finds sources on a new deployment; the code default stays `source_acl`, and removing the two lines returns the tenant to it. Nothing changes for an existing deployment until its `env/.env.api` gets the two lines and the API is restarted
+- The CLI reads `HARBORRAG_CORPUS_ACCESS_MODE` and `HARBORRAG_CORPUS_SHARED_TENANT_ID` from `env/.env.api` (or the file `API_ENV_FILE` names) and nothing else in it, and an exported variable outranks the file; `harborrag doctor` shows the `corpus mode` for the acting tenant and warns on `source_acl`
 - **Breaking:** `GET /v1/admin/ingestions/{ingestion_id}/events` sends `run.status`, `stage.progress`, `document.failed` and `run.completed`, replacing `task.<id>.progress`, `.done` and `.control`:
   - frames carry integer ids, a `: ping` arrives every 15 s, and `Last-Event-ID` resumes the stream
   - the response opens at once, and the deadline from `api_stream_timeout_seconds` ends the stream with an `error` event `deadline_exceeded`

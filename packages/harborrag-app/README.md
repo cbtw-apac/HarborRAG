@@ -97,16 +97,16 @@ for the file format, pausing a schedule during an incident, and monitoring.
 `harborrag chat` calls `POST /v1/chat/completions`: it retrieves the passages that match a
 question and answers with numbered citations.
 
-From a checkout, the CLI does not read `env/.env.api`, so before `chat` export the
-shared-corpus settings; with the default `source_acl` mode a caller with no source
-permissions gets no sources. Name the tenant you ask in:
+The CLI reads the corpus mode from the API's env file, so it answers from the same
+documents as HTTP chat. The shipped `env-example/.env.api.example` sets
+`HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared` and `HARBORRAG_CORPUS_SHARED_TENANT_ID=DEFAULT`,
+and from a checkout the CLI reads exactly those two lines of `env/.env.api` (the file named
+by `API_ENV_FILE` when you set it), and nothing else in that file. An exported variable
+outranks the file. Remove both lines to return the tenant to `source_acl`, where a caller
+with no source permissions gets no sources; an `env/.env.api` created from an older
+template has neither line, so add them and restart the API.
 
-```bash
-export HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared
-export HARBORRAG_CORPUS_SHARED_TENANT_ID=DEFAULT
-```
-
-Then ask:
+Ask:
 
 ```bash
 uv run harborrag chat "Explain HarborRAG in one paragraph." -o json

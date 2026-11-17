@@ -42,7 +42,9 @@ def command(
         tenant=tenant, output=output, profile=profile, config=config, yes=yes
     )
     try:
-        report = asyncio.run(run_doctor(service_factory=invoke.runtime_app_service))
+        report = asyncio.run(
+            run_doctor(service_factory=invoke.runtime_app_service, tenant_id=resolved.tenant)
+        )
     except Exception as exc:  # noqa: BLE001 - the CLI's error boundary, as invoke's
         trace_id = uuid4().hex
         logger.debug("doctor failed trace_id=%s", trace_id, exc_info=exc)

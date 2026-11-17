@@ -20,8 +20,8 @@ through the [MCP tools](../detailed-guides/mcp-server/README.md) instead.
   nothing ingested, a question answers `409 no_indexed_content` and no model
   is called.
 - A configured chat model; see [Chat models](models.md).
-- For the CLI, two shared-corpus variables exported in your shell; see
-  [Ask from the CLI](#ask-from-the-cli).
+- For the CLI, a checkout whose `env/.env.api` carries the two corpus-mode
+  lines; see [Ask from the CLI](#ask-from-the-cli).
 - The API address. On the development stack the API listens on
   `http://127.0.0.1:8000`; `scripts/deployment/dev.sh up` starts it together
   with the services it needs.
@@ -39,8 +39,8 @@ curl --fail-with-body http://127.0.0.1:8000/v1/chat/completions \
 You should get a JSON answer with `answer`, `citations` and `usage`; see
 [Read the answer](#read-the-answer).
 If `citations` is empty although content is ingested, check the API's corpus access
-mode: it defaults to `source_acl`, and neither the API's Compose service nor any
-`env-example/` template sets `tenant_shared`. See
+mode. The shipped `env-example/.env.api.example` sets `tenant_shared`; a deployment
+created from an older template has no such lines and runs `source_acl`. See
 [Troubleshooting](../troubleshooting/README.md#retrieval-chat-and-mcp).
 
 The development stack runs with `HARBORRAG_AUTH_MODE=none` and needs no
@@ -271,18 +271,26 @@ Renaming and deleting a session come back in v2.1.
 
 ## Ask from the CLI
 
-From a repository checkout, the CLI does not read `env/.env.api` or
-`env/.env.temporal`, so it keeps the default `source_acl` mode, in which a
-caller with no source permissions gets no sources. First export the
-shared-corpus settings in the shell you ask from, naming the tenant you ask in,
-or retrieval finds nothing:
+The CLI reads the corpus mode from the API's env file, so it answers from the
+same documents as HTTP chat. The shipped `env-example/.env.api.example` sets
+`tenant_shared` for the `DEFAULT` tenant, and from a repository checkout the CLI
+reads exactly these two lines of `env/.env.api` (the file named by `API_ENV_FILE`
+when you set it), and nothing else in that file:
 
 ```bash
-export HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared
-export HARBORRAG_CORPUS_SHARED_TENANT_ID=DEFAULT
+HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared
+HARBORRAG_CORPUS_SHARED_TENANT_ID=DEFAULT
 ```
 
-Then ask. `harborrag chat` calls `POST /v1/chat/completions` with
+A variable exported in your shell outranks the file. Only the shared tenant reads
+the whole corpus; any other tenant, for example one picked with `--tenant`, stays
+on `source_acl`, where a caller with no source permissions gets no sources. To
+return the `DEFAULT` tenant to `source_acl`, remove both lines from
+`env/.env.api` and restart the API. An `env/.env.api` created from an older
+template has neither line: add them, then restart the API. `harborrag doctor` shows
+the `corpus mode` the CLI will use for the tenant it acts in.
+
+`harborrag chat` calls `POST /v1/chat/completions` with
 `stream: false`, so it takes the same fields and answers the same body:
 
 ```bash

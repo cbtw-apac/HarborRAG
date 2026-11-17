@@ -33,6 +33,7 @@ from . import probes
 from .checks import SERVICES_GROUP, Check, DoctorReport
 from .environment import (
     check_error_detail,
+    corpus_mode_check,
     credentials_check,
     env_hint,
     models_check,
@@ -55,12 +56,15 @@ _TEMPORAL_HINT = (
 )
 
 
-async def run_doctor(*, service_factory: Callable[[], BaseAppService]) -> DoctorReport:
+async def run_doctor(
+    *, service_factory: Callable[[], BaseAppService], tenant_id: str
+) -> DoctorReport:
     """Run every check and list the tenants that hold data.
 
     Args:
         service_factory: Builds the application service the control-plane, Temporal and
             tenant checks use; a failure to build it is a failed check, not an error.
+        tenant_id: Tenant the CLI acts in; the corpus-mode check judges chat for it.
 
     Returns:
         The checks in order: project and configuration, control plane, readiness, object
@@ -71,6 +75,7 @@ async def run_doctor(*, service_factory: Callable[[], BaseAppService]) -> Doctor
     if settings is None:
         return DoctorReport(tuple(checks))
     checks.extend(_configuration_checks(settings))
+    checks.append(corpus_mode_check(settings, tenant_id))
     control_db = _control_db_check(settings)
     if control_db is not None:
         checks.append(control_db)

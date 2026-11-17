@@ -16,11 +16,13 @@ from pydantic import ValidationError
 from harborrag_app.cli.project import active_project
 from harborrag_core.contracts.errors import HarborConfigurationError
 from harborrag_runtime.application.errors import public_error_message, validation_error_detail
+from harborrag_runtime.application.retrieval.access import corpus_mode_for
 from harborrag_runtime.config import ConnectorCatalog, describe_model_catalog
 from harborrag_runtime.config.connectors.models.local_file import (
     LOCAL_SOURCE_ROOT_VARIABLE,
     local_source_root,
 )
+from harborrag_runtime.config.settings import RuntimeSettings
 
 from .checks import Check
 
@@ -224,3 +226,20 @@ def source_root_check() -> Check:
         return Check("source path", "environment", "warn", detail, hint=hint, required=False)
     detail = f"{LOCAL_SOURCE_ROOT_VARIABLE} points to an existing directory"
     return Check("source path", "environment", "ok", detail)
+
+
+def corpus_mode_check(settings: RuntimeSettings, tenant_id: str) -> Check:
+    """Report the corpus mode chat uses for ``tenant_id``; ``source_acl`` is a warning.
+
+    Never a failure: ``source_acl`` is a valid, stricter mode, but a caller with no source
+    permissions then gets no sources.
+    """
+    mode = corpus_mode_for(settings, tenant_id)
+    detail = f"{mode} for tenant {tenant_id}"
+    if mode == "tenant_shared":
+        return Check("corpus mode", "config", "ok", detail)
+    hint = (
+        "Chat reads only sources the caller has permissions for; see workspace mode "
+        "(docs/users/configuration/workspace-mode.md)."
+    )
+    return Check("corpus mode", "config", "warn", detail, hint=hint, required=False)

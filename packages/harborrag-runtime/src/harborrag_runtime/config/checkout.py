@@ -22,6 +22,7 @@ OWNER_PASSWORD = "POSTGRES_PASSWORD"  # noqa: S105 - a variable name, not a valu
 CONTROL_DB_URL = "HARBORRAG_CONTROL_DB_URL"
 SECRETS_ENCRYPTION_KEY = "HARBORRAG_SECRETS_ENCRYPTION_KEY"  # noqa: S105 - a variable name
 LOCAL_SOURCE_ROOT = "HARBORRAG_LOCAL_SOURCE_ROOT"
+CORPUS_MODE_KEYS = ("HARBORRAG_CORPUS_ACCESS_MODE", "HARBORRAG_CORPUS_SHARED_TENANT_ID")
 
 # ``${NAME}`` and ``${NAME:-default}``: the two forms the env-example files use.
 _REFERENCE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}")
@@ -173,6 +174,19 @@ def checkout_local_source_root(path: Path) -> str | None:
         return None
     root = read_compose_env_file(path).get(LOCAL_SOURCE_ROOT, "").strip()
     return root or None
+
+
+def checkout_corpus_mode(path: Path) -> dict[str, str]:
+    """Only the corpus-mode lines of ``path``, the API's env file; blank values are left out.
+
+    The API reads chat from the corpus in the mode these two variables name, so a host CLI
+    must agree with it. Nothing else in that file (its hostnames, tokens and DSNs) is read.
+    """
+
+    if not path.is_file():
+        return {}
+    values = read_compose_env_file(path)
+    return {name: values[name].strip() for name in CORPUS_MODE_KEYS if values.get(name, "").strip()}
 
 
 def checkout_environment_name(root: Path) -> str | None:
