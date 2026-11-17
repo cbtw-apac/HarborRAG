@@ -430,13 +430,14 @@ Retrieval, chat and the MCP tools apply one of two corpus access modes:
   tenant in `HARBORRAG_CORPUS_SHARED_TENANT_ID`; every other tenant stays on
   `source_acl`, even in the same process.
 
-The code default is `source_acl`, but the shipped `env-example/.env.api.example` and
-`env-example/.env.temporal.example` set `tenant_shared` for `DEFAULT`, so a deployment
-created from them reads the whole corpus in chat. Remove the two lines to return the
+The code default is `source_acl`, but the shipped `env-example/.env.api.example`,
+`env-example/.env.temporal.example` and `env-example/.env.mcp.example` set `tenant_shared`
+for `DEFAULT`, so a deployment created from them reads the whole corpus in chat and
+through MCP reader keys for `DEFAULT`. Remove the two lines to return the
 tenant to `source_acl`; a deployment created from older templates has no such lines and
 stays on `source_acl` until you add them. The API and the workers read these two variables
 from their own environment, and the CLI from a checkout reads them from `env/.env.api`.
-The MCP server reads them from `env/.env.mcp`, where the shipped lines are commented out.
+The MCP server reads them from `env/.env.mcp`.
 In the SDK, the application chooses the mode per request with `AccessContext.corpus_mode`.
 For the CLI, see
 [Ask a grounded question](../cli-reference/README.md#ask-a-grounded-question); for MCP, see

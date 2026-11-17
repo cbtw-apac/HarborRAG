@@ -46,20 +46,23 @@ at `/v1/chat/completions`.
    `env/.env.mcp`, `env/.env.models` when it exists, and only `HARBORRAG_ENV`
    from `env/.env.api`. The server connects with the `POSTGRES_*` and
    `MINIO_ROOT_*` accounts of `env/.env.database`.
-3. Decide what the server may read. By default
-   (`HARBORRAG_CORPUS_ACCESS_MODE=source_acl`) a caller sees only the documents
-   whose source permissions it holds. For a development stack whose whole
-   corpus everyone may read, uncomment these three lines in `env/.env.mcp`:
+3. Decide what the server may read. The shipped `env/.env.mcp` sets these two
+   lines, so every principal in the `DEFAULT` tenant, where your checkout's
+   connections are imported, reads its whole published corpus, as `chat` does:
 
    ```bash
-   HARBORRAG_MCP_READER_TENANT_ID=DEFAULT
    HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared
    HARBORRAG_CORPUS_SHARED_TENANT_ID=DEFAULT
    ```
 
-   `DEFAULT` is the tenant your checkout's connections are imported into. A
-   running server keeps its old policy until you restart it. The details are
-   in [Shared corpus access](#shared-corpus-access).
+   Remove both lines to return to the code default,
+   `HARBORRAG_CORPUS_ACCESS_MODE=source_acl`, where a caller sees only the
+   documents whose source permissions it holds. To use the local bearer token on
+   the shared corpus, also uncomment `HARBORRAG_MCP_READER_TENANT_ID=DEFAULT`; a
+   reader key issued for `DEFAULT` needs no such line. A running server keeps
+   its old policy until you restart it. An `env/.env.mcp` created from an older
+   template has no such lines; add them to get the same. The details are in
+   [Shared corpus access](#shared-corpus-access).
 
 The MCP server never needs `HARBORRAG_SECRETS_ENCRYPTION_KEY`: it never
 decrypts stored connector secrets and is not given the key.
@@ -381,12 +384,14 @@ strictly at startup and reads it again whenever it changes:
 
 ### Shared corpus access
 
-`HARBORRAG_CORPUS_ACCESS_MODE=source_acl` is the default: a caller reads only
-the documents whose current source and document permission snapshots allow it.
-Set it to `tenant_shared` only for a tenant whose published corpus is
+`HARBORRAG_CORPUS_ACCESS_MODE=source_acl` is the code default: a caller reads
+only the documents whose current source and document permission snapshots allow
+it. The shipped `env-example/.env.mcp.example` sets `tenant_shared` for the
+`DEFAULT` tenant, so a reader key issued for `DEFAULT` reads its whole published
+corpus. Use `tenant_shared` only for a tenant whose published corpus is
 intentionally shared among all its readers, and name that tenant with
-`HARBORRAG_CORPUS_SHARED_TENANT_ID`, for example `DEFAULT`. Other tenants keep
-`source_acl`, even in the same process.
+`HARBORRAG_CORPUS_SHARED_TENANT_ID`. Other tenants keep `source_acl`, even in
+the same process. Remove the two lines to return `DEFAULT` to `source_acl`.
 
 A reader key's tenant must match each tool call's `tenant_id`; a caller cannot
 select another tenant. Both HTTP modes bind to loopback; put TLS and any remote
@@ -394,9 +399,8 @@ access at a reverse proxy.
 
 The local `HARBORRAG_MCP_BEARER_TOKEN` authenticates a connection but does not
 grant corpus access by itself. To use it on an intentionally shared corpus,
-also set `HARBORRAG_MCP_READER_TENANT_ID`,
-`HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared` and
-`HARBORRAG_CORPUS_SHARED_TENANT_ID` to the target tenant, then restart the MCP
+set `HARBORRAG_MCP_READER_TENANT_ID` to the shared tenant, which the shipped
+template leaves commented out, beside the two corpus lines, then restart the MCP
 server; a running server keeps its previous access policy.
 
 `HARBORRAG_MCP_READER_TENANT_ID` limits what the local token reads, not what it

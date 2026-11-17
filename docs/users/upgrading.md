@@ -119,6 +119,11 @@ variable outranks the file. Keep `HARBORRAG_CORPUS_SHARED_TENANT_ID` equal to
 the lines out. `uv run harborrag doctor` shows the mode in its `corpus mode` row. See
 [Read access inside a tenant](configuration/workspace-mode.md#read-access-inside-a-tenant).
 
+The shipped `env-example/.env.mcp.example` sets the same two lines, so a reader key for
+`DEFAULT` reads the shared corpus like chat does. An existing `env/.env.mcp` keeps
+`source_acl` until you add them and restart the MCP server. `HARBORRAG_MCP_READER_TENANT_ID`,
+which lets the local bearer token read that corpus, stays commented out in the template.
+
 ### Set the local source root
 
 **Breaking:** `LOCAL_SOURCE_PATH` no longer sets the folder that `local_file`

@@ -279,3 +279,15 @@ def test_the_api_has_every_variable_the_connector_import_reads() -> None:
     }
     assert unset == []
     assert referenced.isdisjoint(environment)
+
+
+def test_shipped_templates_share_the_corpus_mode_of_the_default_tenant() -> None:
+    expected = {
+        "HARBORRAG_CORPUS_ACCESS_MODE": "tenant_shared",
+        "HARBORRAG_CORPUS_SHARED_TENANT_ID": "DEFAULT",
+    }
+
+    for name in (".env.api.example", ".env.temporal.example", ".env.mcp.example"):
+        lines = (ROOT / "env-example" / name).read_text(encoding="utf-8").splitlines()
+        active = dict(line.split("=", 1) for line in lines if line.startswith("HARBORRAG_CORPUS_"))
+        assert active == expected, name
