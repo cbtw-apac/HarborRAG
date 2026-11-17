@@ -815,13 +815,16 @@ for tool in list_tools():
     print(tool["name"])
 ```
 
-To call tools, build the server on a reader application. It reads the same
+To call tools, build the server on a reader application and give it an audit
+log. It reads the same
 `HARBORRAG_*` settings as the server, so the database, object store, vector
 store and model variables must be set:
 
 ```python
 import asyncio
+from pathlib import Path
 
+from harborrag_mcp_server.audit import McpAuditLog
 from harborrag_mcp_server.server import McpServer
 from harborrag_runtime.composition.readers import open_reader_application
 from harborrag_runtime.config.settings import RuntimeSettings
@@ -829,7 +832,11 @@ from harborrag_runtime.config.settings import RuntimeSettings
 
 async def main() -> None:
     application = open_reader_application(RuntimeSettings())
-    server = McpServer(invoker=application.invoker, references=application.references)
+    server = McpServer(
+        invoker=application.invoker,
+        references=application.references,
+        audit=McpAuditLog(path=Path(".harborrag/mcp-audit.jsonl")),
+    )
     await application.start()
     try:
         result = await server.call_tool(
@@ -891,7 +898,9 @@ development MCP endpoint from a container.
 
 Every call passes a capability check, JSON-schema validation, argument budgets,
 result and output budgets, and an owner-only JSONL audit at
-`.harborrag/mcp-audit.jsonl` (change it with `HARBORRAG_MCP_AUDIT_PATH`). Audit
+`.harborrag/mcp-audit.jsonl`. The `harborrag-mcp` launch changes the path with
+`HARBORRAG_MCP_AUDIT_PATH`; a server you build in Python takes its path from the
+`audit=McpAuditLog(path=...)` argument and ignores the variable. Audit
 records hold a principal identifier, a digest of the arguments and the
 outcome, never the bearer token or raw arguments. See
 [Policy and audit status](README.md#policy-and-audit-status) for the full

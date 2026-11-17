@@ -94,7 +94,7 @@ The MCP server keeps transport and tool policy separate from model policy:
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `HARBORRAG_MCP_CONFIG_PATH` | `config/mcp/server.yaml` | Versioned tool defaults, limits, enablement and tenant overrides |
-| `HARBORRAG_MCP_AUDIT_PATH` | `.harborrag/mcp-audit.jsonl` | Owner-only audit output |
+| `HARBORRAG_MCP_AUDIT_PATH` | `.harborrag/mcp-audit.jsonl` | Owner-only audit output of the `harborrag-mcp` launch; a server built in Python passes `audit=McpAuditLog(path=...)` |
 | `HARBORRAG_MCP_BEARER_TOKEN` | None | Local HTTP owner token; at least 32 bytes |
 | `HARBORRAG_MCP_HOST` | `127.0.0.1` | Loopback HTTP bind address |
 | `HARBORRAG_MCP_PORT` | `8010` | Local HTTP and status UI port |
