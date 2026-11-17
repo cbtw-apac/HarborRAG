@@ -105,6 +105,20 @@ manifests. The compose files pass `HARBORRAG_TENANT_ID` (`DEFAULT` unless set) t
 and the workers. An API credential that holds every tenant (`*`) and sends no
 `X-Tenant-Id` header now acts in that tenant instead of always `DEFAULT`.
 
+### Set the corpus mode for chat
+
+The shipped `env-example/.env.api.example` now sets `HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared`
+and `HARBORRAG_CORPUS_SHARED_TENANT_ID=DEFAULT`, so chat reads the whole `DEFAULT` tenant on a
+new deployment. The code default stays `source_acl`, and nothing changes for an existing
+deployment until you add the two lines to its `env/.env.api` and restart the API. Without
+them, chat over HTTP and `harborrag chat` answer that no sources were retrieved, because a
+caller with no source permissions reads nothing in `source_acl`. The `harborrag` command
+reads these two lines from `env/.env.api` (or the file `API_ENV_FILE` names); an exported
+variable outranks the file. Keep `HARBORRAG_CORPUS_SHARED_TENANT_ID` equal to
+`HARBORRAG_TENANT_ID`, as the workers' `env/.env.temporal` does. To keep `source_acl`, leave
+the lines out. `uv run harborrag doctor` shows the mode in its `corpus mode` row. See
+[Read access inside a tenant](configuration/workspace-mode.md#read-access-inside-a-tenant).
+
 ### Set the local source root
 
 **Breaking:** `LOCAL_SOURCE_PATH` no longer sets the folder that `local_file`
