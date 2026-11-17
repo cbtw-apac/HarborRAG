@@ -47,7 +47,15 @@ logger = logging.getLogger("harborrag.engine.ingestion.maintenance.reindex")
 
 @dataclass(frozen=True, slots=True)
 class ReindexRequest:
-    """Select stale active documents for a connector-free reprojection."""
+    """Select stale active documents for a connector-free reprojection.
+
+    Args:
+        reindex_job_id: Identifier of the reindex job; must not be blank.
+        tenant_id: Tenant that owns the documents; must not be blank.
+        processing: Processing profile the reindexed versions are built under.
+        document_id: Reindex only this document when set, otherwise every stale one.
+        limit: Maximum documents to reindex in this job.
+    """
 
     reindex_job_id: str
     tenant_id: str

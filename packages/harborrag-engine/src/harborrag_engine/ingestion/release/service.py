@@ -11,7 +11,12 @@ from .pipeline import DocumentStagePipeline
 
 
 class DocumentReleaseService:
-    """Publish one document version through immutable, verifiable projections."""
+    """Publish one document version through immutable, verifiable projections.
+
+    Args:
+        dependencies: Ports and stores the release stages read and write.
+        pipeline: Stage pipeline to run; built from ``dependencies`` when omitted.
+    """
 
     def __init__(
         self,
@@ -33,7 +38,7 @@ class DocumentReleaseService:
         request: DocumentReleaseRequest,
         connector: RawDocumentLoader,
     ) -> DocumentReleaseOutcome:
-        """Release one document through the pipeline."""
+        """Load one source item through ``connector`` and release it through the pipeline."""
         return await self._pipeline.release(request, connector)
 
     async def replay(
