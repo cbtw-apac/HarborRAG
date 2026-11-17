@@ -256,7 +256,7 @@ class Harness:
                 }
             )
             chunks = (route, *chunks)
-        artifacts = await ChunkArtifactWriter(self.writer).put(
+        artifacts = await ChunkArtifactWriter(self.writer, self.reader).put(
             document_id=str(document_id),
             document_version_id=str(version_id),
             chunks=chunks,

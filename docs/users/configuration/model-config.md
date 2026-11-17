@@ -109,7 +109,8 @@ provider's key from its own documentation, list the provider in the family's
 family the application uses needs a section: chat for answers, `embed` for ingestion
 and retrieval, and `rerank` only for reranking.
 
-<details markdown="1"><summary>OpenAI</summary>
+<details markdown="1">
+<summary>OpenAI</summary>
 
 The smallest chat family that calls one provider directly:
 
@@ -136,7 +137,8 @@ chat:
 
 </details>
 
-<details markdown="1"><summary>Azure OpenAI, with fallbacks and profiles</summary>
+<details markdown="1">
+<summary>Azure OpenAI, with fallbacks and profiles</summary>
 
 [`models.production.example.yaml`](../../../config/models/models.production.example.yaml)
 routes chat across two Azure OpenAI deployments with an Anthropic fallback, embeds

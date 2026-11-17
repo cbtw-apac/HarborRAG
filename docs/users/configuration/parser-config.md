@@ -21,8 +21,10 @@ supports PPTX/PPTM, legacy PPT, DOCX, legacy DOC, ODT, Excel (including legacy X
 CSV/TSV, images, HTML/XHTML, EPUB, JSON/JSONL/NDJSON, Markdown/MDX, PDFs, and plain
 text, source and config formats.
 
-An enabled definition in `parsers.yaml` replaces the matching parser type in that
-default stack. Parser types the file does not configure stay available.
+An enabled definition in `parsers.yaml` replaces only the engine for its own formats
+in that default stack. For example, a `docx` definition replaces the DOCX engine, and
+DOC, ODT and EPUB files keep their default engines. A `pdf` definition replaces the
+whole PDF parser. Formats the file does not configure stay available.
 
 ### Legacy Microsoft Office binary formats
 
@@ -103,7 +105,8 @@ pages instead of running OCR in-process. It comes from `HARBORRAG_OCR_SERVER_URL
 unset or empty, no OCR server is used and LiteParse OCRs locally with Tesseract. The
 repository's Compose files do not start an OCR server.
 
-<details markdown="1"><summary>Ingestion worker in a container</summary>
+<details markdown="1">
+<summary>Ingestion worker in a container</summary>
 
 Use a Docker DNS name rather than `localhost`, which would be the worker itself. With
 the OCR server attached to the external `harborrag-data-network` under the alias
@@ -115,7 +118,8 @@ HARBORRAG_OCR_SERVER_URL=http://ppocr-server:8888/ocr
 
 </details>
 
-<details markdown="1"><summary>Parser running on the host</summary>
+<details markdown="1">
+<summary>Parser running on the host</summary>
 
 ```dotenv
 HARBORRAG_OCR_SERVER_URL=http://localhost:8888/ocr
@@ -239,8 +243,10 @@ image = catalog.build("image-liteparse")
 parser_registry = catalog.build_harbor_parser()
 ```
 
-Only one enabled definition may replace a given parser type. `build_harbor_parser()`
-rejects conflicting enabled definitions instead of choosing silently.
+Each parser family takes at most one enabled definition: `docx` and `epub` share the
+document family, `csv` and `excel` the spreadsheet family, and `html` and `markdown`
+the markup family. `build_harbor_parser()` rejects conflicting enabled definitions
+instead of choosing silently.
 
 Code overrides take precedence over YAML settings:
 

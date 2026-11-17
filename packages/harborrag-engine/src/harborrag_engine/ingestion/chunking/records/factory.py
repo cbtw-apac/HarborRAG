@@ -261,6 +261,7 @@ class CanonicalChunkFactory:
         parent = values.request.document.provenance.extra.get("parent_source_item_id")
         return {
             **({"parent_source_item_id": str(parent)} if parent else {}),
+            **cls._local_timestamps(values.request),
             **values.candidate.metadata,
             "source_version": cls._source_value(
                 values.request,
@@ -275,4 +276,22 @@ class CanonicalChunkFactory:
             "chunker_version": values.strategy_version,
             "profile_name": values.profile.name,
             "configuration_hash": values.configuration_hash,
+        }
+
+    @classmethod
+    def _local_timestamps(cls, request: ChunkingRequest) -> dict[str, str]:
+        """Carry a local file's document dates onto each chunk.
+        Local files have no source strategy that copies provenance dates, so this
+        uses the ``created_at``/``updated_at`` names Jira and SharePoint chunks use.
+        """
+        if cls._connector_type(request) != ConnectorType.LOCAL:
+            return {}
+        provenance = request.document.provenance
+        return {
+            key: value.isoformat()
+            for key, value in (
+                ("created_at", provenance.created_at),
+                ("updated_at", provenance.updated_at),
+            )
+            if value is not None
         }

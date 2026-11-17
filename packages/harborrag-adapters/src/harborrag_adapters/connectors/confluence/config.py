@@ -18,7 +18,6 @@ from harborrag_adapters.connectors.policies.validation import (
     validate_non_negative_limit,
 )
 
-from ..environment import environment_default
 from ..file_filters import ExtensionFilter
 from ..limits import DEFAULT_ALLOWED_EXTENSIONS
 from .query import is_cloud_hostname, validate_token
@@ -66,12 +65,10 @@ class ConfluenceSpaceConfig:
     backoff_factor: float = 0.5
 
     def __post_init__(self) -> None:
-        """Normalize env-backed credentials and validate ingestion limits."""
+        """Infer the deployment type and validate credentials and ingestion limits."""
         self.base_url = str(self.base_url).rstrip("/")
         validate_https_url("base_url", self.base_url)
         self.space_key = validate_token(str(self.space_key).strip(), field_name="space key")
-        self.token = self.token or environment_default("CONFLUENCE_TOKEN")
-        self.email = self.email or environment_default("CONFLUENCE_EMAIL")
 
         if self.deployment_type is None:
             self.deployment_type = (
