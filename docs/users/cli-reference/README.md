@@ -73,7 +73,7 @@ CLI's process without Temporal, for development.
 
 ## Global options
 
-Every command except `auth keys` takes these options. They carry what an HTTP call
+Every command takes these options. They carry what an HTTP call
 carries in its headers. Give them after the command, as in
 `uv run harborrag connections list -o json`: before the command they are an unknown
 option.
@@ -205,20 +205,18 @@ without a terminal or `--yes`.
 | `4` | Conflict with the current state | 409, 412 |
 | `5` | Not allowed | 401, 403 |
 | `6` | Unavailable, try later | 429, 503, 504 |
-| `8` | The run that `--wait` or `--watch` followed ended `failed` or `cancelled` | none |
+| `8` | The thing the command checked failed: the run that `--wait` or `--watch` followed ended `failed` or `cancelled`, or `connections test` answered `"ok": false` | none |
 | `130` | Interrupted with Ctrl-C | none |
 
-`connections test` exits 0 even when its result says `"ok": false`, because the route
-answers `200`; read `ok` from the output. It checks a `local_file` folder on the machine
-where the CLI runs; see
+Code `8` means the command worked and the thing it checked failed. `connections test`
+still prints its body and exits 8 when the body says `"ok": false`, although the route
+answers `200`; it exits 0 when `ok` is `true`. It checks a `local_file` folder on the
+machine where the CLI runs; see
 [Manage projects and connections](#manage-projects-and-connections). A run that
-succeeded with some failed items also exits 0.
+succeeded with some failed items exits 0.
 
-Three commands print outside this envelope and table:
+Two commands print outside this envelope and table:
 
-- `auth keys` prints `{"ok": true, "data": …}` on success, in every case and with no
-  `-o` option. A failure prints `{"ok": false, "error_code": …, "detail": …}` on stderr
-  and exits 1, whatever the cause; it does not use the codes above.
 - `doctor` prints its own report and exits 0, 1 or 6 as
   [Check the setup](#check-the-setup) describes.
 - `config export` writes YAML to stdout, or to `--file`.
@@ -226,12 +224,12 @@ Three commands print outside this envelope and table:
 ## Run from a repository checkout
 
 The CLI finds the checkout by walking up from the current directory to the nearest
-directory that holds `config/sources/connectors.yaml`, and runs from there. When that is
-not the current directory and stderr is a terminal, it says so on stderr:
+directory that holds `config/sources/connectors.yaml`, and runs from there. `doctor`
+walks up the same way, so it gives the same report from any subfolder. When that is not
+the current directory and stderr is a terminal, the command says so on stderr:
 `harborrag: using repository checkout DIR`. A script that reads stderr does not see the
 notice. Outside a checkout and without a project directory, every command except
-`doctor` stops with exit 1. `doctor` does not walk up: run it from the repository root
-(see [Check the setup](#check-the-setup)).
+`doctor` stops with exit 1; `doctor` reports the missing project instead.
 
 ```text
 harborrag: no project found. Run it inside a HarborRAG repository checkout, or pass --project DIR for a directory containing harborrag.yaml.
@@ -332,12 +330,12 @@ error.
   from `harborrag connections get REF -o yaml`.
 - `test` checks sign-in, reachability and a sample of items without saving. Without
   `-f` it tests the saved connection. When a check fails it prints `"ok": false` and
-  still exits 0; read `ok` from the output.
+  exits 8; a passing test exits 0.
 - In local mode `test` runs its checks in the CLI's process, so it checks a `local_file`
   connection's folder on the machine where the CLI runs, as `--inline` reads it. The
   stack's `default/harborrag-workspace` names `/data/sources`, which exists only in the
-  containers, so from a checkout it answers `"ok": false` while the same test over HTTP
-  passes.
+  containers, so from a checkout it answers `"ok": false` and exits 8 while the same test
+  over HTTP passes.
 - `delete` removes the connection's documents, stored secrets and row in the
   background, and prints the job; `--purge` also drops its ingestion history.
 
@@ -462,11 +460,11 @@ uv run harborrag doctor
 
 `doctor` runs without the API and checks, one line each:
 
-- the project marker;
+- the project: a `harborrag.yaml` directory or the repository checkout;
 - the optional Python clients the local stack needs;
 - the connector, parser and model catalogs and the chunking policy;
-- the source folder of the enabled local connector, and blank URL and credential
-  variables of enabled remote connectors;
+- `HARBORRAG_LOCAL_SOURCE_ROOT`, the folder `local_file` connections must stay inside,
+  and the URL and credential variables of enabled remote connectors;
 - the control plane, Postgres, Temporal, Qdrant, the graph database and the object
   store, with the same checks as `/readyz`.
 
@@ -486,22 +484,22 @@ Tenants with data: DEFAULT
 
 A failed check prints the hint that fixes it. `doctor` exits 0 when every required
 check passes, 6 when only service checks failed, and 1 when a configuration check
-failed. `-o json` prints `{"checks", "ready", "summary", "tenants", "diagnostics"}`.
+failed. A warning never changes the exit code. `-o json` prints `{"checks", "ready", "summary", "tenants", "diagnostics"}`.
 
 What to expect from a checkout:
 
-- Run `doctor` from the repository root. It does not walk up to the checkout as the
-  other commands do; from a subfolder it fails with a missing
-  `config/sources/connectors.yaml` path and exits 1.
-- The `project` line warns `no harborrag.yaml found; using the current directory`. That
-  is expected in a checkout, and a warning does not change the exit code.
-- The source-folder check reads the host variable `LOCAL_SOURCE_PATH`, not
-  `HARBORRAG_LOCAL_SOURCE_ROOT`, and fails while it is unset or names no directory. Set
-  it in `env/.env.connector`.
-- The `connector credentials` check fails while an enabled remote connector has blank
-  variables. The shipped catalog enables three remote connectors, so a fresh checkout
-  exits 1 until you fill in `env/.env.connector` or set `enabled: false` on the
-  connectors you do not use in `config/sources/connectors.yaml`.
+- `doctor` walks up from the current directory to the checkout, so run it from any
+  folder inside the repository. The `project` line reads `repository checkout DIR`.
+- The `source path` line reads `HARBORRAG_LOCAL_SOURCE_ROOT` the way `local_file`
+  connections do. While it is unset the line is `ok` and says that connections may use
+  any path. When it names a directory that does not exist on this machine, for example
+  `/data/sources`, which only the containers have, the line warns, because the API and
+  workers resolve it in their own filesystem.
+- The `connector credentials` line warns, and names the connectors, while an enabled
+  remote connector has blank variables. The shipped catalog enables three, so a fresh
+  checkout warns until you fill in `env/.env.connector` or set `enabled: false` on the
+  connectors you do not use in `config/sources/connectors.yaml`. It does not fail
+  `doctor`.
 
 ## Read and change runtime settings
 
@@ -551,8 +549,8 @@ skipped: []
 dry_run: true
 ```
 
-With `--apply` it writes the changes as one revision whose source is `import`; into a tenant with no data it asks first, as
-any write does, so a script passes `--yes`. Boot-only keys are reported and skipped.
+With `--apply` it writes the changes as one revision whose source is `import`; into a
+tenant with no data it asks first, as any write does, so a script passes `--yes`. Boot-only keys are reported and skipped.
 `--prune` also removes stored overrides the file lacks, at any level. An invalid file
 exits 2, naming the file and the key, and applies nothing.
 
@@ -573,9 +571,15 @@ uv run harborrag auth keys revoke --reason "laptop replaced" --key-id KEY_ID
 - `revoke` revokes one key by ID, or with `--tenant` and `--owner` every active key of
   one owner in a tenant. The reason is recorded in the audit trail.
 
-`auth keys` takes none of the global options, and its output is the `{"ok": …}` JSON
-described in [Read errors and exit codes](#read-errors-and-exit-codes). Its `--tenant`
-is its own option: required on `create` and `list`, and on `revoke` used only together
-with `--owner`.
+`auth keys` takes the global options and prints like the other commands. A command
+prints the object itself, such as `{"key_id": …, "secret_written_to": …}` for `create`
+and `{"keys": […]}` for `list`, in `-o table`, `json` or `yaml`. A failure is the common
+[error envelope](#read-errors-and-exit-codes) with its exit code: `2` for a policy
+violation such as a lifetime over the limit, `3` for a key that does not exist, `4` when
+the database rejects the key row, and `6` when the key table is missing, behind or
+unreachable. `--tenant` defaults like the resource commands, from `HARBORRAG_TENANT_ID`
+and else `DEFAULT`, on `create` and `list`; `revoke` takes either `--key-id`, or `--tenant`
+together with `--owner`.
+
 Lifetime limits, the key format and how the MCP server checks keys are in
 [Tenant-bound reader keys and shared corpus access](../detailed-guides/mcp-server/setup-and-integration.md#tenant-bound-reader-keys-and-shared-corpus-access).

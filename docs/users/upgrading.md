@@ -309,11 +309,31 @@ codes changed:
 | `4` | none | Conflict (`409`, `412`), such as pausing a paused run, which exited 1 |
 | `5` | none | Not allowed (`401`, `403`) |
 | `6` | none | Unavailable (`429`, `503`, `504`); also `doctor` when only service checks fail |
-| `8` | none | The run `--wait` or `--watch` followed ended `failed` or `cancelled` |
+| `8` | none | The run `--wait` or `--watch` followed ended `failed` or `cancelled`, or `connections test` reported `"ok": false` |
 | `130` | Interrupted | Interrupted; the run keeps going |
 
-`connections test` exits 0 when the check reports `"ok": false`, as the route answers
-`200`; `source test` exited 1.
+`connections test` exits 8 when the check reports `"ok": false` and 0 when it passes. It
+prints the same body either way, although the route answers `200`; `source test` exited 1
+on a failed check.
+
+#### Update scripts that read `auth keys` output
+
+`harborrag auth keys create|list|revoke` printed `{"ok": true, "data": …}` and, on any
+failure, `{"ok": false, "error_code": …}` with exit 1. It now prints like the other
+commands:
+
+- Success prints the object that was under `data`, such as `{"keys": [...]}` for `list`.
+  Read `.keys` instead of `.data.keys`, and drop any check of `.ok`. `-o table`, `json`
+  and `yaml` all work.
+- A failure is the error envelope on stderr, `{"error": {"code", "message", …}}`, with
+  the exit codes above: `2` for a policy violation, `3` for an unknown key, `4` when the
+  database rejects the key row, and `6` when the key table is missing or behind. Branch
+  on the exit code or `error.code`, not on `error_code`.
+- `--tenant` defaults to `HARBORRAG_TENANT_ID`, else `DEFAULT`, on `create` and `list`,
+  so a script that always passed it keeps working. `revoke` still takes either
+  `--key-id`, or `--tenant` together with `--owner`.
+
+The secret still goes only to its `0600` file, never to the output.
 
 #### Check what a write does
 

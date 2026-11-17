@@ -67,7 +67,9 @@ These operations have no command.
 
 ## harborrag auth keys create
 
-Create a reader key; the secret goes only to the output file, never to the terminal.
+Create a reader key for the tenant; the secret goes only to the output file.
+
+Prints the key's id, tenant, owner, name, expiry and the file holding the secret.
 
 ```text
 harborrag auth keys create [OPTIONS]
@@ -75,16 +77,20 @@ harborrag auth keys create [OPTIONS]
 
 | Name | Type | Default | Description |
 | --- | --- | --- | --- |
-| `--tenant` | text | required | Tenant the key may read. |
 | `--owner` | text | required | user-&lt;name&gt;, svc-&lt;name&gt; or team-&lt;name&gt;. |
 | `--name` | text | required | Device or workload, e.g. alex-laptop. |
 | `--expires-in` | text | required | Lifetime such as 30d or 12h; required. |
 | `--secret-output` | path |  | New file to receive the key (mode 0600); default ~/.harborrag/keys/&lt;name&gt;.key. |
 | `--migrate` | boolean | `false` | Apply pending control-plane migrations if the key table is missing. |
+| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
+| `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
+| `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
+| `--config PATH` | file |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
+| `--yes, -y` | boolean | `false` | Answer yes to confirmation questions, for scripts. |
 
 ## harborrag auth keys list
 
-List a tenant's keys with their state; never shows hashes or secrets.
+List the tenant's keys with their state; never shows hashes or secrets.
 
 ```text
 harborrag auth keys list [OPTIONS]
@@ -92,7 +98,11 @@ harborrag auth keys list [OPTIONS]
 
 | Name | Type | Default | Description |
 | --- | --- | --- | --- |
-| `--tenant` | text | required | Tenant the key may read. |
+| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
+| `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
+| `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
+| `--config PATH` | file |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
+| `--yes, -y` | boolean | `false` | Answer yes to confirmation questions, for scripts. |
 
 ## harborrag auth keys revoke
 
@@ -106,8 +116,12 @@ harborrag auth keys revoke [OPTIONS]
 | --- | --- | --- | --- |
 | `--reason` | text | required | Recorded in the audit trail. |
 | `--key-id` | text |  | One key. |
-| `--tenant` | text |  |  |
 | `--owner` | text |  | With --tenant: every active key of one owner. |
+| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
+| `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
+| `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
+| `--config PATH` | file |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
+| `--yes, -y` | boolean | `false` | Answer yes to confirmation questions, for scripts. |
 
 ## harborrag chat
 
@@ -121,7 +135,7 @@ harborrag chat [OPTIONS] MESSAGE
 | --- | --- | --- | --- |
 | `MESSAGE` | text | required | Question for the configured chat model. |
 | `--session-id SESSION_ID` | text |  | Continue a session. |
-| `--mode` | text |  | instant or classic (default: classic). |
+| `--mode` | text |  | instant or classic (default: classic); advanced and auto are reserved and answer mode_unavailable until v2.1.0. |
 | `--project-id PROJECT_ID` | text |  | One-off questions: read only this project. |
 | `--connection-ref REF` | text |  | Narrow to this connection, PROJECT_ID/CONNECTION_ID; repeat for more. |
 | `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
@@ -249,7 +263,7 @@ harborrag connections list [OPTIONS]
 
 ## harborrag connections test
 
-Check a connection's values or the saved connection; stores nothing, exits 0 on ok false.
+Check a connection's values or the saved connection; stores nothing, exits 8 on ok false.
 
 ```text
 harborrag connections test [OPTIONS] REF
@@ -518,7 +532,7 @@ harborrag projects create [OPTIONS] PROJECT
 
 ## harborrag projects delete
 
-Delete a project; with --cascade the removal runs in the background and prints its job.
+Delete a project; with --cascade a project that has connections is removed in the background.
 
 ```text
 harborrag projects delete [OPTIONS] PROJECT
@@ -527,7 +541,7 @@ harborrag projects delete [OPTIONS] PROJECT
 | Name | Type | Default | Description |
 | --- | --- | --- | --- |
 | `PROJECT` | text | required | Project id, for example harborrag-workspace. |
-| `--cascade` | boolean | `false` | Also remove its connections, documents and secrets. |
+| `--cascade` | boolean | `false` | Also remove its connections, documents and secrets in the background, printing the job; a project with no connections is deleted at once and prints nothing. |
 | `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |

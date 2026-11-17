@@ -79,7 +79,8 @@ From a checkout, commands that write need the stack's control database first; se
 [Run from a repository checkout](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/cli-reference/README.md#run-from-a-repository-checkout).
 
 `-o json` prints the HTTP response body, and an error goes to stderr as the HTTP error
-envelope, with an exit code for each class of status; see
+envelope, with an exit code for each class of status, and `8` after the body when a
+followed run or a `connections test` failed; see
 [Read errors and exit codes](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/cli-reference/README.md#read-errors-and-exit-codes).
 The durable workflows behind `ingestions start` are described in
 [Runtime reliability](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/developers/architecture/runtime-reliability.md).

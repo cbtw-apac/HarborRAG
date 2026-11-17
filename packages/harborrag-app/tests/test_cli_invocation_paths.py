@@ -59,8 +59,7 @@ def test_a_relative_secret_output_lands_where_the_user_stood_and_is_reported_abs
     expected = in_project_subdirectory / "k.key"
     assert expected.is_file()
     assert not (in_project_subdirectory.parent / "k.key").exists()
-    payload = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
-    assert payload["data"]["secret_written_to"] == str(expected)
+    assert json.loads(capsys.readouterr().out)["secret_written_to"] == str(expected)
 
 
 def test_invocation_cwd_falls_back_to_the_cwd_once_the_process_moves_on(

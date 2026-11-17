@@ -29,6 +29,12 @@ def _schema_present(monkeypatch):
     monkeypatch.setattr(api_key_operations, "ensure_key_schema", AsyncMock(return_value=False))
 
 
+def _error(result) -> dict:
+    """The ``error`` object of the common envelope, after any plain warning lines."""
+
+    return json.loads(result.stderr[result.stderr.index("{") :])["error"]
+
+
 def _created() -> CreatedKey:
     return CreatedKey(
         key_id="0123456789abcdef01234567",
@@ -84,7 +90,8 @@ def test_create_writes_the_secret_to_a_private_file_and_prints_only_safe_fields(
 
     assert result.exit_code == 0, result.stderr
     payload = json.loads(result.stdout)
-    assert payload["ok"] and payload["data"]["key_id"] == "0123456789abcdef01234567"
+    assert payload["key_id"] == "0123456789abcdef01234567"
+    assert "ok" not in payload and "data" not in payload
     assert "hrk_" not in result.stdout
     assert stat.S_IMODE(output.stat().st_mode) == 0o600
     written = output.read_text(encoding="ascii").strip()
@@ -138,6 +145,7 @@ def test_a_failed_secret_write_revokes_the_key_it_just_created(tmp_path: Path, m
     assert result.exit_code == 1
     assert revoke.call_args.kwargs["key_id"] == "0123456789abcdef01234567"
     assert revoke.call_args.kwargs["reason"] == "secret delivery failed"
+    assert _error(result)["details"] == {"key_id": "0123456789abcdef01234567"}
     assert "hrk_" not in result.output
 
 
@@ -151,7 +159,7 @@ def test_list_delegates_and_shows_no_secret_material(monkeypatch):
     result = CliRunner().invoke(app, ["auth", "keys", "list", "--tenant", "engineering"])
 
     assert result.exit_code == 0
-    assert json.loads(result.stdout)["data"]["keys"] == rows
+    assert json.loads(result.stdout)["keys"] == rows
     assert "secret_hash" not in result.stdout
 
 
@@ -167,8 +175,8 @@ def test_revoke_by_id_is_idempotent_and_by_owner_reports_ids(monkeypatch):
         app, ["auth", "keys", "revoke", "--key-id", "0" * 24, "--reason", "lost"]
     )
 
-    assert first.exit_code == 0 and json.loads(first.stdout)["data"]["revoked"] == ["0" * 24]
-    assert second.exit_code == 0 and json.loads(second.stdout)["data"]["already_revoked"] is True
+    assert first.exit_code == 0 and json.loads(first.stdout)["revoked"] == ["0" * 24]
+    assert second.exit_code == 0 and json.loads(second.stdout)["already_revoked"] is True
 
     by_owner = AsyncMock(return_value=["a" * 24, "b" * 24])
     monkeypatch.setattr(api_key_operations, "revoke_owner", by_owner)
@@ -178,7 +186,7 @@ def test_revoke_by_id_is_idempotent_and_by_owner_reports_ids(monkeypatch):
     )  # fmt: skip
     assert result.exit_code == 0
     # Same shape as the empty case: the revoked ids and how many active keys they were.
-    assert json.loads(result.stdout)["data"] == {"revoked": ["a" * 24, "b" * 24], "active_keys": 2}
+    assert json.loads(result.stdout) == {"revoked": ["a" * 24, "b" * 24], "active_keys": 2}
     assert by_owner.call_args.kwargs["operator"] == "op@host"
 
 
@@ -190,7 +198,7 @@ def test_revoke_requires_exactly_one_selector():
     assert "--key-id" in re.sub(r"\x1b\[[0-9;]*m", "", result.output)
 
 
-def test_operation_errors_report_only_the_type(monkeypatch):
+def test_unexpected_errors_are_reported_without_their_text(monkeypatch):
     monkeypatch.setattr(
         api_key_operations,
         "list_keys",
@@ -200,7 +208,7 @@ def test_operation_errors_report_only_the_type(monkeypatch):
     result = CliRunner().invoke(app, ["auth", "keys", "list", "--tenant", "t"])
 
     assert result.exit_code == 1
-    assert "RuntimeError" in result.stderr
+    assert _error(result)["code"] == "internal_error"
     assert "hunter2" not in result.stderr
 
 
@@ -220,7 +228,7 @@ def test_an_absurd_duration_is_a_usage_error_not_a_traceback():
         auth_keys.parse_duration("99999999999d")
 
 
-def test_settings_failures_use_the_json_error_envelope(monkeypatch):
+def test_settings_failures_use_the_common_error_envelope(monkeypatch):
     from harborrag_runtime.config import settings as settings_module
 
     def broken(*args, **kwargs):
@@ -231,10 +239,7 @@ def test_settings_failures_use_the_json_error_envelope(monkeypatch):
     result = CliRunner().invoke(app, ["auth", "keys", "list", "--tenant", "t"])
 
     assert result.exit_code == 1
-    assert json.loads(result.stderr.strip().splitlines()[-1]) == {
-        "ok": False,
-        "error_code": "ValueError",
-    }
+    assert _error(result)["code"] == "internal_error"
     assert "hunter2" not in result.output
 
 
@@ -253,7 +258,7 @@ def test_create_defaults_to_a_private_key_directory_it_creates(tmp_path: Path, m
     assert result.exit_code == 0, result.stderr
     key_dir = tmp_path / ".harborrag" / "keys"
     key_file = key_dir / "huy-laptop.key"
-    assert json.loads(result.stdout)["data"]["secret_written_to"] == str(key_file)
+    assert json.loads(result.stdout)["secret_written_to"] == str(key_file)
     assert stat.S_IMODE(key_dir.stat().st_mode) == 0o700
     assert stat.S_IMODE(key_file.stat().st_mode) == 0o600
     assert key_file.read_text(encoding="ascii").strip() == _created().raw_key
@@ -291,7 +296,7 @@ def test_create_migrate_flag_reaches_the_schema_check_before_issuing(tmp_path: P
     assert result.exit_code == 0, result.stderr
     assert calls == ["ensure", "create"]
     assert ensure.call_args.kwargs == {"migrate": True}
-    assert '"migrated": true' in result.stderr
+    assert "applied the pending control-plane migrations" in result.stderr
 
 
 def test_missing_schema_is_reported_with_the_fix(monkeypatch):
@@ -303,10 +308,10 @@ def test_missing_schema_is_reported_with_the_fix(monkeypatch):
 
     result = CliRunner().invoke(app, ["auth", "keys", "list", "--tenant", "t"])
 
-    assert result.exit_code == 1
-    payload = json.loads(result.stderr.strip().splitlines()[-1])
-    assert payload["error_code"] == "SchemaMissing"
-    assert "--migrate" in payload["detail"]
+    assert result.exit_code == 6
+    error = _error(result)
+    assert error["code"] == "not_ready"
+    assert "--migrate" in error["message"]
 
 
 def test_settings_come_from_the_checkout_unless_exported(tmp_path: Path, monkeypatch):
@@ -338,7 +343,7 @@ def test_a_sqlite_fallback_is_warned_about(monkeypatch):
 
     assert result.exit_code == 0, result.stderr
     assert "local SQLite default" in result.stderr
-    assert json.loads(result.stdout)["data"] == {"keys": []}
+    assert json.loads(result.stdout) == {"keys": []}
 
 
 def test_policy_violations_show_the_rule(tmp_path: Path, monkeypatch):
@@ -356,13 +361,10 @@ def test_policy_violations_show_the_rule(tmp_path: Path, monkeypatch):
          "--expires-in", "30d", "--secret-output", str(tmp_path / "k.key")],
     )  # fmt: skip
 
-    assert result.exit_code == 1
-    payload = json.loads(result.stderr.strip().splitlines()[-1])
-    assert payload == {
-        "ok": False,
-        "error_code": "ApiKeyPolicyError",
-        "detail": "lifetime must not exceed 7 days in dev",
-    }
+    assert result.exit_code == 2
+    error = _error(result)
+    assert error["code"] == "validation_error"
+    assert error["message"] == "lifetime must not exceed 7 days in dev"
     assert not (tmp_path / "k.key").exists()
 
 
@@ -390,10 +392,10 @@ def test_constraint_rejection_is_explained_without_values(monkeypatch):
     raw = CliRunner().invoke(app, ["auth", "keys", "list", "--tenant", "t"])
 
     for result in (wrapped, raw):
-        assert result.exit_code == 1
-        payload = json.loads(result.stderr.strip().splitlines()[-1])
-        assert payload["error_code"] == "ConstraintRejected"
-        assert "--migrate" in payload["detail"]
+        assert result.exit_code == 4
+        error = _error(result)
+        assert error["code"] == "invalid_state"
+        assert "--migrate" in error["message"]
         assert "hunter2" not in result.output
 
 
@@ -412,10 +414,10 @@ def test_unstamped_schema_is_reported_with_the_fix(monkeypatch):
          "--expires-in", "1d", "--migrate"],
     )  # fmt: skip
 
-    payload = json.loads(result.stderr.strip().splitlines()[-1])
-    assert result.exit_code == 1
-    assert payload["error_code"] == "SchemaUnstamped"
-    assert "no migration stamp" in payload["detail"] and "alembic" in payload["detail"]
+    error = _error(result)
+    assert result.exit_code == 6
+    assert error["code"] == "not_ready"
+    assert "no migration stamp" in error["message"] and "alembic" in error["message"]
 
 
 def test_schema_behind_head_is_reported_with_the_fix(monkeypatch):
@@ -433,10 +435,10 @@ def test_schema_behind_head_is_reported_with_the_fix(monkeypatch):
          "--expires-in", "1d"],
     )  # fmt: skip
 
-    payload = json.loads(result.stderr.strip().splitlines()[-1])
-    assert result.exit_code == 1
-    assert payload["error_code"] == "SchemaBehind"
-    assert "0039" in payload["detail"] and "--migrate" in payload["detail"]
+    error = _error(result)
+    assert result.exit_code == 6
+    assert error["code"] == "not_ready"
+    assert "0039" in error["message"] and "--migrate" in error["message"]
 
 
 def test_an_unavailable_key_store_is_named_without_its_cause(monkeypatch):
@@ -450,24 +452,23 @@ def test_an_unavailable_key_store_is_named_without_its_cause(monkeypatch):
 
     result = CliRunner().invoke(app, ["auth", "keys", "list", "--tenant", "t"])
 
-    payload = json.loads(result.stderr.strip().splitlines()[-1])
-    assert result.exit_code == 1
-    assert payload == {
-        "ok": False,
-        "error_code": "AuthStoreUnavailable",
-        "detail": "MCP key store is unavailable",
-    }
+    assert result.exit_code == 6
+    error = _error(result)
+    assert (error["code"], error["message"]) == (
+        "dependency_unavailable",
+        "MCP key store is unavailable",
+    )
 
 
-def test_revoking_an_unknown_key_is_an_error(monkeypatch):
+def test_revoking_an_unknown_key_is_not_found(monkeypatch):
     monkeypatch.setattr(api_key_operations, "revoke_key", AsyncMock(return_value="not_found"))
 
     result = CliRunner().invoke(
         app, ["auth", "keys", "revoke", "--key-id", "f" * 24, "--reason", "lost"]
     )
 
-    assert result.exit_code == 1
-    assert json.loads(result.stderr.strip().splitlines()[-1])["error_code"] == "KeyNotFound"
+    assert result.exit_code == 3
+    assert _error(result)["code"] == "not_found"
 
 
 def test_revoke_by_owner_with_only_expired_keys_says_so(monkeypatch):
@@ -479,7 +480,7 @@ def test_revoke_by_owner_with_only_expired_keys_says_so(monkeypatch):
     )
 
     assert result.exit_code == 0
-    data = json.loads(result.stdout)["data"]
+    data = json.loads(result.stdout)
     assert data["revoked"] == [] and data["active_keys"] == 0
     assert "already_revoked" not in data
 
@@ -492,7 +493,49 @@ def test_settings_validation_detail_names_the_variable(monkeypatch):
     result = CliRunner().invoke(app, ["auth", "keys", "list", "--tenant", "t"])
 
     assert result.exit_code == 1
-    payload = json.loads(result.stderr.strip().splitlines()[-1])
-    assert payload["error_code"] == "ValidationError"
-    assert "HARBORRAG_" in payload["detail"]
+    error = _error(result)
+    assert "HARBORRAG_" in error["message"]
     assert "hunter2" not in result.output
+
+
+def test_list_honours_the_output_option(monkeypatch):
+    rows = [{"key_id": "0" * 24, "name": "laptop", "owner": "user-huy", "state": "active"}]
+    monkeypatch.setattr(api_key_operations, "list_keys", AsyncMock(return_value=rows))
+
+    as_yaml = CliRunner().invoke(app, ["auth", "keys", "list", "-o", "yaml"])
+    as_table = CliRunner().invoke(app, ["auth", "keys", "list", "-o", "table"])
+
+    assert as_yaml.exit_code == 0 and as_table.exit_code == 0
+    assert "keys:" in as_yaml.stdout and "key_id" in as_yaml.stdout
+    assert "laptop" in as_table.stdout and not as_table.stdout.lstrip().startswith("{")
+
+
+def test_tenant_defaults_like_the_resource_commands(tmp_path: Path, monkeypatch):
+    listing = AsyncMock(return_value=[])
+    create = AsyncMock(return_value=_created())
+    monkeypatch.setattr(api_key_operations, "list_keys", listing)
+    monkeypatch.setattr(api_key_operations, "create_key", create)
+    monkeypatch.delenv("HARBORRAG_TENANT_ID", raising=False)
+    create_args = [
+        "auth",
+        "keys",
+        "create",
+        "--owner",
+        "user-huy",
+        "--name",
+        "k",
+        "--expires-in",
+        "1d",
+    ]
+
+    CliRunner().invoke(app, ["auth", "keys", "list"])
+    CliRunner().invoke(app, [*create_args, "--secret-output", str(tmp_path / "a.key")])
+    monkeypatch.setenv("HARBORRAG_TENANT_ID", "engineering")
+    CliRunner().invoke(app, ["auth", "keys", "list"])
+    CliRunner().invoke(app, [*create_args, "--secret-output", str(tmp_path / "b.key")])
+
+    assert [call.args[1] for call in listing.call_args_list] == ["DEFAULT", "engineering"]
+    assert [call.kwargs["tenant_id"] for call in create.call_args_list] == [
+        "DEFAULT",
+        "engineering",
+    ]

@@ -19,7 +19,7 @@ Handles:
 
 Does NOT parse arguments or hold business rules; commands parse, operations decide.
 
-Start from: run_operation, Outcome, current_trace_id, release_held_logs.
+Start from: run_operation, run_standalone, Outcome, current_trace_id, release_held_logs.
 """
 
 from __future__ import annotations
@@ -29,11 +29,11 @@ import inspect
 import logging
 import os
 import sys
-from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
+from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine, Iterator
 from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, NoReturn, cast
+from typing import TYPE_CHECKING, Any, NoReturn, cast
 from uuid import uuid4
 
 import click
@@ -158,13 +158,44 @@ def run_operation(
         click.UsageError: A write into a tenant with no data, without a terminal or ``--yes``.
         click.exceptions.Abort: The user declined that write at the question; Click exits 1.
     """
+    _execute(
+        operation_id, lambda: _run(call, globals=globals, write=write), globals=globals, write=write
+    )
+
+
+def run_standalone(
+    call: Callable[[], Coroutine[Any, Any, object]], *, globals: Globals
+) -> NoReturn:
+    """Run a CLI-only command that needs no application service, and report it like an operation.
+
+    The body prints as it is, and a failure is the error envelope with its status's exit code,
+    exactly as for ``run_operation``.
+
+    Args:
+        call: Does the work and returns the body, or raises ``ReportedError``.
+        globals: The invocation's resolved global options.
+
+    Raises:
+        typer.Exit: Always: ``0`` after the body, else the failure's exit code; ``130`` on Ctrl-C.
+    """
+    _execute(None, call, globals=globals, write=False)
+
+
+def _execute(
+    operation_id: str | None,
+    work: Callable[[], Coroutine[Any, Any, object]],
+    *,
+    globals: Globals,
+    write: bool,
+) -> NoReturn:
+    """Run ``work`` on an event loop, print its body or its error, and exit."""
     trace_id = uuid4().hex
     _TRACE_ID.set(trace_id)
     if write:
         refuse_checkout_write()
     with _held_logs():
         try:
-            result = asyncio.run(_run(call, globals=globals, write=write))
+            result = asyncio.run(work())
         except KeyboardInterrupt:
             raise typer.Exit(INTERRUPTED) from None
         except _CLICK_OUTCOMES:

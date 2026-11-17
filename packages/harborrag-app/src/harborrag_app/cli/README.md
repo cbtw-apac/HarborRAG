@@ -44,7 +44,7 @@ any command builds a service. The kernel modules every command shares:
 | --- | --- |
 | `globals.py` | The global options (`--tenant`, `-o/--output`, `--profile`, `--config`, `-y/--yes`) and their precedence: flag, environment, profile, default |
 | `profiles.py` | The profile file `~/.config/harborrag/config.yaml`, with the keys `tenant` and `output` only |
-| `invoke.py` | `run_operation`: builds the service, runs the checkout refusal and the tenant question before a write, calls the operation, prints the body or the error, and exits with the spec's code; holds the CLI's log records back until the command succeeds |
+| `invoke.py` | `run_operation` and `run_standalone` (a CLI-only command with no service, such as `auth keys`). `run_operation`: builds the service, runs the checkout refusal and the tenant question before a write, calls the operation, prints the body or the error, and exits with the spec's code; holds the CLI's log records back until the command succeeds |
 | `output.py` | Prints a body as JSON, YAML or a table, and an error as the HTTP envelope or one line on stderr |
 | `views.py` | The table views: list columns, resource trees and the `doctor` report |
 | `exit_codes.py` | The exit code of each HTTP status, plus usage, failed run and Ctrl-C |
@@ -73,7 +73,7 @@ One module per command group in `commands/`:
 | `harborrag chat` | none | `commands/chat.py` |
 | `harborrag config` | `import`, `export` | `commands/config.py` |
 | `harborrag doctor` | none | `commands/doctor.py`, `doctor/` |
-| `harborrag auth keys` | `create`, `list`, `revoke`; own options and own JSON envelope, no global options | `commands/auth.py`, `commands/auth_keys.py` |
+| `harborrag auth keys` | `create`, `list`, `revoke`; the global options, the shared body and error output, CLI-only | `commands/auth.py`, `commands/auth_keys.py` |
 | `harborrag source`, `harborrag ingest` (hidden) | the old names | `commands/legacy.py` |
 
 The legacy stubs accept any arguments, `--help` and `-h` included, print the command that
@@ -263,11 +263,13 @@ This package may:
 
 - define Typer commands and parse command-line arguments and body files;
 - call the operations through `run_operation`, which builds one application service
-  (`harborrag_runtime.application`) per invocation;
+  (`harborrag_runtime.application`) per invocation, or run a CLI-only command that needs
+  no service, such as `auth keys`, through `run_standalone`, which prints and exits the
+  same way;
 - print bodies and errors in the shape the HTTP route answers, and exit with the codes
-  in `exit_codes.py`. Three commands are the exceptions: `auth keys` prints its own
-  `{"ok": …}` JSON and exits 1 on every failure, `doctor` prints its own report and
-  exits 0, 1 or 6, and `config export` writes YAML to stdout.
+  in `exit_codes.py`. Two commands are the exceptions: `doctor` prints its own report and
+  exits 0, 1 or 6, and `config export` writes YAML to stdout. `connections test` and a
+  followed run exit 8 after printing their body when the check or the run failed.
 
 It must not:
 
