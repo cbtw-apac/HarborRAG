@@ -100,6 +100,9 @@ class IngestionReliabilityRepository:
 
         Joins to `documents` for the tenant/connection scope: a failure row
         itself only knows its `document_id`, not which connection owns it.
+        Resolved rows (their document version has since published) are
+        excluded; unresolved failures for other, unpublished versions of the
+        same document still show.
         """
         if not tenant_id.strip():
             raise ValueError("failures tenant_id must be non-empty")
@@ -114,6 +117,7 @@ class IngestionReliabilityRepository:
                 .where(
                     DOCUMENTS.c.tenant_id == tenant_id,
                     DOCUMENTS.c.connection_id == connection_id,
+                    DOCUMENT_FAILURES.c.resolved_at.is_(None),
                 )
                 .order_by(DOCUMENT_FAILURES.c.last_failure_at.desc())
                 .limit(limit)

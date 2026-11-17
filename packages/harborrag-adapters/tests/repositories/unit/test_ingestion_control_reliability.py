@@ -343,6 +343,45 @@ async def test_list_failures_is_scoped_to_tenant_and_connection(tmp_path: Path) 
 
 
 @pytest.mark.asyncio
+async def test_publishing_a_version_resolves_its_recorded_failures(tmp_path: Path) -> None:
+    """A retry that reaches ACTIVE must stop appearing as a current failure."""
+
+    control_plane = make_control_plane(tmp_path)
+    async with control_plane:
+        value = candidate("retried then published")
+        await advance_to_verified(control_plane, value)
+        failure = DocumentFailure(
+            document_id=value.document_id,
+            document_version_id=value.document_version_id,
+            failed_stage="ParseAndNormalize",
+            category=FailureCategory.PARSER_FALLBACKABLE,
+            retryable=True,
+            safe_error_code="parser_rejected_document",
+        )
+        await control_plane.reliability.record_failure(failure)
+        assert (
+            len(
+                await control_plane.reliability.list_failures(
+                    tenant_id="DEFAULT", connection_id="wiki.example"
+                )
+            )
+            == 1
+        )
+
+        await control_plane.publisher.publish(
+            document_id=str(value.document_id),
+            candidate_document_version_id=str(value.document_version_id),
+        )
+
+        assert (
+            await control_plane.reliability.list_failures(
+                tenant_id="DEFAULT", connection_id="wiki.example"
+            )
+            == ()
+        )
+
+
+@pytest.mark.asyncio
 async def test_idempotency_keys_are_scoped_to_tenant(tmp_path: Path) -> None:
     control_plane = make_control_plane(tmp_path)
     async with control_plane:

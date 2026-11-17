@@ -17,7 +17,7 @@ from harborrag_core.ingestion import (
 )
 from harborrag_core.schemas.ids import DocumentId, DocumentVersionId
 
-from .schema import DOCUMENT_VERSIONS, DOCUMENTS, PROJECTION_CLEANUP_JOBS
+from .schema import DOCUMENT_FAILURES, DOCUMENT_VERSIONS, DOCUMENTS, PROJECTION_CLEANUP_JOBS
 from .summary_intent import invalidate_summary_scope, lock_summary_tenant
 from .topology.intent import enqueue_intent
 
@@ -108,6 +108,17 @@ class DocumentVersionPublisher:
                     activated_at=now,
                     updated_at=now,
                 )
+            )
+            # The candidate just reached ACTIVE: any failure recorded against it is
+            # resolved. A different, still-unpublished version of this document keeps
+            # its own unresolved rows, since it matches on document_version_id only.
+            await session.execute(
+                update(DOCUMENT_FAILURES)
+                .where(
+                    DOCUMENT_FAILURES.c.document_version_id == candidate_document_version_id,
+                    DOCUMENT_FAILURES.c.resolved_at.is_(None),
+                )
+                .values(resolved_at=now)
             )
             await session.execute(
                 update(DOCUMENTS)
