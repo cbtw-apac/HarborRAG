@@ -160,7 +160,12 @@ def update_project(  # noqa: PLR0913 - the body's flags plus the global options
 def delete_project(  # noqa: PLR0913 - the cascade flag plus the global options
     project: ProjectArgument,
     cascade: Annotated[
-        bool, typer.Option("--cascade", help="Also remove its connections, documents and secrets.")
+        bool,
+        typer.Option(
+            "--cascade",
+            help="Also remove its connections, documents and secrets in the background, "
+            "printing the job; a project with no connections is deleted at once and prints nothing.",
+        ),
     ] = False,
     tenant: TenantOption = None,
     output: OutputOption = None,
@@ -168,7 +173,7 @@ def delete_project(  # noqa: PLR0913 - the cascade flag plus the global options
     config: ConfigOption = None,
     yes: YesOption = False,
 ) -> None:
-    """Delete a project; with --cascade the removal runs in the background and prints its job."""
+    """Delete a project; with --cascade a project that has connections is removed in the background."""
     resolved = current_globals(
         tenant=tenant, output=output, profile=profile, config=config, yes=yes
     )

@@ -9,6 +9,7 @@ from typing import Annotated
 import typer
 
 from harborrag_app.cli.bodies import read_document, read_with_secrets, validate_body
+from harborrag_app.cli.exit_codes import RUN_FAILED
 from harborrag_app.cli.globals import (
     ConfigOption,
     OutputOption,
@@ -17,7 +18,7 @@ from harborrag_app.cli.globals import (
     YesOption,
     current_globals,
 )
-from harborrag_app.cli.invoke import run_operation
+from harborrag_app.cli.invoke import Outcome, run_operation
 from harborrag_app.cli.paging import (
     DEFAULT_LIMIT,
     AllOption,
@@ -248,7 +249,7 @@ def test_connection(  # noqa: PLR0913 - the body file plus the global options
     config: ConfigOption = None,
     yes: YesOption = False,
 ) -> None:
-    """Check a connection's values or the saved connection; stores nothing, exits 0 on ok false."""
+    """Check a connection's values or the saved connection; stores nothing, exits 8 on ok false."""
     connection = parse_ref(ref)
     resolved = current_globals(
         tenant=tenant, output=output, profile=profile, config=config, yes=yes
@@ -260,6 +261,7 @@ def test_connection(  # noqa: PLR0913 - the body file plus the global options
     )
 
     async def call(operations: LocalOperations, scope: Scope) -> object:
-        return await operations.test_connection(scope, connection, body, origin=_ORIGIN)
+        result = await operations.test_connection(scope, connection, body, origin=_ORIGIN)
+        return Outcome(result, 0 if result.ok else RUN_FAILED)
 
     run_operation("test_connection", call, globals=resolved)

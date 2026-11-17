@@ -30,7 +30,12 @@ def command(  # noqa: PLR0913 - one parameter per documented flag plus the globa
         str | None, typer.Option("--session-id", metavar="SESSION_ID", help="Continue a session.")
     ] = None,
     mode: Annotated[
-        str | None, typer.Option("--mode", help="instant or classic (default: classic).")
+        str | None,
+        typer.Option(
+            "--mode",
+            help="instant or classic (default: classic); advanced and auto are reserved and "
+            "answer mode_unavailable until v2.1.0.",
+        ),
     ] = None,
     project_id: Annotated[
         list[str] | None,

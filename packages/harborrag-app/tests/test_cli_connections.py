@@ -295,16 +295,29 @@ def test_update_with_if_match_skips_the_read(
     assert fake.calls[0].kwargs["if_match"] == 'W/"rev-3"'
 
 
-def test_a_failed_check_still_exits_zero(
+def test_a_failed_check_exits_eight_and_still_prints_the_result(
     fake: FakeOperations, capsys: pytest.CaptureFixture[str]
 ) -> None:
     code, out, _ = _run(capsys, "connections", "test", "default/demo", "-o", "json")
 
-    assert code == 0
+    assert code == 8
     assert json.loads(out)["ok"] is False
     [call] = fake.calls
     assert call.args[2] is None
     assert call.kwargs == {"origin": "operator"}
+
+
+def test_a_passing_check_exits_zero(
+    fake: FakeOperations, capsys: pytest.CaptureFixture[str]
+) -> None:
+    fake.results["test_connection"] = fake.results["test_connection"].model_copy(
+        update={"ok": True, "error_category": None}
+    )
+
+    code, out, _ = _run(capsys, "connections", "test", "default/demo", "-o", "json")
+
+    assert code == 0
+    assert json.loads(out)["ok"] is True
 
 
 def test_test_checks_the_values_of_a_file(
@@ -312,7 +325,7 @@ def test_test_checks_the_values_of_a_file(
 ) -> None:
     code, _, _ = _run(capsys, "connections", "test", "default/demo", "-f", str(body_file))
 
-    assert code == 0
+    assert code == 8
     assert fake.calls[0].args[2].source_type == "jira"
 
 
