@@ -36,7 +36,7 @@ adapters share one contract. The skeleton of a new connector class is in
 
 - A loaded document's URL goes in `RawDocument.source` and its content type in
   `RawDocument.content_type`. Do not repeat either inside provider metadata.
-- Every loaded metadata schema inherits `ConnectorMetadata` in `schemas.py`, which
+- Every loaded metadata schema inherits `ConnectorMetadata` from `harborrag_core.ingestion.connector_contracts`, which
   supplies the normalized `record_id`, `title`, `checksum`, `created_at` and
   `updated_at` fields. Provider schemas add source-specific fields.
 - `source_system` and `metadata_schema_version` are class attributes of each provider

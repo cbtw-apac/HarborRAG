@@ -172,8 +172,12 @@ Provider-independent RAG behaviour goes in `harborrag-engine`:
 - normalization in `ingestion/normalizer.py` and chunking in `ingestion/chunking/`;
 - dense and sparse encoding in `ingestion/representations/`;
 - vector and graph projection building and verification in `ingestion/projections/`;
+- the document-release lifecycle, pipeline, service, materialization and projection
+  stages in `ingestion/release/`;
+- reindex and cleanup in `ingestion/maintenance/`;
 - retrieval candidates, fusion, active-version checks, evidence and graph retrieval in
-  `retrieval/`, with the `QueryRewriter` and `ResultReranker` ports in `retrieval/ports.py`;
+  `retrieval/`, with the `QueryRewriter` and `ResultReranker` ports in `retrieval/ports.py`
+  and the retrieval service in `retrieval/service/`;
 - semantic topology policy in `topology/`;
 - the shared reader tools served over MCP in `tools/`;
 - stored chat prompts in `chat/prompts/`.
@@ -186,7 +190,7 @@ subpackage into an engine stage.
 ## Runtime services
 
 Configuration loading, provider composition, checkpoint coordination and durable workflow
-code go in `harborrag-runtime`. Reuse the core job, repository, lifecycle and observation
+code go in `harborrag-runtime`. Reuse the core job and repository
 ports instead of adding runtime-owned copies.
 
 The catalog loaders in `harborrag_runtime.config` show the pattern: strict versioned schemas

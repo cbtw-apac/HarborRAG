@@ -159,7 +159,8 @@ active version + RetrievalResult
 `harborrag-core` groups its contracts by folder:
 
 - `domain/`: document, source, parser, retrieval, provenance, element, job, member, project,
-  provider, connection and settings values. `domain/__init__.py` still re-exports
+  provider, connection and settings values, and `MemoryIdentity`, the tenant, user and
+  session identity of a conversation. `domain/__init__.py` still re-exports
   `ChunkRecord` from `chunking/` as a compatibility path.
 - `chunking/`: immutable chunk, hierarchy, security, relation, source-attribute and table
   schemas. Deterministic chunk identity and chunk planning stay in engine.
@@ -171,7 +172,10 @@ active version + RetrievalResult
 - `indexing/` and `storage/`: public facades for vector and graph projection records,
   capabilities, `StorageOperationContext` and the per-tenant storage namespace. Modules under
   `schemas/` are internal organization, not cross-package import paths.
-- `ingestion/`: artifact, projection, lifecycle and source-catalog contracts.
+- `ingestion/`: artifact, projection, lifecycle and source-catalog contracts; the
+  connector contracts (`ConnectorQuery`, `ConnectorSkip`, `ConnectorMetadata`,
+  `ConnectorCapabilities`); run contracts, the source query, limits and policies; and the
+  stage contracts, including `DOCUMENT_STAGE_ORDER`.
 - `security/`: the required `AccessContext`, secret redaction, URL policy and
   `URLPolicyError`.
 - `contracts/`: the shared `HarborError` hierarchy, `HarborEvent`, the chunking protocols
@@ -253,10 +257,11 @@ and document release keep consuming services independent of adapter inheritance.
 ## Engine and runtime
 
 `harborrag-engine` owns the policy for publication, projection verification, document
-versions, cleanup, retrieval candidates, ranking, graph expansion, failure classification,
-semantic topology, chat prompts, and the reader tools that the MCP server and the app expose.
-It calls external models and storage only through core ports, and it never imports adapters
-or a provider SDK.
+versions, cleanup, retrieval candidates, ranking, graph expansion, semantic topology, chat
+prompts, and the reader tools that the MCP server and the app expose. Failure handling runs
+through a classifier that the caller injects; the classifier itself lives in
+`harborrag-runtime`. The engine calls external models and storage only through core ports,
+and it never imports adapters or a provider SDK.
 
 `harborrag-runtime` owns:
 
@@ -278,8 +283,8 @@ behaviour. It does not decide whether a version is publishable or a projection i
 those rules stay in engine so that direct execution, Temporal, tests and reindex all behave
 the same way.
 
-Framework-independent lifecycle and observer interfaces and the job and repository ports live
-in `harborrag-core`. Provider-specific assembly belongs in runtime or in application bootstrap
+The job and repository ports, `StorageLifecyclePort` and the event bus port live in
+`harborrag-core`. Provider-specific assembly belongs in runtime or in application bootstrap
 code, not in provider adapters.
 
 ## App and MCP boundaries

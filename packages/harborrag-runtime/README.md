@@ -29,10 +29,10 @@ src/harborrag_runtime/
   sdk/                      # stable SDK facade: HarborRAG, its configuration and service facades
   execution/                # direct and durable execution strategies, source submission, task registry
   temporal/                 # workflows, activities, client, gateway, schedule backend and the worker
-  ingestion/                # document release, source orchestration and maintenance services
+  ingestion/                # document normalization and per-run parser choice, source orchestration, relation repair, retention and failure classification
   retrieval/                # composition of the retrieval service from settings, and service facades
   chat/                     # chat service, model-client composition and per-tenant chat clients
-  application/              # application services that harborrag-app calls: chat, memory, ingestion, control plane
+  application/              # application services that harborrag-app calls: chat, memory, ingestion, control plane, retrieval access, scheduling
   memory/                   # database-backed conversation memory and its composition
   scheduling/               # schedule management on top of the execution engine
   topology/                 # opt-in durable topology enrichment, independent of publication

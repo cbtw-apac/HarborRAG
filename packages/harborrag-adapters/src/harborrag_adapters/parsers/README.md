@@ -84,9 +84,10 @@ and `engine_name`, `warnings`, `metadata`, and `attempts`, the ordered history o
 engines tried. `registry.parse_request(request)` resolves and parses in one call.
 
 Ingestion uses the synchronous `registry.parse(...)` instead. It accepts a `RawDocument`,
-a `ParseInput`, bytes or a `Path`, and returns a core `ParsedDocument`; the runtime's
-document parser and the connectors' attachment processing call it. Older concrete class
-names, such as `PdfParser` or `DocxParser`, are importable from `compat.py` only; they are
+a `ParseInput`, bytes or a `Path`, and returns a core `ParsedDocument`; the engine's
+document-release capture stage (the runtime supplies the parser) and the connectors'
+attachment processing call it. Older concrete class names, such as `PdfParser` or
+`DocxParser`, are importable from `compat.py` only; they are
 not part of the public API.
 
 ## Routing
