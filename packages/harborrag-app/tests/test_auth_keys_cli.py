@@ -30,17 +30,17 @@ def _schema_present(monkeypatch):
 
 
 def _error(result) -> dict:
-    """The ``error`` object of the common envelope, after any plain warning lines."""
+    """The ``error`` object of the common envelope; stderr holds nothing else."""
 
-    return json.loads(result.stderr[result.stderr.index("{") :])["error"]
+    return json.loads(result.stderr)["error"]
 
 
 def _created() -> CreatedKey:
     return CreatedKey(
         key_id="0123456789abcdef01234567",
         tenant_id="engineering",
-        owner="user-huy",
-        name="huy-laptop",
+        owner="user-demo",
+        name="demo-laptop",
         expires_at=EXPIRES,
         raw_key="hrk_dev_v1_0123456789abcdef01234567." + "a" * 43,
     )
@@ -74,15 +74,15 @@ def test_create_writes_the_secret_to_a_private_file_and_prints_only_safe_fields(
     create = AsyncMock(return_value=_created())
     monkeypatch.setattr(api_key_operations, "create_key", create)
     monkeypatch.setattr(auth_keys, "operator_identity", lambda: "op@host")
-    output = tmp_path / "huy-laptop.key"
+    output = tmp_path / "demo-laptop.key"
 
     result = CliRunner().invoke(
         app,
         [
             "auth", "keys", "create",
             "--tenant", "engineering",
-            "--owner", "user-huy",
-            "--name", "huy-laptop",
+            "--owner", "user-demo",
+            "--name", "demo-laptop",
             "--expires-in", "30d",
             "--secret-output", str(output),
         ],
@@ -99,10 +99,67 @@ def test_create_writes_the_secret_to_a_private_file_and_prints_only_safe_fields(
     assert create.call_args.kwargs == {
         "operator": "op@host",
         "tenant_id": "engineering",
-        "owner": "user-huy",
-        "name": "huy-laptop",
+        "owner": "user-demo",
+        "name": "demo-laptop",
         "lifetime": timedelta(days=30),
     }
+
+
+@pytest.mark.parametrize("output_format", ["table", "yaml", "json"])
+def test_create_never_prints_the_secret_in_any_format(tmp_path: Path, monkeypatch, output_format):
+    monkeypatch.setattr(api_key_operations, "create_key", AsyncMock(return_value=_created()))
+    output = tmp_path / "demo-laptop.key"
+
+    result = CliRunner().invoke(
+        app,
+        ["auth", "keys", "create", "--tenant", "engineering", "--owner", "user-demo",
+         "--name", "demo-laptop", "--expires-in", "30d", "--secret-output", str(output),
+         "-o", output_format],
+    )  # fmt: skip
+
+    assert result.exit_code == 0, result.stderr
+    assert "hrk_" not in result.stdout
+    assert "hrk_" not in result.stderr
+    assert output.read_text(encoding="ascii").strip() == _created().raw_key
+
+
+def test_a_failure_leaves_stderr_as_the_error_envelope_alone(monkeypatch):
+    from harborrag_engine.security import ApiKeyPolicyError
+
+    monkeypatch.setattr("harborrag_app.cli.project.find_legacy_checkout", lambda *a, **k: None)
+    monkeypatch.delenv("HARBORRAG_CONTROL_DB_URL", raising=False)
+    monkeypatch.delenv("HARBORRAG_LOG_LEVEL", raising=False)
+    monkeypatch.setattr(
+        api_key_operations, "list_keys", AsyncMock(side_effect=ApiKeyPolicyError("rejected"))
+    )
+
+    result = CliRunner().invoke(app, ["auth", "keys", "list", "--tenant", "t", "-o", "json"])
+
+    assert result.exit_code == 2
+    assert _error(result)["code"] == "validation_error"
+    assert "SQLite" not in result.stderr
+
+
+def test_a_failed_migration_run_leaves_stderr_as_the_error_envelope_alone(
+    tmp_path: Path, monkeypatch
+):
+    from harborrag_engine.security import ApiKeyPolicyError
+
+    monkeypatch.delenv("HARBORRAG_LOG_LEVEL", raising=False)
+    monkeypatch.setattr(api_key_operations, "ensure_key_schema", AsyncMock(return_value=True))
+    monkeypatch.setattr(
+        api_key_operations, "create_key", AsyncMock(side_effect=ApiKeyPolicyError("rejected"))
+    )
+
+    result = CliRunner().invoke(
+        app,
+        ["auth", "keys", "create", "--tenant", "t", "--owner", "user-demo", "--name", "k",
+         "--expires-in", "1d", "--secret-output", str(tmp_path / "k.key"), "--migrate",
+         "-o", "json"],
+    )  # fmt: skip
+
+    assert result.exit_code == 2
+    assert _error(result)["code"] == "validation_error"
 
 
 def test_create_refuses_an_existing_output_file_before_touching_the_store(
@@ -151,8 +208,8 @@ def test_a_failed_secret_write_revokes_the_key_it_just_created(tmp_path: Path, m
 
 def test_list_delegates_and_shows_no_secret_material(monkeypatch):
     rows = [
-        {"key_id": "0" * 24, "name": "laptop", "owner": "user-huy", "state": "active"},
-        {"key_id": "1" * 24, "name": "old", "owner": "user-huy", "state": "revoked"},
+        {"key_id": "0" * 24, "name": "laptop", "owner": "user-demo", "state": "active"},
+        {"key_id": "1" * 24, "name": "old", "owner": "user-demo", "state": "revoked"},
     ]
     monkeypatch.setattr(api_key_operations, "list_keys", AsyncMock(return_value=rows))
 
@@ -182,12 +239,34 @@ def test_revoke_by_id_is_idempotent_and_by_owner_reports_ids(monkeypatch):
     monkeypatch.setattr(api_key_operations, "revoke_owner", by_owner)
     result = CliRunner().invoke(
         app,
-        ["auth", "keys", "revoke", "--tenant", "engineering", "--owner", "user-huy", "--reason", "left"],
+        ["auth", "keys", "revoke", "--tenant", "engineering", "--owner", "user-demo", "--reason", "left"],
     )  # fmt: skip
     assert result.exit_code == 0
     # Same shape as the empty case: the revoked ids and how many active keys they were.
     assert json.loads(result.stdout) == {"revoked": ["a" * 24, "b" * 24], "active_keys": 2}
     assert by_owner.call_args.kwargs["operator"] == "op@host"
+
+
+def test_revoke_owner_needs_an_explicit_tenant_whatever_the_environment_says(monkeypatch):
+    monkeypatch.setenv("HARBORRAG_TENANT_ID", "engineering")
+    by_owner = AsyncMock(return_value=[])
+    monkeypatch.setattr(api_key_operations, "revoke_owner", by_owner)
+
+    result = CliRunner().invoke(
+        app, ["auth", "keys", "revoke", "--owner", "user-demo", "--reason", "left"]
+    )
+
+    assert result.exit_code != 0
+    assert "explicit --tenant" in re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+    by_owner.assert_not_called()
+
+
+def test_revoke_help_says_the_tenant_is_explicit():
+    result = CliRunner().invoke(app, ["auth", "keys", "revoke", "--help"])
+
+    text = " ".join(re.sub(r"\x1b\[[0-9;]*m", "", result.stdout).split())
+    assert "Required with --owner" in text
+    assert "default: the profile" not in text
 
 
 def test_revoke_requires_exactly_one_selector():
@@ -251,13 +330,13 @@ def test_create_defaults_to_a_private_key_directory_it_creates(tmp_path: Path, m
 
     result = CliRunner().invoke(
         app,
-        ["auth", "keys", "create", "--tenant", "t", "--owner", "user-huy",
-         "--name", "huy-laptop", "--expires-in", "1d"],
+        ["auth", "keys", "create", "--tenant", "t", "--owner", "user-demo",
+         "--name", "demo-laptop", "--expires-in", "1d"],
     )  # fmt: skip
 
     assert result.exit_code == 0, result.stderr
     key_dir = tmp_path / ".harborrag" / "keys"
-    key_file = key_dir / "huy-laptop.key"
+    key_file = key_dir / "demo-laptop.key"
     assert json.loads(result.stdout)["secret_written_to"] == str(key_file)
     assert stat.S_IMODE(key_dir.stat().st_mode) == 0o700
     assert stat.S_IMODE(key_file.stat().st_mode) == 0o600
@@ -267,11 +346,11 @@ def test_create_defaults_to_a_private_key_directory_it_creates(tmp_path: Path, m
 def test_create_makes_a_missing_secret_output_directory(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(api_key_operations, "ensure_key_schema", AsyncMock(return_value=False))
     monkeypatch.setattr(api_key_operations, "create_key", AsyncMock(return_value=_created()))
-    output = tmp_path / "private" / "nested" / "huy-laptop.key"
+    output = tmp_path / "private" / "nested" / "demo-laptop.key"
 
     result = CliRunner().invoke(
         app,
-        ["auth", "keys", "create", "--tenant", "t", "--owner", "user-huy", "--name", "k",
+        ["auth", "keys", "create", "--tenant", "t", "--owner", "user-demo", "--name", "k",
          "--expires-in", "1d", "--secret-output", str(output)],
     )  # fmt: skip
 
@@ -280,7 +359,9 @@ def test_create_makes_a_missing_secret_output_directory(tmp_path: Path, monkeypa
     assert output.exists()
 
 
-def test_create_migrate_flag_reaches_the_schema_check_before_issuing(tmp_path: Path, monkeypatch):
+def test_create_migrate_flag_reaches_the_schema_check_before_issuing(
+    tmp_path: Path, monkeypatch, caplog
+):
     calls: list[str] = []
     ensure = AsyncMock(side_effect=lambda *a, **k: calls.append("ensure") or True)
     create = AsyncMock(side_effect=lambda *a, **k: calls.append("create") or _created())
@@ -289,14 +370,14 @@ def test_create_migrate_flag_reaches_the_schema_check_before_issuing(tmp_path: P
 
     result = CliRunner().invoke(
         app,
-        ["auth", "keys", "create", "--tenant", "t", "--owner", "user-huy", "--name", "k",
+        ["auth", "keys", "create", "--tenant", "t", "--owner", "user-demo", "--name", "k",
          "--expires-in", "1d", "--secret-output", str(tmp_path / "k.key"), "--migrate"],
     )  # fmt: skip
 
     assert result.exit_code == 0, result.stderr
     assert calls == ["ensure", "create"]
     assert ensure.call_args.kwargs == {"migrate": True}
-    assert "applied the pending control-plane migrations" in result.stderr
+    assert "applied the pending control-plane migrations" in caplog.text
 
 
 def test_missing_schema_is_reported_with_the_fix(monkeypatch):
@@ -334,7 +415,7 @@ def test_settings_come_from_the_checkout_unless_exported(tmp_path: Path, monkeyp
     assert auth_keys.settings_overrides(tmp_path) == {}
 
 
-def test_a_sqlite_fallback_is_warned_about(monkeypatch):
+def test_a_sqlite_fallback_is_warned_about(monkeypatch, caplog):
     monkeypatch.setattr("harborrag_app.cli.project.find_legacy_checkout", lambda *a, **k: None)
     monkeypatch.delenv("HARBORRAG_CONTROL_DB_URL", raising=False)
     monkeypatch.setattr(api_key_operations, "list_keys", AsyncMock(return_value=[]))
@@ -342,7 +423,7 @@ def test_a_sqlite_fallback_is_warned_about(monkeypatch):
     result = CliRunner().invoke(app, ["auth", "keys", "list", "--tenant", "t"])
 
     assert result.exit_code == 0, result.stderr
-    assert "local SQLite default" in result.stderr
+    assert "local SQLite default" in caplog.text
     assert json.loads(result.stdout) == {"keys": []}
 
 
@@ -357,7 +438,7 @@ def test_policy_violations_show_the_rule(tmp_path: Path, monkeypatch):
 
     result = CliRunner().invoke(
         app,
-        ["auth", "keys", "create", "--tenant", "t", "--owner", "user-huy", "--name", "k",
+        ["auth", "keys", "create", "--tenant", "t", "--owner", "user-demo", "--name", "k",
          "--expires-in", "30d", "--secret-output", str(tmp_path / "k.key")],
     )  # fmt: skip
 
@@ -476,7 +557,7 @@ def test_revoke_by_owner_with_only_expired_keys_says_so(monkeypatch):
 
     result = CliRunner().invoke(
         app,
-        ["auth", "keys", "revoke", "--tenant", "t", "--owner", "user-huy", "--reason", "left"],
+        ["auth", "keys", "revoke", "--tenant", "t", "--owner", "user-demo", "--reason", "left"],
     )
 
     assert result.exit_code == 0
@@ -499,7 +580,7 @@ def test_settings_validation_detail_names_the_variable(monkeypatch):
 
 
 def test_list_honours_the_output_option(monkeypatch):
-    rows = [{"key_id": "0" * 24, "name": "laptop", "owner": "user-huy", "state": "active"}]
+    rows = [{"key_id": "0" * 24, "name": "laptop", "owner": "user-demo", "state": "active"}]
     monkeypatch.setattr(api_key_operations, "list_keys", AsyncMock(return_value=rows))
 
     as_yaml = CliRunner().invoke(app, ["auth", "keys", "list", "-o", "yaml"])
@@ -521,7 +602,7 @@ def test_tenant_defaults_like_the_resource_commands(tmp_path: Path, monkeypatch)
         "keys",
         "create",
         "--owner",
-        "user-huy",
+        "user-demo",
         "--name",
         "k",
         "--expires-in",

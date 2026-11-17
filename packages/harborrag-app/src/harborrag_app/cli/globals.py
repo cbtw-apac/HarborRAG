@@ -27,7 +27,7 @@ DEFAULT_TENANT_ID = "DEFAULT"
 TENANT_ENV = "HARBORRAG_TENANT_ID"
 OUTPUT_ENV = "HARBORRAG_OUTPUT"
 PROFILE_ENV = "HARBORRAG_PROFILE"
-_PANEL = "Global options"
+GLOBAL_OPTIONS_PANEL = "Global options"
 
 TenantOption = Annotated[
     str | None,
@@ -35,7 +35,7 @@ TenantOption = Annotated[
         "--tenant",
         metavar="TENANT_ID",
         help=f"Tenant to act in (env {TENANT_ENV}; default: the profile's, else DEFAULT).",
-        rich_help_panel=_PANEL,
+        rich_help_panel=GLOBAL_OPTIONS_PANEL,
     ),
 ]
 OutputOption = Annotated[
@@ -46,7 +46,7 @@ OutputOption = Annotated[
         case_sensitive=False,
         help=f"Print a table, JSON or YAML (env {OUTPUT_ENV}; default: table in a terminal, "
         "else json).",
-        rich_help_panel=_PANEL,
+        rich_help_panel=GLOBAL_OPTIONS_PANEL,
     ),
 ]
 ProfileOption = Annotated[
@@ -55,7 +55,7 @@ ProfileOption = Annotated[
         "--profile",
         metavar="NAME",
         help=f"Profile of the config file to use (env {PROFILE_ENV}; default: default).",
-        rich_help_panel=_PANEL,
+        rich_help_panel=GLOBAL_OPTIONS_PANEL,
     ),
 ]
 ConfigOption = Annotated[
@@ -66,7 +66,7 @@ ConfigOption = Annotated[
         exists=True,
         dir_okay=False,
         help=f"Config file holding the profiles (default: {DEFAULT_CONFIG_PATH}).",
-        rich_help_panel=_PANEL,
+        rich_help_panel=GLOBAL_OPTIONS_PANEL,
     ),
 ]
 YesOption = Annotated[
@@ -75,7 +75,7 @@ YesOption = Annotated[
         "--yes",
         "-y",
         help="Answer yes to confirmation questions, for scripts.",
-        rich_help_panel=_PANEL,
+        rich_help_panel=GLOBAL_OPTIONS_PANEL,
     ),
 ]
 

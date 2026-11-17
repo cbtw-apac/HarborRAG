@@ -492,15 +492,18 @@ What to expect from a checkout:
 - `doctor` walks up from the current directory to the checkout, so run it from any
   folder inside the repository. The `project` line reads `repository checkout DIR`.
 - The `source path` line reads `HARBORRAG_LOCAL_SOURCE_ROOT` the way `local_file`
-  connections do. While it is unset the line is `ok` and says that connections may use
-  any path. When it names a directory that does not exist on this machine, for example
-  `/data/sources`, which only the containers have, the line warns, because the API and
-  workers resolve it in their own filesystem.
+  connections do. While it is unset the line warns: the CLI and `connectors.yaml` accept
+  any path, but the API refuses every `local_file` connection until the variable is set.
+  The hint names where to set it, in the API and worker environment and, for the CLI, on
+  its line in `env/.env.database`. When it names a directory that does not exist on this
+  machine, for example `/data/sources`, which only the containers have, the line also
+  warns, because the API and workers resolve it in their own filesystem.
 - The `corpus mode` line names the mode chat uses for the tenant the command acts in. It
   is `ok` for `tenant_shared` and warns for `source_acl`, where chat reads only the sources
   the caller has permissions for. See [Ask a grounded question](#ask-a-grounded-question).
 - The `connector credentials` line warns, and names the connectors, while an enabled
-  remote connector has blank variables. The shipped catalog enables three, so a fresh
+  remote connector has blank variables. Its hint lists the blank variable names per
+  connector, never their values. The shipped catalog enables three, so a fresh
   checkout warns until you fill in `env/.env.connector` or set `enabled: false` on the
   connectors you do not use in `config/sources/connectors.yaml`. It does not fail
   `doctor`.
@@ -582,8 +585,11 @@ and `{"keys": […]}` for `list`, in `-o table`, `json` or `yaml`. A failure is 
 violation such as a lifetime over the limit, `3` for a key that does not exist, `4` when
 the database rejects the key row, and `6` when the key table is missing, behind or
 unreachable. `--tenant` defaults like the resource commands, from `HARBORRAG_TENANT_ID`
-and else `DEFAULT`, on `create` and `list`; `revoke` takes either `--key-id`, or `--tenant`
-together with `--owner`.
+and else `DEFAULT`, on `create` and `list`. `revoke` never defaults it: pass `--key-id`
+alone, or `--owner` together with an explicit `--tenant`, so revoking every key of an
+owner cannot hit a default tenant by accident. The operator notices of `auth keys`, such as
+the SQLite warning, print on stderr only when the command succeeds, so a failure's stderr
+is the error envelope alone.
 
 Lifetime limits, the key format and how the MCP server checks keys are in
 [Tenant-bound reader keys and shared corpus access](../detailed-guides/mcp-server/setup-and-integration.md#tenant-bound-reader-keys-and-shared-corpus-access).

@@ -108,6 +108,8 @@ harborrag auth keys list [OPTIONS]
 
 Revoke one key by id, or all active keys of an owner in a tenant (offboarding).
 
+Pass --key-id alone, or --owner together with an explicit --tenant.
+
 ```text
 harborrag auth keys revoke [OPTIONS]
 ```
@@ -115,9 +117,9 @@ harborrag auth keys revoke [OPTIONS]
 | Name | Type | Default | Description |
 | --- | --- | --- | --- |
 | `--reason` | text | required | Recorded in the audit trail. |
-| `--key-id` | text |  | One key. |
-| `--owner` | text |  | With --tenant: every active key of one owner. |
-| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
+| `--key-id` | text |  | One key; do not combine with --tenant. |
+| `--owner` | text |  | Every active key of one owner; needs an explicit --tenant. |
+| `--tenant TENANT_ID` | text |  | Required with --owner, and not allowed with --key-id. Never defaults: HARBORRAG_TENANT_ID and the profile are ignored. |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
 | `--config PATH` | file |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |

@@ -2,12 +2,15 @@
 
 The secret is written once to a file the operator names, created with
 ``O_EXCL`` and mode 0600, and never printed: terminal scrollback, shell
-recordings and CI logs all outlive a key's usefulness.
+recordings and CI logs all outlive a key's usefulness. Operator notices go through
+the CLI log, which the kernel holds until the command succeeds, so a failure's stderr
+is its error report alone.
 """
 
 from __future__ import annotations
 
 import getpass
+import logging
 import os
 import re
 import socket
@@ -20,6 +23,8 @@ from typing import Annotated, Any
 import typer
 
 from harborrag_app.cli.globals import (
+    GLOBAL_OPTIONS_PANEL,
+    TENANT_ENV,
     ConfigOption,
     OutputOption,
     ProfileOption,
@@ -31,6 +36,8 @@ from harborrag_app.cli.invoke import LocalSetupError, ReportedError, run_standal
 from harborrag_app.cli.project import invocation_path
 from harborrag_app.operations.errors import ErrorBody
 from harborrag_core.invariants import HarborInvariantError
+
+logger = logging.getLogger("harborrag.app.cli.auth_keys")
 
 app = typer.Typer(no_args_is_help=True, help="Hashed, tenant-bound MCP reader keys with a TTL.")
 
@@ -169,11 +176,10 @@ def _settings() -> Any:
     except Exception as error:
         raise LocalSetupError(error) from error
     if settings.control_db_url.get_secret_value().lower().startswith("sqlite"):
-        typer.echo(
-            "harborrag: warning: the control database is the local SQLite default; run from the "
+        logger.warning(
+            "the control database is the local SQLite default; run from the "
             "checkout root (env/.env.database) or export HARBORRAG_CONTROL_DB_URL so keys land "
-            "in the database the MCP server reads",
-            err=True,
+            "in the database the MCP server reads"
         )
     return settings
 
@@ -225,7 +231,7 @@ def create(  # noqa: PLR0913 - one parameter per documented option, plus the glo
 
         settings = _settings()
         if await _guarded(api_key_operations.ensure_key_schema(settings, migrate=migrate)):
-            typer.echo("harborrag: applied the pending control-plane migrations", err=True)
+            logger.warning("applied the pending control-plane migrations")
         created = await _guarded(
             api_key_operations.create_key(
                 settings,
@@ -297,22 +303,42 @@ def list_keys(
 @app.command("revoke")
 def revoke(  # noqa: PLR0913 - the selectors plus the global options
     reason: Annotated[str, typer.Option("--reason", help="Recorded in the audit trail.")],
-    key_id: Annotated[str | None, typer.Option("--key-id", help="One key.")] = None,
-    owner: Annotated[
-        str | None, typer.Option("--owner", help="With --tenant: every active key of one owner.")
+    key_id: Annotated[
+        str | None, typer.Option("--key-id", help="One key; do not combine with --tenant.")
     ] = None,
-    tenant: TenantOption = None,
+    owner: Annotated[
+        str | None,
+        typer.Option("--owner", help="Every active key of one owner; needs an explicit --tenant."),
+    ] = None,
+    tenant: Annotated[
+        str | None,
+        typer.Option(
+            "--tenant",
+            metavar="TENANT_ID",
+            help=(
+                "Required with --owner, and not allowed with --key-id. Never defaults: "
+                f"{TENANT_ENV} and the profile are ignored."
+            ),
+            rich_help_panel=GLOBAL_OPTIONS_PANEL,
+        ),
+    ] = None,
     output: OutputOption = None,
     profile: ProfileOption = None,
     config: ConfigOption = None,
     yes: YesOption = False,
 ) -> None:
-    """Revoke one key by id, or all active keys of an owner in a tenant (offboarding)."""
+    """Revoke one key by id, or all active keys of an owner in a tenant (offboarding).
+
+    Pass --key-id alone, or --owner together with an explicit --tenant.
+    """
 
     by_id = key_id is not None and tenant is None and owner is None
     by_owner = key_id is None and tenant is not None and owner is not None
     if not (by_id or by_owner):
-        raise typer.BadParameter("pass either --key-id, or --tenant together with --owner")
+        raise typer.BadParameter(
+            "pass either --key-id alone, or --owner together with an explicit --tenant; "
+            "revoking never uses the default tenant or HARBORRAG_TENANT_ID"
+        )
     resolved = current_globals(
         tenant=tenant, output=output, profile=profile, config=config, yes=yes
     )
