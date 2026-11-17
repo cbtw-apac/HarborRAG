@@ -16,8 +16,9 @@ uv run pytest packages/harborrag-adapters/tests/repositories
 ```
 
 The default run leaves out tests marked `integration`, which is most of `integration/`; only
-`test_mcp_api_keys_repository.py` there carries no marker and runs by default. The marked tests need
-no external service, so run them explicitly:
+`test_mcp_api_keys_repository.py` there carries no marker and runs by default, because it
+runs on a temporary SQLite database and needs no external service. The marked tests need
+no external service either, so run them explicitly:
 
 ```bash
 uv run pytest packages/harborrag-adapters/tests/repositories/integration -m integration

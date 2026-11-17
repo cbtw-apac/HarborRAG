@@ -56,12 +56,9 @@ always wins over the file.
   application reads only `JIRA_TOKEN`.
 - SharePoint: the shipped entry uses `auth_mode: device_code`. Sign in once as
   [Delegated sign-in](../../../../../docs/users/configuration/connector-config.md#delegated-sign-in)
-  describes. The smoke script does not work for this entry today: the connector's
-  `harborrag_tenant_id` setting has no environment source, the smoke bootstrap does not set
-  it, and `connectors.yaml` maps only `MICROSOFT_TENANT_ID` and `MICROSOFT_CLIENT_ID`.
-  Exporting `HARBORRAG_TENANT_ID` does not help, and the script stops with exit code `2`
-  and `auth_mode device_code needs token_cache_path or harborrag_tenant_id`. Until the
-  smoke bootstrap supplies the tenant, check SharePoint through an ingestion run.
+  describes. The smoke script passes `HARBORRAG_TENANT_ID` (default `DEFAULT`) as the
+  connector's tenant, which names the token cache the sign-in fills, so export the same
+  tenant you signed in with.
 - GitHub: no GitHub connection ships. Add one to `connectors.yaml` with the variables it
   references, such as `GITHUB_REPOSITORY_URL` and `GITHUB_TOKEN`, to use the GitHub
   runner.
@@ -76,8 +73,9 @@ uv run python packages/harborrag-adapters/tests/connectors/smoke/run.py --connec
 
 `--connector` also takes a provider name, such as `--connector jira`, when exactly one
 enabled connection uses that provider, or, when none is enabled, exactly one connection
-of that provider. `--limit` sets how many records to discover and
-process (default `3`).
+of that provider. A sole disabled connection is found, and the run then stops with a
+`[config] … is disabled (enabled: false)` line and exit `2`. `--limit` sets how many
+records to discover and process (default `3`).
 
 A passing local run prints the parser engines it resolved and one block per parsed file:
 

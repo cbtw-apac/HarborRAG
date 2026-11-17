@@ -21,6 +21,8 @@ if TYPE_CHECKING:
 
 _ATTACHMENT_PROVIDERS = frozenset({"confluence", "jira"})
 _NETWORK_PROVIDERS = frozenset({"confluence", "github", "jira", "sharepoint"})
+_TENANT_ENV = "HARBORRAG_TENANT_ID"
+_DEFAULT_TENANT_ID = "DEFAULT"
 
 
 def _catalog_source(folder: str, filename: str):
@@ -117,6 +119,9 @@ def build_connector(
         overrides["include_attachments"] = include_attachments
         if include_attachments:
             overrides["custom_parsers"] = attachment_custom_parsers()
+
+    if definition.provider == "sharepoint":
+        overrides["harborrag_tenant_id"] = os.environ.get(_TENANT_ENV) or _DEFAULT_TENANT_ID
 
     connector_kwargs: dict[str, object] = {}
     if definition.provider in _ATTACHMENT_PROVIDERS:

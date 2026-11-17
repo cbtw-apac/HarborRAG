@@ -61,8 +61,9 @@ uv run pytest packages/harborrag-adapters/tests/models/unit
 
 The default run deselects tests marked `integration`, so most of the
 `repositories/integration/` tests run only when you select them. The exception is
-`test_mcp_api_keys_repository.py`, which carries no `integration` marker and runs by
-default. Run a suite by its marker:
+`test_mcp_api_keys_repository.py`: it runs on a temporary SQLite database and needs no
+service, so it carries no `integration` marker and runs by default. Run a suite by its
+marker:
 
 ```bash
 uv run pytest packages/harborrag-adapters/tests/repositories/integration -m integration
