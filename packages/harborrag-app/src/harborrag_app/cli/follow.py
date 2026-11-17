@@ -1,17 +1,7 @@
 """Follow one ingestion run from this process until it ends.
 
-Handles:
-- Reading the run through ``get_ingestion`` every ``POLL_SECONDS``; the server does nothing extra
-- Table mode: one line whenever the run's status or counters change; JSON and YAML print only
-  the final run, which the caller prints
-- The CLI's held-back log records, printed when following starts and live from then on
-- Ctrl-C: stop following, leave the run going and say how to re-attach
-- A read that fails, other than a run not found: the read's error, worded to say the run keeps
-  going, with its ``ingestion_id`` and how to re-attach, so a started run is never lost
-
-Does NOT pause, cancel or otherwise change the run, and sets no time limit; Ctrl-C ends it.
-
-Start from: follow_ingestion, followed.
+Following only reads the run; Ctrl-C stops following and leaves the run going. A failed
+read reports that the run keeps going, so a started run is never lost.
 """
 
 from __future__ import annotations

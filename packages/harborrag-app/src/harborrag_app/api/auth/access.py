@@ -1,11 +1,6 @@
 """Route guards that run credential, tenant and role checks in that order.
 
-Handles:
-- ``require_role``: the one dependency every ``/v1`` route declares for its lowest role
-- ``minimum_role``: reading that role back from a route, for OpenAPI and the contract test
-
-Does NOT verify credentials or pick tenants itself; it composes ``get_principal`` and the
-tenancy dependencies, so a failed check never reaches the handler.
+A failed check never reaches the handler.
 """
 
 from collections.abc import Callable, Iterator, Sequence

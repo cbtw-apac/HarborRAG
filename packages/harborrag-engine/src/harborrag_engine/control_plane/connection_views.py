@@ -1,8 +1,6 @@
 """Present connections, projects and ingestion runs in the HTTP API's shapes.
 
-Handles:
-- the spec's ``Connection`` object, secrets reduced to ``SecretStatus``
-- the spec's ``Ingestion`` object from a durable ingestion task
+Secrets are reduced to ``SecretStatus``.
 """
 
 from __future__ import annotations

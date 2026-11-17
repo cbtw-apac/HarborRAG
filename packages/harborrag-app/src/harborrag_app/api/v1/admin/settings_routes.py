@@ -1,10 +1,5 @@
 """Runtime settings per tenant, project and connection.
 
-Handles:
-- ``GET /v1/admin/settings`` (admin; editor for ``connection:`` levels)
-- ``PATCH /v1/admin/settings`` (admin)
-- ``GET /v1/admin/settings/schema`` (editor)
-
 Routes parse the ``level`` query and ``If-Match`` into a ``Scope`` and the operation's
 arguments, call the operations port, and set the ``ETag`` it returns.
 """

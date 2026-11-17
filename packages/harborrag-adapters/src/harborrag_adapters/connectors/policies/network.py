@@ -1,12 +1,9 @@
 """Keep connector HTTP traffic off private networks unless the operator allows a host.
 
-Handles:
-- ``DestinationPolicy``: which peer addresses a connector may reach; public addresses
-  always, private, loopback, link-local and reserved ones only when allowed by name
-  or network in ``HARBORRAG_CONNECTOR_ALLOWED_HOSTS``
-- ``guarded_session``: a ``requests`` session that takes its policy from the caller
-  and checks every address a host resolves to before connecting, then the address
-  the socket actually reached, so neither a closed port nor a DNS answer that changes in between slips through
+Public addresses are always allowed; private, loopback, link-local and reserved ones only
+when named in ``HARBORRAG_CONNECTOR_ALLOWED_HOSTS``. ``guarded_session`` checks every address
+a host resolves to before connecting, then the address the socket actually reached, so
+neither a closed port nor a DNS answer that changes in between slips through.
 
 Proxy variables such as ``HTTPS_PROXY`` are ignored unless the operator sets
 ``HARBORRAG_CONNECTOR_USE_PROXY``. Through a proxy, only the target host's own

@@ -1,11 +1,6 @@
-"""The handlers that answer every failure with one envelope.
+"""The handlers that answer every failure with one error envelope.
 
-Handles:
-- Mapping ``HarborError`` classes, request validation, framework HTTP errors and
-  unhandled exceptions onto ``{"error": {"code", "message", "details", "trace_id"}}``
-- Choosing each response's ``code`` from the catalog, so clients branch on stable strings
-
-Does NOT decide what a service raises; the services own their exceptions.
+Services own the exceptions they raise; these handlers only map them.
 """
 
 from __future__ import annotations

@@ -1,15 +1,7 @@
 """``ingestions start --inline``: run one ingestion in this process, without Temporal.
 
-Handles:
-- Resolving ``PROJECT_ID/CONNECTION_ID`` to the stored connection and its ``source_key``
-- Refusing a ``local_file`` connection whose ``source_path`` is not a directory on this
-  machine, before any work, since the stack stores the path its containers see
-- Running the direct ingestion and choosing the exit code from the result's status
-
-Does NOT import ``connectors.yaml``: the one-time import stays in the API's start-up, and the
-connection must already exist. For development only; production runs go through Temporal.
-
-Start from: run_inline.
+For development only; production runs go through Temporal. The connection must already
+exist, because the one-time ``connectors.yaml`` import stays in the API's start-up.
 """
 
 from __future__ import annotations

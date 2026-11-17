@@ -1,12 +1,8 @@
 """In-process chat completion and session operations.
 
-Handles:
-- The completion request as the chat service's plain request, caller and idempotency key
-- The stored answer as the wire response, or as SSE frames for ``stream=true``
-- The caller's conversation key, built from the verified principal, never from request fields
-
-Does NOT refuse modes or filters, replay answers or run the turn, which the chat service
-does, or set headers and wrap event frames in a response, which the transport does.
+The caller's conversation key is built from the verified principal, never from request
+fields. Mode and filter refusals, replay and the turn itself belong to the chat service;
+headers and event framing belong to the transport.
 """
 
 from __future__ import annotations

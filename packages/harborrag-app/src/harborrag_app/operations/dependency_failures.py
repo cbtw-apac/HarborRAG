@@ -1,11 +1,7 @@
 """Name the dependency behind an unhandled connection failure.
 
-Handles:
-- Telling a lost connection to Postgres, Redis, Temporal, Qdrant or the graph store
-  apart from a bug, from the exception chain and the modules its traceback ran through
-
-Does NOT catch anything: the error handlers call ``failed_dependency`` on an exception
-no layer translated, and answer ``503 dependency_unavailable`` when it names one.
+The error handlers call ``failed_dependency`` only on an exception no layer translated, and
+answer ``503 dependency_unavailable`` when it names one.
 """
 
 from __future__ import annotations

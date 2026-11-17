@@ -1,10 +1,7 @@
 """Follow one ingestion run's events for a tenant.
 
-Handles:
-- The tenant guard on a run's event stream, which the event iterator itself does not carry
-- A run that has ended with nothing to send after the resume point, as no stream
-
-Does NOT frame events as SSE; the transport does.
+Adds the tenant guard that the event iterator itself does not carry. The transport frames
+events as SSE.
 """
 
 from __future__ import annotations

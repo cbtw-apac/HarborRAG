@@ -3,8 +3,6 @@
 ``SettingsImporter`` plans a document against a tenant's stored overrides and applies
 the plan as one revision; ``seed_settings_once`` uses it at API start. The CLI
 ``config import`` and ``config export`` use the same importer.
-
-Does NOT read YAML; ``harborrag_runtime.config.settings_document`` does.
 """
 
 from __future__ import annotations

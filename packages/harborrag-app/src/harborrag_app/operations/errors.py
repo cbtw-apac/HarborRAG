@@ -1,11 +1,7 @@
 """The error catalogue and the one mapping from an exception to a status, code and message.
 
-Handles:
-- Mapping ``HarborError`` classes and unhandled exceptions onto ``ErrorBody``
-- Choosing each body's ``code`` from the catalogue, so clients branch on stable strings
-- Naming the dependency when an untranslated connection failure arrives
-
-Does NOT import a web framework: the HTTP handlers and the CLI both call ``error_body``.
+Clients branch on the catalogue's stable ``code`` strings. It imports no web framework,
+so the HTTP handlers and the CLI both call ``error_body``.
 """
 
 from __future__ import annotations

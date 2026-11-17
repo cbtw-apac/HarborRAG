@@ -1,11 +1,6 @@
 """One chat completion request as the chat service takes it, and the options it narrows to.
 
-Handles:
-- The request, its caller and its idempotency key as plain values, free of any wire model
-- The mode and filter refusals, and the connections a request is narrowed to, all before any
-  model call
-
-Does NOT run the turn; ``ChatClientMixin.complete_chat_request`` does.
+Mode and filter refusals and the connection narrowing happen here, before any model call.
 """
 
 from __future__ import annotations

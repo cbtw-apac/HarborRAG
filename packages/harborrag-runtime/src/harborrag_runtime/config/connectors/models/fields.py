@@ -1,10 +1,4 @@
-"""Field types shared by the source-type models.
-
-Handles:
-- ``Secret``: a write-only credential that is a value or a secret reference
-- ``HttpUrl``, ``HttpsUrl`` and ``Email``: string fields with a published JSON Schema format
-- widget markers that turn into ``ui`` hints for the connection form
-"""
+"""Field types shared by the source-type models."""
 
 from __future__ import annotations
 

@@ -1,14 +1,4 @@
-"""Paging options shared by the list commands, and ``--all`` as one merged page.
-
-Handles:
-- ``--limit``, ``--cursor`` and ``--all`` as ``Annotated`` aliases, with the HTTP list limits
-- Following ``next_cursor`` client-side, so ``--all`` prints one ``{"items": [...],
-  "next_cursor": null}``
-
-Does NOT call operations itself; the caller passes the fetch of one page.
-
-Start from: collect_pages.
-"""
+"""Paging options shared by the list commands, and ``--all`` as one merged page."""
 
 from __future__ import annotations
 

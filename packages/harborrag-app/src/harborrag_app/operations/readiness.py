@@ -1,11 +1,7 @@
 """Dependency readiness checks for ``GET /readyz`` and ``harborrag doctor``.
 
-Handles:
-- One protocol-level probe per dependency: Postgres, Redis, Temporal, Qdrant and the graph store
-- Running every check concurrently under one timeout and caching the report for a few seconds
-
-Does NOT open client libraries or connection pools: each probe speaks just enough of the
-dependency's protocol to tell a serving process from a closed port.
+Each probe speaks just enough of the dependency's protocol to tell a serving process from a
+closed port, without opening client libraries or connection pools.
 """
 
 from __future__ import annotations

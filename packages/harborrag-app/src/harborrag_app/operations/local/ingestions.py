@@ -1,11 +1,7 @@
 """In-process ingestion run and failure inbox operations.
 
-Handles:
-- Run starts, event streams, actions and the failure inbox, each as one application-service
-  call with the caller recorded as the actor
-- A started run as the response body and the path that follows it
-
-Does NOT frame events as SSE or set status codes and headers; the transport does.
+Each operation is one application-service call with the caller recorded as the actor. The
+transport frames events as SSE and sets status codes and headers.
 """
 
 from __future__ import annotations

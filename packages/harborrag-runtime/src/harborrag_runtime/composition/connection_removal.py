@@ -1,8 +1,6 @@
 """Build the stores a connection removal needs, outside a worker runtime.
 
-Handles:
-- the ingestion control database, vector store and graph a removal touches
-- building and connecting them on first use, closing them with the owning process
+They are built and connected on first use and closed with the owning process.
 """
 
 from __future__ import annotations

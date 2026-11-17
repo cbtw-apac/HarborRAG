@@ -1,9 +1,6 @@
 """In-process runtime settings operations.
 
-Handles:
-- ``If-Match`` as the service's expected revision; a revision as the ETag and its ``rev_<N>`` label
-
-Does NOT set the ``ETag`` header or status codes; the transport does.
+The transport sets the ``ETag`` header and status codes.
 """
 
 from __future__ import annotations

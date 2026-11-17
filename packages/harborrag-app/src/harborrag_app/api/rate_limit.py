@@ -1,13 +1,7 @@
-"""Per-principal request rate limits.
+"""Per-principal request rate limits, shared through Redis or kept in process.
 
-Handles:
-- A sliding one-second window per principal and bucket: ``default``, or ``chat`` for
-  completions
-- ``429 rate_limited`` with an integer ``Retry-After`` when a call would exceed its bucket
-- Windows shared through Redis across replicas, or kept in process for development
-
-Does NOT limit the probes or ``/metrics``, which sit outside ``/v1``, and lets calls through
-when Redis is down: losing the limiter must not take the API down with it.
+The probes and ``/metrics`` sit outside ``/v1`` and are not limited. Calls pass when Redis
+is down: losing the limiter must not take the API down with it.
 """
 
 from __future__ import annotations

@@ -1,13 +1,6 @@
 """Remove one connection's documents from every store.
 
-Handles:
-- retiring each published document of the connection, which queues the same
-  projection cleanup a removed source item gets
-- draining that cleanup so the vectors and graph versions are gone
-- dropping the connection's source scopes from the graph
-- optionally purging its Postgres history (runs, documents, scopes)
-
-Does NOT touch the connection row or its secrets; the caller removes those last.
+The connection row and its secrets are left to the caller, which removes them last.
 """
 
 from __future__ import annotations

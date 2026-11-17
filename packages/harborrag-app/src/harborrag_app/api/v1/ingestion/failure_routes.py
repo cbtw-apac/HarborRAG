@@ -1,9 +1,4 @@
-"""Failure inbox under ``/v1/admin/failures``.
-
-Handles:
-- ``GET`` (editor): page the failed documents with per-category counts
-- ``POST /retry`` (editor): retry failures by ID or by filter, one run per root run
-"""
+"""Failure inbox under ``/v1/admin/failures``."""
 
 from __future__ import annotations
 

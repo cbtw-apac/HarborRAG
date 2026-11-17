@@ -1,16 +1,7 @@
 """Table-mode views of operation bodies, for a person at a terminal.
 
-Handles:
-- Lists (a body with ``items``): one row per item with the identifiers, name, source type,
-  status, stage, error category and one timestamp that any item has, then
-  ``More: --cursor <next_cursor>`` when a page follows; items with none of those print as a tree
-- A chat completion: the answer text, then its citations as a numbered list
-- Single objects: a key/value tree, where a stored secret's status reads ``set ****1234``
-
-Does NOT change what JSON or YAML print; it draws the same serialized body. Values are
-printed as plain text, never read as Rich markup.
-
-Start from: render, render_doctor.
+They draw the same serialized body that JSON and YAML print. Values are printed as
+plain text, never read as Rich markup.
 """
 
 from __future__ import annotations

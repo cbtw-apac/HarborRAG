@@ -1,10 +1,6 @@
 """Liveness and readiness probes.
 
-Handles:
-- ``GET /healthz``: the process is up, with no dependency calls
-- ``GET /readyz``: ``200`` when every dependency check is ``ok``, ``503`` otherwise
-
-Does NOT authenticate, rate-limit or use the error envelope: probes answer the same
+Probes neither authenticate, rate-limit nor use the error envelope: they answer the same
 body whatever credential a caller sends.
 """
 

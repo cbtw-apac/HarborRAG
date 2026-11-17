@@ -1,6 +1,6 @@
 """Weak ETags of the form ``W/"rev-<version>"``, the wire form of a resource version.
 
-Does NOT import a web framework: the HTTP routes and the CLI both send and read these.
+Imports no web framework: the HTTP routes and the CLI both send and read these.
 """
 
 from __future__ import annotations

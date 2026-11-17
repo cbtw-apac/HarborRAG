@@ -1,15 +1,7 @@
 """Source types, connections, connection tests, and projects.
 
-Handles:
-- ``/v1/admin/source-types``, ``/v1/admin/connections`` and
-  ``/v1/admin/projects/{project_id}/connections/{connection_id}[/test]`` (editor)
-- ``/v1/admin/projects[/{project_id}]`` (admin)
-- ``/v1/projects/{project_id}/connections`` (reader)
-
 Routes parse HTTP into a ``Scope`` and the operation's arguments, call the
 operations port, and turn its result into ``ETag`` headers and status codes.
-
-Does NOT start ingestions; ``POST /v1/admin/ingestions`` does.
 """
 
 from __future__ import annotations

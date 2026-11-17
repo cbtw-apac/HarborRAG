@@ -1,11 +1,6 @@
 """Check a connection against its source: reachability, credentials, permissions, preview.
 
-Handles:
-- a chain of check steps, each recording its checks and stopping the chain on failure
-- mapping connector errors to the spec's ``error_category`` without leaking source text
-- a bounded preview of up to five items
-
-Does NOT validate the connection's schema or store anything.
+Connector errors map to the spec's ``error_category`` without leaking source text.
 """
 
 from __future__ import annotations

@@ -1,10 +1,7 @@
 """SQLAlchemy ``ConnectionRepositoryPort`` over the ``sources`` table.
 
-Handles:
-- lookups by public identity, ``source_key`` and internal id
-- the attention-first keyset listing shared with the in-memory fake
-- compare-and-swap writes that advance ``version`` exactly once per overwrite
-- immutable connection revisions keyed by content fingerprint
+Writes are compare-and-swap, advancing ``version`` exactly once per overwrite. The
+attention-first listing is shared with the in-memory fake.
 """
 
 from __future__ import annotations

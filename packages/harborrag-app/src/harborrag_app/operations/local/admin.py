@@ -1,10 +1,6 @@
 """In-process identity, source-type, connection and project operations.
 
-Handles:
-- ``If-Match`` and ``If-None-Match`` values as the services' expected version and create-only
-- Request bodies as ``ConnectionWrite``, service tuples as response models with their ETags
-
-Does NOT choose status codes or headers; the transport does.
+The transport chooses status codes and headers.
 """
 
 from __future__ import annotations

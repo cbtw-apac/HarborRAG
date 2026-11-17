@@ -1,12 +1,8 @@
 """Control-plane stores an ingestion worker needs to build connectors.
 
-Handles:
-- connection rows (status updates and scheduled runs), connection revisions,
-  stored secrets, projects and the import marker, over one control-plane engine
-- the same encryption-key rule the API applies, checked at worker start
-
 Workers never migrate: the API process owns the schema. ``migrate_control_plane``
-is for direct mode, where no API process runs.
+is for direct mode, where no API process runs. The encryption-key rule the API applies
+is checked at worker start too.
 """
 
 from __future__ import annotations

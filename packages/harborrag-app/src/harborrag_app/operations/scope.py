@@ -1,10 +1,6 @@
 """Who is acting and which connection they name, independent of the transport.
 
-Handles:
-- ``Scope``: the principal and tenant an operation runs for, with the role and tenant check
-- ``ConnectionRef``: the ``project_id/connection_id`` text a CLI user types
-
-Does NOT verify credentials; the transport builds the ``Principal`` before an operation runs.
+The transport verifies credentials and builds the ``Principal`` before an operation runs.
 """
 
 from __future__ import annotations

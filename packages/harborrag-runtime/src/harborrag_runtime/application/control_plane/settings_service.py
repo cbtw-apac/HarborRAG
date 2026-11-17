@@ -1,12 +1,8 @@
 """Read and change runtime settings of one tenant.
 
-Handles the use cases behind ``/v1/admin/settings``: reading the overrides or the
-effective values at a level, planning and writing a PATCH under an optimistic
-revision check, and publishing the registry's JSON schema. The level text, the role a
-level needs and the refusals of a malformed PATCH are decided here, so every transport
-applies them the same way.
-
-Does NOT cache or notify other processes; the store and the config provider do.
+The use cases behind ``/v1/admin/settings``. The level text, the role a level needs and
+the refusals of a malformed PATCH are decided here, so every transport applies them the
+same way.
 """
 
 from __future__ import annotations

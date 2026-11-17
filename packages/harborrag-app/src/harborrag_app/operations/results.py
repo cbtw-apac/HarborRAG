@@ -1,10 +1,6 @@
 """Success wrappers an operation returns when the transport needs more than the body.
 
-Handles:
-- ``Tagged``, ``Saved`` and ``Accepted``: a body with its ETag, with its ETag and whether it
-  was created, and with the ``Location`` of the work it started
-
-Does NOT choose a status code or header name; each transport does.
+Each transport chooses its own status codes and header names.
 """
 
 from __future__ import annotations

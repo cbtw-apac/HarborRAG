@@ -1,11 +1,6 @@
 """Start an ingestion of a connection and read the queued run back.
 
-Handles:
-- The project check, then the connection's own checks and the start
-- A project or connection that does not exist as a reference error naming the field
-- The queued run as the spec's ``Ingestion`` object, with its links
-
-Does NOT choose the response's status or ``Location``; the transport does.
+The transport chooses the response's status and ``Location``.
 """
 
 from __future__ import annotations

@@ -1,11 +1,7 @@
 """Who is calling: bearer tokens, API keys and the role and tenant checks on a principal.
 
-Handles:
-- Verifying a user token (HS256 JWT) or an API key into a ``Principal``
-- One ``401 unauthenticated`` message for every rejected credential, whatever check failed
-- Role and tenant checks on a principal that handlers call for fields in a body
-
-Does NOT order the checks of a route; ``auth.access.require_role`` does.
+Every rejected credential gets the same ``401 unauthenticated`` message, whatever check
+failed. The order of a route's checks is set by ``auth.access.require_role``.
 """
 
 from __future__ import annotations

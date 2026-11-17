@@ -1,25 +1,9 @@
 """Run one operation for a CLI command and report it as the HTTP route would.
 
-Handles:
-- One application service per invocation: built off the event loop, refused when its control
-  plane is not ready, closed afterwards
-- Before a write: the checkout's control-database refusal and the new-tenant question
-- The body on stdout and exit 0, or the exit code an ``Outcome`` names (``8`` for a followed
-  run that failed); a result that cannot be printed after the operation ran is reported as
-  that, exit 1, never as the operation failing; any failure as the HTTP error envelope or one
-  line on stderr, with a trace id minted per invocation, and the spec's exit code; a
-  ``ReportedError`` as the command worded it
-- The invocation's trace id, minted once and read by a call through ``current_trace_id``
-- A failure to set up the local service (settings, composition, control-plane readiness) as
-  the operator's own configuration error: ``error_body``'s status and code, with a message
-  that says what to fix instead of the opaque one an operation's failure gets
-- The in-process server's log: unless ``HARBORRAG_LOG_LEVEL`` is set, what it would print is
-  held back and printed only after a success, so a failure's stderr is its error report alone;
-  a command that keeps working after its operation succeeded releases it early
-
-Does NOT parse arguments or hold business rules; commands parse, operations decide.
-
-Start from: run_operation, run_standalone, Outcome, current_trace_id, release_held_logs.
+Commands parse arguments and operations decide; this module holds no business rules. The
+in-process server's log is held back until the operation succeeds, so a failure's stderr
+is its error report alone. A result that cannot be printed after the operation ran is
+reported as that, never as the operation failing.
 """
 
 from __future__ import annotations

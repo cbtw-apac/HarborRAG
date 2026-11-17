@@ -1,16 +1,7 @@
 """Build connectors from stored connections, per ingestion run.
 
-Handles:
-- ``ConnectionResolver``: load a connection by ``source_key``, validate it and
-  save the immutable snapshot the run will use
-- ``build_connector``: the one place a connector is constructed, shared by the
-  workers and the connection test
-- ``ConnectorPool``: per-run connectors in a worker, built on first use from the
-  run's snapshot with secrets resolved inside the activity
-- ``ConnectionHealth``: ``needs_reauth`` on credential failures, ``active`` again
-  after a run authenticates
-
-Does NOT read ``connectors.yaml``.
+``build_connector`` is the one place a connector is constructed, shared by the workers and
+the connection test. Secrets are resolved inside the activity, from the run's snapshot.
 """
 
 from __future__ import annotations

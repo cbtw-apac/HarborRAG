@@ -1,14 +1,7 @@
 """Request bodies and secrets from a command's files, flags and prompts.
 
-Handles:
-- A body file (``-`` for stdin) as JSON or YAML, merged with the flags that set the same
-  fields, and validated into the request model; every problem is a usage error (exit 2)
-- ``--secret-prompt`` values read without echo
-
-Does NOT call operations or print values: an error names a field and its problem, never the
-value it held, so a secret in a rejected body stays out of the terminal.
-
-Start from: load_body, read_fields, read_with_secrets, comma_list.
+An error names a field and its problem, never the value it held, so a secret in a
+rejected body stays out of the terminal.
 """
 
 from __future__ import annotations

@@ -1,9 +1,5 @@
 """Project use cases: list, read, create or update, and delete with its connections.
 
-Handles:
-- ``put`` on an id the caller chooses, with ETag preconditions
-- ``delete``: immediate for an empty project, a background cascade otherwise
-
 Project ids are unique across tenants in 2.0.0 storage, so an id another
 tenant holds is reported as ``already_exists``.
 """

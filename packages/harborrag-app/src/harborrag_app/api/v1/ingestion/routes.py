@@ -1,11 +1,5 @@
 """Ingestion runs under ``/v1/admin/ingestions``.
 
-Handles:
-- ``POST`` (editor): start an ingestion of one connection
-- ``GET`` and ``GET /{ingestion_id}`` (editor): list runs and read one
-- ``GET /{ingestion_id}/documents|events`` (editor): a run's documents and its event stream
-- ``POST /{ingestion_id}/pause|resume|cancel|retry-failures`` (editor): control a run
-
 Function scope, like the chat router: with the default request scope the server deadline stays armed
 across a StreamingResponse body and hard-cancels the SSE stream mid-flight with no terminal error
 frame. The capacity lease is still held until the last frame; streams carry their own deadline.

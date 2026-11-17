@@ -1,13 +1,6 @@
 """Print an operation's body or error the way its HTTP route answers.
 
-Handles:
-- ``-o json``: the route's response body, serialized with its own response model and flags;
-  ``-o yaml``: the same object as YAML; ``-o table``: the view ``views.render`` draws
-- Errors on stderr: the HTTP error envelope in JSON or YAML mode, one line in table mode
-
-Does NOT catch exceptions or choose exit codes; ``invoke`` does.
-
-Start from: print_body, print_error.
+Exceptions and exit codes are handled by ``invoke``.
 """
 
 from __future__ import annotations
