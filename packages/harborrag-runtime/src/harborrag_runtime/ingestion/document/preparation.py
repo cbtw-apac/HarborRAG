@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
-from harborrag_adapters.connectors.base import BaseConnector
-from harborrag_adapters.connectors.harbor_connector import HarborConnector
 from harborrag_core.domain.document import Document
 from harborrag_core.ingestion import (
     DocumentVersionCandidate,
     SourceAdmissionDecision,
 )
 from harborrag_engine.ingestion.chunking.schemas import ChunkingStatistics
-from harborrag_engine.ingestion.release.dependencies import DocumentReleaseDependencies
+from harborrag_engine.ingestion.release.dependencies import (
+    DocumentReleaseDependencies,
+    RawDocumentLoader,
+)
 from harborrag_engine.ingestion.release.materialization import DocumentMaterializationStages
 from harborrag_engine.ingestion.release.models import DocumentReleaseRequest
 from harborrag_engine.ingestion.release.stage_models import (
@@ -35,7 +36,7 @@ class DocumentPreparationStages:
     async def fetch_and_capture(
         self,
         request: DocumentReleaseRequest,
-        connector: BaseConnector | HarborConnector,
+        connector: RawDocumentLoader,
     ) -> RawCaptureStageResult:
         """Admit the source item and capture its raw artifact."""
         return await self._capture.fetch_and_capture(request, connector)

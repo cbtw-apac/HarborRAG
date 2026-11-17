@@ -6,13 +6,14 @@ import logging
 from collections.abc import Awaitable, Callable
 from time import perf_counter
 
-from harborrag_adapters.connectors.base import BaseConnector
-from harborrag_adapters.connectors.harbor_connector import HarborConnector
-from harborrag_engine.ingestion.release.dependencies import DocumentReleaseDependencies
+from harborrag_core.ingestion.stages import DOCUMENT_STAGE_ORDER
+from harborrag_engine.ingestion.release.dependencies import (
+    DocumentReleaseDependencies,
+    RawDocumentLoader,
+)
 from harborrag_engine.ingestion.release.models import DocumentReleaseOutcome, DocumentReleaseRequest
 from harborrag_engine.ingestion.release.projection import DocumentProjectionStages
 from harborrag_engine.ingestion.release.stage_models import PreparedDocumentStage
-from harborrag_runtime.document_stage_catalog import DOCUMENT_STAGE_CATALOG
 
 from .preparation import DocumentPreparationStages
 
@@ -41,7 +42,7 @@ class DocumentStagePipeline:
     async def release(
         self,
         request: DocumentReleaseRequest,
-        connector: BaseConnector | HarborConnector,
+        connector: RawDocumentLoader,
     ) -> DocumentReleaseOutcome:
         """Run capture, normalization and every later stage for one source item.
 
@@ -143,7 +144,7 @@ class DocumentStagePipeline:
             "WriteGraphProjection": self.projections.write_graph_projection,
             "VerifyProjections": self.projections.verify_projections,
         }
-        stages = tuple((spec.name, stage_functions[spec.name]) for spec in DOCUMENT_STAGE_CATALOG)
+        stages = tuple((name, stage_functions[name]) for name in DOCUMENT_STAGE_ORDER)
         for stage_name, stage in stages:
             started_at = perf_counter()
             logger.debug(

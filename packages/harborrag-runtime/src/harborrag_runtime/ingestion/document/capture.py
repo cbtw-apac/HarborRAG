@@ -6,8 +6,6 @@ import asyncio
 import logging
 from time import perf_counter
 
-from harborrag_adapters.connectors.base import BaseConnector
-from harborrag_adapters.connectors.harbor_connector import HarborConnector
 from harborrag_core.domain.document import Document
 from harborrag_core.ingestion import (
     ArtifactReference,
@@ -27,7 +25,10 @@ from harborrag_engine.ingestion import (
     with_title_as_content,
 )
 from harborrag_engine.ingestion.release.capture_decisions import active_candidate
-from harborrag_engine.ingestion.release.dependencies import DocumentReleaseDependencies
+from harborrag_engine.ingestion.release.dependencies import (
+    DocumentReleaseDependencies,
+    RawDocumentLoader,
+)
 from harborrag_engine.ingestion.release.lifecycle import DocumentVersionLifecycle
 from harborrag_engine.ingestion.release.materialization_helpers import enrich_raw_document
 from harborrag_engine.ingestion.release.models import DocumentReleaseRequest
@@ -63,7 +64,7 @@ class DocumentCaptureStages:
     async def fetch_and_capture(
         self,
         request: DocumentReleaseRequest,
-        connector: BaseConnector | HarborConnector,
+        connector: RawDocumentLoader,
     ) -> RawCaptureStageResult:
         """Admit the source item and capture its raw artifact unless it is unchanged."""
         document_id = self._identities.document_id(

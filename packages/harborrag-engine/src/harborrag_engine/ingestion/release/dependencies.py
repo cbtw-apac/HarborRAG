@@ -8,6 +8,7 @@ from typing import Protocol
 
 from harborrag_core.domain.parser import ParsedDocument
 from harborrag_core.domain.raw_document import RawDocument
+from harborrag_core.domain.source import SourceRecord
 from harborrag_core.ingestion import IngestionFailureClassifier
 from harborrag_core.ingestion.run_contracts import RunSettings
 from harborrag_core.ports import KnowledgeGraphRepositoryPort
@@ -34,6 +35,14 @@ class DocumentParserPort(Protocol):
 
     def parse(self, source: RawDocument, /) -> ParsedDocument:
         """Return the parsed form of ``source``."""
+        ...
+
+
+class RawDocumentLoader(Protocol):
+    """Load the raw document behind one discovered source record."""
+
+    def load(self, record: SourceRecord, /) -> RawDocument:
+        """Return the raw document for ``record``."""
         ...
 
 

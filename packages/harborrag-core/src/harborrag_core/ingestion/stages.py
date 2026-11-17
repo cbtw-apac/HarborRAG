@@ -23,6 +23,18 @@ SPEC_STAGES: Mapping[str, str] = MappingProxyType(
     }
 )
 
+DOCUMENT_STAGE_ORDER: tuple[str, ...] = (
+    "SyncContentUnits",
+    "PersistCanonical",
+    "ChunkAndValidate",
+    "EncodeChunks",
+    "BuildRelations",
+    "BuildProjections",
+    "WriteVectorProjection",
+    "WriteGraphProjection",
+    "VerifyProjections",
+)
+
 
 def spec_stage(internal: str | None) -> str:
     """Return the spec stage of an internal stage; unknown or missing is ``capture``."""

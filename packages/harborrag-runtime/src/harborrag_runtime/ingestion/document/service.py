@@ -1,9 +1,10 @@
 """Application service for publishing one document release pipeline."""
 
-from harborrag_adapters.connectors.base import BaseConnector
-from harborrag_adapters.connectors.harbor_connector import HarborConnector
 from harborrag_core.storage import StorageOperationContext
-from harborrag_engine.ingestion.release.dependencies import DocumentReleaseDependencies
+from harborrag_engine.ingestion.release.dependencies import (
+    DocumentReleaseDependencies,
+    RawDocumentLoader,
+)
 from harborrag_engine.ingestion.release.models import DocumentReleaseOutcome, DocumentReleaseRequest
 
 from .pipeline import DocumentStagePipeline
@@ -30,7 +31,7 @@ class DocumentReleaseService:
     async def release(
         self,
         request: DocumentReleaseRequest,
-        connector: BaseConnector | HarborConnector,
+        connector: RawDocumentLoader,
     ) -> DocumentReleaseOutcome:
         """Release one document through the pipeline."""
         return await self._pipeline.release(request, connector)
