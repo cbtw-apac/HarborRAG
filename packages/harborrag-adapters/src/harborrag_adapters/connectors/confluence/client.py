@@ -9,6 +9,7 @@ from harborrag_adapters.connectors.atlassian.client import (
     AtlassianClientContext,
     AtlassianRestClient,
 )
+from harborrag_adapters.connectors.policies.network import DestinationPolicy
 from harborrag_adapters.connectors.rate_limiting import (
     ConnectorRateLimiter,
     RateLimitIdentity,
@@ -49,6 +50,7 @@ class _RequestsConfluenceClient(AtlassianRestClient[ConfluenceSpaceConfig]):
         config: ConfluenceSpaceConfig,
         *,
         rate_limiter: ConnectorRateLimiter | None = None,
+        destination_policy: DestinationPolicy | None = None,
     ) -> None:
         super().__init__(
             config,
@@ -64,6 +66,7 @@ class _RequestsConfluenceClient(AtlassianRestClient[ConfluenceSpaceConfig]):
                 ),
             ),
             rate_limiter=rate_limiter,
+            destination_policy=destination_policy,
         )
         if config.deployment_type == ConfluenceDeploymentType.CLOUD:
             if config.email is None or config.token is None:

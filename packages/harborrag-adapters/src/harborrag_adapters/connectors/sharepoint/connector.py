@@ -15,6 +15,7 @@ from harborrag_adapters.connectors.exceptions import (
     DocumentProcessingError,
     FetchError,
 )
+from harborrag_adapters.connectors.policies.network import DestinationPolicy
 from harborrag_adapters.connectors.rate_limiting import ConnectorRateLimiter
 from harborrag_core.domain.raw_document import RawDocument
 from harborrag_core.domain.source import SourceRecord
@@ -89,14 +90,19 @@ class SharePointConnector(BaseConnector):
         *,
         client: SharePointClient | None = None,
         rate_limiter: ConnectorRateLimiter | None = None,
+        destination_policy: DestinationPolicy | None = None,
     ) -> None:
         """Initialize drive operations with an optional client override.
 
         ``rate_limiter`` is the runtime's shared limiter, so every worker
         throttles one Graph app registration together and reports its waits.
+        ``destination_policy`` is the runtime's host policy; without it only
+        public addresses are reachable.
         """
         self.config = config
-        self.client = client or _RequestsGraphClient(config, rate_limiter=rate_limiter)
+        self.client = client or _RequestsGraphClient(
+            config, rate_limiter=rate_limiter, destination_policy=destination_policy
+        )
         self.run_id = uuid.uuid4().hex
         self._skips = SharePointSkipRecorder(self.run_id)
         self._drive = SharePointDriveAPI(self.client, config, skips=self._skips)

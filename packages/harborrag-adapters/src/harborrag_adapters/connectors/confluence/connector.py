@@ -16,6 +16,7 @@ from harborrag_adapters.connectors.base import BaseConnector
 from harborrag_adapters.connectors.descriptors import ConnectorDocumentDescriptor
 from harborrag_adapters.connectors.exceptions import DocumentProcessingError
 from harborrag_adapters.connectors.policies.http import verify_credentials
+from harborrag_adapters.connectors.policies.network import DestinationPolicy
 from harborrag_adapters.connectors.rate_limiting import ConnectorRateLimiter
 from harborrag_adapters.parsers import HarborParserRegistry
 from harborrag_core.domain.raw_document import RawDocument
@@ -70,6 +71,7 @@ class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
         client: ConfluenceClient | None = None,
         parser: HarborParserRegistry | None = None,
         rate_limiter: ConnectorRateLimiter | None = None,
+        destination_policy: DestinationPolicy | None = None,
     ) -> None:
         """Initialize provider APIs and shared attachment processing."""
         self.config = config
@@ -77,6 +79,7 @@ class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
         self.client = client or _RequestsConfluenceClient(
             config,
             rate_limiter=rate_limiter,
+            destination_policy=destination_policy,
         )
         self._content = ConfluenceContentAPI(self.client, config)
         self._attachments = AttachmentProcessor(

@@ -4,13 +4,16 @@ Handles:
 - ``DestinationPolicy``: which peer addresses a connector may reach; public addresses
   always, private, loopback, link-local and reserved ones only when allowed by name
   or network in ``HARBORRAG_CONNECTOR_ALLOWED_HOSTS``
-- ``guarded_session``: a ``requests`` session that checks every address a host
-  resolves to before connecting, then the address the socket actually reached,
-  so neither a closed port nor a DNS answer that changes in between slips through
+- ``guarded_session``: a ``requests`` session that takes its policy from the caller
+  and checks every address a host resolves to before connecting, then the address
+  the socket actually reached, so neither a closed port nor a DNS answer that changes in between slips through
 
 Proxy variables such as ``HTTPS_PROXY`` are ignored unless the operator sets
 ``HARBORRAG_CONNECTOR_USE_PROXY``. Through a proxy, only the target host's own
 addresses are checked; the proxy then decides where the request goes.
+
+Only ``DestinationPolicy.from_environ`` reads the environment, and the runtime calls
+it. A client built without a policy gets the default one, public addresses only.
 """
 
 from __future__ import annotations
@@ -45,7 +48,23 @@ class BlockedDestinationError(FetchError):
 
 @dataclass(frozen=True, slots=True)
 class DestinationPolicy:
-    """Host names and networks a connector may reach although they are not public."""
+    """Host names and networks a connector may reach although they are not public.
+
+    The default allows public addresses only. The runtime builds the operator's
+    policy once with ``from_environ`` and passes it to every connector.
+
+    Args:
+        hosts: Lower-case host names that are reachable although they are not public.
+        networks: Address ranges that are reachable although they are not public.
+        use_proxy: Whether requests may go through the proxies named in the process
+            environment.
+
+    Attributes:
+        hosts: Lower-case host names that are reachable although they are not public.
+        networks: Address ranges that are reachable although they are not public.
+        use_proxy: Whether requests may go through the proxies named in the process
+            environment.
+    """
 
     hosts: frozenset[str] = frozenset()
     networks: tuple[IPv4Network | IPv6Network, ...] = ()
@@ -114,10 +133,10 @@ class DestinationPolicy:
         )
 
 
-def guarded_session(policy: DestinationPolicy | None = None) -> requests.Session:
-    """Return a session whose direct connections obey ``policy``, read from the environment by default."""
+def guarded_session(policy: DestinationPolicy) -> requests.Session:
+    """Return a session whose direct connections obey ``policy``."""
     session = requests.Session()
-    adapter = _GuardedAdapter(policy or DestinationPolicy.from_environ())
+    adapter = _GuardedAdapter(policy)
     session.mount("http://", adapter)
     session.mount("https://", adapter)
     return session

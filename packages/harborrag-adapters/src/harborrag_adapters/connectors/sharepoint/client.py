@@ -25,7 +25,7 @@ from harborrag_adapters.connectors.policies.http import (
     retry_delay_seconds,
     safe_response_error_detail,
 )
-from harborrag_adapters.connectors.policies.network import guarded_session
+from harborrag_adapters.connectors.policies.network import DestinationPolicy, guarded_session
 from harborrag_adapters.connectors.rate_limiting import (
     ConnectorRateLimiter,
     LocalIntervalRateLimiter,
@@ -69,9 +69,10 @@ class _RequestsGraphClient:
         config: SharePointSiteConfig,
         *,
         rate_limiter: ConnectorRateLimiter | None = None,
+        destination_policy: DestinationPolicy | None = None,
     ) -> None:
         self.config = config
-        self.session = guarded_session()
+        self.session = guarded_session(destination_policy or DestinationPolicy())
         self.session.headers.update({"Accept": "application/json"})
         # Graph throttles per app registration and tenant, so every worker
         # sharing them draws from one lane of the shared limiter.

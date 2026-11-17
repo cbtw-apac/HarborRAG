@@ -67,6 +67,11 @@ from harborrag_adapters.connectors import HarborConnector, LocalFileConfig
 connector = HarborConnector("local", config=LocalFileConfig(source_path="docs"))
 ```
 
+The `github`, `jira`, `confluence` and `sharepoint` providers take a `destination_policy`
+constructor dependency: the `DestinationPolicy` their HTTP sessions obey. The runtime
+builds it once with `DestinationPolicy.from_environ()`. Without one, a connector reaches
+public addresses only.
+
 ### Provider document transforms
 
 Source-specific canonical behaviour lives in the provider's `document_transform.py`. A

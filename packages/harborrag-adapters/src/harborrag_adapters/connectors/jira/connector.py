@@ -19,6 +19,7 @@ from harborrag_adapters.connectors.descriptors import (
 )
 from harborrag_adapters.connectors.exceptions import DocumentProcessingError
 from harborrag_adapters.connectors.policies.http import verify_credentials
+from harborrag_adapters.connectors.policies.network import DestinationPolicy
 from harborrag_adapters.connectors.policies.validation import truncate_with_limit
 from harborrag_adapters.connectors.rate_limiting import ConnectorRateLimiter
 from harborrag_adapters.parsers import HarborParserRegistry
@@ -78,6 +79,7 @@ class JiraConnector(BaseConnector):
         client: JiraClient | None = None,
         parser: HarborParserRegistry | None = None,
         rate_limiter: ConnectorRateLimiter | None = None,
+        destination_policy: DestinationPolicy | None = None,
     ) -> None:
         """Initialize issue operations and shared attachment processing."""
         self.config = config
@@ -85,6 +87,7 @@ class JiraConnector(BaseConnector):
         self.client = client or _RequestsJiraClient(
             config,
             rate_limiter=rate_limiter,
+            destination_policy=destination_policy,
         )
         self._issues = JiraIssueAPI(self.client, config)
         self._policy = JiraDiscoveryPolicy(config, base_url=self.base_url)

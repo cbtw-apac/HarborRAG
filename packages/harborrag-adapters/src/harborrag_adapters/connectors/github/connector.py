@@ -8,6 +8,7 @@ from typing import Any
 
 from harborrag_adapters.connectors.base import BaseConnector
 from harborrag_adapters.connectors.exceptions import DocumentProcessingError
+from harborrag_adapters.connectors.policies.network import DestinationPolicy
 from harborrag_core.domain.raw_document import RawDocument
 from harborrag_core.domain.source import SourceRecord
 from harborrag_core.ingestion.connector_contracts import ConnectorCapabilities, ConnectorQuery
@@ -56,12 +57,17 @@ class GitHubConnector(BaseConnector):
         config: GitHubRepositoryConfig,
         *,
         client: GitHubClient | None = None,
+        destination_policy: DestinationPolicy | None = None,
     ) -> None:
-        """Initialize repository operations with an optional client override."""
+        """Initialize repository operations with an optional client override.
+
+        ``destination_policy`` is the runtime's host policy; without it only
+        public addresses are reachable.
+        """
         self.config = config
         self.owner = str(config.owner)
         self.repo = str(config.repo)
-        self.client = client or _RequestsGitHubClient(config)
+        self.client = client or _RequestsGitHubClient(config, destination_policy=destination_policy)
         self._github = GitHubRepositoryAPI(config, self.client)
 
     def connect(self) -> None:
