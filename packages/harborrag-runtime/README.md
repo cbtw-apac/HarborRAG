@@ -30,7 +30,7 @@ src/harborrag_runtime/
   execution/                # direct and durable execution strategies, source submission, task registry
   temporal/                 # workflows, activities, client, gateway, schedule backend and the worker
   ingestion/                # document release, source orchestration and maintenance services
-  retrieval/                # retrieval service, its composition from settings and service facades
+  retrieval/                # composition of the retrieval service from settings, and service facades
   chat/                     # chat service, model-client composition and per-tenant chat clients
   application/              # application services that harborrag-app calls: chat, memory, ingestion, control plane
   memory/                   # database-backed conversation memory and its composition
@@ -164,10 +164,11 @@ groups are `harborrag.connectors`, `harborrag.parsers`, `harborrag.model_provide
 The retrieval use cases (permission-scoped search, evidence selection, graph and reader
 workflows) live in the
 [`harborrag_engine.retrieval.service`](https://github.com/cbtw-apac/HarborRAG/tree/main/packages/harborrag-engine/src/harborrag_engine/retrieval/service)
-package. This package's `retrieval/` module wires them to adapters:
-`RuntimeRetrievalService` composes the same embedding model, active Qdrant collection,
-FalkorDB graph and canonical chunk object store that ingestion writes. Query embeddings
-are marked sensitive and non-cacheable.
+package, where `RuntimeRetrievalService` is `retrieval/service/service.py`. This
+package's `retrieval/` module wires it to adapters: `connect_retrieval_service` composes
+the same embedding model, active Qdrant collection, FalkorDB graph and canonical chunk
+object store that ingestion writes. Query embeddings are marked sensitive and
+non-cacheable.
 
 The rerank stage is `PassageReranker` in the engine's
 [`reranking.py`](https://github.com/cbtw-apac/HarborRAG/blob/main/packages/harborrag-engine/src/harborrag_engine/retrieval/service/reranking.py).

@@ -19,7 +19,7 @@ from redis.asyncio import Redis
 from harborrag_engine.retrieval import RetrievalLane
 from harborrag_engine.retrieval.service.contracts import RetrievalOptions
 from harborrag_runtime.config.temporal import TemporalRuntimeConfig
-from harborrag_runtime.retrieval import RuntimeRetrievalService
+from harborrag_runtime.retrieval.composition import connect_retrieval_service
 from harborrag_runtime.temporal.client import (
     IngestionTemporalClient,
 )
@@ -210,7 +210,7 @@ def _graph_shapes(
 async def _retrieval_observations(
     settings,
 ) -> dict[str, object]:
-    service = await RuntimeRetrievalService.connect(settings)
+    service = await connect_retrieval_service(settings)
     try:
         checks = (
             (

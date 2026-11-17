@@ -10,7 +10,7 @@ from harborrag_core.indexing import VectorIndexRecord, VectorSearchResult
 from harborrag_core.ingestion import ActiveDocumentVersion, DocumentIdentityBuilder
 from harborrag_core.topology.extraction import EvidenceSpan, ExtractedAssertion, ExtractedEntity
 from harborrag_core.topology.records import CanonicalAssertion, CanonicalMention
-from harborrag_runtime.retrieval import RuntimeRetrievalService
+from harborrag_engine.retrieval.service.service import RuntimeRetrievalService
 
 
 def mention(entity, chunk, name, *, owner=("build-1", "document-1", "version-1")):

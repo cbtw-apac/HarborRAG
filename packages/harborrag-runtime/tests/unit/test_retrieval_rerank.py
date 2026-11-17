@@ -15,10 +15,10 @@ from harborrag_core.indexing import VectorSearchResult
 from harborrag_core.models.rerank import HarborRerankRequest
 from harborrag_engine.retrieval.service.contracts import RetrievalOptions
 from harborrag_engine.retrieval.service.reranking import RERANK_SCORE_KEY, PassageReranker
-from harborrag_runtime.retrieval import RuntimeRetrievalService
-from harborrag_runtime.retrieval.service import (
+from harborrag_engine.retrieval.service.service import (
     RERANK_POOL_FACTOR,
     RERANK_POOL_LIMIT,
+    RuntimeRetrievalService,
     in_result_order,
     rerank_pool,
 )

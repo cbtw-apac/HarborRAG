@@ -20,7 +20,7 @@ from harborrag_adapters.repositories.errors import (
 from harborrag_core.contracts.errors import HarborNoIndexedContentError
 from harborrag_core.storage import StorageFamily
 from harborrag_engine.retrieval.service.contracts import RetrievalOptions
-from harborrag_runtime.retrieval import RuntimeRetrievalService
+from harborrag_engine.retrieval.service.service import RuntimeRetrievalService
 
 
 def _missing_collection() -> HarborStorageNotFoundError:

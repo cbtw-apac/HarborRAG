@@ -14,8 +14,8 @@ from harborrag_core.security import AccessContext
 from harborrag_core.topology.retrieval_policy import TopologyRetrievalPolicy
 from harborrag_engine.retrieval.service.contracts import RetrievalOptions
 from harborrag_engine.retrieval.service.evidence import select_evidence
+from harborrag_engine.retrieval.service.service import RuntimeRetrievalService
 from harborrag_engine.retrieval.service.topology import fuse_candidates
-from harborrag_runtime.retrieval import RuntimeRetrievalService
 
 LOCAL = RetrievalOptions(mode="local_semantic")
 

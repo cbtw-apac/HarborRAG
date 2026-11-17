@@ -13,7 +13,7 @@ from harborrag_core.contracts.errors import HarborAuthorizationUnavailableError
 from harborrag_core.indexing import VectorFilter, VectorFilterCondition
 from harborrag_core.security import AccessContext
 from harborrag_engine.retrieval.service.contracts import RetrievalOptions
-from harborrag_runtime.retrieval import RuntimeRetrievalService
+from harborrag_engine.retrieval.service.service import RuntimeRetrievalService
 
 ACCESS = AccessContext(principal_id="broad-reader", tenant_id="tenant-1")
 

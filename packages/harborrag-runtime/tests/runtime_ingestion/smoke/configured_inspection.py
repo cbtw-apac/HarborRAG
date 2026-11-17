@@ -21,7 +21,7 @@ from harborrag_engine.ingestion import EVIDENCE_INDEX
 from harborrag_engine.retrieval import RetrievalLane
 from harborrag_engine.retrieval.service.contracts import RetrievalOptions
 from harborrag_runtime.config.settings import RuntimeSettings
-from harborrag_runtime.retrieval import RuntimeRetrievalService
+from harborrag_runtime.retrieval.composition import connect_retrieval_service
 
 
 @dataclass(frozen=True, slots=True)
@@ -183,7 +183,7 @@ async def _inspect_retrieval(
     dense_query: str,
     sparse_query: str,
 ) -> dict[str, object]:
-    service = await RuntimeRetrievalService.connect(settings)
+    service = await connect_retrieval_service(settings)
     try:
         output = {}
         for lane, query in (

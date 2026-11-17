@@ -1,7 +1,1 @@
-"""Runtime retrieval service."""
-
-from .service import RuntimeRetrievalService
-
-__all__ = [
-    "RuntimeRetrievalService",
-]
+"""Runtime composition and facades for the retrieval service."""

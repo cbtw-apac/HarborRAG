@@ -10,7 +10,7 @@ from harborrag_core.chunking import RelationType
 from harborrag_core.contracts.errors import HarborCapabilityError
 from harborrag_core.retrieval import GraphTripletQuery
 from harborrag_core.security import AccessContext
-from harborrag_runtime.retrieval import RuntimeRetrievalService
+from harborrag_engine.retrieval.service.service import RuntimeRetrievalService
 
 
 @pytest.mark.asyncio

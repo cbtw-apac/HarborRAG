@@ -51,9 +51,10 @@ from .configuration import HarborRAGConfig
 from .facades import GraphFacade, IngestionFacade, KnowledgeFacade, RetrievalFacade
 
 if TYPE_CHECKING:
+    from harborrag_engine.retrieval.service.service import RuntimeRetrievalService
+
     from ..config.settings import RuntimeSettings
     from ..memory.context_service import RuntimeMemoryContextService
-    from ..retrieval import RuntimeRetrievalService
 
 type ExecutorFactory = Callable[[ExecutionMode, "RuntimeSettings"], IngestionExecutor]
 type RetrievalFactory = Callable[["RuntimeSettings"], Awaitable["RuntimeRetrievalService"]]

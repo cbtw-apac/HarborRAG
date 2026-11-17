@@ -47,7 +47,7 @@ from harborrag_core.security import AccessContext
 from harborrag_core.topology.records import CanonicalMention
 
 if TYPE_CHECKING:
-    from harborrag_runtime.retrieval.service import RuntimeRetrievalService
+    from harborrag_engine.retrieval.service.service import RuntimeRetrievalService
 
 
 class _ReaderOwner(Protocol):

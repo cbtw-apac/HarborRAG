@@ -18,6 +18,7 @@ from harborrag_engine.ingestion import BM25SparseEncoder
 from harborrag_engine.retrieval.service.contextual import ContextualEvidenceSearch
 from harborrag_engine.retrieval.service.contracts import RetrievalPolicy, RetrievalResources
 from harborrag_engine.retrieval.service.entity_summary import EntitySummarySearch
+from harborrag_engine.retrieval.service.service import RuntimeRetrievalService
 
 from ..composition.resources import (
     build_ingestion_control,
@@ -32,7 +33,6 @@ from ..config.models import has_rerank_model
 from ..config.settings import RuntimeSettings
 from ..observability.model import IngestionTelemetry, build_model_telemetry
 from ..topology.embedding_profile import build_contextual_profile
-from .service import RuntimeRetrievalService
 
 
 async def connect_retrieval_service(

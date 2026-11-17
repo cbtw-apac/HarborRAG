@@ -171,7 +171,7 @@ async def test_retrieve_hands_the_entity_lane_the_rest_of_the_callers_filter() -
     from topology_retrieval_support import ActiveVersions, CanonicalTopology, TopologyVectors
 
     from harborrag_engine.retrieval.service.contracts import RetrievalOptions
-    from harborrag_runtime.retrieval import RuntimeRetrievalService
+    from harborrag_engine.retrieval.service.service import RuntimeRetrievalService
 
     entities = RecordingEntities()
     service = RuntimeRetrievalService(

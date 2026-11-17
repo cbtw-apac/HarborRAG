@@ -79,15 +79,13 @@ _NO_CANDIDATES = AuthoritativeSearchDiagnostics(
     exhausted=True,
 )
 
-logger = logging.getLogger("harborrag.runtime.retrieval.service")
+logger = logging.getLogger("harborrag.engine.retrieval.service.service")
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from harborrag_core.domain.retrieval import RetrievalResult
     from harborrag_core.ports.storage import VectorRepositoryPort
-
-    from ..config.settings import RuntimeSettings
 
 
 class _NullRetrievalTelemetry:
@@ -210,20 +208,6 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
     def embedding_dimensions(self) -> int:
         """Dense vector width, so a second index matches this deployment."""
         return self._policy.embedding_dimensions
-
-    @classmethod
-    async def connect(cls, settings: RuntimeSettings) -> RuntimeRetrievalService:
-        """Connect the stores and model clients ``settings`` name and own them.
-
-        Args:
-            settings: Runtime settings naming the stores and the model catalog.
-
-        Returns:
-            A connected service; ``aclose`` releases everything it opened.
-        """
-        from .composition import connect_retrieval_service
-
-        return await connect_retrieval_service(settings)
 
     async def retrieve(
         self,

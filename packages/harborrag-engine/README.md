@@ -35,7 +35,7 @@ harborrag_engine/
 │   ├── failure_inbox.py     # failed documents of a tenant and their retry
 │   └── models.py            # transport-neutral ingestion commands and cursors
 ├── retrieval/               # authoritative retrieval, fusion, evidence and the rerank port
-│   └── service/             # retrieval service contracts, reader services and PassageReranker
+│   └── service/             # RuntimeRetrievalService, its contracts, reader services and PassageReranker
 ├── topology/                # evidence validation and deterministic semantic projection policies
 ├── tools/                   # reader tool catalog, schemas, handlers and checked invocation
 ├── control_plane/           # connections, projects and runs in the HTTP API's shapes

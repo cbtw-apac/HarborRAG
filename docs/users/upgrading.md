@@ -485,7 +485,7 @@ connection with `"method": "api_token"` and the `email`; the stored token is kep
   | `harborrag.app.workflow_control.memory.extraction` | `harborrag.runtime.application.memory.extraction` |
   | `harborrag.app.workflow_control.memory.administration` | `harborrag.memory.administration` and `harborrag.memory.erasure` |
   | `harborrag.app.api.readiness` | `harborrag.app.operations.readiness` |
-  | `harborrag.runtime.retrieval` | `harborrag.runtime.retrieval.service`, `harborrag.engine.retrieval.service.graph_observation` and `harborrag.engine.retrieval.service.result_loader` |
+  | `harborrag.runtime.retrieval` | `harborrag.engine.retrieval.service.service`, `harborrag.engine.retrieval.service.graph_observation` and `harborrag.engine.retrieval.service.result_loader` |
   | `harborrag.runtime.retrieval.permissions` | `harborrag.engine.retrieval.service.permissions` |
   | `harborrag.runtime.retrieval.topology` | `harborrag.engine.retrieval.service.topology` |
   | `harborrag.runtime.ingestion.cleanup` | `harborrag.engine.ingestion.maintenance.cleanup` |
@@ -508,7 +508,7 @@ old package in the first column and applying the pointer rule.
 | `harborrag_app.workflow_control.memory.{access,administration,erasure,messages,projects,titles}` | `harborrag_memory.<module>` | Session, context, usage and extraction modules stay in `harborrag_runtime.application.memory` |
 | `harborrag_app.api.auth.principal` | `harborrag_app.operations.principal` | |
 | `harborrag_app.api.*` request and response models | `harborrag_app.operations.schemas.<resource>` | One module per resource: `chat`, `connections`, `ingestions`, `me`, `settings` and `common`. The models changed with the HTTP API, so check each field |
-| `harborrag_runtime.retrieval.<module>` | `harborrag_engine.retrieval.service.<module>` | Applies to every module except `service`, `facades` and `composition`, which stay. `RetrievalOptions`, `RetrievalPolicy`, `RetrievalResources` and the other types of `contracts` are in `harborrag_engine.retrieval.service.contracts`; `harborrag_runtime.retrieval` no longer re-exports them |
+| `harborrag_runtime.retrieval.<module>` | `harborrag_engine.retrieval.service.<module>` | Applies to every module except `facades` and `composition`, which stay; `service` is `harborrag_engine.retrieval.service.service`. `RuntimeRetrievalService.connect` is removed: call `connect_retrieval_service(settings)` from `harborrag_runtime.retrieval.composition`. `RetrievalOptions`, `RetrievalPolicy`, `RetrievalResources` and the other types of `contracts` are in `harborrag_engine.retrieval.service.contracts`; `harborrag_runtime.retrieval` no longer re-exports them |
 | `harborrag_runtime.ingestion.document.{models,stage_models,capture_decisions,materialization_helpers,projection_coordinator}` | `harborrag_engine.ingestion.release.<module>` | `DocumentReleaseRequest` and `DocumentReleaseOutcome` are in `release.models`; `harborrag_runtime.ingestion` and `.ingestion.document` no longer re-export them |
 | `harborrag_runtime.ingestion.document.{lifecycle,dependencies,projection_material,materialization,projection}` | `harborrag_engine.ingestion.release.<module>` | `DocumentReleaseDependencies` is in `release.dependencies`, and `harborrag_runtime.ingestion` and `.ingestion.document` no longer export it. It now requires a `failures` classifier, and `parser_for` and `chunker_for` callables replace its `run_tools` field. `DocumentVersionLifecycle` requires `failures` too. `capture`, `preparation`, `pipeline`, `service` and `run_tools` stay in `harborrag_runtime.ingestion.document` |
 | `harborrag_runtime.ingestion.document.normalizers.{builder,router}` | `harborrag_engine.ingestion.normalizers.<module>` | `builtins` and `transform` stay in `harborrag_runtime.ingestion.document.normalizers` |
@@ -534,7 +534,7 @@ with the routes they served. The replacements are methods of `AppService`; of th
 | `start_ingestion(...)` | `submit(command, idempotency_key=...)` with a `harborrag_engine.ingestion.models.IngestionCreateCommand`; it registers the run and starts its workflow |
 | `ingestion_status(run_id)` and `ingestion_result(run_id)` | `get_task(task_id)`, which returns the run's public task document and raises `IngestionNotFoundError` for an unknown run |
 | `control_ingestion(run_id, action)` | `pause(task_id)`, `resume(task_id)` or `cancel(task_id)`, one method per action |
-| `retrieve(query, ...)` | `HarborRAG().retrieval.search(RetrievalRequest(...))` of `harborrag_runtime.sdk`, or `RuntimeRetrievalService.retrieve` |
+| `retrieve(query, ...)` | `HarborRAG().retrieval.search(RetrievalRequest(...))` of `harborrag_runtime.sdk`, or `harborrag_engine.retrieval.service.service.RuntimeRetrievalService.retrieve` |
 
 ### HTTP API changes
 

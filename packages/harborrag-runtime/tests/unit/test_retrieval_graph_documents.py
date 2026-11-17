@@ -19,7 +19,7 @@ from harborrag_core.ingestion import (
     KnowledgeNodeKind,
 )
 from harborrag_engine.retrieval.service.contracts import RetrievalOptions
-from harborrag_runtime.retrieval import RuntimeRetrievalService
+from harborrag_engine.retrieval.service.service import RuntimeRetrievalService
 
 
 def _document_node(node_key: str, node_kind: KnowledgeNodeKind, **overrides) -> GraphNodeRecord:

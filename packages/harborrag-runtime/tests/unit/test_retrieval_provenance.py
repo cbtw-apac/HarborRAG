@@ -15,7 +15,7 @@ from retrieval_test_support import policy as _policy
 from retrieval_test_support import resources as _resources
 
 from harborrag_engine.retrieval.service.contracts import RetrievalOptions
-from harborrag_runtime.retrieval import RuntimeRetrievalService
+from harborrag_engine.retrieval.service.service import RuntimeRetrievalService
 
 
 @pytest.mark.asyncio
