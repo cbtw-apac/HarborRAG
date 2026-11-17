@@ -56,7 +56,7 @@ def _connection(
         .config({"jql": "project = CPM"})
         .tuning({"requests_per_minute": 600})
         .secret_refs(["secret://db/a"])
-        .actor("u_huy")
+        .actor("u_alex")
         .build()
     )
 
@@ -87,7 +87,7 @@ async def test_put_creates_then_overwrites_and_reads_back_every_field(
     stored, outcome = await repository.put(changed, expected_version=1)
 
     assert (outcome, stored.version, stored.name) == ("overwritten", 2, "CPM tickets")
-    assert (stored.created_by, stored.updated_by) == ("u_huy", "u_ops")
+    assert (stored.created_by, stored.updated_by) == ("u_alex", "u_ops")
     assert stored.config == {"jql": "project = HR"}
     assert stored.tuning == {"requests_per_minute": 600}
 

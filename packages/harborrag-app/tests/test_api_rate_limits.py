@@ -29,7 +29,7 @@ pytestmark = pytest.mark.unit
 _SECRET = "test-secret-at-least-32-bytes-long-for-hs256"
 
 
-def _token(role: str, subject: str = "u_huy") -> str:
+def _token(role: str, subject: str = "u_alex") -> str:
     now = datetime.now(UTC)
     return jwt.encode(
         {
@@ -46,7 +46,7 @@ def _token(role: str, subject: str = "u_huy") -> str:
     )
 
 
-def _bearer(role: str, subject: str = "u_huy") -> dict[str, str]:
+def _bearer(role: str, subject: str = "u_alex") -> dict[str, str]:
     return {"Authorization": f"Bearer {_token(role, subject)}"}
 
 

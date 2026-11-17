@@ -121,7 +121,7 @@ async def test_pause_on_a_running_run_answers_with_the_paused_run(
     clock.on_wait = pause_takes_effect
 
     view = await _operations(service_resources, clock).act(
-        tenant_id=_TENANT, ingestion_id=task_id, action="pause", actor="u_huy"
+        tenant_id=_TENANT, ingestion_id=task_id, action="pause", actor="u_alex"
     )
 
     assert view["status"] == "paused"
@@ -138,7 +138,7 @@ async def test_an_action_that_never_lands_answers_with_the_current_run_after_its
     clock = _Clock()
 
     view = await _operations(service_resources, clock).act(
-        tenant_id=_TENANT, ingestion_id=task_id, action="pause", actor="u_huy"
+        tenant_id=_TENANT, ingestion_id=task_id, action="pause", actor="u_alex"
     )
 
     assert view["status"] == "running"
@@ -160,7 +160,7 @@ async def test_resume_on_a_paused_run_answers_with_the_running_run(
     clock.on_wait = resume_takes_effect
 
     view = await _operations(service_resources, clock).act(
-        tenant_id=_TENANT, ingestion_id=task_id, action="resume", actor="u_huy"
+        tenant_id=_TENANT, ingestion_id=task_id, action="resume", actor="u_alex"
     )
 
     assert view["status"] == "running"
@@ -189,7 +189,7 @@ async def test_an_action_outside_the_state_table_is_a_conflict_and_changes_nothi
             tenant_id=_TENANT,
             ingestion_id=task_id,
             action=action,  # type: ignore[arg-type]
-            actor="u_huy",
+            actor="u_alex",
         )
 
     assert raised.value.error_code == "invalid_state"
@@ -207,7 +207,7 @@ async def test_cancelling_a_run_whose_workflow_was_terminated_records_the_cancel
     temporal.statuses[task_id] = "terminated"
 
     view = await _operations(service_resources, _Clock()).act(
-        tenant_id=_TENANT, ingestion_id=task_id, action="cancel", actor="u_huy"
+        tenant_id=_TENANT, ingestion_id=task_id, action="cancel", actor="u_alex"
     )
 
     assert view["status"] == "cancelled"
@@ -235,7 +235,7 @@ async def test_cancelling_a_started_run_whose_workflow_is_gone_records_the_cance
     temporal.statuses[task_id] = error
 
     view = await _operations(service_resources, _Clock()).act(
-        tenant_id=_TENANT, ingestion_id=task_id, action="cancel", actor="u_huy"
+        tenant_id=_TENANT, ingestion_id=task_id, action="cancel", actor="u_alex"
     )
 
     assert view["status"] == "cancelled"
@@ -253,7 +253,7 @@ async def test_cancelling_a_queued_run_without_a_workflow_leaves_it_queued(
 
     with pytest.raises(HarborConnectionError):
         await _operations(service_resources, _Clock()).act(
-            tenant_id=_TENANT, ingestion_id=task_id, action="cancel", actor="u_huy"
+            tenant_id=_TENANT, ingestion_id=task_id, action="cancel", actor="u_alex"
         )
 
     stored = await control.tasks.get(task_id)
@@ -270,7 +270,7 @@ async def test_an_action_on_a_run_of_another_tenant_is_not_found(
 
     with pytest.raises(IngestionNotFoundError):
         await _operations(service_resources, _Clock()).act(
-            tenant_id="globex", ingestion_id=task_id, action="pause", actor="u_huy"
+            tenant_id="globex", ingestion_id=task_id, action="pause", actor="u_alex"
         )
 
 
@@ -307,7 +307,7 @@ async def test_retry_failures_on_an_active_run_is_a_conflict(
         await _operations(service_resources, _Clock()).retry_failures(
             tenant_id=_TENANT,
             ingestion_id=task_id,
-            actor="u_huy",
+            actor="u_alex",
             actor_type="user",
             document_ids=[],
         )
@@ -325,7 +325,7 @@ async def test_retry_failures_on_a_run_without_failures_is_a_conflict(
         await _operations(service_resources, _Clock()).retry_failures(
             tenant_id=_TENANT,
             ingestion_id=task_id,
-            actor="u_huy",
+            actor="u_alex",
             actor_type="user",
             document_ids=[],
         )
@@ -341,7 +341,7 @@ async def _retry_run(
     task_id = await _start(resources)
     await _finish_with_failures(resources, task_id, IngestionTaskState.FAILED, 2)
     retry = await _operations(resources, _Clock()).retry_failures(
-        tenant_id=_TENANT, ingestion_id=task_id, actor="u_huy", actor_type="user", document_ids=[]
+        tenant_id=_TENANT, ingestion_id=task_id, actor="u_alex", actor_type="user", document_ids=[]
     )
     retry_id = str(retry["ingestion_id"])
     if state is not IngestionTaskState.PENDING:
@@ -370,7 +370,7 @@ async def test_pausing_or_resuming_a_retry_run_is_a_conflict_and_changes_nothing
             tenant_id=_TENANT,
             ingestion_id=retry_id,
             action=action,  # type: ignore[arg-type]
-            actor="u_huy",
+            actor="u_alex",
         )
 
     assert raised.value.error_code == "invalid_state"
@@ -394,7 +394,7 @@ async def test_cancelling_a_running_retry_run_cancels_its_retry_workflow(
     clock.on_wait = workflow_records_the_cancellation
 
     view = await _operations(service_resources, clock).act(
-        tenant_id=_TENANT, ingestion_id=retry_id, action="cancel", actor="u_huy"
+        tenant_id=_TENANT, ingestion_id=retry_id, action="cancel", actor="u_alex"
     )
 
     assert view["status"] == "cancelled"
@@ -412,7 +412,7 @@ async def test_cancelling_a_retry_run_whose_workflow_is_gone_records_the_cancell
     temporal.retry_statuses[retry_id] = WorkflowNotFoundError("task not found")
 
     view = await _operations(service_resources, _Clock()).act(
-        tenant_id=_TENANT, ingestion_id=retry_id, action="cancel", actor="u_huy"
+        tenant_id=_TENANT, ingestion_id=retry_id, action="cancel", actor="u_alex"
     )
 
     assert view["status"] == "cancelled"
@@ -447,7 +447,7 @@ async def test_a_connection_whose_only_active_run_is_a_terminated_retry_run_star
     assert active is not None and active.task_id == retry_id
     connections = await _connection_service(service, registry, tmp_path)
 
-    view = await connections.sync(_CONNECTION, actor="u_huy")
+    view = await connections.sync(_CONNECTION, actor="u_alex")
 
     assert view["ingestion_id"] != retry_id
     assert view["status"] == "queued"
@@ -486,7 +486,7 @@ async def test_a_settled_retry_run_does_not_hide_an_older_running_sync(
 
     busy = await connections.connection_busy(_TENANT, _SOURCE_KEY)
     with pytest.raises(HarborAlreadyRunningError) as refused:
-        await connections.delete(_CONNECTION, actor="u_huy")
+        await connections.delete(_CONNECTION, actor="u_alex")
     await connections.aclose()
 
     assert busy is True
@@ -502,7 +502,7 @@ async def test_two_settled_retry_runs_do_not_let_a_sync_start_beside_an_older_on
     )
 
     with pytest.raises(HarborAlreadyRunningError) as refused:
-        await connections.sync(_CONNECTION, actor="u_huy")
+        await connections.sync(_CONNECTION, actor="u_alex")
 
     assert refused.value.details == {"ingestion_id": sync}
 

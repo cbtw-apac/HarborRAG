@@ -56,7 +56,7 @@ def _token(role: str, tenants: list[str]) -> str:
     now = datetime.now(UTC)
     return jwt.encode(
         {
-            "sub": "u_huy",
+            "sub": "u_alex",
             "role": role,
             "tenants": tenants,
             "iat": now - timedelta(seconds=1),
@@ -115,7 +115,7 @@ def test_three_calls_add_a_jira_connection(client: TestClient, app_service: _Con
     assert body["connection_ref"] == "demo/demo-tickets"
     assert body["credentials"]["api_token"]["from"] == "stored"
     assert body["credentials"]["api_token"]["last4"] == "9f2c"
-    assert body["created_by"] == body["updated_by"] == "u_huy"
+    assert body["created_by"] == body["updated_by"] == "u_alex"
     assert "ingestion" not in body
     assert started.status_code == 202 and started.json()["ingestion_id"] == "ing_1"
     assert "sentinel" not in created.text

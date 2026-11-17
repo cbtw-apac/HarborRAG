@@ -461,7 +461,7 @@ def test_retry_by_filter_starts_one_run_of_the_root(
     assert len(actions.calls) == 1
     assert actions.calls[0]["task_id"] == "run-1"
     assert len(actions.calls[0]["document_ids"]) == 12
-    assert actions.calls[0]["actor"] == "u_huy"
+    assert actions.calls[0]["actor"] == "u_alex"
     assert seeded.tasks["retry-1"].request["retry_of"] == "run-1"
 
 

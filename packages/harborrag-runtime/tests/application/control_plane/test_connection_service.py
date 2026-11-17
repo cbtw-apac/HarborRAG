@@ -49,7 +49,7 @@ def world() -> ConnectionWorld:
 async def test_put_creates_a_connection_and_reads_secrets_back_as_status(
     world: ConnectionWorld,
 ) -> None:
-    result = await world.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u_huy")
+    result = await world.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u_alex")
 
     view = result.connection
     assert (result.created, result.version) == (True, 1)
@@ -63,7 +63,7 @@ async def test_put_creates_a_connection_and_reads_secrets_back_as_status(
     assert view["credentials"]["base_url"] == "https://acme.atlassian.net"
     assert view["stats"]["documents"] == 7
     assert view["stats"]["errors"] == 0
-    assert (view["created_by"], view["updated_by"]) == ("u_huy", "u_huy")
+    assert (view["created_by"], view["updated_by"]) == ("u_alex", "u_alex")
     assert "sentinel" not in repr(view)
     entries = await world.control_plane.activity.list(tenant_ids=None)
     assert entries[0].verb == "created" and "sentinel" not in entries[0].summary
@@ -71,7 +71,7 @@ async def test_put_creates_a_connection_and_reads_secrets_back_as_status(
 
 @pytest.mark.asyncio
 async def test_put_overwrites_keeping_rotating_and_clearing_secrets(world: ConnectionWorld) -> None:
-    first = await world.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u_huy")
+    first = await world.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u_alex")
     kept = await world.service.put(
         CONNECTION_KEY,
         ConnectionWrite(
@@ -166,7 +166,7 @@ async def test_a_rotated_secret_waits_for_the_running_ingestion(world: Connectio
 async def test_sync_starts_one_ingestion_at_a_time(world: ConnectionWorld) -> None:
     await world.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u")
 
-    ingestion = await world.service.sync(CONNECTION_KEY, actor="u_huy", mode="force")
+    ingestion = await world.service.sync(CONNECTION_KEY, actor="u_alex", mode="force")
 
     assert ingestion["ingestion_id"] == "ing_1"
     assert (ingestion["tenant_id"], ingestion["project_id"], ingestion["connection_id"]) == (
@@ -175,7 +175,7 @@ async def test_sync_starts_one_ingestion_at_a_time(world: ConnectionWorld) -> No
         "demo-tickets",
     )
     assert ingestion["status"] == "queued"
-    assert ingestion["triggered_by"] == {"principal_type": "user", "principal_id": "u_huy"}
+    assert ingestion["triggered_by"] == {"principal_type": "user", "principal_id": "u_alex"}
     command = world.submitter.commands[0]
     assert (command.connection_id, command.force_reprocess) == ("demo/demo-tickets", True)
 
@@ -578,14 +578,14 @@ async def test_if_match_star_matches_any_existing_version(world: ConnectionWorld
 
 @pytest.mark.asyncio
 async def test_a_write_that_changes_nothing_stores_nothing(world: ConnectionWorld) -> None:
-    first = await world.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u_huy")
+    first = await world.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u_alex")
     stored = dict(world.secrets.values)
 
     again = await world.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u_ops")
 
     assert (again.created, again.version) == (False, 1)
     assert again.connection["updated_at"] == first.connection["updated_at"]
-    assert again.connection["updated_by"] == "u_huy"
+    assert again.connection["updated_by"] == "u_alex"
     assert again.connection["credentials"] == first.connection["credentials"]
     assert world.secrets.values == stored
     entries = await world.control_plane.activity.list(tenant_ids=None)
@@ -857,7 +857,7 @@ async def test_a_save_that_keeps_losing_the_race_answers_conflict_and_leaks_no_s
 async def test_stats_errors_count_failed_documents_of_a_cancelled_latest_run(
     world: ConnectionWorld,
 ) -> None:
-    await world.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u_huy")
+    await world.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u_alex")
     cancelled = running_task("ing_9", IngestionTaskState.CANCELLED)
     world.runs.active = cancelled
     world.runs.counts["ing_9"] = {"published": 3, "failed": 2}
@@ -873,7 +873,7 @@ async def test_stats_errors_count_failed_documents_of_a_cancelled_latest_run(
 async def test_stats_errors_is_zero_for_a_connection_that_never_ran(
     world: ConnectionWorld,
 ) -> None:
-    result = await world.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u_huy")
+    result = await world.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u_alex")
 
     assert result.connection["stats"]["errors"] == 0
 
@@ -882,7 +882,7 @@ async def test_stats_errors_is_zero_for_a_connection_that_never_ran(
 async def test_list_batches_the_progress_of_every_latest_run(world: ConnectionWorld) -> None:
     for name in ("one", "two", "three"):
         key = replace(CONNECTION_KEY, connection_id=f"demo-{name}")
-        await world.service.put(key, JIRA_WRITE, actor="u_huy")
+        await world.service.put(key, JIRA_WRITE, actor="u_alex")
     world.runs.active = running_task("ing_7", IngestionTaskState.FAILED)
     world.runs.counts["ing_7"] = {"failed": 4}
     world.runs.progress_calls.clear()

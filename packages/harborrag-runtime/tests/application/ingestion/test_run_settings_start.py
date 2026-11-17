@@ -137,7 +137,7 @@ def _stored_task(pinned: RunSettings) -> IngestionTask:
             "source_scope_id": "scope",
             "configuration_fingerprint": "fp",
             "settings_revision": pinned.settings_revision,
-            "actor": "u_huy",
+            "actor": "u_alex",
             "actor_type": "user",
             "run_settings": pinned.to_json(),
             "processing": {

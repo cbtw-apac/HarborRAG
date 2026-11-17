@@ -33,7 +33,7 @@ def _jira(connection_id: str = "cpm-tickets", *, project_id: str = "cpm") -> Con
             {"base_url": "https://acme.atlassian.net", "api_token": {"secret_ref": "secret://db/1"}}
         )
         .config({"jql": "project = CPM"})
-        .actor("u_huy")
+        .actor("u_alex")
         .build(now=_NOW)
     )
 
@@ -45,7 +45,7 @@ def test_builder_applies_defaults_for_a_new_connection() -> None:
     assert connection.source_key == "cpm/cpm-tickets"
     assert connection.ref == "cpm/cpm-tickets"
     assert connection.version == 1
-    assert (connection.created_by, connection.updated_by) == ("u_huy", "u_huy")
+    assert (connection.created_by, connection.updated_by) == ("u_alex", "u_alex")
     assert connection.created_at == connection.updated_at == _NOW
     assert connection.id.startswith("src_")
 
@@ -63,7 +63,7 @@ def test_builder_from_existing_keeps_identity_and_creation_stamps() -> None:
     )
 
     assert (updated.id, updated.source_key) == (original.id, original.source_key)
-    assert (updated.created_by, updated.created_at) == ("u_huy", _NOW)
+    assert (updated.created_by, updated.created_at) == ("u_alex", _NOW)
     assert (updated.updated_by, updated.updated_at) == ("u_ops", later)
     assert updated.config == {"jql": "project = HR"}
 

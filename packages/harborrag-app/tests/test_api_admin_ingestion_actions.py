@@ -29,7 +29,7 @@ _VIEW = {
     "counters": {"discovered": 0, "processed": 0, "skipped": 0, "failed": 0},
     "stages": [],
     "error_category": None,
-    "triggered_by": {"principal_type": "user", "principal_id": "u_huy"},
+    "triggered_by": {"principal_type": "user", "principal_id": "u_alex"},
     "settings_revision": "",
     "workflow_id": "harborrag-source:ing_9",
     "run_id": "ing_9",
@@ -88,7 +88,7 @@ def test_a_control_action_answers_200_with_the_run(
     assert app_service.ingestion_operations.calls == [
         (
             action,
-            {"tenant_id": "acme", "ingestion_id": "ing_9", "action": action, "actor": "u_huy"},
+            {"tenant_id": "acme", "ingestion_id": "ing_9", "action": action, "actor": "u_alex"},
         )
     ]
 
@@ -104,7 +104,7 @@ def test_retry_failures_answers_202_with_the_new_run_and_its_location(
     assert app_service.ingestion_operations.calls[0][1] == {
         "tenant_id": "acme",
         "ingestion_id": "ing_9",
-        "actor": "u_huy",
+        "actor": "u_alex",
         "actor_type": "user",
         "document_ids": ["d1"],
     }

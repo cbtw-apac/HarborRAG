@@ -189,7 +189,7 @@ def test_patch_applies_and_records_actor(env: _Env) -> None:
     assert reread.headers["ETag"] == 'W/"rev-4"'
     logged = env.client.portal.call(lambda: env.store.revision("acme", 4))  # type: ignore[union-attr]
     assert logged is not None
-    assert (logged.source, logged.created_by) == ("api", "u_huy")
+    assert (logged.source, logged.created_by) == ("api", "u_alex")
     assert (
         env.patch({"chunking.max_tokens": 200}, role="editor", level="project:demo").status_code
         == 403

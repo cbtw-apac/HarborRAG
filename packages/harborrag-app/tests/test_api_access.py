@@ -46,7 +46,7 @@ def _token(
 ) -> str:
     now = datetime.now(UTC) - (timedelta(hours=2) if expired else timedelta())
     claims: dict[str, object] = {
-        "sub": "u_huy",
+        "sub": "u_alex",
         "role": role,
         "tenants": list(tenants),
         "iat": now - timedelta(seconds=1),
@@ -246,11 +246,11 @@ def test_the_tenant_check_runs_before_the_role_check(client: TestClient) -> None
 
 
 def test_me_describes_a_user_token(client: TestClient) -> None:
-    response = client.get("/v1/me", headers=_bearer(_token(name="Huy Nguyen")))
+    response = client.get("/v1/me", headers=_bearer(_token(name="Alex Example")))
 
     assert response.status_code == 200
     assert response.json() == {
-        "principal": {"principal_type": "user", "principal_id": "u_huy", "name": "Huy Nguyen"},
+        "principal": {"principal_type": "user", "principal_id": "u_alex", "name": "Alex Example"},
         "tenant_id": "acme",
         "tenants": ["acme"],
         "role": "admin",

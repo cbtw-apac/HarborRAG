@@ -41,7 +41,7 @@ class FixtureIngestionOperations:
             "counters": {"discovered": 2, "processed": 1, "skipped": 0, "failed": 0},
             "stages": [],
             "error_category": None,
-            "triggered_by": {"principal_type": "user", "principal_id": "u_huy"},
+            "triggered_by": {"principal_type": "user", "principal_id": "u_alex"},
             "settings_revision": "",
             "workflow_id": f"harborrag-source:{ingestion_id}",
             "run_id": ingestion_id,
