@@ -15,8 +15,8 @@ services:
     network_mode: host
     environment:
       HARBORRAG_ENV: ${HARBORRAG_ENV:-dev}
-      HARBORRAG_MCP_CONFIG_PATH: /app/config/mcp.yaml
-      HARBORRAG_MODEL_CONFIG_PATH: /app/config/models.yaml
+      HARBORRAG_MCP_CONFIG_PATH: /app/config/mcp/server.yaml
+      HARBORRAG_MODEL_CONFIG_PATH: /app/config/models/models.yaml
       HARBORRAG_MCP_AUDIT_PATH: /var/lib/harborrag/.harborrag/mcp-audit.jsonl
       HARBORRAG_CONTROL_DB_URL: postgresql+asyncpg://${POSTGRES_USER:?set POSTGRES_USER in the database environment file}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in the database environment file}@127.0.0.1:${POSTGRES_PORT:-5432}/${POSTGRES_DB:?set POSTGRES_DB in the database environment file}
       HARBORRAG_OBJECT_STORE_ENDPOINT_URL: ${HARBORRAG_OBJECT_STORE_ENDPOINT_URL:-http://127.0.0.1:${MINIO_API_PORT:-9000}}

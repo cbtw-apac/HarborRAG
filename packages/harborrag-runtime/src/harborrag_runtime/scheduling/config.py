@@ -1,4 +1,4 @@
-"""Strict loader for version-controlled schedule declarations (config/schedules.yaml)."""
+"""Strict loader for declared schedules (config/sources/schedules.yaml)."""
 
 from __future__ import annotations
 

@@ -125,6 +125,3 @@ class AppResources:
         errors = [result for result in results if isinstance(result, Exception)]
         if errors:
             raise ExceptionGroup("application resource close failed", errors)
-
-
-__all__ = ["AppResources"]

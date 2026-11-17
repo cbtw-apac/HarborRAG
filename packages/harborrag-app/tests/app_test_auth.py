@@ -25,6 +25,3 @@ class MockTokenVerifier(BaseTokenVerifier):
             tenant_ids=frozenset({"*"}),
             token_kind="mock",
         )
-
-
-__all__ = ["MockTokenVerifier"]

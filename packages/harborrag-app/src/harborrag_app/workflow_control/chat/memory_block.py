@@ -81,6 +81,3 @@ def memory_block(
         return ""
     body = "\n".join(elements)
     return f'{_PREAMBLE}\n\n<conversation_memory trust="untrusted">\n{body}\n</conversation_memory>'
-
-
-__all__ = ["memory_block"]

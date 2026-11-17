@@ -10,6 +10,7 @@ from harborrag_adapters.repositories.errors import (
     HarborStorageRateLimitError,
     HarborStorageTimeoutError,
 )
+from harborrag_core.ingestion import FailureCategory
 from harborrag_engine.ingestion import IngestionFailureClassifier
 
 
@@ -37,6 +38,23 @@ INFRASTRUCTURE_ERRORS: tuple[type[BaseException], ...] = (
 
 
 def ingestion_failure_classifier() -> IngestionFailureClassifier:
-    """Classifier that treats storage, database and network faults as transient."""
+    """Classifier that treats storage, database and network faults as transient.
 
-    return IngestionFailureClassifier(transient_errors=INFRASTRUCTURE_ERRORS)
+    A pinned PDF parser the worker cannot build is ``parser_unavailable``, the code the
+    Temporal parse activity records, so direct and Temporal runs report it alike.
+    """
+    from harborrag_runtime.ingestion.document.run_tools import (  # noqa: PLC0415 - the document package imports this module
+        ParserUnavailableError,
+    )
+
+    return IngestionFailureClassifier(
+        transient_errors=INFRASTRUCTURE_ERRORS,
+        known_failures=(
+            (
+                ParserUnavailableError,
+                FailureCategory.INVALID_CONFIGURATION,
+                True,
+                "parser_unavailable",
+            ),
+        ),
+    )

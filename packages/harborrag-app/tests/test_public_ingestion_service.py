@@ -22,16 +22,19 @@ from harborrag_app.workflow_control.errors import (
     IngestionAlreadyRunningError,
     IngestionIdempotencyConflictError,
 )
+from harborrag_app.workflow_control.ingestion import service as ingestion_service
 from harborrag_app.workflow_control.ingestion.presenters import task_id as generate_task_id
 from harborrag_app.workflow_control.ingestion.service import IngestionApplicationService
 from harborrag_core.contracts.errors import HarborConflictError, HarborConnectionError
 from harborrag_core.ingestion import IngestionTaskState, TaskDocumentResult
 from harborrag_runtime.errors import (
     RuntimeConnectionError,
+    WorkflowNotFoundError,
     WorkflowOperationError,
     WorkflowSubmissionError,
 )
 from harborrag_runtime.execution.task_registry import IngestionTaskRegistry
+from harborrag_runtime.ingestion.source.tasks import source_scan_id
 from harborrag_runtime.temporal.identity import RuntimeWorkflowRef
 from harborrag_runtime.temporal.schemas import SourceIngestionInput
 
@@ -267,7 +270,7 @@ async def test_recovery_skips_a_task_another_pass_has_claimed(
 
 
 @pytest.mark.asyncio
-async def test_status_and_cursor_pages_are_read_from_the_database(
+async def test_progress_is_read_from_the_stored_document_results(
     service_resources: tuple[
         IngestionApplicationService,
         IngestionControlPlaneDatabase,
@@ -297,18 +300,6 @@ async def test_status_and_cursor_pages_are_read_from_the_database(
         )
 
     task = await service.get_task(task_id)
-    first = await service.list_documents(
-        task_id=task_id,
-        status="SUCCESS",
-        cursor=None,
-        limit=2,
-    )
-    second = await service.list_documents(
-        task_id=task_id,
-        status="SUCCESS",
-        cursor=str(first["next_cursor"]),
-        limit=2,
-    )
 
     assert task["progress"] == {
         "discovered": 3,
@@ -319,8 +310,6 @@ async def test_status_and_cursor_pages_are_read_from_the_database(
         "skipped": 0,
         "removed": 0,
     }
-    assert len(first["items"]) == 2
-    assert len(second["items"]) == 1
     assert len(temporal.started) == 1
 
 
@@ -448,7 +437,7 @@ async def test_pause_and_resume_forward_to_temporal(
 
     paused = await service.pause(task_id)
     assert temporal.paused == [task_id]
-    assert paused["status"] == "PENDING"
+    assert paused["status"] == "RUNNING"
     assert paused["message"] == "Pause requested"
 
     # The Temporal activity settles the durable lifecycle asynchronously.
@@ -523,3 +512,106 @@ async def test_failed_pause_and_resume_do_not_change_durable_state(
     with pytest.raises(HarborConnectionError):
         await service.resume(task_id)
     assert (await control.tasks.get(task_id)).status is IngestionTaskState.PAUSED
+
+
+async def _running_task(
+    service: IngestionApplicationService, control: IngestionControlPlaneDatabase
+) -> str:
+    task_id = str((await service.submit(_command(), idempotency_key=None))["task_id"])
+    await control.tasks.transition(task_id, IngestionTaskState.RUNNING)
+    return task_id
+
+
+@pytest.mark.parametrize(
+    ("workflow", "recorded"),
+    [
+        ("terminated", IngestionTaskState.CANCELLED),
+        ("canceled", IngestionTaskState.CANCELLED),
+        ("failed", IngestionTaskState.FAILED),
+        ("timed_out", IngestionTaskState.FAILED),
+        ("completed", IngestionTaskState.FAILED),
+    ],
+)
+@pytest.mark.asyncio
+async def test_a_run_whose_workflow_ended_unrecorded_is_settled(
+    service_resources: tuple[
+        IngestionApplicationService, IngestionControlPlaneDatabase, FakeTemporalClient
+    ],
+    workflow: str,
+    recorded: IngestionTaskState,
+) -> None:
+    service, control, temporal = service_resources
+    task_id = await _running_task(service, control)
+    task = await control.tasks.get(task_id)
+    assert task is not None
+    await control.source_scans.start(task.source_scope_id, scan_id=source_scan_id(task_id))
+    temporal.statuses[task_id] = workflow
+
+    assert await service.settle_if_ended(task_id) is True
+
+    settled = await control.tasks.get(task_id)
+    assert settled is not None and settled.status is recorded
+    assert settled.summary["error_code"] == f"workflow_{workflow}"
+    assert not await control.source_scans.has_running_scan(task.source_scope_id)
+
+
+@pytest.mark.parametrize(
+    "workflow",
+    [
+        "running",
+        "paused",
+        "continued_as_new",
+        "unknown",
+        WorkflowNotFoundError("Could not describe ingestion task: task not found"),
+        WorkflowOperationError("Could not describe ingestion task"),
+    ],
+    ids=["running", "paused", "continued", "unknown", "not-found", "unreachable"],
+)
+@pytest.mark.asyncio
+async def test_a_run_whose_workflow_may_still_run_stays_active(
+    service_resources: tuple[
+        IngestionApplicationService, IngestionControlPlaneDatabase, FakeTemporalClient
+    ],
+    workflow: str | Exception,
+) -> None:
+    service, control, temporal = service_resources
+    task_id = await _running_task(service, control)
+    temporal.statuses[task_id] = workflow
+
+    assert await service.settle_if_ended(task_id) is False
+
+    task = await control.tasks.get(task_id)
+    assert task is not None and task.status is IngestionTaskState.RUNNING
+
+
+@pytest.mark.asyncio
+async def test_cancelling_a_run_terminated_in_temporal_records_its_end(
+    service_resources: tuple[
+        IngestionApplicationService, IngestionControlPlaneDatabase, FakeTemporalClient
+    ],
+) -> None:
+    service, control, temporal = service_resources
+    task_id = await _running_task(service, control)
+    temporal.statuses[task_id] = "terminated"
+
+    result = await service.cancel(task_id, actor="ops@laptop")
+
+    assert result["status"] == "CANCELLED"
+    assert temporal.cancelled == []
+    task = await control.tasks.get(task_id)
+    assert task is not None and task.status is IngestionTaskState.CANCELLED
+
+
+@pytest.mark.asyncio
+async def test_a_workflow_lookup_that_hangs_leaves_the_run_active(
+    service_resources: tuple[
+        IngestionApplicationService, IngestionControlPlaneDatabase, FakeTemporalClient
+    ],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, control, temporal = service_resources
+    monkeypatch.setattr(ingestion_service, "_WORKFLOW_LOOKUP_SECONDS", 0.05)
+    task_id = await _running_task(service, control)
+    temporal.statuses[task_id] = "hang"
+
+    assert await service.settle_if_ended(task_id) is False

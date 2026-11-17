@@ -57,7 +57,7 @@ def test_invalid_evaluation_does_not_echo_private_input(tmp_path):
 
 
 def test_topology_config_validate_is_offline_and_non_secret(tmp_path):
-    policy = tmp_path / "graph_build.yaml"
+    policy = tmp_path / "build.yaml"
     policy.write_text(
         "tenants:\n  - tenant_id: demo\n    mode: deterministic\n",
         encoding="utf-8",

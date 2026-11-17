@@ -317,6 +317,3 @@ def _generation_chunk(event: HarborChatStreamChunk) -> ChatGenerationChunk | Non
             generation_info={"finish_reason": event.finish_reason},
         )
     return None
-
-
-__all__ = ["HarborChatModel"]

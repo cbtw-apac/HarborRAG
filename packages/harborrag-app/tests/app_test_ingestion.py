@@ -2,16 +2,80 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from datetime import UTC, datetime
+from typing import Any
 from uuid import uuid4
 
 from harborrag_app.workflow_control.errors import (
+    IngestionActionStateError,
     IngestionAlreadyCompletedError,
-    IngestionCursorError,
+    IngestionNotFoundError,
 )
 from harborrag_app.workflow_control.ingestion.models import IngestionCreateCommand
 from harborrag_app.workflow_control.schemas import AppResponse
+
+
+class FixtureIngestionOperations:
+    """Run reads of the tenant ``DEFAULT``, which owns every run the doubles know."""
+
+    async def list(self, *, tenant_id: str, **_filters: object) -> dict[str, Any]:
+        return {
+            "items": [await self.get(tenant_id=tenant_id, ingestion_id="ing_1")],
+            "next_cursor": None,
+        }
+
+    async def get(self, *, tenant_id: str, ingestion_id: str) -> dict[str, Any]:
+        if tenant_id != "DEFAULT":
+            raise IngestionNotFoundError(f"ingestion {ingestion_id!r} not found")
+        return {
+            "ingestion_id": ingestion_id,
+            "tenant_id": tenant_id,
+            "project_id": "proj-1",
+            "connection_id": "smoke-local",
+            "mode": "incremental",
+            "status": "running",
+            "counters": {"discovered": 2, "processed": 1, "skipped": 0, "failed": 0},
+            "stages": [],
+            "error_category": None,
+            "triggered_by": {"principal_type": "user", "principal_id": "u_huy"},
+            "settings_revision": "",
+            "workflow_id": f"harborrag-source:{ingestion_id}",
+            "run_id": ingestion_id,
+            "trace_id": "",
+            "links": {"temporal": "", "grafana": "", "langfuse": ""},
+            "created_at": datetime(2026, 8, 1, 9, 24, tzinfo=UTC),
+            "finished_at": None,
+        }
+
+    async def documents(
+        self, *, tenant_id: str, ingestion_id: str, **_page: object
+    ) -> dict[str, Any]:
+        await self.get(tenant_id=tenant_id, ingestion_id=ingestion_id)
+        return {
+            "items": [
+                {
+                    "document_ref": "adr/0001.md",
+                    "document_id": "document:1",
+                    "status": "succeeded",
+                    "stage": "publish",
+                    "error_category": None,
+                    "duration_ms": None,
+                }
+            ],
+            "next_cursor": None,
+        }
+
+    async def act(self, *, tenant_id: str, ingestion_id: str, **_action: object) -> dict[str, Any]:
+        if ingestion_id == "complete":
+            raise IngestionActionStateError("the ingestion is already complete")
+        return await self.get(tenant_id=tenant_id, ingestion_id=ingestion_id)
+
+    async def retry_failures(
+        self, *, tenant_id: str, ingestion_id: str, **_retry: object
+    ) -> dict[str, Any]:
+        await self.get(tenant_id=tenant_id, ingestion_id=ingestion_id)
+        return await self.get(tenant_id=tenant_id, ingestion_id=str(uuid4()))
 
 
 class IngestionServiceFixture:
@@ -19,9 +83,9 @@ class IngestionServiceFixture:
 
     submissions: list[IngestionCreateCommand]
     idempotency: dict[str, str]
-    task_list_calls: list[dict[str, object]]
     direct_runs: list[dict[str, object]]
     direct_final_status: str = "completed"
+    ingestion_operations: Any = FixtureIngestionOperations()
 
     async def run_ingestion(  # noqa: PLR0913 - mirrors the service port
         self,
@@ -111,49 +175,6 @@ class IngestionServiceFixture:
             "started_at": datetime(2026, 8, 1, 9, 24, 2, tzinfo=UTC),
             "completed_at": None,
             "message": "Processing admitted documents",
-        }
-
-    async def list_tasks(
-        self,
-        *,
-        tenants: frozenset[str] | None,
-        statuses: Sequence[str] | None,
-        cursor: str | None,
-        limit: int,
-    ) -> dict[str, object]:
-        if cursor == "not-base64":
-            raise IngestionCursorError("Task cursor is invalid.")
-        self.task_list_calls.append(
-            {"tenants": tenants, "statuses": statuses, "cursor": cursor, "limit": limit}
-        )
-        return {
-            "items": [await self.get_task("00000000-0000-4000-8000-000000000001")],
-            "next_cursor": "eyJzdWJtaXR0ZWRfYXQiOiIyMDI2LTA4LTAxVDA5OjI0OjAwKzAwOjAwIn0",
-        }
-
-    async def list_documents(
-        self,
-        *,
-        task_id: str,
-        status: str | None,
-        cursor: str | None,
-        limit: int,
-    ) -> dict[str, object]:
-        del task_id, status, cursor, limit
-        return {
-            "items": [
-                {
-                    "document_id": "document:1",
-                    "source_item_id": "adr/0001.md",
-                    "document_kind": "file",
-                    "title": "ADR-0001",
-                    "status": "SUCCESS",
-                    "active_document_version_id": "document-version:1",
-                    "failure": None,
-                    "updated_at": datetime(2026, 8, 1, 9, 25, tzinfo=UTC),
-                }
-            ],
-            "next_cursor": None,
         }
 
     async def pause(self, task_id: str, *, actor: str | None = None) -> dict[str, object]:
@@ -258,6 +279,3 @@ class IngestionServiceFixture:
             True,
             {"run_id": run_id, "action": action},
         )
-
-
-__all__ = ["IngestionServiceFixture"]

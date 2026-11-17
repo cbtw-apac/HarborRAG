@@ -57,6 +57,3 @@ def response_cost(raw: Any, *, deployment: HarborChatProviderConfig) -> float | 
     except Exception:  # noqa: BLE001 - missing pricing must not fail a paid-for response
         return None
     return normalize_response_cost({"response_cost": amount})
-
-
-__all__ = ["normalize_response_cost", "response_cost"]

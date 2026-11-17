@@ -230,6 +230,3 @@ class FindEntitiesTool(ReaderTool):
         except Exception:
             logger.exception("find_entities failed")
             return failure("entity search failed")
-
-
-__all__ = ["FIND_ENTITIES_SPEC", "FindEntitiesTool"]

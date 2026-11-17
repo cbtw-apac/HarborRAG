@@ -264,6 +264,3 @@ class SourceRelationProjector:
         if supplied is not None and str(supplied).strip():
             return str(supplied).strip()
         return target_id
-
-
-__all__ = ["SourceRelationProjector", "normalized_predicate"]

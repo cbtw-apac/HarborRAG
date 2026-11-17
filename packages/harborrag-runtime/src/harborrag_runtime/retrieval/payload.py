@@ -31,6 +31,3 @@ def section_path(payload: Mapping[str, Any]) -> list[str]:
     if not isinstance(value, list):
         return []
     return [item.strip() for item in value if isinstance(item, str) and item.strip()]
-
-
-__all__ = ["optional_text", "section_path"]

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Final, Literal, Protocol
@@ -48,7 +48,7 @@ from harborrag_runtime.config.connectors.models import (
     ValidatedConnection,
     source_types,
 )
-from harborrag_runtime.config.connectors.models.builder import connector_config_issues
+from harborrag_runtime.config.connectors.models.builder import validate_connection
 from harborrag_runtime.config.connectors.models.spec import METHOD_KEY
 from harborrag_runtime.config.errors import ConnectorConfigurationError
 from harborrag_runtime.connections import (
@@ -69,7 +69,8 @@ from harborrag_runtime.ingestion.connections import (
 )
 
 from ..ingestion.models import IngestionCreateCommand
-from .connection_views import connection_view, ingestion_view, resolve_any_version
+from .active_runs import active_run
+from .connection_views import ingestion_view, read_connection_views, resolve_any_version
 from .effect_recovery import defer_retirement, log_activity, retire_refs
 
 if TYPE_CHECKING:
@@ -106,13 +107,17 @@ class ConnectionRuns(Protocol):
 
     async def progress(self, task_id: str) -> dict[str, int]: ...
 
+    async def progress_for_tasks(self, task_ids: Sequence[str]) -> dict[str, dict[str, int]]: ...
+
 
 class IngestionSubmitter(Protocol):
-    """Start an ingestion through the shared submission path."""
+    """Start an ingestion through the shared submission path; tell when a run ended unrecorded."""
 
     async def submit(
         self, command: IngestionCreateCommand, *, idempotency_key: str | None
     ) -> dict[str, object]: ...
+
+    async def settle_if_ended(self, task_id: str) -> bool: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -201,7 +206,8 @@ class ConnectionService:
             limit=limit,
             cursor=cursor,
         )
-        return [await self._view(connection) for connection in connections], next_cursor
+        views = await read_connection_views(await self._runs(), connections, batch=True)
+        return views, next_cursor
 
     async def searchable(self, *, tenant_id: str, project_id: str) -> list[dict[str, Any]]:
         """Connections of one project as reader filter chips.
@@ -438,24 +444,25 @@ class ConnectionService:
                 {k: v for k, v in effective.items() if isinstance(v, Mapping)},
                 tenant_id=key.tenant_id,
             )
-        except SecretUnavailableError:
+        except SecretUnavailableError as unavailable:
             report = ConnectionTestReport()
             report.passed("schema")
-            report.failed("auth", "auth_invalid", "a referenced secret cannot be read")
+            report.secret_unavailable(unavailable)
             return report.as_dict()
         report = await self._run_checks(spec, validated, effective, secret_values, key.tenant_id)
         return report.as_dict()
 
-    async def sync(
+    async def sync(  # noqa: PLR0913 - the caller, its type and the run options
         self,
         key: ConnectionKey,
         *,
         actor: str,
+        actor_type: str = "user",
         mode: str = "incremental",
         item_refs: tuple[str, ...] = (),
         updated_after: str | None = None,
     ) -> dict[str, Any]:
-        """Start an ingestion of the connection.
+        """Start an ingestion of the connection, recording ``actor`` and ``actor_type`` on the run.
 
         Returns:
             The spec's ``Ingestion`` object of the started run.
@@ -465,24 +472,32 @@ class ConnectionService:
             HarborAlreadyRunningError: An ingestion is active; ``details.ingestion_id`` names it.
             HarborCapabilityError: ``item_refs`` was sent; per-item syncs are not supported yet.
             ConnectionUnavailableError: The connection is being deleted.
+            ConnectionValidationError: The stored values fail the schema or the connector.
         """
         if item_refs:
             raise HarborCapabilityError("syncing selected items is not supported yet")
         connection = await self._require(key)
         if connection.status == "deleting":
             raise ConnectionUnavailableError(f"connection {connection.ref!r} is being deleted")
+        validate_connection(
+            source_types.get(connection.source_type),
+            connection.credentials,
+            connection.config,
+            connection.tuning,
+            tenant_id=connection.tenant_id,
+        )
         runs = await self._runs()
-        await self._refuse_if_running(runs, key.tenant_id, connection.source_key)
+        await self._refuse_if_running(key.tenant_id, connection.source_key)
         lease = f"connection-sync:{key.tenant_id}:{connection.source_key}"
         holder = f"{self._instance_id}:{uuid4().hex}"
         if not await self._control_plane().leases.try_acquire(
             lease, holder, ttl_seconds=SYNC_LEASE_TTL_SECONDS
         ):
-            await self._refuse_if_running(runs, key.tenant_id, connection.source_key)
+            await self._refuse_if_running(key.tenant_id, connection.source_key)
             raise HarborAlreadyRunningError(
                 "an ingestion is starting for this connection", details={"ingestion_id": None}
             )
-        await self._refuse_if_running(runs, key.tenant_id, connection.source_key)
+        await self._refuse_if_running(key.tenant_id, connection.source_key)
         accepted = await self._ingestions.submit(
             IngestionCreateCommand(
                 tenant_id=key.tenant_id,
@@ -495,6 +510,8 @@ class ConnectionService:
                     "actor": actor,
                 },
                 updated_after=updated_after,
+                actor=actor,
+                actor_type=actor_type,
             ),
             idempotency_key=None,
         )
@@ -506,7 +523,6 @@ class ConnectionService:
             task,
             connection=connection,
             progress=await runs.progress(task.task_id),
-            triggered_by=actor,
             mode=mode,
         )
 
@@ -519,9 +535,7 @@ class ConnectionService:
         """
         control_plane = self._control_plane()
         connection = await self._require(key)
-        active = await (await self._runs()).active_for_connection(
-            tenant_id=key.tenant_id, connection_id=connection.source_key
-        )
+        active = await self._active_run(key.tenant_id, connection.source_key)
         if active is not None:
             raise HarborAlreadyRunningError(
                 "an ingestion is running for this connection",
@@ -603,22 +617,23 @@ class ConnectionService:
             )
         return len(connections)
 
-    @staticmethod
-    async def _refuse_if_running(runs: ConnectionRuns, tenant_id: str, source_key: str) -> None:
+    async def _refuse_if_running(self, tenant_id: str, source_key: str) -> None:
         """Raise ``already_running`` naming the connection's active ingestion, if any."""
-        active = await runs.active_for_connection(tenant_id=tenant_id, connection_id=source_key)
+        active = await self._active_run(tenant_id, source_key)
         if active is not None:
             raise HarborAlreadyRunningError(
                 "an ingestion is already running", details={"ingestion_id": active.task_id}
             )
 
+    async def _active_run(self, tenant_id: str, source_key: str) -> IngestionTask | None:
+        """The connection's pending, running or paused run; ones whose workflow ended are settled."""
+        return await active_run(
+            await self._runs(), self._ingestions, tenant_id=tenant_id, source_key=source_key
+        )
+
     async def connection_busy(self, tenant_id: str, source_key: str) -> bool:
         """True while an ingestion of the connection is pending, running or paused."""
-        runs = await self._runs()
-        return (
-            await runs.active_for_connection(tenant_id=tenant_id, connection_id=source_key)
-            is not None
-        )
+        return await self._active_run(tenant_id, source_key) is not None
 
     async def aclose(self) -> None:
         """Wait for background removals started by this process."""
@@ -694,14 +709,8 @@ class ConnectionService:
 
     async def _view(self, connection: Connection) -> dict[str, Any]:
         """Return the API view with the latest run and document count."""
-        runs = await self._runs()
-        latest = await runs.latest_for_connection(
-            tenant_id=connection.tenant_id, connection_id=connection.source_key
-        )
-        documents = await runs.connection_document_count(
-            tenant_id=connection.tenant_id, connection_id=connection.source_key
-        )
-        return connection_view(connection, last_ingestion=latest, documents=documents)
+        views = await read_connection_views(await self._runs(), [connection], batch=False)
+        return views[0]
 
     async def _retire_replaced(self, connection: Connection, refs: list[str]) -> None:
         """Delete replaced stored secrets now, or once the running ingestion finishes."""
@@ -902,11 +911,9 @@ def _validate(
     Raises:
         ConnectionValidationError: A schema or the connector rejects the values.
     """
-    validated = spec.validate(credentials, write.config, write.effective_tuning(existing))
-    issues = connector_config_issues(spec, validated, tenant_id=tenant_id)
-    if issues:
-        raise ConnectionValidationError(issues)
-    return validated
+    return validate_connection(
+        spec, credentials, write.config, write.effective_tuning(existing), tenant_id=tenant_id
+    )
 
 
 def _build(  # noqa: PLR0913 - the parts of one stored connection

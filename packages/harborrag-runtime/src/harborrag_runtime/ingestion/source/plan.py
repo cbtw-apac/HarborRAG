@@ -24,6 +24,7 @@ from harborrag_core.ingestion import (
     reject_runtime_fields,
 )
 from harborrag_core.storage import StorageOperationContext
+from harborrag_runtime.ingestion_contracts import RunSettings
 from harborrag_runtime.serialization import to_json_value
 
 from ..document.models import DocumentReleaseRequest
@@ -359,6 +360,9 @@ class SourcePlanRepository:
                 "force_reprocess": request.force_reprocess,
                 "pdf_engine": request.pdf_engine,
                 "chunking_max_tokens": request.chunking_max_tokens,
+                "run_settings": (
+                    request.run_settings.to_json() if request.run_settings is not None else None
+                ),
             },
         }
 
@@ -412,5 +416,6 @@ class SourcePlanRepository:
                     if request.get("chunking_max_tokens") is not None
                     else None
                 ),
+                run_settings=RunSettings.from_json(request.get("run_settings")),
             ),
         )

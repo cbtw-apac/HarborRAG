@@ -110,7 +110,7 @@ def test_calls_over_the_default_limit_are_refused_until_the_window_moves(
 
 def test_the_chat_bucket_is_separate_and_per_principal(client: TestClient) -> None:
     chat = [
-        client.post("/v1/chat/completions", headers=_bearer("reader"), json={"prompt": "hi"})
+        client.post("/v1/chat/completions", headers=_bearer("reader"), json={"message": "hi"})
         for _ in range(3)
     ]
 

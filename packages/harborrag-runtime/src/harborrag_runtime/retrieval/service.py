@@ -19,7 +19,7 @@ from harborrag_core.contracts.reader import (
     SemanticPathRequest,
     SemanticPathResponse,
 )
-from harborrag_core.indexing import VectorFilter
+from harborrag_core.indexing import VectorFilter, VectorSearchResult
 from harborrag_core.security import AccessContext
 from harborrag_core.storage import StorageOperationContext
 from harborrag_core.topology.records import CanonicalMention
@@ -55,10 +55,14 @@ from .knowledge import KnowledgeRetrieval
 from .permissions import RetrievalPermissions
 from .reader_service import RuntimeReaderRetrievalMixin
 from .readers import ReaderResources, ReaderRetrieval
+from .reranking import PassageReranker
 from .result_loader import EvidenceResultLoader
 from .source_fields import SourceFieldTrace, split_field_filters
 from .topology import TopologyRetrieval
 from .validation import validate_retrieval_request
+
+RERANK_POOL_FACTOR = 4
+RERANK_POOL_LIMIT = 100
 
 _NO_CANDIDATES = AuthoritativeSearchDiagnostics(
     candidate_count=0,
@@ -73,6 +77,9 @@ _NO_CANDIDATES = AuthoritativeSearchDiagnostics(
 logger = logging.getLogger("harborrag.runtime.retrieval")
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from harborrag_core.domain.retrieval import RetrievalResult
     from harborrag_core.ports.storage import VectorRepositoryPort
 
     from ..config.settings import RuntimeSettings
@@ -84,7 +91,14 @@ class _NullRetrievalTelemetry:
 
 
 class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrievalMixin):
-    """Resolve projection visibility through Postgres before loading evidence."""
+    """Resolve projection visibility through Postgres before loading evidence.
+
+    Args:
+        resources: Stores and model clients the service reads through.
+        policy: Process-wide retrieval settings.
+        close_resources: Close operations ``aclose`` runs, in reverse order.
+        telemetry: Metrics sink for stale-candidate rejections; ``None`` drops them.
+    """
 
     def __init__(
         self,
@@ -100,6 +114,11 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
         self._entities = resources.entity_summary_search
         self._policy = policy
         self._result_loader = EvidenceResultLoader(resources.embed_client, policy)
+        self._reranker = (
+            PassageReranker(resources.rerank_client)
+            if resources.rerank_client is not None
+            else None
+        )
         self._permissions = RetrievalPermissions(resources.topology_repository)
         self._candidate_validator = ActiveVersionCandidateValidator(resources.active_versions)
         # Retained so the conversation-memory index can share this one connected
@@ -166,7 +185,6 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
         corpus) hits nothing was released for, come back as reason codes rather
         than as an empty answer that looks complete -- see ``EntitySummarySearch.find``.
         """
-
         request_id = f"entities-{uuid4().hex}"
         if self._entities is None or self._summaries is None:
             raise no_entity_index()
@@ -181,17 +199,23 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
     @property
     def vector_repository(self) -> VectorRepositoryPort:
         """The connected vector client, for sharing with the memory index."""
-
         return self._vector_repository
 
     @property
     def embedding_dimensions(self) -> int:
         """Dense vector width, so a second index matches this deployment."""
-
         return self._policy.embedding_dimensions
 
     @classmethod
     async def connect(cls, settings: RuntimeSettings) -> RuntimeRetrievalService:
+        """Connect the stores and model clients ``settings`` name and own them.
+
+        Args:
+            settings: Runtime settings naming the stores and the model catalog.
+
+        Returns:
+            A connected service; ``aclose`` releases everything it opened.
+        """
         from .composition import connect_retrieval_service
 
         return await connect_retrieval_service(settings)
@@ -206,7 +230,6 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
         access: AccessContext | None = None,
     ) -> RuntimeRetrievalReport:
         """Search active evidence vectors and return their canonical payload content."""
-
         validate_retrieval_request(query, tenant_id, top_k)
         selected = options or RetrievalOptions()
         # Before permission conditions join it: only the caller's own keys are
@@ -219,6 +242,8 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
             tenant_id=tenant_id,
             access=access,
         )
+        reranker = self._requested_reranker(selected, request_id)
+        pool = rerank_pool(top_k) if reranker is not None else top_k
         sparse_vector = (
             self._sparse.encode_query(query).vector
             if selected.lane in {RetrievalLane.SPARSE, RetrievalLane.HYBRID}
@@ -254,7 +279,7 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
                 await self._readable_search(
                     AuthoritativeSearchRequest(
                         lane=selected.lane,
-                        top_k=top_k,
+                        top_k=pool,
                         dense_vector=dense_vector,
                         sparse_vector=sparse_vector,
                         filters=chunk_filter,
@@ -325,12 +350,16 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
         distinct, late_duplicates = collapse_duplicates(
             [result for candidate, result in loaded if str(candidate.id) in active_candidate_ids],
             lambda result: duplicate_identity(result.metadata),
-            limit=top_k,
+            limit=pool,
         )
         results = list(distinct)
+        direct = topology.flat
+        if reranker is not None:
+            results = await reranker.rerank(query, results)
+            direct = in_result_order(direct, results)
         if selected.mode != RetrievalMode.FLAT:
             results, tokens, excluded = select_evidence(
-                results, topology.flat, top_k=top_k, policy=self._policy.topology
+                results, direct, top_k=top_k, policy=self._policy.topology
             )
             topology_diagnostics = budget_diagnostics(topology_diagnostics, tokens, excluded)
         results = results[:top_k]
@@ -381,10 +410,25 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
             ),
         )
 
+    def _requested_reranker(
+        self, options: RetrievalOptions, request_id: str
+    ) -> PassageReranker | None:
+        """Return the reranker when ``options`` ask for one and the catalog has one.
+
+        A ``retrieval.rerank`` override can outlive the ``rerank`` section it was
+        set against; that request is served unranked and logged.
+        """
+        if options.rerank and self._reranker is None:
+            logger.warning(
+                "Rerank requested but no rerank model is configured",
+                extra={"request_id": request_id},
+            )
+        return self._reranker if options.rerank else None
+
     async def _traced_items(
         self, field_filter: VectorFilter, context: StorageOperationContext
     ) -> tuple[str, ...]:
-        """The items a ``fields.*`` filter matches, among documents the caller may read.
+        """Return the items a ``fields.*`` filter matches, among documents the caller may read.
 
         Over the enumeration budget the pre-query ACL is the readable source
         scopes, which can hold documents the caller may not read. Whether any item
@@ -393,7 +437,6 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
         item first costs a lookup per item, so the request is refused instead,
         exactly as such a principal's every request was before the scope fallback.
         """
-
         scoped = await self._permissions.scoped(field_filter, context)
         if not scoped.exact:
             logger.info("Fields filter refused: readable documents exceed the enumeration budget")
@@ -412,7 +455,6 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
         something about documents the caller cannot read. So the candidates are
         permission-checked here, and the counts describe only those.
         """
-
         scoped = await self._permissions.scoped(request.filters, context)
         search = await self._search.search(
             replace(request, filters=scoped.filters), context=context
@@ -428,11 +470,13 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
     async def fetch_evidence(
         self, chunk_ids: tuple[str, ...], *, access: AccessContext
     ) -> EvidenceFetchResponse:
+        """Return the chunks the caller may read, as retrieval results."""
         return await self._knowledge.fetch(chunk_ids, access=access)
 
     async def resolve_entities(
         self, name: str, *, limit: int, access: AccessContext
     ) -> EntityResolveResponse:
+        """Return the canonical mentions of the named entity that the caller may read."""
         return await self._knowledge.resolve_entities(name, limit=limit, access=access)
 
     async def lookup_entities(
@@ -442,6 +486,7 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
         chunk_ids: tuple[str, ...] = (),
         access: AccessContext,
     ) -> tuple[CanonicalMention, ...]:
+        """Return the canonical mentions of the given entities or chunks."""
         return await self._knowledge.lookup_entities(
             entity_ids=entity_ids,
             chunk_ids=chunk_ids,
@@ -457,6 +502,7 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
         limit: int,
         access: AccessContext,
     ) -> RelationSearchResponse:
+        """Return the assertions that connect one canonical entity to others."""
         return await self._knowledge.find_relations(
             entity_id,
             predicates=predicates,
@@ -469,6 +515,7 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
         self,
         request: SemanticPathRequest,
     ) -> SemanticPathResponse:
+        """Return the assertion paths between two canonical entities."""
         return await self._knowledge.find_paths(request)
 
     @staticmethod
@@ -493,6 +540,16 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
         )
 
     async def aclose(self) -> None:
+        """Run every close operation, newest first; a second call after success is a no-op.
+
+        A failed close leaves the service open, so a caller can retry ``aclose`` and give
+        the failed resources another attempt; close operations must be idempotent.
+
+        Raises:
+            BaseExceptionGroup: A close operation raised a non-``Exception`` such as
+                ``KeyboardInterrupt``.
+            ExceptionGroup: One or more close operations failed.
+        """
         if self._closed:
             return
         results: list[BaseException] = []
@@ -510,7 +567,27 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
         if fatal:
             raise BaseExceptionGroup("retrieval resource close failed", fatal)
         if errors:
-            # Deliberately left un-closed so a caller can retry aclose() and give the
-            # failed resources another attempt; close operations must be idempotent.
             raise ExceptionGroup("retrieval resource close failed", errors)
         self._closed = True
+
+
+def rerank_pool(top_k: int) -> int:
+    """Return how many passages a rerank chooses ``top_k`` from.
+
+    ``RERANK_POOL_FACTOR`` times ``top_k`` lets the model promote passages the
+    vector ranking placed lower; ``RERANK_POOL_LIMIT`` keeps one request within
+    the 100 documents a rerank search unit covers.
+    """
+    return max(top_k, min(top_k * RERANK_POOL_FACTOR, RERANK_POOL_LIMIT))
+
+
+def in_result_order(
+    direct: tuple[VectorSearchResult, ...], results: Sequence[RetrievalResult]
+) -> tuple[VectorSearchResult, ...]:
+    """Order direct hits as ``results`` are, so reserved evidence slots follow the rerank."""
+    position = {result.id: index for index, result in enumerate(results)}
+    return tuple(
+        sorted(
+            direct, key=lambda hit: position.get(str(hit.payload.get("chunk_id")), len(position))
+        )
+    )

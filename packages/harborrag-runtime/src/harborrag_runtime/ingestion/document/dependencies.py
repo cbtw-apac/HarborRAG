@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from harborrag_core.domain.parser import ParsedDocument
 from harborrag_core.domain.raw_document import RawDocument
@@ -24,6 +24,9 @@ from harborrag_engine.ingestion import (
     RepresentationReuseService,
     VectorProjectionStore,
 )
+
+if TYPE_CHECKING:
+    from .run_tools import RunTools
 
 
 class DocumentParserPort(Protocol):
@@ -48,3 +51,4 @@ class DocumentReleaseDependencies:
     projection_artifacts: ProjectionArtifactPort
     vector_store: VectorProjectionStore
     graph_store: KnowledgeGraphRepositoryPort
+    run_tools: RunTools | None = None

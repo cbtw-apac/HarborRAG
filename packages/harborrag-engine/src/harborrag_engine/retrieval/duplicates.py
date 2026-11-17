@@ -65,6 +65,3 @@ def collapse_duplicates[T](
             seen.add(value)
         kept.append(item)
     return tuple(kept), collapsed
-
-
-__all__ = ["collapse_duplicates", "duplicate_identity"]

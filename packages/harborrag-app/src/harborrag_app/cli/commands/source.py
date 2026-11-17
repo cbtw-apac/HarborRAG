@@ -43,7 +43,7 @@ app = typer.Typer(
 
 Ref = Annotated[
     str,
-    typer.Argument(metavar="PROJECT/CONNECTION", help="Such as default/jira-cpm."),
+    typer.Argument(metavar="PROJECT/CONNECTION", help="Such as default/jira-demo."),
 ]
 Tenant = Annotated[
     str,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -34,6 +35,33 @@ class TaskDocumentPage:
 
     items: tuple[StoredTaskDocumentResult, ...]
     has_more: bool
+
+
+@dataclass(frozen=True, slots=True)
+class StoredFailure:
+    """Latest failed result of one document, with its retry history."""
+
+    task_id: str
+    document_id: str
+    source_key: str
+    result: Mapping[str, object]
+    failed_at: datetime
+    attempts: int
+    resolved: bool
+
+
+@dataclass(frozen=True, slots=True)
+class FailurePage:
+    """Keyset page of failure inbox items.
+
+    ``counts`` covers every item matching the filter, not only this page;
+    ``total`` is set only when the caller asked for it.
+    """
+
+    items: tuple[StoredFailure, ...]
+    has_more: bool
+    counts: dict[str, int]
+    total: int | None
 
 
 @dataclass(frozen=True, slots=True)

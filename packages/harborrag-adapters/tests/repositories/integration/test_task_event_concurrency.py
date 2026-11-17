@@ -106,3 +106,31 @@ async def test_task_event_rejects_append_for_unknown_task(
         await control.task_events.append_event(
             "missing", HarborEvent(name="task.missing.progress", trace_id="trace")
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.whitebox
+async def test_append_event_once_stores_one_event_per_name_under_concurrency(
+    control: IngestionControlPlaneDatabase,
+) -> None:
+    await _seed_task(control, "task-1")
+    await control.task_events.append_event(
+        "task-1", HarborEvent(name="task.task-1.run.status", trace_id="t0")
+    )
+
+    results = await asyncio.gather(
+        *(
+            control.task_events.append_event_once(
+                "task-1", HarborEvent(name="task.task-1.run.completed", trace_id=f"t{index}")
+            )
+            for index in range(10)
+        )
+    )
+
+    stored = await control.task_events.list_events("task-1", limit=100)
+    assert [event.name for event in stored] == [
+        "task.task-1.run.status",
+        "task.task-1.run.completed",
+    ]
+    assert [seq for seq in results if seq is not None] == [2]
+    assert results.count(None) == 9

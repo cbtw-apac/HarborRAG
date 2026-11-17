@@ -1,81 +1,80 @@
 # harborrag-engine
 
-Owns RAG orchestration using core contracts and adapter implementations.
+The provider-neutral ingestion and retrieval engine of
+[HarborRAG](https://github.com/cbtw-apac/HarborRAG): deterministic chunking, dense and
+sparse representations, vector and graph projection batches, authoritative retrieval, the
+reader tool catalog and the chat prompts. It depends only on `harborrag-core` and
+`jsonschema`; providers, databases and Temporal are injected by the runtime.
 
-## Folder ownership
+To use HarborRAG as a library, install the [`harborrag`](https://pypi.org/project/harborrag/)
+facade instead. Install this package directly when you build your own composition on
+HarborRAG's engine policies.
 
-```text
-ingestion/admission.py       # source change and version planning
-ingestion/chunking/          # canonical route and evidence chunking
-ingestion/representations/   # dense/sparse representation policy
-ingestion/projections/       # Qdrant/Falkor projection construction and verification
-retrieval/                   # authoritative retrieval, fusion, reranking, and evidence
-tools/                       # canonical reader catalog, schemas, handlers, and checked invoker
-chat/prompts/                # typed, packaged provider-neutral chat prompts
+## Install
+
+```bash
+pip install harborrag-engine
 ```
 
-## Extension boundaries
-
-- Core domain records and ports remain provider-neutral.
-- Connectors, parsers, models, and repositories are injected through adapters.
-- Canonical chunking has maintained Confluence and Jira policies plus a
-  source-neutral fallback for attachments and community connectors.
-- Provider writes and Temporal orchestration remain outside the engine.
-- Chat prompt definitions are provider- and transport-neutral; runtime binds
-  clients.
-- Reader tools bind only to core reader ports. MCP invokes them through one
-  policy, validation, and output-budget boundary.
-- Conversation identity and memory contracts live in core; PostgreSQL
-  persistence lives in adapters, outside chat orchestration.
-
-## Ingestion chunking
-
-`harborrag_engine.ingestion.chunking` implements the deterministic chunking
-stages used before the immutable chunk registry:
+## What it provides
 
 ```text
-canonical document
-  -> canonical, Confluence, Jira, or registered source strategy
-  -> structure segmentation
-  -> oversized-unit refinement
-  -> compatible peer packing
-  -> separate source/context metadata
-  -> stable logical + revision identity
-  -> canonical chunk records
-  -> lightweight manifest validation
+harborrag_engine/
+├── ingestion/
+│   ├── admission.py         # source change and version planning
+│   ├── normalizer.py        # canonical normalization between parser output and ingestion
+│   ├── chunking/            # deterministic route and evidence chunking
+│   ├── representations/     # dense and sparse representation policy
+│   └── projections/         # vector and graph projection batches and their verification
+├── retrieval/               # authoritative retrieval, fusion, evidence and the rerank port
+├── topology/                # evidence validation and deterministic semantic projection policies
+├── tools/                   # reader tool catalog, schemas, handlers and checked invocation
+├── security/                # rules for MCP reader keys
+└── chat/prompts/            # typed, packaged, provider-neutral chat prompts
 ```
 
-`minimum_tokens` is a preferred merge threshold, `target_tokens` is the soft
-packing target, and `maximum_tokens` is a hard postcondition. Tables are split
-by complete rows and repeat their header only as bounded context metadata;
-canonical chunk content remains suitable for fingerprinting and source diffs.
+These boundaries hold across the package:
 
-`ChunkingConfig` maps a normalized connector name to a profile; it never
-routes on raw media types. `ChunkingService` executes the profile's registered
-strategy, validates its output, assigns stable
-`logical_chunk_id` and content-specific `chunk_id` values, and returns
-a `ChunkingResult` containing canonical core `ChunkRecord` values plus a
-manifest of lightweight chunk references.
+- Core domain records and ports stay provider-neutral. Connectors, parsers, models and
+  repositories come in through adapters.
+- Provider writes and Temporal orchestration stay outside the engine.
+- `RetrievalPipeline` has an optional `ResultReranker` stage but holds no rerank model.
+  Production reranking is the runtime's `PassageReranker`, in `harborrag-runtime`.
+- Chat prompt definitions are provider- and transport-neutral; the runtime binds the
+  model clients.
+- Reader tools bind only to core reader ports. The MCP server invokes them through one
+  policy, validation and output-budget boundary.
+- Conversation identity and memory contracts live in core; their PostgreSQL persistence
+  lives in adapters, outside chat orchestration.
 
-Construct the service with `build_chunking_service`, a model-compatible
-`TokenCounter`, and a framework-neutral `TextRefiner`. `ChunkingService.chunk`
-is synchronous, pure, and deterministic. The runtime persists the returned
-validated chunk set and manifest through its immutable artifact repositories.
+## Chunk a canonical document
 
-Confluence and Jira are maintained built-ins. Community connectors use the
-canonical fallback or inject a `ChunkStrategy` through
-`additional_strategies`; they do not modify the service. Raw Markdown, HTML,
-JSON, PDF, and Office structure is resolved before chunking by parser and
-normalizer adapters. A `TextRefiner` remains explicit because enforcing
-`maximum_tokens` is a hard correctness requirement.
+`harborrag_engine.ingestion.chunking` turns one normalized document into canonical
+route and evidence chunks before they reach the immutable chunk registry. Build the
+service with `build_chunking_service`, passing a `ChunkingConfig`, a model-compatible
+`TokenCounter` and a `TextRefiner`. `ChunkingService.chunk` is synchronous, pure and
+deterministic. It returns a `ChunkingResult` holding canonical core `ChunkRecord` values,
+each with a stable `logical_chunk_id` and a content-specific `chunk_id`, plus a manifest
+of lightweight chunk references. The runtime persists that validated set through its
+immutable artifact repositories.
 
-See `ingestion/chunking/README.md` for the package map and extension boundary.
+`ChunkingConfig` maps a normalized connector name to a chunking profile; it never routes
+on raw media types, because Markdown, HTML, JSON, PDF and Office structure is resolved
+earlier by parser and normalizer adapters. Confluence and Jira have maintained source
+strategies; every other connector uses the canonical fallback or adds its own
+`ChunkStrategy` through `additional_strategies`. A `TextRefiner` is required because the
+profile's `maximum_tokens` is a hard limit the result must meet.
 
-## Representations and projections
+The profile limits are described in
+[Chunking configuration](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/configuration/chunking-config.md).
+The stages, the package map and how to add a source strategy are in the
+[chunking package notes](https://github.com/cbtw-apac/HarborRAG/blob/main/packages/harborrag-engine/src/harborrag_engine/ingestion/chunking/README.md).
+
+## Build representations and projections
 
 `harborrag_engine.ingestion.representations` creates versioned dense and sparse
-representations. `harborrag_engine.ingestion.projections` maps validated chunks
-and canonical relations into deterministic staged vector and graph batches:
+representations. `harborrag_engine.ingestion.projections` maps validated chunks and
+canonical relations into deterministic staged vector and graph batches:
 
 ```text
 validated chunks + representation manifest + canonical relations
@@ -85,28 +84,33 @@ validated chunks + representation manifest + canonical relations
   -> Postgres-controlled publication in the runtime
 ```
 
-Projection builders are pure and provider-independent. They never publish a
-version, call Qdrant or FalkorDB, or treat a projection store as authoritative.
-The runtime owns staged writes, verification, and the Postgres activation
-transaction. Provider adapters own native payload and query translation.
+Projection builders are pure and provider-independent. They never publish a version,
+call Qdrant or FalkorDB, or treat a projection store as authoritative. The runtime owns
+staged writes, verification and the Postgres activation transaction; provider adapters
+own native payload and query translation.
 
-## Package tests
+## Contributing
 
-Tests for this package live in:
-
-```text
-packages/harborrag-engine/tests/
-├── ingestion/
-    ├── unit/
-    └── integration/
-```
-
-Run from the repository root:
+See [CONTRIBUTING](https://github.com/cbtw-apac/HarborRAG/blob/main/CONTRIBUTING.md).
+Tests for this package live in `packages/harborrag-engine/tests/`. Run them from the
+repository root:
 
 ```bash
-pytest packages/harborrag-engine/tests/ingestion/unit
-pytest packages/harborrag-engine/tests/ingestion/integration -m integration
+uv run pytest packages/harborrag-engine/tests
 ```
 
-The deployed end-to-end ingestion smoke lives in `harborrag-runtime`, which
-owns provider composition and Temporal orchestration.
+The default run skips tests marked `integration`. Select them explicitly:
+
+```bash
+uv run pytest packages/harborrag-engine/tests -m integration
+```
+
+`tests/ingestion/smoke/run.py` is a fast, provider-independent liveness check of the
+engine ingestion path; see its
+[README](https://github.com/cbtw-apac/HarborRAG/blob/main/packages/harborrag-engine/tests/ingestion/smoke/README.md).
+The deployed end-to-end ingestion smoke lives in `harborrag-runtime`, which owns provider
+composition and Temporal orchestration.
+
+## License
+
+Apache License 2.0.

@@ -95,6 +95,3 @@ class SqlModelUsageRepository:
             estimated_cost_usd=float(row.cost),
             unpriced_requests=int(row.unpriced or 0),
         )
-
-
-__all__ = ["SqlModelUsageRepository"]

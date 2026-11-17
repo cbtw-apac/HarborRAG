@@ -238,7 +238,8 @@ async def test_a_stored_environment_reference_is_refused() -> None:
     catalog = FakeCatalog(
         {
             "acme": tenant_catalog(
-                "acme", deployment=replace(tenant_deployment("acme"), model="${HARBOR_CHAT_MODEL}")
+                "acme",
+                deployment=replace(tenant_deployment("acme"), model="${HARBORRAG_CHAT_MODEL}"),
             )
         },
         fingerprints={"acme": "fp-1"},

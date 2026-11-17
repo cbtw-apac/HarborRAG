@@ -189,7 +189,7 @@ async def test_a_writer_without_env_refuses_a_new_env_reference_but_keeps_a_stor
 
     with pytest.raises(ConnectionValidationError) as caught:
         await api.apply(
-            {"api_token": {"secret_ref": "env:HARBOR_EMBED_API_KEY"}}, secret_fields=_FIELDS
+            {"api_token": {"secret_ref": "env:HARBORRAG_EMBED_API_KEY"}}, secret_fields=_FIELDS
         )
     kept = await api.apply(
         {"api_token": {"secret_ref": "env:JIRA_TOKEN"}},

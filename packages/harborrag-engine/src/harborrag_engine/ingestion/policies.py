@@ -48,10 +48,10 @@ _STAGE_CATEGORIES = {
     "VerifyProjections": FailureCategory.VERIFICATION_FAILURE,
     "PublishVersion": FailureCategory.PUBLICATION_FAILURE,
 }
-_SIMPLE_FAILURES: tuple[
-    tuple[type[Exception], FailureCategory, bool, str],
-    ...,
-] = (
+type KnownFailure = tuple[type[Exception], FailureCategory, bool, str]
+"""An error type with the category, retryable flag and safe code it classifies as."""
+
+_SIMPLE_FAILURES: tuple[KnownFailure, ...] = (
     # More specific than SourceForbiddenError below; order matters since the
     # first isinstance match wins and both are SourceForbiddenError subclasses.
     (
@@ -231,11 +231,23 @@ class IngestionFailureClassifier:
     import (storage, S3, SQL drivers) are supplied by the runtime.
     """
 
-    def __init__(self, transient_errors: tuple[type[BaseException], ...] = ()) -> None:
+    def __init__(
+        self,
+        transient_errors: tuple[type[BaseException], ...] = (),
+        *,
+        known_failures: tuple[KnownFailure, ...] = (),
+    ) -> None:
+        """Build a classifier.
+
+        Args:
+            transient_errors: Extra infrastructure error types, transient in every stage.
+            known_failures: Extra error types with a fixed classification, matched first.
+        """
         self._transient_errors = (*_TRANSIENT_ERRORS, *transient_errors)
+        self._known_failures = (*known_failures, *_SIMPLE_FAILURES)
 
     def classify(self, stage: str, error: Exception) -> SafeFailure:
-        for error_type, category, retryable, code in _SIMPLE_FAILURES:
+        for error_type, category, retryable, code in self._known_failures:
             if isinstance(error, error_type):
                 return SafeFailure(category, retryable, code)
         if self._is_transient(error):

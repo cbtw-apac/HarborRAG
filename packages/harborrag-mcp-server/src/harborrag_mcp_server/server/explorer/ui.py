@@ -483,6 +483,3 @@ def _tools_tab(catalog: list[Any]) -> None:
             rows=catalog,
             search=True,
         )
-
-
-__all__ = ["ExplorerLayout", "SEARCH_MODE_LABELS", "call", "explorer_view"]

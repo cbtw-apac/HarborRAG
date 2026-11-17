@@ -74,7 +74,8 @@ def prepare_source_submission(
         query=query,
         excluded_filters=config_filter_keys,
     )
-    processing = build_processing_profile(settings)
+    run_settings = connection.run_settings
+    processing = build_processing_profile(settings, run_settings=run_settings)
     parser_profile = processing.parser_profile
     chunk_strategy = processing.chunk_strategy
     if pdf_engine is not None:
@@ -93,7 +94,11 @@ def prepare_source_submission(
         else (
             ingestion_concurrency
             if ingestion_concurrency is not None
-            else defaults.document_concurrency
+            else (
+                run_settings.document_concurrency
+                if run_settings is not None and run_settings.document_concurrency is not None
+                else defaults.document_concurrency
+            )
         )
     )
     return PreparedSourceSubmission(
@@ -126,6 +131,7 @@ def prepare_source_submission(
         chunking_max_tokens=chunking_max_tokens,
         ingestion_activity_timeout_seconds=ingestion_activity_timeout_seconds,
         ingestion_max_attempts=ingestion_max_attempts,
+        run_settings=run_settings,
     )
 
 

@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from collections.abc import Sequence
 
 import pytest
-from chat_service_fixtures import FakeChatFacade, FakeRuntime, replayed
+from chat_service_fixtures import FakeChatFacade, FakeRuntime
 
 from harborrag_app.workflow_control.chat import ChatApplicationService, ChatExecutionOptions
+from harborrag_core.contracts.errors import HarborConnectionError
 from harborrag_core.ports.conversation import ConversationMessage
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.memory import ConversationIdentity, InMemoryConversationMemory
@@ -51,104 +51,33 @@ def _chat_service(
 
 
 @pytest.mark.asyncio
-async def test_chat_completion_returns_the_answer_when_memory_append_fails(
+async def test_an_exchange_the_store_refuses_fails_the_turn_without_logging_the_question(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A paid-for answer must not become a 503 because memory could not be written."""
+    """The completion id must be in history, so an unstored answer is not returned."""
 
     memory = _BrokenAppendMemory()
     identity = ConversationIdentity("ACME", "reader-1", "session-1", "reader-1")
     await memory.create(identity)
     service = _chat_service(FakeRuntime(FakeChatFacade()), memory)
 
-    # The append lives in the memory module, so that is the logger to arm.
-    with caplog.at_level(logging.ERROR, logger="harborrag.app.workflow_control.memory"):
-        response = await service.complete(
+    with (
+        caplog.at_level(logging.DEBUG),
+        pytest.raises(HarborConnectionError, match="could not be stored"),
+    ):
+        await service.complete(
             "Secret question text",
             tenant_id="ACME",
             principal_id="reader-1",
             options=ChatExecutionOptions(session_id="session-1", user_id="reader-1"),
         )
 
-    assert response.ok is True
-    assert response.data["message"] == {"role": "assistant", "content": "Hello"}
-    assert response.data["memory_persisted"] is False
-    # The question and the answer are written separately now, so a store that
-    # rejects every append fails twice -- once per half of the turn.
-    records = [r for r in caplog.records if "memory append failed" in r.getMessage()]
-    assert len(records) == 2
-    assert records[0].levelno == logging.ERROR
-    assert "session-1" in records[0].getMessage()
     assert "Secret question text" not in caplog.text
 
 
 @pytest.mark.asyncio
-async def test_chat_completion_reports_memory_persisted_on_success() -> None:
+async def test_an_answered_turn_is_stored_once_under_the_completion_id() -> None:
     memory = InMemoryConversationMemory()
-    await memory.create(ConversationIdentity("ACME", "reader-1", "session-1", "reader-1"))
-    service = _chat_service(FakeRuntime(FakeChatFacade()), memory)
-
-    response = await service.complete(
-        "Hello",
-        tenant_id="ACME",
-        principal_id="reader-1",
-        options=ChatExecutionOptions(session_id="session-1", user_id="reader-1"),
-    )
-
-    assert response.ok is True
-    assert response.data["memory_persisted"] is True
-
-
-@pytest.mark.asyncio
-async def test_concurrent_completions_on_one_session_are_serialized() -> None:
-    """``recent -> append`` must not interleave: the second call sees the first turn."""
-
-    release = asyncio.Event()
-    entered: list[str] = []
-
-    class _SlowChat(FakeChatFacade):
-        async def complete(self, request, *, prompt=None):
-            entered.append(replayed(request)[-1])
-            if len(entered) == 1:
-                await release.wait()
-            return await super().complete(request, prompt=prompt)
-
-    chat = _SlowChat()
-    memory = InMemoryConversationMemory()
-    await memory.create(ConversationIdentity("ACME", "reader-1", "session-1", "reader-1"))
-    service = _chat_service(FakeRuntime(chat), memory)
-    options = ChatExecutionOptions(session_id="session-1", user_id="reader-1")
-
-    first = asyncio.create_task(
-        service.complete("First", tenant_id="ACME", principal_id="reader-1", options=options)
-    )
-    second = asyncio.create_task(
-        service.complete("Second", tenant_id="ACME", principal_id="reader-1", options=options)
-    )
-    await asyncio.sleep(0.05)
-    assert entered == ["First"], "second completion must wait for the first to finish"
-    release.set()
-    results = await asyncio.gather(first, second)
-
-    assert all(result.ok for result in results)
-    assert entered == ["First", "Second"]
-    assert replayed(chat.requests[1]) == [
-        "First",
-        "Hello",
-        "Second",
-    ]
-
-
-@pytest.mark.asyncio
-async def test_chat_completion_reports_memory_lost_when_only_the_question_fails() -> None:
-    """A half-written turn is a lost turn; ``memory_persisted`` must not claim otherwise.
-
-    The answer landing is not enough. Without the question ahead of it the
-    stored history is an assistant message with no prompt, which the next turn
-    replays as an orphan -- so the caller has to be told the turn was lost.
-    """
-
-    memory = _BrokenQuestionAppendMemory()
     identity = ConversationIdentity("ACME", "reader-1", "session-1", "reader-1")
     await memory.create(identity)
     service = _chat_service(FakeRuntime(FakeChatFacade()), memory)
@@ -157,15 +86,14 @@ async def test_chat_completion_reports_memory_lost_when_only_the_question_fails(
         "Hello",
         tenant_id="ACME",
         principal_id="reader-1",
-        options=ChatExecutionOptions(session_id="session-1", user_id="reader-1"),
+        options=ChatExecutionOptions(session_id="session-1", user_id="reader-1", trace_id="a" * 32),
     )
 
+    question, answer = await memory.recent_messages(identity, limit=10)
     assert response.ok is True
-    assert response.data["message"] == {"role": "assistant", "content": "Hello"}
-    assert response.data["memory_persisted"] is False
-    assert [message.role for message in await memory.recent_messages(identity, limit=10)] == [
-        "assistant"
-    ]
+    assert (question.role, question.content, question.mode) == ("user", "Hello", None)
+    assert answer.message_id == response.data["completion_id"]
+    assert (answer.content, answer.mode, answer.trace_id) == ("Hello", "classic", "a" * 32)
 
 
 @pytest.mark.asyncio

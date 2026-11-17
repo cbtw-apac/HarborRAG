@@ -42,6 +42,7 @@ class _ConnectionApp(MockAppService):
         super().__init__()
         self.world = world
         self.connection_service = world.service
+        self.ingestion_operations = world.operations
         self.project_service = ProjectService(
             control_plane=lambda: world.control_plane,
             runs=world.service._runs,

@@ -1,0 +1,6 @@
+version: 1
+retrieval.top_k: 5
+retrieval.rerank: false
+parsing.pdf_parser: liteparse
+chunking.max_tokens: 1200
+ingestion.concurrency: 8

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -269,9 +270,14 @@ def test_an_unexpected_failure_is_logged_but_never_printed(
         raise RuntimeError("could not reach postgresql://harbor:hunter2@db/control")
 
     monkeypatch.setattr(type(world.service), "list_page", broken)
+    harborrag_logger = logging.getLogger("harborrag")
+    harborrag_logger.addHandler(caplog.handler)
 
-    with caplog.at_level("ERROR", logger="harborrag.app.cli.source"):
-        code, response = _run(capsys, "list")
+    try:
+        with caplog.at_level("ERROR", logger="harborrag.app.cli.source"):
+            code, response = _run(capsys, "list")
+    finally:
+        harborrag_logger.removeHandler(caplog.handler)
 
     assert code == 1
     assert "hunter2" not in json.dumps(response)

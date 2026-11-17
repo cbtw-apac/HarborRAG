@@ -19,16 +19,28 @@ from .extraction import (
 )
 from .identity import MemoryIdentity
 from .locks import SessionLocks
-from .messages import answer_message, question_message
+from .messages import (
+    CHAT_MODES,
+    ChatMode,
+    CitationRecord,
+    ExchangeRecord,
+    answer_message,
+    question_message,
+    record_exchange,
+)
 from .presenters import conversation_message_data, conversation_summary_data, memory_data
 from .projects import project_lookup, require_project
 from .sessions import ConversationSessionService
 from .usage import ModelCall, record_model_usage
 
 __all__ = [
+    "CHAT_MODES",
+    "ChatMode",
+    "CitationRecord",
     "ConversationDirectoryService",
     "ConversationSessionService",
     "ErasureReport",
+    "ExchangeRecord",
     "MemoryAccess",
     "MemoryAdminClientMixin",
     "MemoryAdministrationService",
@@ -50,6 +62,7 @@ __all__ = [
     "model_usage_records",
     "project_lookup",
     "question_message",
+    "record_exchange",
     "record_model_usage",
     "require_project",
     "submit_exchange",

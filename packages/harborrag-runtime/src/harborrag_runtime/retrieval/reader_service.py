@@ -39,6 +39,3 @@ class RuntimeReaderRetrievalMixin:
         self, request: GraphNodeResolveRequest
     ) -> GraphNodeResolveResponse:
         return await self._reader.resolve_graph_nodes(request)
-
-
-__all__ = ["RuntimeReaderRetrievalMixin"]

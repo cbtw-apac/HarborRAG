@@ -40,7 +40,7 @@ async def test_title_is_generated_after_first_exchange_and_stays_stable():
         options=OPTIONS,
     )
     assert first.ok and second.ok
-    assert first.data["title"] == second.data["title"] == "Explain the release policy"
+    assert await memory.get_title(IDENTITY) == "Explain the release policy"
     assert len(chat.requests) == 2  # Title generation makes no additional model call.
 
 
@@ -52,7 +52,8 @@ async def test_manual_rename_or_clear_wins_before_generation(manual):
     result = await service.complete(
         "First question", tenant_id="ACME", principal_id="reader", options=OPTIONS
     )
-    assert result.data["title"] == (manual or None)
+    assert result.ok
+    assert await memory.get_title(IDENTITY) == (manual or None)
 
 
 @pytest.mark.asyncio

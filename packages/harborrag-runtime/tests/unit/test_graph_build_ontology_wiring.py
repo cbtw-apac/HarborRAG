@@ -1,4 +1,4 @@
-"""graph_build.yaml selects which vocabulary the LLM extracts into, per source."""
+"""config/graph/build.yaml selects which vocabulary the LLM extracts into, per source."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ relations:
 def _project(tmp_path, graph_build: str):
     (tmp_path / "ontologies").mkdir(exist_ok=True)
     (tmp_path / "ontologies" / "acme.yaml").write_text(_ONTOLOGY, encoding="utf-8")
-    path = tmp_path / "graph_build.yaml"
+    path = tmp_path / "build.yaml"
     path.write_text(graph_build, encoding="utf-8")
     return path
 

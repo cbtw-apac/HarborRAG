@@ -1,7 +1,7 @@
 """Repo-root discovery and `sys.path` setup shared by every bootstrap submodule.
 
 Connectors and parsers are built from the same declarative sources as the real
-application: `config/connectors.yaml` and `config/parsers.yaml` (falling back
+application: `config/sources/connectors.yaml` and `config/ingestion/parsers.yaml` (falling back
 to the `.example.yaml` templates when a real file hasn't been created yet).
 Environment variables come from `env/.env.connector` and `env/.env.parser`.
 """

@@ -82,7 +82,7 @@ class RapidOcrImageParser(BaseParser[ParseInput, ParsedDocument]):
 
 
 def build_harbor_parser() -> HarborParserRegistry:
-    """Assemble the parser stack from `config/parsers.yaml`.
+    """Assemble the parser stack from `config/ingestion/parsers.yaml`.
 
     Both the PDF chain and the image engine are whatever the catalog enables
     (LiteParse against the OCR server in the shipped configuration), so a
@@ -138,7 +138,7 @@ def attachment_custom_parsers() -> dict[Any, CustomAttachmentParser]:
 
     Image attachments used to be diverted to RapidOCR here. The catalog now
     configures the image family itself, so leaving this empty lets every
-    attachment route through the same engines `config/parsers.yaml` selects.
+    attachment route through the same engines `config/ingestion/parsers.yaml` selects.
     """
     return {}
 

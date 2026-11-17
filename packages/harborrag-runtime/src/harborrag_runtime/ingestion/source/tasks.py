@@ -20,6 +20,20 @@ def pending_source_task(request: SourceIngestionRequest) -> IngestionTask:
     """Build the one canonical, runtime-free task record for a source request."""
 
     query = request.query
+    # `run_settings` (a `config_store`-resolved pin, always present once that
+    # store is wired) and the connection scope's own setting-override revision
+    # both want to stamp `settings_revision`. The scope revision is the more
+    # specific, current value when it exists, so it's applied last and wins;
+    # `run_settings` otherwise supplies the fallback plus its own JSON blob.
+    scoped = {"settings_revision": request.settings_revision} if request.settings_revision else {}
+    pinned = (
+        {
+            "settings_revision": request.run_settings.settings_revision,
+            "run_settings": request.run_settings.to_json(),
+        }
+        if request.run_settings is not None
+        else {}
+    )
     return IngestionTask(
         task_id=request.task_id,
         source_scope_id=request.source_scope_id,
@@ -31,7 +45,6 @@ def pending_source_task(request: SourceIngestionRequest) -> IngestionTask:
             "connection_id": request.connection_id,
             "source_scope_id": request.source_scope_id,
             "configuration_fingerprint": request.configuration_fingerprint,
-            "settings_revision": request.settings_revision,
             "query": {
                 "path": query.path,
                 "pattern": query.pattern,
@@ -45,5 +58,7 @@ def pending_source_task(request: SourceIngestionRequest) -> IngestionTask:
             },
             "processing": request.processing.model_dump(mode="json"),
             "force_reprocess": request.force_reprocess,
+            **pinned,
+            **scoped,
         },
     )

@@ -11,6 +11,8 @@ from harborrag_core.topology.retrieval_policy import TopologyRetrievalPolicy
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.retrieval import composition as retrieval_factory
 
+pytestmark = pytest.mark.unit
+
 
 class _Resource:
     def __init__(self, *, connect_error: Exception | None = None) -> None:
@@ -75,6 +77,7 @@ def _providers(monkeypatch, *, graph_error: Exception | None = None):
         Mock(return_value=embed),
     )
     monkeypatch.setattr(retrieval_factory, "embedding_dimensions", Mock(return_value=32))
+    monkeypatch.setattr(retrieval_factory, "has_rerank_model", Mock(return_value=False))
     monkeypatch.setattr(
         retrieval_factory,
         "build_contextual_profile",
@@ -118,7 +121,7 @@ def _providers(monkeypatch, *, graph_error: Exception | None = None):
 
 
 def _with_summarization(tmp_path: Path, *, enabled: bool) -> RuntimeSettings:
-    graph_build = tmp_path / "graph_build.yaml"
+    graph_build = tmp_path / "build.yaml"
     graph_build.write_text(f"summarization:\n  enabled: {str(enabled).lower()}\n", encoding="utf-8")
     return _settings().model_copy(update={"graph_build_config_path": graph_build})
 
@@ -193,6 +196,44 @@ async def test_retrieval_factory_closes_connected_resources_after_failure(
     assert control.close.await_count == 1
     assert embed.aclose.await_count == 1
     assert telemetry.close.await_count == 1
+
+
+def _rerank_provider(monkeypatch) -> SimpleNamespace:
+    rerank = SimpleNamespace(aclose=AsyncMock())
+    monkeypatch.setattr(retrieval_factory, "has_rerank_model", Mock(return_value=True))
+    monkeypatch.setattr(
+        retrieval_factory.HarborRerankClientConfig, "from_file", Mock(return_value=object())
+    )
+    monkeypatch.setattr(
+        retrieval_factory.HarborRerankingClient, "from_config", Mock(return_value=rerank)
+    )
+    return rerank
+
+
+@pytest.mark.asyncio
+async def test_retrieval_factory_owns_the_rerank_client_when_configured(
+    monkeypatch, tmp_path: Path
+) -> None:
+    _providers(monkeypatch)
+    rerank = _rerank_provider(monkeypatch)
+    service_factory = Mock(return_value=object())
+    monkeypatch.setattr(retrieval_factory, "RuntimeRetrievalService", service_factory)
+
+    await retrieval_factory.connect_retrieval_service(_with_summarization(tmp_path, enabled=True))
+
+    assert service_factory.call_args.kwargs["resources"].rerank_client is rerank
+    assert rerank.aclose in service_factory.call_args.kwargs["close_resources"]
+
+
+@pytest.mark.asyncio
+async def test_retrieval_factory_closes_the_rerank_client_after_failure(monkeypatch) -> None:
+    _providers(monkeypatch, graph_error=ConnectionError("graph unavailable"))
+    rerank = _rerank_provider(monkeypatch)
+
+    with pytest.raises(ConnectionError, match="graph unavailable"):
+        await retrieval_factory.connect_retrieval_service(_settings())
+
+    rerank.aclose.assert_awaited_once()
 
 
 @pytest.mark.asyncio

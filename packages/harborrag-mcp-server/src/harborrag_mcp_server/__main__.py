@@ -54,7 +54,7 @@ def _default_config_path() -> str:
     configured = os.environ.get("HARBORRAG_MCP_CONFIG_PATH")
     if configured:
         return configured
-    workspace_path = Path("config/mcp.yaml")
+    workspace_path = Path("config/mcp/server.yaml")
     if workspace_path.is_file():
         return str(workspace_path)
     return str(_PACKAGED_CONFIG_PATH)
@@ -109,7 +109,7 @@ def _http_auth(
             store = os.environ.get("HARBORRAG_MCP_KEY_STORE", "postgres")
             if store == "file":
                 return create_api_key_verifier(
-                    os.environ.get("HARBORRAG_MCP_KEYS_PATH", "config/mcp_keys.yaml")
+                    os.environ.get("HARBORRAG_MCP_KEYS_PATH", "config/mcp/keys.yaml")
                 )
             if store == "postgres":
                 from harborrag_runtime.composition.mcp_auth import build_api_key_verification
@@ -309,6 +309,7 @@ def main(argv: Sequence[str] | None = None, *, ui: bool = False) -> int:
         references=runtime.references,
         corpus_mode=settings.corpus_access_mode,
         shared_tenant_id=settings.corpus_shared_tenant_id,
+        config_provider=runtime.config_provider,
     )
     configuration = _configure_registry(registry, arguments.config)
     transport = cast(

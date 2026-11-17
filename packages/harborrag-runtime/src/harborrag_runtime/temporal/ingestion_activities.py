@@ -13,6 +13,7 @@ from harborrag_runtime.config.temporal import TemporalRuntimeConfig
 from harborrag_runtime.execution.gateway import prepare_configured_source_submission
 from harborrag_runtime.ingestion.composition import IngestionRuntime
 from harborrag_runtime.ingestion.connections import require_fingerprint
+from harborrag_runtime.ingestion.document.run_tools import ParserUnavailableError
 from harborrag_runtime.ingestion.observability import IngestionTelemetry
 from harborrag_runtime.ingestion_contracts import SourceSubmission
 
@@ -174,13 +175,18 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
             # parser registry's local closures, the database engine and the S3
             # client, none of which pickle -- so every parse paid for a failed spawn
             # attempt and then ran here anyway.
-            prepared_stage = await heartbeat_while(
-                self._runtime.stages.preparation.parse_and_normalize(
-                    planned.request,
-                    capture_stage,
-                ),
-                detail=heartbeat_detail,
-            )
+            try:
+                prepared_stage = await heartbeat_while(
+                    self._runtime.stages.preparation.parse_and_normalize(
+                        planned.request,
+                        capture_stage,
+                    ),
+                    detail=heartbeat_detail,
+                )
+            except ParserUnavailableError as error:
+                raise ApplicationError(
+                    str(error), type="parser_unavailable", non_retryable=True
+                ) from error
             self._observability.record_prepared(prepared_stage)
             return to_prepared_document(request.document, prepared_stage)
 

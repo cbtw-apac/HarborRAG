@@ -21,36 +21,37 @@ def citation_data(result: RetrievalResult) -> dict[str, object]:
         "chunk_id": result.id,
         "score": result.score,
     }
-    title = _display_text(metadata.get("document_title"), 256)
+    title = display_text(metadata.get("document_title"), 256)
     if title is not None:
         citation["document_title"] = title
     if section:
         citation["section_path"] = section
     locator = metadata.get("citation_locator")
-    location = _citation_location(locator) or _citation_uri(locator)
+    location = _citation_location(locator) or citation_uri(locator)
     if location is not None:
         citation["location"] = location
     return citation
 
 
 def citation_marker(index: int, result: RetrievalResult) -> str:
-    """Return the exact readable label the model may copy for one passage."""
+    """Return the ``[n]`` label the model cites passage ``index`` of its prompt with."""
+
+    del result
+    return f"[{index}]"
+
+
+def source_heading(result: RetrievalResult) -> str:
+    """The passage's document title and section (or page) as a reader would name it."""
 
     metadata = result.metadata
-    title = _marker_text(
-        _display_text(metadata.get("document_title"), 256)
-        or _display_text(metadata.get("document_id"), 128)
-        or "Untitled document",
-        120,
+    title = (
+        display_text(metadata.get("document_title"), 256)
+        or display_text(metadata.get("document_id"), 128)
+        or "Untitled document"
     )
     section = " > ".join(_citation_section(metadata.get("section_path")))
-    locator = metadata.get("citation_locator")
-    location = (
-        section
-        or _citation_location(locator)
-        or ("source page" if _citation_uri(locator) is not None else "source passage")
-    )
-    return f'[Source {index}: "{title}" — {_marker_text(location, 220)}]'
+    location = section or _citation_location(metadata.get("citation_locator"))
+    return f'"{title}" — {location}' if location else f'"{title}"'
 
 
 def evidence_data(index: int, result: RetrievalResult) -> dict[str, object]:
@@ -74,7 +75,9 @@ def cited_evidence(
     )
 
 
-def _display_text(value: object, limit: int) -> str | None:
+def display_text(value: object, limit: int) -> str | None:
+    """Return ``value`` without control characters, whitespace collapsed, at most ``limit`` long."""
+
     if not isinstance(value, str):
         return None
     safe = "".join(
@@ -84,17 +87,12 @@ def _display_text(value: object, limit: int) -> str | None:
     return normalized[:limit] if normalized else None
 
 
-def _marker_text(value: str, limit: int) -> str:
-    normalized = _display_text(value, limit) or "unknown"
-    return normalized.replace("[", "(").replace("]", ")").replace('"', "'")
-
-
 def _citation_section(value: object) -> tuple[str, ...]:
     if not isinstance(value, (list, tuple)):
         return ()
     parts: list[str] = []
     for item in value[:16]:
-        part = _display_text(item, 128)
+        part = display_text(item, 128)
         if part is not None:
             parts.append(part)
     return tuple(parts)
@@ -119,7 +117,7 @@ def _citation_location(value: object) -> str | None:
     return None
 
 
-def _citation_uri(value: object) -> str | None:
+def citation_uri(value: object) -> str | None:
     """Expose a bounded source page when a chunk has no heading or page range."""
 
     if not isinstance(value, dict):

@@ -50,7 +50,7 @@ class SourceRef:
         project_id, separator, connection_id = value.strip().partition("/")
         if not separator or not project_id or not connection_id or "/" in connection_id:
             raise ValueError(
-                f"expected PROJECT/CONNECTION, such as default/jira-cpm, got {value!r}"
+                f"expected PROJECT/CONNECTION, such as default/jira-demo, got {value!r}"
             )
         return cls(project_id, connection_id)
 

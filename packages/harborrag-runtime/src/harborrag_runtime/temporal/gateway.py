@@ -11,6 +11,7 @@ from harborrag_runtime.ingestion_contracts import (
     IngestionExecutionStatus,
     IngestionRetryRequest,
     PreparedSourceSubmission,
+    RunKind,
 )
 
 from .schemas import RetryFailuresInput, SourceIngestionInput
@@ -90,8 +91,8 @@ class TemporalIngestionGateway:
     async def get_progress(self, task_id: str) -> dict[str, int]:
         return await self._client.get_progress(task_id)
 
-    async def execution_status(self, task_id: str) -> str:
-        return await self._client.execution_status(task_id)
+    async def execution_status(self, task_id: str, kind: RunKind = RunKind.SOURCE) -> str:
+        return await self._client.execution_status(task_id, kind)
 
     async def pause(self, task_id: str) -> None:
         await self._client.pause(task_id)
@@ -99,8 +100,8 @@ class TemporalIngestionGateway:
     async def resume(self, task_id: str) -> None:
         await self._client.resume(task_id)
 
-    async def cancel(self, task_id: str) -> None:
-        await self._client.cancel(task_id)
+    async def cancel(self, task_id: str, kind: RunKind = RunKind.SOURCE) -> None:
+        await self._client.cancel(task_id, kind)
 
     async def health(self) -> bool:
         return await self._client.health()

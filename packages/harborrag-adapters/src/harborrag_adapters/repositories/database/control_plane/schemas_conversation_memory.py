@@ -28,7 +28,8 @@ class ConversationSessionRow(Base):
     ``user_id`` (migration 0028) is the human who owns the conversation and
     is load-bearing in every predicate; ``principal_id`` is retained purely
     as the credential that created the session. ``updated_at`` tracks the
-    last append so a conversation listing can sort by recency.
+    last append so a conversation listing can sort by recency. ``project_id``
+    (migration 0047) scopes the session for its whole life.
     """
 
     __tablename__ = "conversation_sessions"
@@ -47,6 +48,7 @@ class ConversationSessionRow(Base):
     user_id: Mapped[str] = mapped_column(sa.String(512), nullable=False)
     title: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     title_source: Mapped[str | None] = mapped_column(sa.String(16), nullable=True)
+    project_id: Mapped[str | None] = mapped_column(sa.String(128), nullable=True)
     next_message_seq: Mapped[int] = mapped_column(sa.BigInteger, nullable=False, server_default="1")
     turn_lease_token: Mapped[str | None] = mapped_column(sa.String(64), nullable=True)
     turn_lease_expires_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
@@ -60,7 +62,8 @@ class ConversationMessageRow(Base):
     ``seq`` is a per-session sequence assigned by the repository at append
     time; it is the ordering key, with ``created_at``/``message_id`` only as
     tie-breakers. Migration 0026 backfilled pairs from the legacy turn table
-    with ``seq`` derived from the legacy row id.
+    with ``seq`` derived from the legacy row id. ``mode``, ``trace_id`` and
+    ``feedback`` (migration 0047) describe an assistant answer.
     """
 
     __tablename__ = "conversation_messages"
@@ -98,6 +101,9 @@ class ConversationMessageRow(Base):
     token_count: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
     citations_json: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     partial: Mapped[bool] = mapped_column(sa.Boolean, server_default=sa.false(), nullable=False)
+    mode: Mapped[str | None] = mapped_column(sa.String(16), nullable=True)
+    trace_id: Mapped[str | None] = mapped_column(sa.String(64), nullable=True)
+    feedback: Mapped[str | None] = mapped_column(sa.String(8), nullable=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
     seq: Mapped[int] = mapped_column(sa.BigInteger, nullable=False)
 

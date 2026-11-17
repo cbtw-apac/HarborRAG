@@ -213,6 +213,3 @@ class QdrantMemoryIndex:
             tenant_id=tenant_id,
             resource_name=MEMORY_INDEX,
         )
-
-
-__all__ = ["MEMORY_INDEX", "QdrantMemoryIndex"]

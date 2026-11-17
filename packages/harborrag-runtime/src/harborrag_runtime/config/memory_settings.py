@@ -138,6 +138,3 @@ class MemorySettingsMixin(BaseSettings):
         if scope is MemoryScope.PROJECT:
             return self.memory_retention_days_project
         return 0
-
-
-__all__ = ["MemorySettingsMixin"]

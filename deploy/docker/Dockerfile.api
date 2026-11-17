@@ -6,12 +6,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     HARBORRAG_HOST=0.0.0.0 \
     HARBORRAG_PORT=8000 \
     HARBORRAG_TEMPORAL_CONFIG_PATH=/app/config/temporal.yaml \
-    HARBORRAG_CONNECTOR_CONFIG_PATH=/app/config/connectors.yaml \
-    HARBORRAG_PARSER_CONFIG_PATH=/app/config/parsers.yaml \
-    HARBORRAG_CHUNKING_CONFIG_PATH=/app/config/chunking.yaml \
-    HARBORRAG_MODEL_CONFIG_PATH=/app/config/models.yaml \
-    HARBORRAG_GRAPH_BUILD_CONFIG_PATH=/app/config/topology/graph_build.yaml \
-    HARBORRAG_SCHEDULE_CONFIG_PATH=/app/config/schedules.yaml
+    HARBORRAG_CONNECTOR_CONFIG_PATH=/app/config/sources/connectors.yaml \
+    HARBORRAG_SETTINGS_SEED_PATH=/app/config/settings.yaml \
+    HARBORRAG_PARSER_CONFIG_PATH=/app/config/ingestion/parsers.yaml \
+    HARBORRAG_CHUNKING_CONFIG_PATH=/app/config/ingestion/chunking.yaml \
+    HARBORRAG_MODEL_CONFIG_PATH=/app/config/models/models.yaml \
+    HARBORRAG_GRAPH_BUILD_CONFIG_PATH=/app/config/graph/build.yaml \
+    HARBORRAG_SCHEDULE_CONFIG_PATH=/app/config/sources/schedules.yaml
 
 WORKDIR /app
 

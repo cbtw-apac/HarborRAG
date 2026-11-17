@@ -1,8 +1,10 @@
-"""`/v1/admin/failures`: currently-failing documents of one connection.
+"""`/v1/admin/projects/{project_id}/connections/{connection_id}/failures`: a connection's failing documents.
 
 Handles:
-- ``GET /v1/admin/failures?connection={project_id}/{connection_id}`` (reader):
-  documents stuck failing, with their attempt count
+- ``GET .../failures`` (reader): documents stuck failing, with their attempt count
+
+Nested under the connection, not `/admin/failures`: that path already serves the
+tenant-wide failure inbox (`api/v1/ingestion/failure_routes.py`).
 """
 
 from __future__ import annotations
@@ -15,23 +17,15 @@ from harborrag_app.api.auth.access import require_role
 from harborrag_app.api.auth.tenancy import TenantDependency
 from harborrag_app.workflow_control.control_plane.settings import parse_level
 
+from .connection_routes import ConnectionId, ProjectId
 from .dependencies import Administration, error_responses
 from .failures_schemas import DocumentFailureOut, DocumentFailurePage
 
 failures_router = APIRouter(
-    prefix="/admin",
+    prefix="/admin/projects/{project_id}/connections/{connection_id}",
     tags=["Failures"],
     dependencies=[Depends(require_role("reader"))],
 )
-
-ConnectionParam = Annotated[
-    str,
-    Query(
-        alias="connection",
-        description="{project_id}/{connection_id}",
-        examples=["cpm/cpm-tickets"],
-    ),
-]
 
 
 @failures_router.get(
@@ -43,11 +37,12 @@ ConnectionParam = Annotated[
 async def list_document_failures(
     service: Administration,
     tenant: TenantDependency,
-    connection: ConnectionParam,
+    project_id: ProjectId,
+    connection_id: ConnectionId,
     limit: Annotated[int, Query(ge=1, le=1000)] = 100,
 ) -> DocumentFailurePage:
     """Documents currently stuck failing for one connection, newest failure first."""
-    _, scope_id = parse_level(f"connection:{connection}")
+    _, scope_id = parse_level(f"connection:{project_id}/{connection_id}")
     failures = await service.failures_service.list_failures(
         tenant_id=tenant, connection_id=scope_id, limit=limit
     )

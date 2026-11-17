@@ -215,6 +215,3 @@ class SqlMemoryRepository:
             if not visible_to(MemoryScope(row.scope), _row_to_memory(row).owner, caller):
                 return
             await session.delete(row)
-
-
-__all__ = ["SqlMemoryRepository"]

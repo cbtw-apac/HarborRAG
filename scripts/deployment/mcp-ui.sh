@@ -35,7 +35,7 @@ Modes:
 
 Other options are forwarded to harborrag-mcp-ui in stdio and check mode. Host,
 path, bearer token and tool configuration are shared with the reader server
-through env/.env.mcp and config/mcp.yaml.
+through env/.env.mcp and config/mcp/server.yaml.
 
 --build rebuilds the reader MCP image and the Explorer layer on top of it; a
 missing image is built automatically. Use it after source, dependency, or baked

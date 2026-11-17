@@ -12,6 +12,7 @@ from harborrag_app.workflow_control.composition.service import AppService
 from harborrag_app.workflow_control.retrieval.presentation import retrieval_response
 from harborrag_core.contracts.errors import HarborConfigurationError
 from harborrag_core.domain.retrieval import RetrievalResult
+from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.sdk import RetrievalLane, RetrievalResponse
 
 # Every command below goes through the CLI's project gate; give each test its own
@@ -202,6 +203,32 @@ async def test_app_retrieval_forwards_lane_filters_graph_and_metadata() -> None:
     assert request.observe_graph is False
     assert response.data["lane"] == "sparse"
     assert response.data["results"][0]["metadata"]["retrieval_source"] == "qdrant"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("tenant_id", "expected"),
+    [("SHARED", "tenant_shared"), ("OTHER", "source_acl"), (None, "tenant_shared")],
+)
+async def test_app_retrieval_reads_the_shared_basis_only_for_the_shared_tenant(
+    tenant_id: str | None, expected: str
+) -> None:
+    retrieval = FakeRetrievalRuntime()
+    service = AppService(
+        FakeComposition(),  # type: ignore[arg-type]
+        settings=RuntimeSettings(
+            corpus_access_mode="tenant_shared",
+            corpus_shared_tenant_id="SHARED",
+            ingestion_tenant_id="SHARED",
+        ),
+        factories=AppServiceFactories(
+            retrieval_runtime=lambda settings: retrieval,  # type: ignore[arg-type]
+        ),
+    )
+
+    await service.retrieve("release acceptance", tenant_id=tenant_id)
+
+    assert retrieval.retrieval.calls[0].access.corpus_mode == expected
 
 
 def test_retrieval_cli_has_secret_safe_json_by_default(monkeypatch, capsys) -> None:

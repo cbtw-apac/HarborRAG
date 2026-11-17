@@ -26,7 +26,7 @@ _IMAGE_SUFFIXES = frozenset({"png", "jpg", "jpeg", "tif", "tiff", "bmp", "gif", 
 # exactly one engine, and `render_metadata_section` drops every field the
 # parsed document has no value for, so only the engine that actually ran
 # contributes rows. Keeping the alternatives listed means switching the enabled
-# PDF parser in `config/parsers.yaml` needs no edit here.
+# PDF parser in `config/ingestion/parsers.yaml` needs no edit here.
 LOCAL_METADATA_FIELDS: list[tuple[str, str]] = [
     ("Parser", "parser_name"),
     ("Parser version", "parser_version"),

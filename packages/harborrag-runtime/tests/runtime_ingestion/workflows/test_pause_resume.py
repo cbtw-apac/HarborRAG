@@ -211,8 +211,8 @@ async def test_pause_stops_new_dispatch_and_resume_completes_without_losing_prog
     wave_release[0].set()
     await _until(lambda: len(finished) == 8)
     await _until(lambda: "harborrag.pause_source_ingestion" in control_activities)
-    await _until(lambda: "harborrag.pause_workflow_execution" in control_activities)
-    assert instance.get_status().pause_applied is True
+    await _until(lambda: instance.get_status().pause_applied)
+    assert "harborrag.pause_workflow_execution" not in control_activities
 
     # Give the paused signal every chance to (wrongly) let the next wave
     # start; it must not, since pause forbids starting *new* work.

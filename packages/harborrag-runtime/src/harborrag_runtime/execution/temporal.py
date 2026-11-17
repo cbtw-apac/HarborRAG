@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import asyncio
+
 from harborrag_core.invariants import HarborInvariantError
+from harborrag_runtime.composition.config_store import build_config_provider
 from harborrag_runtime.composition.connection_stores import (
     ConnectionStores,
     build_connection_stores,
 )
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.config.temporal import TemporalRuntimeConfig
+from harborrag_runtime.config_store import CachedConfigProvider
+from harborrag_runtime.config_store.run_settings import RunSettingsResolver
 from harborrag_runtime.contracts import (
     IngestionRequest,
     IngestionResult,
@@ -30,6 +35,8 @@ class TemporalIngestionExecutor:
         self._settings = settings
         self._client: IngestionTemporalClient | None = None
         self._stores: ConnectionStores | None = None
+        self._config: CachedConfigProvider | None = None
+        self._config_lock = asyncio.Lock()
 
     async def start(self) -> None:
         if self._client is None:
@@ -45,9 +52,19 @@ class TemporalIngestionExecutor:
 
     async def _input(self, request: IngestionRequest) -> SourceIngestionInput:
         """Resolve the request's connection and build its workflow input."""
-        if self._stores is None:
-            self._stores = build_connection_stores(self._settings)
-        resolver = ConnectionResolver(self._stores.connections, self._stores.revisions)
+        async with self._config_lock:
+            if self._stores is None:
+                self._stores = build_connection_stores(self._settings)
+            if self._config is None:
+                config = build_config_provider(
+                    self._settings, engine=self._stores.engine, store=self._stores.config_store
+                )
+                await config.start()
+                self._config = config
+            stores, config = self._stores, self._config
+        resolver = ConnectionResolver(
+            stores.connections, stores.revisions, run_settings=RunSettingsResolver(config)
+        )
         connection = await resolve_request_connection(resolver, request)
         return to_temporal_source(
             build_ingestion_input(self._settings, request, connection=connection)
@@ -95,6 +112,11 @@ class TemporalIngestionExecutor:
 
     async def aclose(self) -> None:
         self._client = None
-        if self._stores is not None:
-            await self._stores.aclose()
-            self._stores = None
+        try:
+            if self._config is not None:
+                await self._config.aclose()
+                self._config = None
+        finally:
+            if self._stores is not None:
+                await self._stores.aclose()
+                self._stores = None

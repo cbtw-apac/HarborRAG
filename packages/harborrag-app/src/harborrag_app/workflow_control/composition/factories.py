@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -50,6 +50,14 @@ class TaskRegistry(PublicTaskStore, Protocol):
     ) -> IngestionTask | None: ...
 
     async def connection_document_count(self, *, tenant_id: str, connection_id: str) -> int: ...
+
+    async def source_scope_ids_by_connection(
+        self, *, tenant_id: str, connection_ids: Sequence[str]
+    ) -> dict[str, list[str]]: ...
+
+    async def published_connection_ids(
+        self, *, tenant_id: str, connection_ids: Sequence[str]
+    ) -> set[str]: ...
 
     async def fail_if_unsubmitted(
         self,

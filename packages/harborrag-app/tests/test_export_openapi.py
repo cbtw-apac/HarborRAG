@@ -28,6 +28,7 @@ def test_export_produces_stable_schema_with_the_v2_surface() -> None:
         "/readyz",
         "/v1/admin/connections",
         "/v1/admin/failures",
+        "/v1/admin/failures/retry",
         "/v1/admin/ingestions",
         "/v1/admin/ingestions/{ingestion_id}",
         "/v1/admin/ingestions/{ingestion_id}/cancel",
@@ -39,6 +40,7 @@ def test_export_produces_stable_schema_with_the_v2_surface() -> None:
         "/v1/admin/projects",
         "/v1/admin/projects/{project_id}",
         "/v1/admin/projects/{project_id}/connections/{connection_id}",
+        "/v1/admin/projects/{project_id}/connections/{connection_id}/failures",
         "/v1/admin/projects/{project_id}/connections/{connection_id}/test",
         "/v1/admin/settings",
         "/v1/admin/settings/schema",
@@ -70,7 +72,7 @@ def test_chat_request_examples_are_sendable_as_written() -> None:
     schema = json.loads(export_openapi())
     components = schema["components"]["schemas"]
     # Optional fields whose generated values would name absent resources.
-    unsendable = {"project_id", "model"}
+    unsendable = {"project_id", "project_ids", "connections", "session_id", "model"}
 
     for name in ("ChatCompletionRequest", "ChatSessionCreateRequest"):
         examples = components[name].get("examples")
@@ -89,7 +91,7 @@ def test_chat_request_examples_are_sendable_as_written() -> None:
                     assert value.strip(), f"{name} example field {field!r} is blank"
 
     # The required fields must actually be present, or the example cannot be sent.
-    for name, required in (("ChatCompletionRequest", {"prompt"}),):
+    for name, required in (("ChatCompletionRequest", {"message"}),):
         example = components[name]["examples"][0]
         assert required <= set(example), f"{name} example omits {required - set(example)}"
 
@@ -98,9 +100,9 @@ def test_chat_request_examples_are_sendable_as_written() -> None:
 
     body = schema["paths"]["/v1/chat/completions"]["post"]["requestBody"]
     examples = body["content"]["application/json"]["examples"]
-    assert next(iter(examples)) == "existing_session"
-    assert examples["existing_session"]["value"]["session_id"].startswith("session-")
-    assert "session_id" not in examples["new_session"]["value"]
+    assert next(iter(examples)) == "question"
+    assert "session_id" not in examples["question"]["value"]
+    assert examples["session_question"]["value"]["session_id"].startswith("ses_")
 
 
 @pytest.fixture(scope="module")

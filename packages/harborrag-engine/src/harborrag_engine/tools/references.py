@@ -117,6 +117,3 @@ class KnowledgeReferenceStore:
         entry = self._values.pop(handle, None)
         if entry is not None:
             self._reverse.pop((entry.kind, entry.value, entry.tenant_id, entry.principal_id), None)
-
-
-__all__ = ["KnowledgeReferenceStore", "ReferenceValue"]

@@ -35,6 +35,3 @@ def scope_query_owner(owner: MemoryOwner, scope: MemoryScope) -> MemoryOwner | N
         user_id=values.get("user_id"),
         session_id=values.get("session_id"),
     )
-
-
-__all__ = ["scope_query_owner"]

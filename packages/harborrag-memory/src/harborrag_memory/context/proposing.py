@@ -54,6 +54,3 @@ async def _json(model: MemoryModelLike, user: str) -> ProposedFacts | None:
     return facts_from_text(
         await generate_text(model, system=EXTRACTION_JSON_SYSTEM_PROMPT, user=user)
     )
-
-
-__all__ = ["propose_facts"]

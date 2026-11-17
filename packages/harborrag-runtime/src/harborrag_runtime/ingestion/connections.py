@@ -42,7 +42,9 @@ from harborrag_runtime.config.connectors.models import (
     source_types,
 )
 from harborrag_runtime.config.errors import ConnectorConfigurationError
+from harborrag_runtime.config_store.run_settings import RunSettingsResolver
 from harborrag_runtime.connections import SecretResolver
+from harborrag_runtime.ingestion_contracts import RunSettings
 
 logger = logging.getLogger("harborrag.runtime.ingestion.connections")
 
@@ -67,6 +69,7 @@ class ResolvedConnection:
 
     snapshot: ConnectionSnapshot
     spec: SourceTypeSpec
+    run_settings: RunSettings | None = None
 
     @property
     def fingerprint(self) -> str:
@@ -101,9 +104,12 @@ class ConnectionResolver:
         self,
         connections: ConnectionRepositoryPort,
         revisions: ConnectionRevisionRepositoryPort,
+        *,
+        run_settings: RunSettingsResolver | None = None,
     ) -> None:
         self._connections = connections
         self._revisions = revisions
+        self._run_settings = run_settings
 
     async def resolve(self, *, tenant_id: str, source_key: str) -> ResolvedConnection:
         """Load, validate and snapshot the connection a run will use.
@@ -128,7 +134,7 @@ class ConnectionResolver:
         return await self.resolve_connection(connection)
 
     async def resolve_connection(self, connection: Connection) -> ResolvedConnection:
-        """Validate and snapshot an already loaded connection."""
+        """Validate and snapshot an already loaded connection, pinning its run settings."""
         if connection.status == "deleting":
             raise ConnectionUnavailableError(f"connection {connection.ref!r} is being deleted")
         spec = source_types.get(connection.source_type)
@@ -143,7 +149,16 @@ class ConnectionResolver:
             tuning=validated.tuning,
         )
         await self._revisions.save(snapshot)
-        return ResolvedConnection(snapshot, spec)
+        run_settings = (
+            await self._run_settings.for_connection(
+                tenant_id=connection.tenant_id,
+                project_id=connection.project_id,
+                connection_id=connection.connection_id,
+            )
+            if self._run_settings is not None
+            else None
+        )
+        return ResolvedConnection(snapshot, spec, run_settings)
 
 
 def build_connector(

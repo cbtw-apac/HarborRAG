@@ -188,6 +188,3 @@ def _context(
     return StorageOperationContext.for_access(
         access, operation_kind=operation_kind, idempotency_key=request_id
     )
-
-
-__all__ = ["ReaderResources", "ReaderRetrieval"]

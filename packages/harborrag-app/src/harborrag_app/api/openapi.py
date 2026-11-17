@@ -85,6 +85,3 @@ def install_openapi(app: FastAPI) -> None:
         return app.openapi_schema  # type: ignore[return-value]
 
     app.openapi = openapi  # type: ignore[method-assign]
-
-
-__all__ = ["install_openapi"]

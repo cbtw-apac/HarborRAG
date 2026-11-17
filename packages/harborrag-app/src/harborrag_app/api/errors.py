@@ -302,15 +302,3 @@ def register_error_handlers(app: FastAPI) -> None:
             )
             return _respond(request, 503, body)
         return _respond(request, 500, _Body("internal_error", "Internal server error"))
-
-
-__all__ = [
-    "CATALOG",
-    "ReferenceNotFoundError",
-    "TenantRequiredError",
-    "catalog_code",
-    "documented_error_responses",
-    "error_envelope",
-    "register_error_handlers",
-    "spec_error_body",
-]

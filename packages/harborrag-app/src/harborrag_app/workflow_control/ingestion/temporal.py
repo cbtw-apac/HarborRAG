@@ -1,5 +1,5 @@
 """Compatibility name for the provider-neutral durable ingestion operations."""
 
-from .durable import DurableIngestionOperations as TemporalIngestionOperations
+from .durable import DurableIngestionOperations
 
-__all__ = ["TemporalIngestionOperations"]
+TemporalIngestionOperations = DurableIngestionOperations

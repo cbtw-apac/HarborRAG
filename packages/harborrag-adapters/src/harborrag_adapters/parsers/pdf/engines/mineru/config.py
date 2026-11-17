@@ -48,5 +48,3 @@ class MinerUPDFConfig:
 
 
 MinerUBackendOptions = MinerUPDFConfig
-
-__all__ = ["MinerUBackendOptions", "MinerUPDFConfig"]

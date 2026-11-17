@@ -94,9 +94,6 @@ def legacy_cell_to_text(cell: Any, datemode: int, xlrd: Any) -> str:
     return str(cell.value)
 
 
-__all__ = ["guard_declared_table_size", "legacy_cell_to_text", "openxml_cell_to_text"]
-
-
 @contextmanager
 def xlrd_errors_as_parse_errors(xlrd: Any) -> Generator[None, None, None]:
     """Convert xlrd's own exception type, which derives only from Exception.

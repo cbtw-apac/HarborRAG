@@ -186,6 +186,3 @@ class DocumentContextReader:
             or str(chunk.document_version_id) != version_id
         ):
             raise _ContextUnavailableError
-
-
-__all__ = ["DocumentContextReader"]

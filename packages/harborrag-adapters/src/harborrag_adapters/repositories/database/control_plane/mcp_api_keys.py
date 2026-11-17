@@ -199,6 +199,3 @@ class SqlApiKeyManager:
                     summary=f"MCP reader key {row.name!r} of {row.owner} revoked: {reason}",
                 )
             )
-
-
-__all__ = ["SqlApiKeyManager", "SqlApiKeyReader"]

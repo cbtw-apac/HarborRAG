@@ -325,10 +325,3 @@ def _environment_override_names(environment: Mapping[str, str]) -> list[str]:
     if environment.get("HARBORRAG_MCP_DISABLED_TOOLS", "").strip():
         names.append("HARBORRAG_MCP_DISABLED_TOOLS")
     return sorted(names)
-
-
-__all__ = [
-    "ConfigurationRevisionError",
-    "EffectiveToolConfiguration",
-    "McpConfigurationStore",
-]

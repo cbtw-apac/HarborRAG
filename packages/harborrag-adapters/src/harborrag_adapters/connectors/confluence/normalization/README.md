@@ -1,26 +1,55 @@
 # Confluence canonical normalization
 
-`ConfluencePageNormalizer` is a pure transformation from a safe
-`ConfluencePageInput` to the existing core `Document` contract. It prefers ADF,
-then storage format, then rendered HTML, and records the selected representation
-and recoverable warnings.
+This package turns one Confluence page into HarborRAG's canonical `Document`, keeping
+the page's structure, macros and tables. Read it before you change how Confluence
+pages are represented; the Confluence connector's `document_transform.py` is its only
+caller.
 
-The canonical block tree preserves headings, sections, tabs, expands, panels,
-macros, links, media references, and table references. Skipped heading levels
-attach to the nearest preceding shallower heading without creating synthetic
-sections. Tab titles participate in section identity so equal headings in
-sibling tabs remain independent.
+## Entry point
 
-Unknown macros retain their safe key, identifier, filtered display parameters,
-visible children, and a warning. Credential-like parameters and signed URL
-queries are discarded.
+`ConfluencePageNormalizer.normalize(page)` in `page.py` is a pure transformation from a
+`ConfluencePageInput` (`schemas.py`) to the core `Document` contract. It tries the
+page's body representations in this order, moving on when one is missing or, for ADF,
+fails to parse:
 
-Native include macros and the commonly deployed `localtabgroup`/`localtab`
-aliases retain their navigation structure. Includes are references rather than
-recursively inlined content, including title-only targets that do not expose a
-stable page ID. A one-cell table containing only an include is treated as a
-layout wrapper instead of a data table.
+1. ADF, the Atlassian Document Format (`adf.py`).
+2. Storage format (`markup.py`).
+3. Rendered HTML (`markup.py`).
 
-Tables are retained separately as immutable `TableArtifact` values. Source
-cells preserve spans, while the logical grid marks inherited merged-cell slots.
-Nested tables receive independent identities and a parent-cell locator.
+The document's provenance records the representation used (`body_representation`) and
+any recoverable warnings (`parser_warnings`).
+
+## Page structure
+
+The canonical block tree keeps headings, sections, tabs, expands, panels, macros,
+links, media references and table references (`hierarchy.py`).
+
+- A heading that skips a level attaches to the nearest preceding shallower heading.
+  No synthetic section is created for the missing level.
+- Tab titles are part of a section's identity, so equal headings in sibling tabs stay
+  separate sections.
+
+## Macros and includes
+
+`ConfluenceMacroHandlerRegistry` (`macros.py`) picks a handler for each macro key.
+
+- An unknown macro keeps its safe key, identifier, filtered display parameters and
+  visible children, and adds a warning.
+- Only allowlisted display parameters are kept. A parameter whose name looks like a
+  credential, such as `token`, `password` or `signature`, is dropped, and a URL value
+  loses its query string and fragment, which removes signed URL queries.
+- Native include macros and the common `localtabgroup` and `localtab` aliases keep
+  their navigation structure.
+- An include becomes a reference, not recursively inlined content. This holds for
+  title-only targets that expose no stable page ID too (`include_handlers.py`).
+- A one-cell table that holds only an include is treated as a layout wrapper, not a
+  data table.
+
+## Tables
+
+Tables are kept separately as immutable `TableArtifact` values from `harborrag-core`
+(`tables.py`).
+
+- Source cells keep their row and column spans, while the logical grid marks the slots
+  a merged cell covers.
+- A nested table gets its own identity and a locator for the parent cell that holds it.

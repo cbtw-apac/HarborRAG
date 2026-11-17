@@ -72,7 +72,7 @@ def read_yaml_file(
     """
     source_path = Path(path).expanduser().resolve()
     if not source_path.is_file():
-        # An absolute container path (e.g. `/app/config/parsers.yaml`) that is
+        # An absolute container path (e.g. `/app/config/ingestion/parsers.yaml`) that is
         # "missing" almost always means the file never made it into the
         # running filesystem view rather than a typo in the path itself --
         # name the likely causes so an operator doesn't have to rediscover

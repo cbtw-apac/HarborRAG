@@ -2,36 +2,26 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator, Sequence
+from collections.abc import AsyncGenerator
 from typing import Annotated, Protocol, cast
 
 from fastapi import Depends, Request
 
+from harborrag_app.workflow_control.ingestion.failure_inbox import FailureInboxService
+from harborrag_app.workflow_control.ingestion.operations import IngestionOperations
 from harborrag_core.contracts.events import HarborEvent
 
 
 class IngestionService(Protocol):
     """Narrow application facade required by the ingestion transport."""
 
+    @property
+    def ingestion_operations(self) -> IngestionOperations: ...
+
+    @property
+    def failure_inbox(self) -> FailureInboxService: ...
+
     async def get_task(self, task_id: str) -> dict[str, object]: ...
-
-    async def list_tasks(
-        self,
-        *,
-        tenants: frozenset[str] | None,
-        statuses: Sequence[str] | None,
-        cursor: str | None,
-        limit: int,
-    ) -> dict[str, object]: ...
-
-    async def list_documents(
-        self,
-        *,
-        task_id: str,
-        status: str | None,
-        cursor: str | None,
-        limit: int,
-    ) -> dict[str, object]: ...
 
     async def pause(self, task_id: str, *, actor: str | None = None) -> dict[str, object]: ...
 

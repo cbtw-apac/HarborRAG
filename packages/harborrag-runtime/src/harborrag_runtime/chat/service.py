@@ -1,7 +1,7 @@
 """Runtime chat orchestration and client lifecycle.
 
 Two clients can answer a turn. The process-wide one is built from
-``config/models.yaml`` and is what every deployment has always used. A tenant
+``config/models/models.yaml`` and is what every deployment has always used. A tenant
 that stored its own models gets its own client instead, cached and validated
 against the catalog fingerprint (see ``tenant_clients``). Which one answers is
 decided per request from ``request.metadata.tenant_id``, and any failure to

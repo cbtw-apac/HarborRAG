@@ -11,12 +11,9 @@ def scaffold(root: Path) -> Path:
     root.mkdir(parents=True, exist_ok=True)
     (root / "harborrag.yaml").write_text(
         "execution_mode: direct\nruntime:\n  env: dev\n"
-        "  connector_config_path: config/connectors.yaml\n"
+        "  connector_config_path: config/sources/connectors.yaml\n"
         "  qdrant_prefer_grpc: false\n",
         encoding="utf-8",
     )
     (root / ".env").write_text("OPENAI_API_KEY=from-dotenv\nHARBORRAG_ENV=prod\n")
     return root
-
-
-__all__ = ["scaffold"]

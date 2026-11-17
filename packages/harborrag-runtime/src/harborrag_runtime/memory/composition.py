@@ -38,6 +38,3 @@ def build_database_conversation_memory(
     engine = create_control_plane_engine(dsn)
     repository = SqlConversationMemoryRepository(create_session_factory(engine))
     return DatabaseConversationMemory(repository=repository, engine=engine)
-
-
-__all__ = ["build_database_conversation_memory"]

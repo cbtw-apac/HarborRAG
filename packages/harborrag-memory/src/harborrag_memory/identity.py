@@ -29,6 +29,3 @@ def conversation_identity(owner: MemoryOwner, *, subject: str) -> ConversationId
         # is exactly what migration 0024 backfilled.
         user_id=owner.user_id or owner.principal_id,
     )
-
-
-__all__ = ["conversation_identity"]

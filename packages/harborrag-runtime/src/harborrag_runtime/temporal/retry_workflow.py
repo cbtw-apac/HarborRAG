@@ -7,7 +7,7 @@ from datetime import timedelta
 from typing import cast
 
 from temporalio import workflow
-from temporalio.exceptions import ActivityError, ChildWorkflowError
+from temporalio.exceptions import ActivityError, ChildWorkflowError, is_cancelled_exception
 from temporalio.workflow import ParentClosePolicy
 
 from harborrag_core.ingestion import DocumentIngestionOutcome
@@ -23,7 +23,10 @@ from .schemas import (
     RetryFinalizationInput,
     RetryPreparationResult,
     RetryTaskFailureInput,
+    SourceCancellationInput,
 )
+
+_CANCELLATION_PATCH = "harborrag-retry-records-cancellation"
 
 
 @workflow.defn(name="harborrag.document_retry")
@@ -113,7 +116,14 @@ class RetryFailuresWorkflow:
                 start_to_close_timeout=timedelta(minutes=2),
                 retry_policy=temporal_retry_policy(retries.discovery),
             )
+        except asyncio.CancelledError:
+            if workflow.patched(_CANCELLATION_PATCH):
+                await _record_cancellation(request)
+            raise
         except (ActivityError, ChildWorkflowError) as error:
+            if is_cancelled_exception(error) and workflow.patched(_CANCELLATION_PATCH):
+                await _record_cancellation(request)
+                raise
             # Preparation, a child document-retry, or finalization itself can
             # exhaust its retries and fail hard. Without this, the failure
             # propagated straight out of the workflow with no failure record,
@@ -146,3 +156,18 @@ class RetryFailuresWorkflow:
             failed=summary.failed,
             status=status,
         )
+
+
+async def _record_cancellation(request: RetryFailuresInput) -> None:
+    """Record the retry run as cancelled before Temporal closes it as cancelled.
+
+    Shielded, so a second cancel request cannot stop the recording.
+    """
+    recording = workflow.execute_activity(
+        "harborrag.cancel_source_ingestion",
+        SourceCancellationInput(task_id=request.retry_task_id),
+        task_queue=request.workflow_options.task_queues.discovery,
+        start_to_close_timeout=timedelta(minutes=2),
+        retry_policy=temporal_retry_policy(request.workflow_options.retries.discovery),
+    )
+    await asyncio.shield(recording)

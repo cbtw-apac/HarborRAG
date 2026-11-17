@@ -14,6 +14,7 @@ from workflow_control_fixtures import FakeComposition
 from harborrag_app.workflow_control.chat import ChatExecutionOptions
 from harborrag_app.workflow_control.composition.factories import AppServiceFactories
 from harborrag_app.workflow_control.composition.service import AppService
+from harborrag_core.contracts.errors import HarborValidationError
 
 
 async def _service_and_options(
@@ -37,6 +38,7 @@ async def _service_and_options(
 @pytest.mark.asyncio
 async def test_the_chosen_model_lands_on_the_chat_request() -> None:
     chat = FakeChatFacade()
+    chat.allowed_models.add("tenant-fast")
     service, options = await _service_and_options(chat, model="tenant-fast")
 
     response = await service.chat_completion(
@@ -74,3 +76,17 @@ async def test_a_streamed_turn_carries_the_chosen_model_too() -> None:
 
     assert chat.request is not None
     assert chat.request.logical_model == "tenant-fast"
+
+
+@pytest.mark.asyncio
+async def test_a_model_the_tenant_may_not_use_is_refused_before_any_call() -> None:
+    chat = FakeChatFacade()
+    service, options = await _service_and_options(chat, model="tenant-fast")
+
+    with pytest.raises(HarborValidationError):
+        await service.chat_completion(
+            "Hello", tenant_id="ACME", principal_id="reader-1", options=options
+        )
+
+    assert chat.validated == [("tenant-fast", "ACME")]
+    assert not chat.requests and not chat.gate_requests

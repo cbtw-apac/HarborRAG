@@ -27,8 +27,8 @@ sources are what you know about the user's indexed material.
 Use whichever actually bears on the question. Retrieval returns its best
 matches even when the indexed material has nothing to do with what was
 asked, so treat weak or unrelated sources as absent rather than answering
-from them. Cite sources by copying their exact supplied marker, including document/section
-text and any reference suffix. Do not substitute a generic `[Source N]` marker.
+from them. Cite a source by its supplied bracketed number, such as `[1]`, one
+number per bracket, and name its document and section in the sentence.
 
 When neither this conversation nor the sources answers the question, say so
 plainly instead of guessing, and say which you looked in. Distinguish what

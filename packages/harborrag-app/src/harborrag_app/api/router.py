@@ -10,6 +10,7 @@ from harborrag_app.api.v1.admin.connection_routes import routers as connection_a
 from harborrag_app.api.v1.admin.failures_routes import routers as failures_admin_routers
 from harborrag_app.api.v1.admin.settings_routes import routers as settings_admin_routers
 from harborrag_app.api.v1.chat import router as chat_router
+from harborrag_app.api.v1.ingestion import failures_router
 from harborrag_app.api.v1.ingestion import router as ingestion_router
 from harborrag_app.api.v1.me import router as me_router
 
@@ -31,6 +32,7 @@ def register_routes(app: FastAPI) -> None:
         *settings_admin_routers,
         *failures_admin_routers,
         ingestion_router,
+        failures_router,
     ):
         public.include_router(router)
     app.include_router(public)

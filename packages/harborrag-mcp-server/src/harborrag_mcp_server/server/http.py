@@ -436,11 +436,3 @@ def _status_page(*, mcp_path: str, tool_names: list[str], nonce: str) -> str:
     # One pass, so a substituted value that happens to contain another placeholder is not
     # itself rewritten by a later replace().
     return _PLACEHOLDER.sub(lambda match: substitutions[match.group(0)], _STATUS_TEMPLATE)
-
-
-__all__ = [
-    "create_local_token_verifier",
-    "register_health_route",
-    "register_http_routes",
-    "validate_local_http_settings",
-]

@@ -51,7 +51,7 @@ def build_ingestion_control(
 
 
 def summarization_enabled(settings: RuntimeSettings) -> bool:
-    """Whether summaries are produced, per config/topology/graph_build.yaml.
+    """Whether summaries are produced, per config/graph/build.yaml.
 
     Resolved here rather than by callers because the ingestion runtime builds
     its control database from raw settings, before the YAML is applied.

@@ -6,6 +6,10 @@ turn starts, while the answer only exists once the provider has delivered
 text. A streamed turn that dies mid-flight therefore still leaves both the
 question and whatever answer reached the caller, the latter marked
 ``partial``.
+
+``record_exchange`` writes a completed exchange in one write instead, with the
+answer's mode, trace and numbered citations, so the assistant message id can
+serve as the completion's ``completion_id``.
 """
 
 from __future__ import annotations
@@ -13,22 +17,111 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Sequence
-from uuid import uuid4
+from dataclasses import asdict, dataclass, field
+from typing import Literal, get_args
 
 from harborrag_core.base import utc_now
 from harborrag_core.ports.conversation import (
     ConversationIdentity,
     ConversationMessage,
     ConversationMessageStore,
+    new_message_id,
 )
 
 logger = logging.getLogger("harborrag.app.workflow_control.memory")
 
+ChatMode = Literal["instant", "classic"]
+"""The answer modes chat runs in this release."""
+CHAT_MODES: tuple[ChatMode, ...] = get_args(ChatMode)
 
-def new_message_id() -> str:
-    """Generate one opaque conversation-message identifier."""
 
-    return f"msg-{uuid4().hex}"
+@dataclass(frozen=True, slots=True)
+class CitationRecord:
+    """One numbered source of an assistant answer, stored as history returns it.
+
+    Raises:
+        ValueError: ``n`` is below 1.
+    """
+
+    n: int
+    chunk_id: str
+    document_id: str
+    title: str
+    snippet: str
+    url: str | None = None
+    page: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.n < 1:
+            raise ValueError("citation n starts at 1")
+
+
+@dataclass(frozen=True, slots=True)
+class ExchangeRecord:
+    """One completed question and its answer, with what the answer was built from.
+
+    ``answer_id`` is the assistant message id; a caller that must hand it out
+    before the write (a completion's ``completion_id``) generates it with
+    ``new_message_id`` and passes it here.
+
+    Raises:
+        ValueError: ``mode`` is not one of ``CHAT_MODES``.
+    """
+
+    question: str
+    answer: str
+    mode: ChatMode
+    trace_id: str
+    citations: tuple[CitationRecord, ...] = ()
+    completion_tokens: int | None = None
+    question_id: str = field(default_factory=new_message_id)
+    answer_id: str = field(default_factory=new_message_id)
+
+    def __post_init__(self) -> None:
+        if self.mode not in CHAT_MODES:
+            raise ValueError(f"exchange mode must be one of {', '.join(CHAT_MODES)}")
+
+
+async def record_exchange(
+    store: ConversationMessageStore,
+    identity: ConversationIdentity,
+    exchange: ExchangeRecord,
+) -> tuple[ConversationMessage, ConversationMessage]:
+    """Persist a user message and its assistant answer in one write.
+
+    Args:
+        store: The conversation message store.
+        identity: The owner and session the exchange belongs to.
+        exchange: The question, the answer and the answer's metadata.
+
+    Returns:
+        The stored user message and assistant message, in that order.
+
+    Raises:
+        ValueError: The session does not exist.
+        HarborConflictError: Another completion holds the session's turn lease, or the
+            caller's lease expired; a plain conflict, answered as ``invalid_state``.
+    """
+
+    created_at = utc_now()
+    question = ConversationMessage(
+        message_id=exchange.question_id,
+        role="user",
+        content=exchange.question,
+        created_at=created_at,
+    )
+    answer = ConversationMessage(
+        message_id=exchange.answer_id,
+        role="assistant",
+        content=exchange.answer,
+        created_at=created_at,
+        token_count=exchange.completion_tokens,
+        citations_json=json.dumps([asdict(citation) for citation in exchange.citations]),
+        mode=exchange.mode,
+        trace_id=exchange.trace_id,
+    )
+    await store.append_messages(identity, (question, answer))
+    return question, answer
 
 
 def question_message(content: str) -> ConversationMessage:
@@ -110,12 +203,3 @@ async def append_message(
 
     persisted = await append_exchange(store, identity, (message,))
     return None if persisted is None else persisted[0]
-
-
-__all__ = [
-    "answer_message",
-    "append_exchange",
-    "append_message",
-    "new_message_id",
-    "question_message",
-]

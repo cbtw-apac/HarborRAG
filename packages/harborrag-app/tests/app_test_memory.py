@@ -118,6 +118,3 @@ def memory(  # noqa: PLR0913 - a record builder, one argument per stored field
         source_session_id=source_session_id,
         source_message_ids=source_message_ids,
     )
-
-
-__all__ = ["FakeMemoryIndex", "FakeMemoryStore", "memory"]

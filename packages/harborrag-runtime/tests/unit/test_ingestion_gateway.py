@@ -13,6 +13,7 @@ from harborrag_runtime.ingestion_contracts import (
     IngestionExecutionStatus,
     IngestionRetryRequest,
     PreparedSourceSubmission,
+    RunKind,
 )
 from harborrag_runtime.source_query import ProcessingProfileInput, SourceQuery
 from harborrag_runtime.temporal.gateway import TemporalIngestionGateway, to_temporal_source
@@ -113,15 +114,23 @@ async def test_gateway_delegates_control_progress_and_health():
     assert await gateway.execution_status("task-1") == "running"
     assert await gateway.health() is True
 
-    for operation in (
-        client.pause,
-        client.resume,
-        client.cancel,
-        client.get_progress,
-        client.execution_status,
-    ):
+    for operation in (client.pause, client.resume, client.get_progress):
         operation.assert_awaited_once_with("task-1")
+    for operation in (client.cancel, client.execution_status):
+        operation.assert_awaited_once_with("task-1", RunKind.SOURCE)
     client.health.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+async def test_gateway_passes_a_retry_run_kind_through():
+    client = SimpleNamespace(cancel=AsyncMock(), execution_status=AsyncMock(return_value="running"))
+    gateway = TemporalIngestionGateway(client)
+
+    await gateway.cancel("retry-1", RunKind.RETRY)
+    await gateway.execution_status("retry-1", RunKind.RETRY)
+
+    client.cancel.assert_awaited_once_with("retry-1", RunKind.RETRY)
+    client.execution_status.assert_awaited_once_with("retry-1", RunKind.RETRY)
 
 
 @pytest.mark.asyncio

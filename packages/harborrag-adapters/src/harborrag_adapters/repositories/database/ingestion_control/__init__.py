@@ -1,5 +1,6 @@
 from .database import IngestionControlPlaneDatabase
 from .document_versions import DocumentVersionRepository
+from .failures import FailureInboxRepository
 from .publication import DocumentVersionPublisher
 from .reindex import ReindexJobRepository
 from .reliability import IngestionReliabilityRepository
@@ -13,6 +14,7 @@ from .unresolved_relations import UnresolvedRelationRepository, UnresolvedSource
 __all__ = [
     "DocumentVersionPublisher",
     "DocumentVersionRepository",
+    "FailureInboxRepository",
     "IngestionControlPlaneDatabase",
     "IngestionReliabilityRepository",
     "IngestionTaskRepository",

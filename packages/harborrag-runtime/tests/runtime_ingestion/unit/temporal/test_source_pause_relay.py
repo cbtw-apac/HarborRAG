@@ -50,6 +50,7 @@ pytestmark = pytest.mark.graybox
 
 _HISTORIES = Path(__file__).parent / "histories"
 _TEARDOWN_PATCH = "harborrag-source-pause-relay-teardown"
+_SIGNAL_ONLY_PAUSE_PATCH = "harborrag-source-signal-only-batch-pause"
 
 
 @workflow.defn(name="harborrag.source_batch")
@@ -316,8 +317,22 @@ async def run_pause_then_resume_mid_batch(
         return activities, await _outcome(handle), handle
 
 
-async def _received(child: WorkflowHandle[Any, Any], signal: str) -> bool:
-    return signal in await child.query("signals", result_type=list)
+async def run_repeated_pause_resume_mid_batch(
+    environment: WorkflowEnvironment, cycles: int
+) -> tuple[_Activities, str, WorkflowHandle[Any, Any]]:
+    activities = _Activities()
+    async with _source_run(environment, activities) as (handle, child):
+        for cycle in range(1, cycles + 1):
+            await handle.signal("pause")
+            await _until(lambda: _pause_applied(handle))
+            await handle.signal("resume")
+            await _until(lambda cycle=cycle: _received(child, "resume", times=cycle))
+        await child.signal("finish")
+        return activities, await _outcome(handle), handle
+
+
+async def _received(child: WorkflowHandle[Any, Any], signal: str, *, times: int = 1) -> bool:
+    return (await child.query("signals", result_type=list)).count(signal) >= times
 
 
 @pytest.mark.asyncio
@@ -359,6 +374,22 @@ async def test_pause_and_resume_mid_batch_complete_the_run(
     assert activities.calls.count("resume") == 1
     # An idle relay is torn down as before, so ordinary histories carry no marker.
     assert _TEARDOWN_PATCH not in _patch_ids(await handle.fetch_history())
+
+
+@pytest.mark.asyncio
+async def test_repeated_pause_and_resume_mid_batch_never_natively_pause_the_batch(
+    environment: WorkflowEnvironment,
+) -> None:
+    activities, outcome, handle = await run_repeated_pause_resume_mid_batch(environment, 10)
+
+    assert outcome == "COMPLETED"
+    assert activities.calls.count("pause") == 10
+    assert activities.calls.count("resume") == 10
+    assert "pause_execution" not in activities.calls
+    assert activities.calls.count("unpause_execution") == 10
+    history = await handle.fetch_history()
+    assert _SIGNAL_ONLY_PAUSE_PATCH in _patch_ids(history)
+    assert await _replay_failure(history) is None
 
 
 def test_the_pre_patch_histories_are_present() -> None:

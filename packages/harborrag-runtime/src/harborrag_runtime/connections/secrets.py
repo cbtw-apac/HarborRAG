@@ -45,6 +45,10 @@ class SecretUnavailableError(HarborConfigurationError):
     error_code = "secret_unavailable"
 
 
+class EnvSecretUnavailableError(SecretUnavailableError):
+    """An ``env:`` reference names a variable the process does not have."""
+
+
 @dataclass(frozen=True, slots=True)
 class SecretWriteResult:
     """Credentials in stored form plus the stored refs a write created and replaced."""
@@ -98,11 +102,11 @@ class EnvironmentSecretResolver:
         """Return the variable ``ref`` names.
 
         Raises:
-            SecretUnavailableError: The variable is unset or empty.
+            EnvSecretUnavailableError: The variable is unset or empty.
         """
         value = self.environ.get(ref.target)
         if not value:
-            raise SecretUnavailableError(f"environment variable {ref.target} is not set")
+            raise EnvSecretUnavailableError(f"environment variable {ref.target} is not set")
         return value
 
 

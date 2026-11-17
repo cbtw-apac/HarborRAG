@@ -454,14 +454,3 @@ def _same_author(memory: Memory, owner: MemoryOwner) -> bool:
 
     author = recall_owner(memory.owner).user_id
     return author is not None and author == recall_owner(owner).user_id
-
-
-__all__ = [
-    "EXISTING_LIMIT",
-    "EXTRACTION_SCOPE_ORDER",
-    "INDEX_PENDING_KEY",
-    "ExtractedFact",
-    "MemoryExtractor",
-    "reference_token",
-    "render_existing",
-]

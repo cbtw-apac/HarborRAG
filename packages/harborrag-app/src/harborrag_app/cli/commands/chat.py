@@ -34,7 +34,7 @@ def command(  # noqa: PLR0913 - explicit CLI flags are the public command contra
         typer.Option(
             "--project",
             metavar="PROJECT_ID",
-            help="Project the conversation is scoped to; must exist in the tenant.",
+            help="Project a new session is scoped to; must exist in the tenant.",
         ),
     ] = None,
     as_json: Annotated[
@@ -70,17 +70,20 @@ async def _complete(
         created = await service.create_chat_session(
             tenant_id=tenant_id,
             principal_id="harborrag-cli",
+            project_id=project_id,
         )
         if not created.ok:
             return created
         session_id = str(created.data["session_id"])
+    elif project_id is not None:
+        return AppResponse(
+            False,
+            {"error_type": "HarborValidationError"},
+            "--project creates a session; an existing session keeps its own project",
+        )
     return await service.chat_completion(
         message,
         tenant_id=tenant_id,
         principal_id="harborrag-cli",
-        options=ChatExecutionOptions(
-            session_id=session_id,
-            system=ChatPrompt.DEFAULT,
-            project_id=project_id,
-        ),
+        options=ChatExecutionOptions(session_id=session_id, system=ChatPrompt.DEFAULT),
     )

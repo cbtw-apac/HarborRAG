@@ -85,11 +85,3 @@ class McpConfiguration(BaseModel):
         if noncanonical_tenants:
             raise ValueError("MCP tenant names must not contain surrounding whitespace")
         return self
-
-
-__all__ = [
-    "McpConfiguration",
-    "PolicyConfiguration",
-    "TenantConfiguration",
-    "ToolConfiguration",
-]

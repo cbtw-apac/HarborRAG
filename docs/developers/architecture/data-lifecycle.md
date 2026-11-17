@@ -1,63 +1,72 @@
 # Data Lifecycle
 
-HarborRAG turns a changing source item into an authoritative, versioned knowledge artifact,
-then serves evidence only from the version that is currently active. The lifecycle is
-designed around one rule: indexes accelerate retrieval, but they never decide what is true.
+This page explains how HarborRAG turns a changing source item into a versioned,
+authoritative record, and why retrieval returns evidence only from the version that is
+currently active. It is for contributors who change ingestion or retrieval code. The terms
+*tenant*, *canonical artifact*, *projection* and *active version* are defined in
+[Architecture](README.md#terms-used-on-these-pages).
+
+One rule shapes the whole lifecycle: indexes speed up retrieval, but they never decide what
+is true.
 
 ## Storage ownership
 
 | Store | Owns | Does not own |
 | --- | --- | --- |
-| PostgreSQL | Tenants, sources, documents, versions, jobs, active-version pointers, and publication state | Parsed content or search ranking |
-| S3-compatible object store | Immutable raw, parsed, canonical, chunk, representation, and manifest artifacts | Publication authority |
-| Qdrant | Dense and sparse vector projections addressed by tenant and document version | The active version of a document |
-| FalkorDB | Deterministic document structure and source-declared relationships | Document authority or inferred facts |
+| PostgreSQL | Tenants, sources, documents, versions, jobs, active-version pointers and publication state | Parsed content or search ranking |
+| S3-compatible object store | Immutable raw, parsed, canonical, chunk, representation and manifest artifacts | Publication authority |
+| Qdrant | Dense and sparse vectors, with the chunk text and metadata needed to rank and cite, addressed by tenant and document version | The active version of a document |
+| FalkorDB | Document structure, source-declared relationships and, when enabled, semantic topology | Document authority or chunk text |
 
-Because the object-store artifacts are immutable and versioned, operators can inspect evidence
-or rebuild projections without reconnecting to the original source. Reindex still requires the
-necessary canonical artifacts and compatible model configuration to be retained.
+Because the object-store artifacts are immutable and versioned, operators can inspect
+evidence or rebuild projections without reconnecting to the original source. A rebuild still
+needs the canonical artifacts and a compatible model configuration. Field-level ownership is
+in [Projection Rebuild](projection-rebuild.md#store-ownership).
 
 ## Ingestion path
 
-Ingestion moves through four public phases. Implementations may split these phases into smaller
-workflow activities, but the boundaries stay the same.
+Ingestion moves through four phases. An executor may split them into smaller steps, such as
+Temporal [activities](https://docs.temporal.io/activities), but the boundaries stay the same.
 
 ### 1. Discover and admit
 
-The connector discovers lightweight `SourceRecord` values and describes a candidate before
-loading its full content. Runtime checks tenant scope, source identity, policy, and whether the
-source has changed. This early checkpoint avoids expensive parsing for items that should be
-skipped.
+The connector discovers lightweight `SourceRecord` values and describes each candidate before
+loading its full content. Runtime checks tenant scope, source identity, policy, and whether
+the source item has changed. This early checkpoint avoids expensive parsing for items that
+should be skipped.
 
 ### 2. Capture and understand
 
-Accepted content is loaded into `RawDocument`, parsed into `ParsedDocument`, and normalized into
-canonical `Document`, element, provenance, and relationship records. Parser routing uses metadata
-and supported capabilities; fallback remains inside a parser family rather than silently treating
-an incompatible format as generic text.
+Accepted content is loaded into a `RawDocument`, parsed into a `ParsedDocument`, and
+normalized into a canonical `Document` with element, provenance and relationship records.
+Parser routing uses metadata and declared capabilities; fallback stays inside one parser
+family instead of silently treating an incompatible format as generic text.
 
-Raw, parsed, and canonical outputs are written as immutable artifacts. Normalization preserves
-source identity, permissions, content type, timestamps, warnings, and addressable structure.
+Raw, parsed and canonical outputs are written as immutable artifacts. Normalization keeps
+source identity, permissions, content type, timestamps, warnings and addressable structure.
 
 ### 3. Chunk and project
 
-Chunking is source-aware. It can produce compact route chunks for discovery and evidence chunks
-that retain the content needed for grounded answers. Tables and structural elements remain
-first-class records instead of being flattened without provenance.
+Chunking is source-aware. It writes evidence chunks, which keep the content needed for
+grounded answers, and route records that outline a document and its sections. Route records
+stay in the canonical chunk artifact and are never projected. Tables and structural elements
+remain first-class records instead of being flattened without provenance. See
+[Chunking Configuration](../../users/configuration/chunking-config.md).
 
-Representations are encoded into dense, sparse, or both vector forms according to configuration.
-Qdrant receives vector projections and FalkorDB receives deterministic structure or relationships
-already declared by the source. Projection manifests bind outputs to a tenant, document version,
-artifact set, and vector space.
+Each evidence chunk is encoded twice: a dense vector from the embedding model and a
+deterministic BM25 sparse vector, so the dense, sparse and hybrid retrieval lanes can all use
+it. Qdrant receives the vectors with the chunk text and citation metadata. FalkorDB receives
+the document structure and the relationships the source declares. Projection manifests bind
+these outputs to a tenant, document version, artifact set and vector space.
 
 ### 4. Verify and publish
 
-HarborRAG verifies required projections before changing the active-version pointer in PostgreSQL.
-The publication update is atomic at the authority boundary. A failed projection therefore cannot
-make a partial version visible to retrieval.
+HarborRAG verifies the required projections before it changes the active-version pointer in
+PostgreSQL. The publication update is atomic at the authority boundary, so a failed
+projection cannot make a partial version visible to retrieval.
 
-Older projections may be cleaned up later. Cleanup failure is operational debt to retry, not a
-reason to pretend a distributed rollback occurred.
+Older projections are cleaned up later. A cleanup failure is operational debt to retry, not a
+reason to pretend that a distributed rollback happened.
 
 ```text
 discovered -> admitted -> artifacts written -> projections verified -> active
@@ -66,17 +75,28 @@ discovered -> admitted -> artifacts written -> projections verified -> active
 
 ## Retrieval path
 
-Retrieval does not run through Temporal. A request follows a direct path:
+Retrieval does not run through Temporal. A request comes from the Python SDK, the CLI
+(`harborrag retrieve`), an MCP tool, or chat over HTTP or `harborrag chat`; the HTTP API has
+no retrieval routes of its own. Every request follows the same direct path:
 
-1. An SDK, CLI, HTTP, or MCP boundary constructs the query and required access context.
-2. The retrieval engine selects dense, sparse, or hybrid lanes and queries Qdrant.
-3. Candidate `document_version_id` values are checked against PostgreSQL's active-version state.
-4. Immediately before returning, the runtime revalidates loaded candidates against the active
-   pointer so a publication that advances during evidence loading cannot expose a superseded
-   version. Inactive, superseded, unauthorized, or malformed candidates are removed.
-5. Evidence content and byte ranges are read from immutable artifacts.
-6. Optional graph expansion adds bounded structural context from FalkorDB.
-7. Results return normalized provenance and evidence, not raw provider responses.
+1. The entry point builds the query and the required access context.
+2. Under the default `source_acl` access mode, canonical document permissions produce an
+   allowlist that constrains vector ranking.
+3. The retrieval engine queries Qdrant in the dense, sparse or hybrid lane.
+4. Each candidate's `document_version_id` is checked against the active-version state in
+   PostgreSQL.
+5. Just before returning, runtime checks the loaded candidates against the active pointer
+   and the permissions again, so a publication that advances in the meantime cannot expose a
+   superseded version. Inactive, superseded, unauthorized or malformed candidates are
+   removed.
+6. Each result's text and citation fields come from the vector payload. Chat can rerank the
+   results at this point.
+7. Optional graph observation adds bounded structural context from FalkorDB, as diagnostics
+   rather than extra evidence.
+8. Results return normalized provenance and evidence, never raw provider responses.
+
+To read a chunk's full canonical text, the MCP `fetch_evidence` tool and document-context
+reads load it from the immutable artifacts and authorize it again.
 
 The central visibility check is:
 
@@ -84,27 +104,42 @@ The central visibility check is:
 candidate.document_version_id == authority.active_document_version_id
 ```
 
-This protects readers during reindex, republish, delayed cleanup, and partial provider failure.
+It protects readers during reindex, republish, delayed cleanup and partial provider failure.
 
 ## Graph scope
 
-The graph projection is deliberately deterministic. It represents document structure,
-containment, chunk relationships, and relationships explicitly supplied by a source. Dedicated
-graph retrieval can use those edges, and vector retrieval may observe graph context as a bounded
-diagnostic or expansion step.
+The structural graph is deterministic. It holds document structure, containment, chunk
+relationships, and relationships a source declares explicitly. Graph tools walk those edges,
+and vector retrieval can observe graph context as a bounded diagnostic step.
 
-HarborRAG does not claim automatic named-entity resolution, LLM-based fact extraction, or a
-general-purpose enterprise knowledge graph. Those can be added behind explicit contracts without
-changing the authority model.
+Semantic topology enrichment is opt-in per tenant and per source scope. It asks an LLM to
+extract entities and typed facts within a closed ontology, keeps the exact evidence for every
+fact, and merges entities only through audited, reversible decisions; a matching name never
+merges two entities by itself. The built-in defaults make no LLM calls. See
+[Graph Build Configuration](../../users/configuration/graph-build-config.md).
+
+HarborRAG does not build a general-purpose enterprise knowledge graph, and none of this
+changes the authority model above.
 
 ## Current boundaries
 
-- MCP is a governed retrieval surface; it does not expose ingestion or chat.
-- Sparse encoding must be configured intentionally; there is no silent automatic fallback.
-- Query rewriting and reranking are extension points and are not guaranteed in every retrieval path.
+- MCP is a governed, read-only retrieval surface; it exposes neither ingestion nor chat.
+- Only chat reranks, and only when the `retrieval.rerank` runtime setting is on;
+  `harborrag retrieve` and the MCP `vector_search` tool do not. See
+  [Rerank chat retrieval](../../users/configuration/runtime-settings.md#rerank-chat-retrieval).
+- Query rewriting is an engine port, `QueryRewriter`, that no runtime path wires yet.
+- Connectors do not synchronize permission snapshots. Under the default `source_acl` mode
+  they are imported with `harborrag topology indexing permissions-import`; a tenant whose
+  corpus is deliberately shared uses `tenant_shared` instead. See
+  [MCP Setup and Integration](../../users/detailed-guides/mcp-server/setup-and-integration.md).
 - Cleanup and relationship repair can be eventually consistent after a safe publication.
-- Production identity, TLS, network isolation, secret delivery, backups, observability, and capacity
-  policy remain deployment responsibilities.
+- Production identity, TLS, network isolation, secret delivery, backups, observability and
+  capacity policy remain deployment responsibilities; see
+  [Runtime Reliability](runtime-reliability.md#deployment-responsibilities).
 
-See [runtime reliability](runtime-reliability.md) for workflow behavior and the
-[projection rebuild runbook](projection-rebuild.md) for repair procedures.
+## Related
+
+- [Runtime Reliability](runtime-reliability.md): workflow behaviour, retries and failure
+  outcomes.
+- [Projection Rebuild](projection-rebuild.md): what each store holds and how to repair
+  projections.

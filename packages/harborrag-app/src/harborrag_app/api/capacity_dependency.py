@@ -84,10 +84,3 @@ async def require_api_capacity(
 
 
 ApiCapacityDependency = Annotated[None, Depends(require_api_capacity, scope="function")]
-
-__all__ = [
-    "ApiCapacityDependency",
-    "capacity_scope_for",
-    "hold_api_capacity",
-    "require_api_capacity",
-]

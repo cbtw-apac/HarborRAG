@@ -308,6 +308,3 @@ def _result(candidate: VectorSearchResult) -> RetrievalResult:
         score=candidate.score,
         metadata=metadata,
     )
-
-
-__all__ = ["KnowledgeRetrieval"]

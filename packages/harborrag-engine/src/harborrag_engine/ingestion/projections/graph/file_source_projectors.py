@@ -213,6 +213,3 @@ class LocalSourceProjector(BaseSourceProjector):
         project_structure_chain(self, state, container=root, item=item, ancestors=directories)
         self.version(state, item, document_version)
         return item
-
-
-__all__ = ["GitHubSourceProjector", "LocalSourceProjector", "SharePointSourceProjector"]

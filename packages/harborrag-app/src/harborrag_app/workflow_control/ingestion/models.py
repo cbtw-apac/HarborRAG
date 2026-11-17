@@ -13,6 +13,8 @@ class IngestionCreateCommand:
     public_request: dict[str, object]
     source_scope_id: str | None = None
     updated_after: str | None = None
+    actor: str | None = None
+    actor_type: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

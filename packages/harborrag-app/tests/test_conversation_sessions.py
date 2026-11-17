@@ -10,17 +10,20 @@ from harborrag_runtime.memory import InMemoryConversationMemory
 
 @pytest.mark.asyncio
 async def test_session_creation_shares_default_user_but_preserves_explicit_scope() -> None:
-    sessions = ConversationSessionService(
-        InMemoryConversationMemory(),
-        greetings=("Hello from HarborRAG",),
-    )
+    sessions = ConversationSessionService(InMemoryConversationMemory())
 
-    created = await sessions.create(tenant_id="ACME", principal_id="reader-1")
+    created = await sessions.create(tenant_id="ACME", principal_id="reader-1", project_id="cpm")
     session_id = str(created.data["session_id"])
 
+    assert session_id.startswith("ses_")
     assert created.data == {
         "session_id": session_id,
-        "greeting": "Hello from HarborRAG",
+        "title": "",
+        "project_id": "cpm",
+        "profile_id": None,
+        "message_count": 0,
+        "created_at": created.data["created_at"],
+        "updated_at": created.data["created_at"],
     }
     assert await sessions.exists(
         session_id,

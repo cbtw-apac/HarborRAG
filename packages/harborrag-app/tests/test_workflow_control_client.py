@@ -28,8 +28,6 @@ from harborrag_app.workflow_control.composition.factories import AppServiceFacto
 from harborrag_app.workflow_control.composition.service import AppService
 from harborrag_app.workflow_control.ingestion.client import PublicIngestionClientMixin
 from harborrag_app.workflow_control.ingestion.durable import DurableIngestionOperations
-from harborrag_core.contracts.errors import HarborNotFoundError
-from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.ingestion import IngestionTask, IngestionTaskState, TaskRegistration
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.errors import (
@@ -288,18 +286,6 @@ async def test_ingestion_result_returns_the_run_summary() -> None:
 
 @pytest.mark.parametrize("action", ["pause", "resume", "cancel"])
 @pytest.mark.asyncio
-async def test_control_actions_are_forwarded(action: str) -> None:
-    service, client, _ = build_service()
-
-    response = await service.control_ingestion("run-1", action)
-
-    assert response.ok is True
-    assert response.data["action"] == action
-    assert client.calls[0][0] == action
-
-
-@pytest.mark.parametrize("action", ["pause", "resume", "cancel"])
-@pytest.mark.asyncio
 async def test_public_control_actions_forward_the_actor(action: str) -> None:
     # The HTTP routes pass actor=principal.subject; the facade must accept it.
     calls: list[tuple[str, str, str | None]] = []
@@ -343,7 +329,6 @@ async def test_runtime_failures_become_a_stable_envelope() -> None:
         await service.runtime_health(),
         await service.ingestion_status("run-1"),
         await service.ingestion_result("run-1"),
-        await service.control_ingestion("run-1", "pause"),
         await service.start_ingestion(tenant_id="t", connector_name="c"),
     ):
         assert response.ok is False
@@ -508,22 +493,6 @@ async def test_reused_terminal_run_id_is_rejected() -> None:
     assert "run-done" in str(response.error)
     assert client.calls == []
     assert registry.tasks["run-done"].status is IngestionTaskState.COMPLETED
-
-
-@pytest.mark.asyncio
-async def test_control_action_succeeds_without_a_local_task_row() -> None:
-    class RowlessRegistry(FakeTaskRegistry):
-        async def append_task_event(self, task_id: str, event: HarborEvent) -> HarborEvent:
-            raise HarborNotFoundError(f"ingestion task does not exist: {task_id}")
-
-    client = FakeRuntimeClient()
-    operations = _durable(RowlessRegistry(), client)
-
-    response = await operations.control_ingestion("run-elsewhere", "cancel")
-
-    assert response.ok is True
-    assert response.data == {"run_id": "run-elsewhere", "action": "cancel"}
-    assert client.calls == [("cancel", ("run-elsewhere",))]
 
 
 @pytest.mark.asyncio

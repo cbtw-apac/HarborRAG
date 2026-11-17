@@ -323,5 +323,3 @@ class FakeKnowledgeGraphRepository:
 # Checked by mypy on every run: a port method nobody implemented fails here, which is the
 # point of keeping the fake in core rather than only in the adapter and runtime suites.
 _CONFORMS: KnowledgeGraphRepositoryPort = FakeKnowledgeGraphRepository()
-
-__all__ = ["FakeKnowledgeGraphRepository"]

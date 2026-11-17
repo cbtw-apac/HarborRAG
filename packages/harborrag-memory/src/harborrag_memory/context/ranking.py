@@ -253,26 +253,3 @@ def select(
         max_tokens=max_tokens,
         counter=counter,
     )
-
-
-__all__ = [
-    "NO_AFFINITY",
-    "NO_ANCHOR",
-    "SCOPE_RANK",
-    "EntityAnchor",
-    "ScoredMemory",
-    "ScoringContext",
-    "TextCounter",
-    "TypeAffinity",
-    "dedupe_key",
-    "deduplicate",
-    "entity_weight",
-    "fused_score",
-    "hours_between",
-    "rank",
-    "recency_weight",
-    "score_memory",
-    "select",
-    "type_weight",
-    "within_budget",
-]

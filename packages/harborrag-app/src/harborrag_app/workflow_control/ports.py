@@ -49,14 +49,17 @@ class BaseAppService(ABC):
 
         return None
 
-    async def create_chat_session(
+    async def create_chat_session(  # noqa: PLR0913 - one component of the new session per argument
         self,
         *,
         tenant_id: str,
         principal_id: str,
         user_id: str | None = None,
         title: str | None = None,
+        project_id: str | None = None,
     ) -> AppResponse:
+        """Create a chat session, scoped to ``project_id`` for its whole life."""
+
         raise NotImplementedError
 
     async def list_conversations(
@@ -65,8 +68,9 @@ class BaseAppService(ABC):
         *,
         cursor: str | None = None,
         limit: int = 20,
+        title_query: str | None = None,
     ) -> AppResponse:
-        """One page of the caller's own conversations, newest activity first."""
+        """One page of the caller's own sessions, newest activity first."""
 
         raise NotImplementedError
 
@@ -74,10 +78,10 @@ class BaseAppService(ABC):
         self,
         access: MemoryAccess,
         *,
-        after: str | None = None,
-        limit: int = 50,
+        cursor: str | None = None,
+        limit: int = 20,
     ) -> AppResponse:
-        """One page of one conversation's messages, oldest first."""
+        """One page of one session's history, newest first."""
 
         raise NotImplementedError
 

@@ -37,7 +37,7 @@ def test_probe_errors_never_echo_url_credentials_or_query() -> None:
 def test_doctor_never_prints_the_value_of_a_bad_source_path(
     tmp_path: Path, monkeypatch, capsys
 ) -> None:
-    project(tmp_path, monkeypatch, capsys, api_key="sk-test")
+    project(tmp_path, monkeypatch, api_key="sk-test")
     unreachable(monkeypatch)
     monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
     monkeypatch.setenv("LOCAL_SOURCE_PATH", "sk-live-secret-looking-value")
@@ -55,7 +55,7 @@ def test_doctor_does_not_echo_a_valid_source_path_either(
 ) -> None:
     """The ok branch used to print `VAR=value`; a catalog can name any variable here."""
 
-    project(tmp_path, monkeypatch, capsys, api_key="sk-test")
+    project(tmp_path, monkeypatch, api_key="sk-test")
     unreachable(monkeypatch)
     monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
     secret_looking = tmp_path / "sk-live-looking-folder"

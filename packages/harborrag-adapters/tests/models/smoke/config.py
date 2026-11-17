@@ -125,20 +125,22 @@ def _security(prefix: str) -> dict[str, Any]:
 
 
 def chat_config() -> HarborChatClientConfig:
-    backend_value = _optional("HARBOR_CHAT_BACKEND") or ChatBackendType.DIRECT_SDK.value
+    backend_value = _optional("HARBORRAG_CHAT_BACKEND") or ChatBackendType.DIRECT_SDK.value
     try:
         backend_type = ChatBackendType(backend_value)
     except ValueError as exc:
         supported = ", ".join(item.value for item in ChatBackendType)
-        raise SmokeConfigurationError(f"HARBOR_CHAT_BACKEND must be one of: {supported}") from exc
+        raise SmokeConfigurationError(
+            f"HARBORRAG_CHAT_BACKEND must be one of: {supported}"
+        ) from exc
 
-    deployment = _deployment("HARBOR_CHAT")
+    deployment = _deployment("HARBORRAG_CHAT")
     deployment["capabilities"] = {"streaming": True}
     backend: dict[str, Any] = {"type": backend_type.value}
     chat: dict[str, Any] = {
         "default_model": "smoke",
         "timeouts": {"request_seconds": _timeout()},
-        "security": _security("HARBOR_CHAT"),
+        "security": _security("HARBORRAG_CHAT"),
         "retry": _single_attempt_policy(),
         "models": {"smoke": {"deployments": [deployment]}},
         "backend": backend,
@@ -147,16 +149,16 @@ def chat_config() -> HarborChatClientConfig:
         chat["routing"] = {"engine": "litellm_router", "strategy": "ordered"}
     if backend_type is ChatBackendType.LITELLM_PROXY:
         backend["proxy"] = {
-            "api_base": _required("HARBOR_CHAT_PROXY_API_BASE"),
-            "api_key": _required("HARBOR_CHAT_PROXY_API_KEY"),
-            "headers": _json_mapping("HARBOR_CHAT_PROXY_HEADERS_JSON"),
+            "api_base": _required("HARBORRAG_CHAT_PROXY_API_BASE"),
+            "api_key": _required("HARBORRAG_CHAT_PROXY_API_KEY"),
+            "headers": _json_mapping("HARBORRAG_CHAT_PROXY_HEADERS_JSON"),
         }
     return HarborChatClientConfig.from_dict({"chat": chat})
 
 
 def embed_config() -> HarborEmbedClientConfig:
-    deployment = _deployment("HARBOR_EMBED")
-    dimensions = _positive_int("HARBOR_EMBED_EXPECTED_DIMENSIONS")
+    deployment = _deployment("HARBORRAG_EMBED")
+    dimensions = _positive_int("HARBORRAG_EMBED_EXPECTED_DIMENSIONS")
     if dimensions is not None:
         deployment["expected_dimensions"] = dimensions
     deployment["capabilities"] = {
@@ -169,11 +171,11 @@ def embed_config() -> HarborEmbedClientConfig:
             "embed": {
                 "default_model": "smoke",
                 "timeouts": {"request_seconds": _timeout()},
-                "security": _security("HARBOR_EMBED"),
+                "security": _security("HARBORRAG_EMBED"),
                 "retry": _single_attempt_policy(),
                 "models": {
                     "smoke": {
-                        "embedding_space": _optional("HARBOR_EMBED_SPACE")
+                        "embedding_space": _optional("HARBORRAG_EMBED_SPACE")
                         or "smoke-embedding-space",
                         "deployments": [deployment],
                     }

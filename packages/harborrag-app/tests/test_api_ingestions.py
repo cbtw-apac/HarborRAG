@@ -29,16 +29,14 @@ def client(monkeypatch, service: MockAppService) -> TestClient:
         yield test_client
 
 
-def test_task_status_is_connector_independent_and_temporal_free(client: TestClient) -> None:
+def test_a_run_reads_as_the_ingestion_object(client: TestClient) -> None:
     response = client.get("/v1/admin/ingestions/ing_1")
 
     assert response.status_code == 200
     body = response.json()
-    assert body["stage"] == "PROCESSING_DOCUMENTS"
-    assert body["progress"]["processed"] == 1
-    forbidden = {"workflow_id", "activity_id", "task_queue", "retry_attempt"}
-    assert not (forbidden & set(body))
-    assert not any(name in response.text for name in forbidden)
+    assert body["status"] == "running"
+    assert body["counters"]["processed"] == 1
+    assert not {"stage", "progress", "activity_id", "task_queue"} & set(body)
 
 
 def test_metrics_labels_task_requests_by_route_template(client: TestClient) -> None:
@@ -52,21 +50,21 @@ def test_metrics_labels_task_requests_by_route_template(client: TestClient) -> N
 def test_document_results_support_status_and_cursor_parameters(client: TestClient) -> None:
     response = client.get(
         "/v1/admin/ingestions/ing_1/documents",
-        params={"status": "SUCCESS", "cursor": "opaque", "limit": 25},
+        params={"status": "succeeded", "cursor": "opaque", "limit": 25},
     )
 
     assert response.status_code == 200
     item = response.json()["items"][0]
-    assert item["source_item_id"] == "adr/0001.md"
-    assert item["active_document_version_id"] == "document-version:1"
+    assert item["document_ref"] == "adr/0001.md"
+    assert item["status"] == "succeeded"
 
 
 def test_cancellation_is_asynchronous_and_terminal_tasks_conflict(client: TestClient) -> None:
     accepted = client.post("/v1/admin/ingestions/ing_1/cancel")
     conflict = client.post("/v1/admin/ingestions/complete/cancel")
 
-    assert accepted.status_code == 202
-    assert accepted.json()["message"] == "Cancellation requested"
+    assert accepted.status_code == 200
+    assert accepted.json()["ingestion_id"] == "ing_1"
     assert conflict.status_code == 409
     assert conflict.json()["error"]["code"] == "invalid_state"
 
@@ -77,16 +75,16 @@ def test_pause_and_resume_are_asynchronous_and_terminal_tasks_conflict(
     pause_accepted = client.post("/v1/admin/ingestions/ing_1/pause")
     pause_conflict = client.post("/v1/admin/ingestions/complete/pause")
 
-    assert pause_accepted.status_code == 202
-    assert pause_accepted.json()["message"] == "Pause requested"
+    assert pause_accepted.status_code == 200
+    assert pause_accepted.json()["ingestion_id"] == "ing_1"
     assert pause_conflict.status_code == 409
     assert pause_conflict.json()["error"]["code"] == "invalid_state"
 
     resume_accepted = client.post("/v1/admin/ingestions/ing_1/resume")
     resume_conflict = client.post("/v1/admin/ingestions/complete/resume")
 
-    assert resume_accepted.status_code == 202
-    assert resume_accepted.json()["message"] == "Resume requested"
+    assert resume_accepted.status_code == 200
+    assert resume_accepted.json()["ingestion_id"] == "ing_1"
     assert resume_conflict.status_code == 409
     assert resume_conflict.json()["error"]["code"] == "invalid_state"
 
@@ -99,8 +97,8 @@ def test_retry_failures_accepts_selected_or_all_documents(client: TestClient) ->
     all_failures = client.post("/v1/admin/ingestions/ing_1/retry-failures")
 
     assert selected.status_code == all_failures.status_code == 202
-    assert selected.json()["accepted_document_count"] == 1
-    assert UUID(selected.json()["retry_ingestion_id"])
+    assert UUID(selected.json()["ingestion_id"])
+    assert selected.headers["location"] == f"/v1/admin/ingestions/{selected.json()['ingestion_id']}"
 
 
 def test_retry_failures_rejects_an_oversized_document_id_list(client: TestClient) -> None:

@@ -46,13 +46,6 @@ def test_tracked_temporal_configuration_loads_all_runtime_sections() -> None:
     assert config.ingestion.document_concurrency == 8
 
 
-def test_annotated_temporal_example_matches_active_defaults() -> None:
-    active = load_temporal_config(ROOT / "config/temporal.yaml")
-    example = load_temporal_config(ROOT / "config/temporal.example.yaml")
-
-    assert example == active
-
-
 def test_temporal_configuration_is_strict_and_versioned(tmp_path: Path) -> None:
     config_path = tmp_path / "temporal.yaml"
     config_path.write_text("version: 1\nunknown: true\n", encoding="utf-8")

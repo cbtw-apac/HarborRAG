@@ -31,6 +31,3 @@ def section_anchors(candidate: ChunkCandidate) -> tuple[str, ...]:
     if len(anchors) != len(candidate.structural_path) or not all(anchors):
         return ()
     return anchors
-
-
-__all__ = ["section_anchors"]

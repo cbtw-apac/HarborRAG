@@ -2,9 +2,13 @@
 
 from harborrag_adapters.parsers.common.family import FamilyResultNormalizer
 from harborrag_adapters.parsers.common.normalization import (
-    compact_text,
-    html_to_text,
-    html_to_text_with_engine,
+    compact_text as compact_text,
+)
+from harborrag_adapters.parsers.common.normalization import (
+    html_to_text as html_to_text,
+)
+from harborrag_adapters.parsers.common.normalization import (
+    html_to_text_with_engine as html_to_text_with_engine,
 )
 
 
@@ -13,11 +17,3 @@ class MarkupNormalizer(FamilyResultNormalizer):
 
     def __init__(self) -> None:
         super().__init__("markup")
-
-
-__all__ = [
-    "MarkupNormalizer",
-    "compact_text",
-    "html_to_text",
-    "html_to_text_with_engine",
-]

@@ -32,7 +32,7 @@ def client(monkeypatch: pytest.MonkeyPatch, service: MockAppService) -> Iterator
 
 
 def _sessions(payload: dict[str, object]) -> list[str]:
-    rows = payload["sessions"]
+    rows = payload["items"]
     assert isinstance(rows, list)
     return [str(row["session_id"]) for row in rows]
 
@@ -47,38 +47,42 @@ async def test_listing_returns_the_callers_own_conversations(
     response = client.get(CONVERSATIONS, headers=auth())
 
     assert response.status_code == 200
-    rows = response.json()["sessions"]
+    rows = response.json()["items"]
     assert len(rows) == 1
     assert rows[0]["session_id"] == "session-1"
     assert rows[0]["title"] == "Runbooks"
     assert rows[0]["message_count"] == 1
     assert rows[0]["created_at"] and rows[0]["updated_at"]
     # No owner field is echoed back: the caller already is the owner.
-    assert set(rows[0]) == {"session_id", "title", "created_at", "updated_at", "message_count"}
-    assert "next_cursor" not in response.json()
+    assert set(rows[0]) == {
+        "session_id",
+        "title",
+        "project_id",
+        "profile_id",
+        "created_at",
+        "updated_at",
+        "message_count",
+    }
+    assert response.json()["next_cursor"] is None
 
 
-@pytest.mark.asyncio
-async def test_initial_session_creation_rejects_a_caller_supplied_title(
-    client: TestClient,
-) -> None:
+def test_a_caller_supplied_title_is_trimmed_and_kept(client: TestClient) -> None:
     created = client.post(
-        "/v1/chat/sessions",
-        json={"tenant_id": "DEFAULT", "title": "  Quarterly report  "},
-        headers=auth(),
+        "/v1/chat/sessions", json={"title": "  Quarterly report  "}, headers=auth()
     )
-    assert created.status_code == 422
-    assert _sessions(client.get(CONVERSATIONS, headers=auth()).json()) == []
+
+    assert created.status_code == 201
+    assert created.json()["title"] == "Quarterly report"
+    rows = client.get(CONVERSATIONS, headers=auth()).json()["items"]
+    assert [row["title"] for row in rows] == ["Quarterly report"]
 
 
-def test_creating_a_session_without_a_title_is_unchanged(client: TestClient) -> None:
-    """Existing callers send no title, and get an untitled conversation."""
-
+def test_creating_a_session_without_a_title_leaves_it_untitled(client: TestClient) -> None:
     created = client.post("/v1/chat/sessions", json={}, headers=auth())
 
     assert created.status_code == 201
-    rows = client.get(CONVERSATIONS, headers=auth()).json()["sessions"]
-    assert "title" not in rows[0]
+    rows = client.get(CONVERSATIONS, headers=auth()).json()["items"]
+    assert rows[0]["title"] == ""
 
 
 @pytest.mark.asyncio
@@ -100,7 +104,7 @@ async def test_paging_walks_every_conversation_exactly_once(
     assert len(_sessions(first)) == 2
     assert cursor
     assert len(_sessions(second)) == 1
-    assert "next_cursor" not in second
+    assert second["next_cursor"] is None
     assert sorted(_sessions(first) + _sessions(second)) == [
         "session-0",
         "session-1",
@@ -184,8 +188,7 @@ def test_listing_requires_a_bearer_token(client: TestClient) -> None:
 def test_a_foreign_tenant_is_refused(client: TestClient) -> None:
     response = client.get(
         CONVERSATIONS,
-        params={"tenant_id": "OTHER"},
-        headers=auth(tenants=("DEFAULT",)),
+        headers={**auth(tenants=("DEFAULT",)), "X-Tenant-Id": "OTHER"},
     )
 
     assert response.status_code == 403

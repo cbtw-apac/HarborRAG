@@ -40,5 +40,3 @@ class LiteParsePDFConfig:
 
 
 LiteParseBackendOptions = LiteParsePDFConfig
-
-__all__ = ["LiteParseBackendOptions", "LiteParsePDFConfig"]

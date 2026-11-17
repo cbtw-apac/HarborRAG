@@ -72,9 +72,10 @@ def main() -> int:
             backend = PDF_BACKENDS[args.pdf_backend]()
             document = PdfParser(backends=[backend]).parse_input(parse_input)
         elif args.pdf_profile:
-            document = PdfParser(profile=args.pdf_profile).parse_input(parse_input)
+            pdf_parser = HarborParserFactory().create_pdf_parser(profile=args.pdf_profile)
+            document = pdf_parser.parse_input(parse_input)
         else:
-            document = HarborParserFactory().create_registry().parse_input(parse_input)
+            document = HarborParserFactory().create_registry().parse(parse_input)
         if not document.content.strip():
             raise AssertionError("parser returned empty extracted content")
     except Exception as exc:  # noqa: BLE001 - smoke runner returns a stable exit code

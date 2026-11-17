@@ -1,6 +1,6 @@
 """A setting removed after 2.0.0a1 still loads, ignored with a WARNING.
 
-The 2.0.0a1 ``config/connectors.yaml`` set ``max_child_pages`` on
+The 2.0.0a1 ``config/sources/connectors.yaml`` set ``max_child_pages`` on
 ``confluence-main``. Rejecting it as an unknown setting turned that connector
 into an invalid definition on upgrade, so no Confluence ingestion ran until
 someone edited the file by hand.

@@ -5,6 +5,7 @@ from harborrag_core.storage import HealthStatus, RepositoryHealth, StorageFamily
 
 from .connection_records import ConnectionRecordRepository
 from .document_versions import DocumentVersionRepository
+from .failures import FailureInboxRepository
 from .publication import DocumentVersionPublisher
 from .reindex import ReindexJobRepository
 from .reliability import IngestionReliabilityRepository
@@ -41,6 +42,7 @@ class IngestionControlPlaneDatabase:
         self.tasks = IngestionTaskRepository(client)
         self.connection_records = ConnectionRecordRepository(client)
         self.task_events = TaskEventRepository(client)
+        self.failures = FailureInboxRepository(client)
         self.topology = TopologyRepository(client, summaries_enabled=summaries_enabled)
         self.summaries = SummaryRepository(client)
         self.unresolved_relations = UnresolvedRelationRepository(client)

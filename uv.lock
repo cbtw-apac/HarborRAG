@@ -2234,7 +2234,7 @@ requires-dist = [
     { name = "python-pptx", marker = "extra == 'parsers-all'", specifier = ">=1.0.0" },
     { name = "python-pptx", marker = "extra == 'presentation'", specifier = ">=1.0.0" },
     { name = "pyyaml", marker = "extra == 'llm'", specifier = ">=6.0,<7" },
-    { name = "qdrant-client", marker = "extra == 'qdrant'", specifier = ">=1.10,<2" },
+    { name = "qdrant-client", marker = "extra == 'qdrant'", specifier = ">=1.17,<1.20" },
     { name = "rapidocr", marker = "extra == 'image'", specifier = ">=3.1,<4" },
     { name = "rapidocr", marker = "extra == 'image-rapidocr'", specifier = ">=3.1,<4" },
     { name = "rapidocr", marker = "extra == 'parsers-all'", specifier = ">=3.1,<4" },

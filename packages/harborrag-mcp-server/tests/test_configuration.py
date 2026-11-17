@@ -266,7 +266,7 @@ def test_loaded_file_above_a_safety_maximum_is_clamped_with_a_warning(tmp_path, 
 
 
 def test_alpha1_shipped_configuration_loads_against_the_current_catalog(tmp_path) -> None:
-    # The alpha1 config/mcp.yaml allowed graph max_depth 8 and max_paths 20; the
+    # The alpha1 config/mcp/server.yaml allowed graph max_depth 8 and max_paths 20; the
     # current graph tools cap them at 4 and 5.
     config_path = tmp_path / "mcp.yaml"
     config_path.write_text(

@@ -37,6 +37,3 @@ def build_api_key_verification(settings: RuntimeSettings) -> ApiKeyVerificationS
     )
     reader = SqlApiKeyReader(create_session_factory(engine))
     return ApiKeyVerificationService(reader, environment=settings.env)
-
-
-__all__ = ["build_api_key_verification"]

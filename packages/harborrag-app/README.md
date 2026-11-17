@@ -1,113 +1,107 @@
 # harborrag-app
 
-Owns operator-facing API and CLI boundaries.
+The `harborrag` operator command and the HarborRAG HTTP API. Use it to start, follow and
+control ingestion runs, manage connections, search the indexes and ask grounded questions,
+from a terminal or over HTTP.
 
-## Ingestion CLI
+## Install
 
-The CLI drives ingestion through `AppService`; it does not construct connectors or
-repositories. `run` executes inline through the SDK's direct executor and follows the
-control-plane task store for progress; the other commands drive the Temporal workflow:
+Run the CLI from inside a HarborRAG repository checkout. The
+[Quick Start](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/getting-started/quick-start.md)
+takes you from `git clone` to a first answer: it installs the CLI with
+[uv](https://docs.astral.sh/uv/), starts the local stack and runs a first ingestion.
 
-```bash
-harborrag ingest run workspace --limit 3
-harborrag ingest start --tenant tenant-1 --connector-id harborrag-workspace
-harborrag ingest start --tenant tenant-1 --connector-id jira-main --limit 3 --wait
-harborrag ingest start --tenant tenant-1 --connector-id harborrag-workspace --wait
-harborrag ingest status RUN_ID --json
-harborrag ingest watch RUN_ID
-harborrag ingest wait RUN_ID
-harborrag ingest pause RUN_ID
-harborrag ingest resume RUN_ID
-harborrag ingest cancel RUN_ID
-```
+## Quick start
 
-Starting a run resolves the named connector into the source-ingestion contract,
-persists a `PENDING` task in Postgres, and submits
-`harborrag.source_ingestion`. Re-running the same source under a new run ID
-replays from the earliest reusable immutable artifact.
-
-## Scheduled ingestion
-
-Schedules run in Temporal and are declared in `config/schedules.yaml`, which the
-API reconciles at start-up. See the [Scheduled Ingestion runbook](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/scheduled-ingestion.md) for
-configuration, incident pause/resume, and monitoring.
-
-Every one-shot command accepts `--json` after its action and returns
-`{"ok":...,"data":...,"error":...}`. A failed operation exits with status 1.
-Typer supplies grouped Rich help and shell completion. Rich renders one-shot
-progress summaries, status colors, artifact lists, and the ingestion stage
-sequence; concurrent artifact stages are shown as `in flight`.
-
-`harborrag ingest watch RUN_ID` and `ingest start --wait` follow a run with an inline
-Rich progress block (stage strip, document bar, counters, failed artifacts); `--events`
-streams NDJSON. Use `harborrag --no-color ...` or the standard
-`NO_COLOR` environment variable when one-shot terminal colors are undesirable;
-`--json` never emits Rich formatting or spinner output.
-
-## Retrieval CLI
-
-The retrieval command embeds a tenant-scoped query, searches active Qdrant
-vectors, expands matching chunk context through FalkorDB, and applies
-reciprocal-rank fusion:
+From the checkout, list the commands:
 
 ```bash
-harborrag retrieve "deployment requirements" --tenant tenant-1 --top-k 5
-harborrag retrieve "deployment requirements" --tenant tenant-1 --top-k 5 --json
-harborrag retrieve "deployment requirements" --tenant tenant-1 --lane sparse --no-graph
-harborrag retrieve "deployment requirements" --tenant tenant-1 --filters-json '{"category":"runbook"}'
+uv run harborrag --help
 ```
 
-Retrieved text is omitted by default so shell logs and automation artifacts do
-not collect source content. Pass `--include-content` only when the caller is
-authorized to receive document text. Unexpected provider exception messages
-are also suppressed at the application boundary; the public envelope retains
-only the stable exception type.
+You should see eight commands, grouped by purpose: `doctor`, `auth` and `config`
+(Operations); `chat` (Chat); `retrieve` (Retrieval); and `ingest`, `topology` and `source`
+(Ingestion). `uv run harborrag COMMAND --help` lists each command's options.
 
-## Retrieval API
+## What it provides
 
-The authenticated API exposes the same runtime retrieval facade at
-`POST /v1/retrieval/vector`:
+- **The `harborrag` CLI.** Every command and option is in the
+  [CLI reference](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/cli-reference/README.md).
+- **The HTTP API** under `/v1`: connections, projects, runtime settings, ingestion runs
+  and the failure inbox under `/v1/admin`, chat sessions and completions under `/v1/chat`.
+  See [Connections](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/connections.md)
+  and [Chat](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/chat/README.md).
+- **One application service** that both call. The CLI and the API never construct
+  connectors or repositories themselves.
 
-```json
-{
-  "query": "deployment requirements",
-  "top_k": 5,
-  "lane": "hybrid",
-  "filters": {"category": "runbook"},
-  "observe_graph": true,
-  "score_threshold": 0.25,
-  "include_content": true,
-  "include_metadata": true
-}
-```
+## Run and control ingestions
 
-The caller must have at least the `reader` role. Tenant scope is explicit and
-cannot be overridden by a request filter. The response contains a request ID,
-selected lane, ranked results, and retrieval diagnostics.
-
-Graph retrieval uses separate typed POST operations:
-
-- `/v1/retrieval/graph/triplets`
-- `/v1/retrieval/graph/paths`
-- `/v1/retrieval/graph/subgraphs`
-
-Search is not duplicated as GET because query text and nested filters should
-remain in the request body rather than URLs, access logs, and intermediary
-caches. The former `/v1/retrieval/search` route has been removed.
-
-
-## Package tests
-
-Tests for this package live in:
-
-```text
-packages/harborrag-app/tests/
-```
-
-Run from the repository root:
+`ingest run` executes an ingestion in the current process, without Temporal or a worker.
+`ingest start` submits it to Temporal, and the other actions follow or control the run:
 
 ```bash
-pytest packages/harborrag-app/tests
+uv run harborrag ingest start harborrag-workspace --wait
+uv run harborrag ingest status RUN_ID --json
+uv run harborrag ingest watch RUN_ID
+uv run harborrag ingest pause RUN_ID
+uv run harborrag ingest resume RUN_ID
+uv run harborrag ingest cancel RUN_ID
 ```
 
-Keep new tests in this folder when adding or changing behavior owned by this package.
+The argument is the connection's `source_key`, not a source type such as `local`; how that
+key is formed is in
+[Name the connector](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/cli-reference/README.md#name-the-connector).
+`uv run harborrag source sync PROJECT/CONNECTION` starts any connection by project and
+connection ID, whatever its key. From a checkout, commands that write need the stack's
+control database first; see
+[Run from a repository checkout](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/cli-reference/README.md#run-from-a-repository-checkout).
+
+`ingest watch` and `ingest start --wait` follow a run with an inline progress block.
+Every command that takes `--json` prints one stable envelope,
+`{"ok":...,"data":...,"error":...}`, without color or spinners; see
+[Read JSON output and exit codes](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/cli-reference/README.md#read-json-output-and-exit-codes).
+The durable workflows behind `ingest start` are described in
+[Runtime reliability](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/developers/architecture/runtime-reliability.md).
+
+## Schedule ingestions
+
+Schedules run in Temporal and are declared in `config/sources/schedules.yaml`, which the
+API applies each time it starts. See
+[Scheduled ingestion](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/scheduled-ingestion.md)
+for the file format, pausing a schedule during an incident, and monitoring.
+
+## Search the indexes
+
+`harborrag retrieve` searches the active Qdrant vectors of a tenant and expands the leading
+results with graph context from FalkorDB:
+
+```bash
+uv run harborrag retrieve "deployment requirements" --top-k 5
+uv run harborrag retrieve "deployment requirements" --lane sparse --no-graph --json
+```
+
+Retrieved text is left out unless you pass `--include-content`, so shell logs and
+automation artifacts do not collect source content. An unexpected provider error reaches
+the output only as its exception type, never its message. From a checkout, retrieval also
+needs the two variables in
+[Retrieve evidence](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/cli-reference/README.md#retrieve-evidence).
+
+Retrieval is served by this CLI, the
+[MCP tools](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/detailed-guides/mcp-server/README.md)
+and chat (`POST /v1/chat/completions`); the HTTP API has no separate retrieval routes.
+
+## Contributing
+
+Tests for this package live in `packages/harborrag-app/tests/`. Keep new tests there when
+you add or change behaviour this package owns, and run them from the repository root:
+
+```bash
+uv run pytest packages/harborrag-app/tests
+```
+
+See [CONTRIBUTING](https://github.com/cbtw-apac/HarborRAG/blob/main/CONTRIBUTING.md) for the
+contribution workflow.
+
+## License
+
+Apache-2.0. See [LICENSE](https://github.com/cbtw-apac/HarborRAG/blob/main/LICENSE).

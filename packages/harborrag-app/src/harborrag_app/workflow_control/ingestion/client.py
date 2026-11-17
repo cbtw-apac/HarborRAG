@@ -8,8 +8,6 @@ ingestion application service without adding transport or policy of its own.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-
 from harborrag_runtime.config.settings import RuntimeSettings
 
 from .models import IngestionCreateCommand
@@ -34,36 +32,6 @@ class PublicIngestionClientMixin:
     async def get_task(self, task_id: str) -> dict[str, object]:
         return await self._public_ingestions.get_task(task_id)
 
-    async def list_tasks(
-        self,
-        *,
-        tenants: frozenset[str] | None,
-        statuses: Sequence[str] | None,
-        cursor: str | None,
-        limit: int,
-    ) -> dict[str, object]:
-        return await self._public_ingestions.list_tasks(
-            tenants=tenants,
-            statuses=statuses,
-            cursor=cursor,
-            limit=limit,
-        )
-
-    async def list_documents(
-        self,
-        *,
-        task_id: str,
-        status: str | None,
-        cursor: str | None,
-        limit: int,
-    ) -> dict[str, object]:
-        return await self._public_ingestions.list_documents(
-            task_id=task_id,
-            status=status,
-            cursor=cursor,
-            limit=limit,
-        )
-
     async def pause(self, task_id: str, *, actor: str | None = None) -> dict[str, object]:
         return await self._public_ingestions.pause(task_id, actor=actor)
 
@@ -86,6 +54,3 @@ class PublicIngestionClientMixin:
 
     async def recover_pending_submissions(self, *, limit: int = 100) -> int:
         return await self._public_ingestions.recover_pending_submissions(limit=limit)
-
-
-__all__ = ["PublicIngestionClientMixin"]

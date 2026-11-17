@@ -45,6 +45,3 @@ def memory_policy_from_settings(settings: RuntimeSettings) -> MemoryPolicy:
             project_days=settings.memory_retention_days(MemoryScope.PROJECT),
         ),
     )
-
-
-__all__ = ["memory_policy_from_settings"]

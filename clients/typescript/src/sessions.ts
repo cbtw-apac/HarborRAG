@@ -2,24 +2,25 @@ import { apiRequestError } from "./errors.js";
 import type { HarborClientOptions, HarborRequestOptions } from "./options.js";
 import type { components } from "./schema.js";
 
-export type SessionSurface = "chat";
+type Schemas = components["schemas"];
+
+export type SessionCreateRequest = Schemas["ChatSessionCreateRequest"];
 export interface SessionListOptions {
-  tenant?: string;
+  cursor?: string;
+  limit?: number;
+  /** Search session titles. */
+  q?: string;
+}
+export interface SessionHistoryOptions {
   cursor?: string;
   limit?: number;
 }
-export interface SessionHistoryOptions {
-  tenant?: string;
-  after?: string;
-  limit?: number;
-}
 
-/** Chat sessions: create, list, and read a session's messages. */
+/** Chat sessions: create one, list the caller's own, and read a session's messages. */
 export function createSessionMethods(options: HarborClientOptions) {
   const doFetch = options.fetchImpl ?? fetch;
 
   async function request<T>(
-    surface: SessionSurface,
     method: string,
     suffix: string,
     query: Record<string, string | number | undefined>,
@@ -30,6 +31,7 @@ export function createSessionMethods(options: HarborClientOptions) {
     const headers = new Headers(requestOptions.headers);
     headers.set("Accept", "application/json");
     if (body !== undefined) headers.set("Content-Type", "application/json");
+    if (requestOptions.tenant) headers.set("X-Tenant-Id", requestOptions.tenant);
     const token = await options.getToken?.();
     requestOptions.signal?.throwIfAborted();
     if (token) headers.set("Authorization", `Bearer ${token}`);
@@ -39,7 +41,7 @@ export function createSessionMethods(options: HarborClientOptions) {
     }
     const search = params.size ? `?${params}` : "";
     const response = await doFetch(
-      `${options.baseUrl.replace(/\/+$/, "")}/v1/${surface}/sessions${suffix}${search}`,
+      `${options.baseUrl.replace(/\/+$/, "")}/v1/chat/sessions${suffix}${search}`,
       {
         method, headers, signal: requestOptions.signal,
         body: body === undefined ? undefined : JSON.stringify(body),
@@ -55,26 +57,17 @@ export function createSessionMethods(options: HarborClientOptions) {
   }
 
   return {
-    createSession(
-      surface: SessionSurface, tenant = "DEFAULT", requestOptions: HarborRequestOptions = {},
-    ) {
-      return request<components["schemas"]["ChatSessionResponse"]>(
-        surface, "POST", "", {}, { tenant }, requestOptions,
-      );
+    createSession(body: SessionCreateRequest = {}, requestOptions: HarborRequestOptions = {}) {
+      return request<Schemas["Session"]>("POST", "", {}, body, requestOptions);
     },
-    listSessions(
-      surface: SessionSurface, query: SessionListOptions = {}, requestOptions: HarborRequestOptions = {},
-    ) {
-      return request<components["schemas"]["SessionListResponse"]>(
-        surface, "GET", "", { ...query }, undefined, requestOptions,
-      );
+    listSessions(query: SessionListOptions = {}, requestOptions: HarborRequestOptions = {}) {
+      return request<Schemas["SessionList"]>("GET", "", { ...query }, undefined, requestOptions);
     },
     getSessionHistory(
-      surface: SessionSurface, sessionId: string, query: SessionHistoryOptions = {},
-      requestOptions: HarborRequestOptions = {},
+      sessionId: string, query: SessionHistoryOptions = {}, requestOptions: HarborRequestOptions = {},
     ) {
-      return request<components["schemas"]["ConversationMessageListResponse"]>(
-        surface, "GET", `${sessionPath(sessionId)}/messages`, { ...query }, undefined, requestOptions,
+      return request<Schemas["MessageList"]>(
+        "GET", `${sessionPath(sessionId)}/messages`, { ...query }, undefined, requestOptions,
       );
     },
   };

@@ -11,6 +11,8 @@ can catch.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 from chat_service_fixtures import (
     FakeChatFacade,
@@ -23,6 +25,9 @@ from harborrag_app.workflow_control.chat import ChatExecutionOptions
 from harborrag_app.workflow_control.composition.factories import AppServiceFactories
 from harborrag_app.workflow_control.composition.service import AppService
 from harborrag_app.workflow_control.memory import MemoryAccess
+from harborrag_core.contracts.errors import HarborNotFoundError
+from harborrag_core.domain.project import Project
+from harborrag_core.testing.control_plane_fakes import FakeProjectRepository
 
 TENANT = "ACME"
 PRINCIPAL = "svc-1"
@@ -119,14 +124,14 @@ async def test_a_named_session_is_listed_for_its_owner_only() -> None:
     session_id = str(created.data["session_id"])
 
     listed = await service.list_conversations(_access())
-    conversations = listed.data["conversations"]
+    conversations = listed.data["items"]
     assert isinstance(conversations, list)
     assert [(row["session_id"], row["title"]) for row in conversations] == [
         (session_id, "Runbook triage")
     ]
     # Another person on the same credential has no conversations at all.
     other = await service.list_conversations(_access("bob@example.com"))
-    assert other.data["conversations"] == []
+    assert other.data["items"] == []
 
 
 @pytest.mark.asyncio
@@ -150,6 +155,42 @@ async def test_renaming_and_reading_a_session_go_through_the_owner_identity() ->
     messages = await service.conversation_messages(_access(session_id=session_id))
 
     assert renamed.data == {"session_id": session_id, "title": "Greetings"}
-    rows = messages.data["messages"]
+    rows = messages.data["items"]
     assert isinstance(rows, list)
-    assert [row["role"] for row in rows] == ["user", "assistant"]
+    assert [row["role"] for row in rows] == ["assistant", "user"]
+
+
+@pytest.mark.asyncio
+async def test_a_session_is_scoped_only_to_a_project_of_its_tenant() -> None:
+    composition = FakeComposition({"runtime": {"ready": True}})
+    composition.control_plane = SimpleNamespace(  # type: ignore[assignment]
+        projects=FakeProjectRepository(
+            {
+                "cpm": Project(id="cpm", name="cpm", collection="c-cpm", tenant_id=TENANT),
+                "globex-hr": Project(
+                    id="globex-hr", name="globex-hr", collection="c-hr", tenant_id="GLOBEX"
+                ),
+            }
+        )
+    )
+    service = AppService(
+        composition,
+        factories=AppServiceFactories(
+            retrieval_runtime=lambda _settings: FakeRuntime(  # type: ignore[arg-type]
+                FakeChatFacade(), FakeRetrievalFacade()
+            ),
+        ),
+    )
+
+    created = await service.create_chat_session(
+        tenant_id=TENANT, principal_id=PRINCIPAL, user_id=USER, project_id="cpm"
+    )
+    for foreign in ("globex-hr", "nope"):
+        with pytest.raises(HarborNotFoundError):
+            await service.create_chat_session(
+                tenant_id=TENANT, principal_id=PRINCIPAL, user_id=USER, project_id=foreign
+            )
+
+    assert created.data["project_id"] == "cpm"
+    listed = await service.list_conversations(_access())
+    assert [row["project_id"] for row in listed.data["items"]] == ["cpm"]
