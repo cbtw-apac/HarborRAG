@@ -51,10 +51,10 @@ def _connection(project_id: str, connection_id: str, source_key: str, tenant: st
 async def test_a_projects_connections_are_read_by_their_source_key() -> None:
     repository = FakeConnectionRepository()
     for connection in (
-        _connection("cpm", "tickets", "legacy-jira"),
-        _connection("cpm", "wiki", "cpm/wiki"),
+        _connection("demo", "tickets", "legacy-jira"),
+        _connection("demo", "wiki", "demo/wiki"),
         _connection("other", "board", "other/board"),
-        _connection("cpm", "tickets", "globex-jira", tenant="GLOBEX"),
+        _connection("demo", "tickets", "globex-jira", tenant="GLOBEX"),
     ):
         repository.connections[connection.id] = connection
     records = _Records()
@@ -64,13 +64,13 @@ async def test_a_projects_connections_are_read_by_their_source_key() -> None:
 
     catalog = ControlPlaneConnectionCatalog(lambda: repository, index)  # type: ignore[arg-type]
 
-    found = await catalog.project_connections("ACME", "cpm")
+    found = await catalog.project_connections("ACME", "demo")
 
     assert found == (
-        ConnectionSources("cpm/tickets", ("scope-a", "scope-b"), published=True),
-        ConnectionSources("cpm/wiki", (), published=False),
+        ConnectionSources("demo/tickets", ("scope-a", "scope-b"), published=True),
+        ConnectionSources("demo/wiki", (), published=False),
     )
     assert records.asked == [
-        ("scopes", ("legacy-jira", "cpm/wiki")),
-        ("published", ("legacy-jira", "cpm/wiki")),
+        ("scopes", ("legacy-jira", "demo/wiki")),
+        ("published", ("legacy-jira", "demo/wiki")),
     ]

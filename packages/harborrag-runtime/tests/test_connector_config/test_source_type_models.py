@@ -269,12 +269,12 @@ def test_jira_accepts_the_spec_example_body() -> None:
             "email": "bot@acme.com",
             "api_token": "ATATT3xFfGF0…",
         },
-        {"jql": "project = CPM"},
+        {"jql": "project = DEMO"},
     )
 
     assert validated.credentials["method"] == "api_token"
-    assert validated.config == {"jql": "project = CPM"}
-    assert source_types.get("jira").query_filters(validated.config) == {"jql": "project = CPM"}
+    assert validated.config == {"jql": "project = DEMO"}
+    assert source_types.get("jira").query_filters(validated.config) == {"jql": "project = DEMO"}
 
 
 def test_validation_lists_every_failing_field() -> None:

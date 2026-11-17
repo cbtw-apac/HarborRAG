@@ -23,7 +23,7 @@ REGISTRY = SettingsRegistry.default()
 SNAPSHOT = SettingsSnapshot(
     tenant_id="acme",
     revision=3,
-    overrides={"tenant": {KEY: 512}, "project:cpm": {KEY: 384, "retrieval.top_k": 9}},
+    overrides={"tenant": {KEY: 512}, "project:demo": {KEY: 384, "retrieval.top_k": 9}},
 )
 
 
@@ -60,8 +60,8 @@ def test_plan_import_keeps_missing_key_unless_prune() -> None:
 
     assert kept.empty
     assert [(change.level, change.key, change.to_value) for change in pruned.changes] == [
-        ("project:cpm", KEY, None),
-        ("project:cpm", "retrieval.top_k", None),
+        ("project:demo", KEY, None),
+        ("project:demo", "retrieval.top_k", None),
     ]
 
 
@@ -100,8 +100,8 @@ def test_export_then_plan_is_empty() -> None:
     document = export_document(SNAPSHOT, None)
 
     assert plan_import(REGISTRY, SNAPSHOT, document, prune=True).empty
-    assert export_document(SNAPSHOT, SettingsLevel.parse("project:cpm")).levels == {
-        "project:cpm": {KEY: 384, "retrieval.top_k": 9}
+    assert export_document(SNAPSHOT, SettingsLevel.parse("project:demo")).levels == {
+        "project:demo": {KEY: 384, "retrieval.top_k": 9}
     }
 
 

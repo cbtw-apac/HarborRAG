@@ -96,7 +96,7 @@ def env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[_Env]:
         for path, body in (
             ("demo/connections/demo-tickets", _RAISED_BODY),
             ("demo/connections/demo-wiki", _BODY),
-            ("hr/connections/hr-cvs", _BODY),
+            ("hr/connections/hr-docs", _BODY),
         ):
             assert (
                 client.put(f"/v1/admin/projects/{path}", json=body, headers=admin).status_code
@@ -149,7 +149,7 @@ def test_effective_view_and_precedence(env: _Env) -> None:
         "value": 384,
         "origin": "project",
     }
-    assert values("connection:hr/hr-cvs")["chunking.max_tokens"] == {
+    assert values("connection:hr/hr-docs")["chunking.max_tokens"] == {
         "value": 512,
         "origin": "tenant",
     }

@@ -33,24 +33,24 @@ def test_projects_and_connections_sections(tmp_path: Path) -> None:
     document = _load(
         tmp_path,
         "version: 1\nretrieval.top_k: 7\n"
-        "projects:\n  cpm:\n    chunking: {max_tokens: 384}\n"
-        "connections:\n  cpm/cpm-tickets:\n    ingestion.concurrency: 2\n",
+        "projects:\n  demo:\n    chunking: {max_tokens: 384}\n"
+        "connections:\n  demo/demo-tickets:\n    ingestion.concurrency: 2\n",
     )
 
     assert document.levels == {
         "tenant": {"retrieval.top_k": 7},
-        "project:cpm": {"chunking.max_tokens": 384},
-        "connection:cpm/cpm-tickets": {"ingestion.concurrency": 2},
+        "project:demo": {"chunking.max_tokens": 384},
+        "connection:demo/demo-tickets": {"ingestion.concurrency": 2},
     }
 
 
 @pytest.mark.parametrize(
     ("text", "key"),
     [
-        ("connections:\n  cpm:\n    chunking.max_tokens: 1\n", "cpm"),
+        ("connections:\n  demo:\n    chunking.max_tokens: 1\n", "demo"),
         ("version: 2\n", "version"),
         ("projects: [a]\n", "projects"),
-        ("projects:\n  cpm: 3\n", "cpm"),
+        ("projects:\n  demo: 3\n", "demo"),
         ("chunking.max_tokens: 1\nchunking:\n  max_tokens: 2\n", "chunking.max_tokens"),
         ("- a\n", None),
     ],
@@ -73,9 +73,9 @@ def test_duplicate_key_rejected(tmp_path: Path) -> None:
 def test_dump_load_round_trip(tmp_path: Path) -> None:
     document = SettingsDocument(
         {
-            "connection:cpm/cpm-tickets": {"ingestion.concurrency": 2},
+            "connection:demo/demo-tickets": {"ingestion.concurrency": 2},
             "tenant": {"retrieval.top_k": 7, "chunking.max_tokens": 512},
-            "project:cpm": {"chunking.max_tokens": 384},
+            "project:demo": {"chunking.max_tokens": 384},
         }
     )
 

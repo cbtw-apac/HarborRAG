@@ -70,7 +70,7 @@ async def test_the_tool_passes_facets_through_and_reports_partial_coverage() -> 
             "source_ids": ["AUTA-2"],
             "limit": 5,
         },
-        principal_id="recruiter-1",
+        principal_id="reviewer-1",
     )
     request = retrieval.requests[0]
     assert request.facets == {"stage": "round 2", "years_experience": {"gte": 5}}

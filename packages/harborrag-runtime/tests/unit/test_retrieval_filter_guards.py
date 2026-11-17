@@ -24,7 +24,7 @@ from harborrag_engine.testing.retrieval_fakes import resources as _resources
 from harborrag_runtime.config.graph_build import GraphBuildConfig
 from harborrag_runtime.ingestion.field_indexes import declared_field_indexes
 
-ISSUE = "jira://CPM/CPM-116680"
+ISSUE = "jira://DEMO/DEMO-116680"
 
 
 class IndexedVectors(FakeVectorRepository):
@@ -77,7 +77,7 @@ class RepeatingVectors(FakeVectorRepository):
                     "connector_type": "jira",
                     "content": text,
                     "content_hash": content_hash,
-                    "issue_key": f"CPM-{index}",
+                    "issue_key": f"DEMO-{index}",
                 },
             )
             for index, (text, content_hash) in enumerate(texts)
@@ -162,7 +162,7 @@ async def test_identical_texts_are_collapsed_and_counted():
         "Spring Boot microservices",
     ]
     assert report.results[0].id == "chunk-0"
-    assert report.results[0].metadata["issue_key"] == "CPM-0"
+    assert report.results[0].metadata["issue_key"] == "DEMO-0"
     assert report.diagnostics.duplicates_collapsed == 2
 
 

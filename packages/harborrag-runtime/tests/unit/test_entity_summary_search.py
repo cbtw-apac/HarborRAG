@@ -92,7 +92,7 @@ class Vectors:
 def binding(node_key: str, chunks=("chunk-1",)) -> SummaryBinding:
     card = SummaryCard(
         description="Senior Java engineer, banking background, cleared round two.",
-        topics=("hiring",),
+        topics=("deployment",),
         attributes=(SummaryAttribute(name="stage", values=("round 2",)),),
     )
     return SummaryBinding(

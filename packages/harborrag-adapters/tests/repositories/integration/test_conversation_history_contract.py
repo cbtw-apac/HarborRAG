@@ -93,7 +93,7 @@ async def test_a_session_keeps_its_project_and_reads_back_as_a_summary(
     repo: SqlConversationMemoryRepository,
 ) -> None:
     owner = _identity("ses_1")
-    await repo.create(owner, title="Go candidates", project_id="cpm")
+    await repo.create(owner, title="Go runbooks", project_id="demo")
 
     summary = await repo.get_conversation(owner)
     other = await repo.get_conversation(_identity("ses_1", "bob"))
@@ -101,14 +101,14 @@ async def test_a_session_keeps_its_project_and_reads_back_as_a_summary(
     assert summary is not None
     assert (summary.session_id, summary.title, summary.project_id) == (
         "ses_1",
-        "Go candidates",
-        "cpm",
+        "Go runbooks",
+        "demo",
     )
     assert summary.message_count == 0
     assert summary.created_at == summary.updated_at
     assert other is None
     page = await repo.list_conversations(tenant_id="ACME", user_id="alice")
-    assert [row.project_id for row in page.conversations] == ["cpm"]
+    assert [row.project_id for row in page.conversations] == ["demo"]
 
 
 @pytest.mark.asyncio
@@ -194,19 +194,19 @@ async def test_titles_are_searched_case_insensitively_and_literally(
     repo: SqlConversationMemoryRepository,
 ) -> None:
     for session_id, title in (
-        ("ses_1", "Go candidates in Hanoi"),
+        ("ses_1", "Go runbooks in Springfield"),
         ("ses_2", "Rust contractors"),
         ("ses_3", "100%_literal"),
         ("ses_4", None),
     ):
         await repo.create(_identity(session_id), title=title)
-    await repo.create(_identity("ses_5", "bob"), title="Hanoi for Bob")
+    await repo.create(_identity("ses_5", "bob"), title="Springfield for Bob")
 
     async def titles(query: str) -> list[str | None]:
         page = await repo.list_conversations(tenant_id="ACME", user_id="alice", title_query=query)
         return [row.title for row in page.conversations]
 
-    assert await titles("HANOI") == ["Go candidates in Hanoi"]
+    assert await titles("SPRINGFIELD") == ["Go runbooks in Springfield"]
     assert await titles("%") == ["100%_literal"]
     assert await titles("0%_") == ["100%_literal"]
     assert await titles("_") == ["100%_literal"]

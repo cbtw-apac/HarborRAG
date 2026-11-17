@@ -40,7 +40,7 @@ async def test_removal_retires_cleans_drops_scopes_and_purges_on_request() -> No
         cleanup_batches=[ProjectionCleanupBatch(2, 2, 0, 0), ProjectionCleanupBatch(0, 0, 0, 0)]
     )
 
-    summary = await service.remove(tenant_id="acme", source_key="cpm/tickets", purge=True)
+    summary = await service.remove(tenant_id="acme", source_key="demo/tickets", purge=True)
 
     assert (summary.documents_retired, summary.cleanup_completed, summary.source_scopes) == (
         2,
@@ -59,7 +59,7 @@ async def test_removal_retires_cleans_drops_scopes_and_purges_on_request() -> No
         "scope-b",
     ]
     control.connection_records.purge.assert_awaited_once_with(
-        tenant_id="acme", connection_id="cpm/tickets"
+        tenant_id="acme", connection_id="demo/tickets"
     )
 
 
@@ -68,7 +68,7 @@ async def test_a_failed_cleanup_stops_before_the_purge_so_the_removal_can_run_ag
     service, control, _, graph = _service(cleanup_batches=[ProjectionCleanupBatch(2, 1, 0, 1)])
 
     with pytest.raises(ConnectionRemovalIncompleteError):
-        await service.remove(tenant_id="acme", source_key="cpm/tickets", purge=True)
+        await service.remove(tenant_id="acme", source_key="demo/tickets", purge=True)
 
     graph.delete_source_scope.assert_not_awaited()
     control.connection_records.purge.assert_not_awaited()

@@ -71,7 +71,7 @@ def test_field_text_labels_adf_table_spans():
 def test_build_raw_content_keeps_a_comment_table_in_the_rendered_issue():
     issue = {"key": "ENG-1", "fields": {"summary": "Title"}}
     comment = {
-        "author": {"displayName": "Recruiter"},
+        "author": {"displayName": "Reviewer"},
         "body": _adf_document(
             _adf_table(
                 [_adf_cell("Stage", header=True), _adf_cell("Result", header=True)],
@@ -115,7 +115,7 @@ def test_build_raw_content_skips_custom_fields_section_when_absent():
 def test_comment_author_never_lands_on_a_table_header_row():
     issue = {"key": "ENG-1", "fields": {"summary": "Title"}}
     table_comment = {
-        "author": {"displayName": "Recruiter"},
+        "author": {"displayName": "Reviewer"},
         "body": _adf_document(
             _adf_table(
                 [_adf_cell("Stage", header=True), _adf_cell("Result", header=True)],
@@ -127,7 +127,7 @@ def test_comment_author_never_lands_on_a_table_header_row():
 
     content = build_raw_content(issue, comments=[table_comment, prose_comment])
 
-    assert "Recruiter:\n| Stage | Result |" in content
+    assert "Reviewer:\n| Stage | Result |" in content
     assert "Reviewer: looks good" in content
 
 

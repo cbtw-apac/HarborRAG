@@ -1,6 +1,6 @@
 """A ``fields.*`` filter reaches an issue's attachments through the issue.
 
-The typed custom fields live on the Jira issue; the CV attached to it is a
+The typed custom fields live on the Jira issue; the runbook attached to it is a
 document of its own and carries none of them. Retrieval resolves the filter to
 the matching issues, then searches their evidence and their attachments'.
 """
@@ -22,7 +22,7 @@ from harborrag_engine.testing.retrieval_fakes import (
 from harborrag_engine.testing.retrieval_fakes import policy as _policy
 from harborrag_engine.testing.retrieval_fakes import resources as _resources
 
-ISSUE = "jira://CPM/CPM-116680"
+ISSUE = "jira://DEMO/DEMO-116680"
 
 
 class TracingVectors(FakeVectorRepository):
@@ -57,7 +57,7 @@ def _filters() -> VectorFilter:
                 operator=FilterOperator.GREATER_THAN_OR_EQUAL,
                 value=3,
             ),
-            VectorFilterCondition(field="project_key", value="CPM"),
+            VectorFilterCondition(field="project_key", value="DEMO"),
         ]
     )
 
@@ -106,7 +106,7 @@ async def test_no_matching_issue_returns_nothing_without_searching():
 
 @pytest.mark.asyncio
 async def test_a_filter_matching_too_many_issues_asks_to_be_narrowed():
-    vectors = TracingVectors(tuple(f"jira://CPM/CPM-{index}" for index in range(10_001)))
+    vectors = TracingVectors(tuple(f"jira://DEMO/DEMO-{index}" for index in range(10_001)))
 
     with pytest.raises(HarborValidationError, match="narrow"):
         await _service(vectors).retrieve(
@@ -120,7 +120,7 @@ async def test_a_filter_matching_too_many_issues_asks_to_be_narrowed():
 @pytest.mark.asyncio
 async def test_without_a_fields_filter_nothing_is_traced():
     vectors = TracingVectors((ISSUE,))
-    only_project = VectorFilter(must=[VectorFilterCondition(field="project_key", value="CPM")])
+    only_project = VectorFilter(must=[VectorFilterCondition(field="project_key", value="DEMO")])
 
     await _service(vectors).retrieve(
         "anything", tenant_id="tenant-1", top_k=5, options=RetrievalOptions(filters=only_project)
@@ -135,7 +135,7 @@ def test_split_keeps_each_condition_in_its_clause():
     mixed = VectorFilter(
         must=[
             VectorFilterCondition(field="fields.skill_set", value="Data Engineering"),
-            VectorFilterCondition(field="issue_key", value="CPM-1"),
+            VectorFilterCondition(field="issue_key", value="DEMO-1"),
         ],
         must_not=[VectorFilterCondition(field="fields.currency", value="EUR")],
     )

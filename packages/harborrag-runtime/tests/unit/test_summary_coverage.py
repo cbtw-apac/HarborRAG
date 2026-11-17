@@ -104,7 +104,7 @@ async def test_an_attachment_that_never_published_makes_its_entity_partial(tmp_p
         harness.include_graph = True
         await harness.publish(item="page")
         await discover(harness, item="page")
-        attachment = await discover(harness, item="page-cv.pdf", parent="page")
+        attachment = await discover(harness, item="page-runbook.pdf", parent="page")
 
         missing = await harness.control.summaries.missing_documents("DEFAULT", "scope")
         assert missing == (
@@ -156,16 +156,16 @@ def test_coverage_is_the_three_states_a_card_can_honestly_claim():
 def test_a_missing_child_is_attributed_to_the_entity_that_should_contain_it():
     ledger = _CoverageLedger.of(
         (
-            MissingSourceDocument(document_id="cv", parent_document_id="issue"),
+            MissingSourceDocument(document_id="runbook", parent_document_id="issue"),
             MissingSourceDocument(document_id="orphan"),
             MissingSourceDocument(document_id="grandchild", parent_document_id="orphan"),
         )
     )
-    assert ledger.missing_for("SourceEntity", ("issue",)) == ("cv",)
+    assert ledger.missing_for("SourceEntity", ("issue",)) == ("runbook",)
     assert ledger.missing_for("SourceEntity", ("unrelated",)) == ()
     # A child of an absent parent has no entity node to belong to, so it rises to
     # the source rather than vanishing from the count.
-    assert ledger.missing_for("DataSource", ("issue",)) == ("cv", "grandchild", "orphan")
+    assert ledger.missing_for("DataSource", ("issue",)) == ("grandchild", "orphan", "runbook")
 
 
 @pytest.mark.asyncio

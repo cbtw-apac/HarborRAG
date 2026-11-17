@@ -323,7 +323,7 @@ def test_a_real_issue_observation_beats_the_placeholder_an_attachment_projects()
     from harborrag_runtime.topology.summary_inputs import _node_rank
 
     real = _issue_node()
-    stub = real.model_copy(update={"title": "CPM-147848", "attributes": {"placeholder": True}})
+    stub = real.model_copy(update={"title": "DEMO-147848", "attributes": {"placeholder": True}})
     thinner = real.model_copy(update={"attributes": {}})
     assert _node_rank(real) < _node_rank(stub)
     assert _node_rank(real) < _node_rank(thinner)

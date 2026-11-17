@@ -22,8 +22,8 @@ from harborrag_core.ingestion import FailurePage, IngestionTask, IngestionTaskSt
 pytestmark = pytest.mark.unit
 
 BASE = datetime(2026, 11, 1, tzinfo=UTC)
-TICKETS = "cpm/tickets"
-WIKI = "cpm/wiki"
+TICKETS = "demo/tickets"
+WIKI = "demo/wiki"
 
 
 def _failed(
