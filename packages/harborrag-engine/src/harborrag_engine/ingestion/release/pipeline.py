@@ -120,20 +120,14 @@ class DocumentStagePipeline:
         )
         return await self.release_prepared(request, prepared)
 
-    async def release_prepared(
+    def stage_functions(
         self,
-        request: DocumentReleaseRequest,
-        prepared: PreparedDocumentStage,
-    ) -> DocumentReleaseOutcome:
-        """Resume the shared pipeline from a canonical candidate reference."""
-        if not prepared.requires_processing:
-            outcome = await self.projections.publish_version(prepared)
-            self._log_outcome(outcome)
-            return outcome
-        stage_functions: dict[
-            str,
-            Callable[[DocumentReleaseRequest, PreparedDocumentStage], Awaitable[object]],
-        ] = {
+    ) -> dict[
+        str,
+        Callable[[DocumentReleaseRequest, PreparedDocumentStage], Awaitable[object]],
+    ]:
+        """Map every stage name in the core stage order to the function that runs it."""
+        return {
             "SyncContentUnits": self.preparation.sync_content_units,
             "PersistCanonical": self.preparation.persist_canonical,
             "ChunkAndValidate": self.preparation.chunk_and_validate,
@@ -144,6 +138,18 @@ class DocumentStagePipeline:
             "WriteGraphProjection": self.projections.write_graph_projection,
             "VerifyProjections": self.projections.verify_projections,
         }
+
+    async def release_prepared(
+        self,
+        request: DocumentReleaseRequest,
+        prepared: PreparedDocumentStage,
+    ) -> DocumentReleaseOutcome:
+        """Resume the shared pipeline from a canonical candidate reference."""
+        if not prepared.requires_processing:
+            outcome = await self.projections.publish_version(prepared)
+            self._log_outcome(outcome)
+            return outcome
+        stage_functions = self.stage_functions()
         stages = tuple((name, stage_functions[name]) for name in DOCUMENT_STAGE_ORDER)
         for stage_name, stage in stages:
             started_at = perf_counter()
