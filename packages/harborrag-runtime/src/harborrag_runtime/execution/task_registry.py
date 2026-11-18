@@ -29,7 +29,12 @@ from harborrag_runtime.ingestion_contracts import PreparedSourceSubmission
 
 from .source_conversion import to_source_request
 
-_PINNED_SETTINGS_KEYS = ("settings_revision", "run_settings")
+_PINNED_SETTINGS_KEYS = (
+    "settings_revision",
+    "run_settings",
+    "ingestion_activity_timeout_seconds",
+    "ingestion_max_attempts",
+)
 
 
 class IngestionTaskRegistry:

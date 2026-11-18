@@ -78,7 +78,8 @@ class SettingSpec:
             if value not in (self.enum or ()):
                 raise ValueError(f"{self.key} must be one of {self.enum}")
         elif self.type == "model_ref":
-            if not isinstance(value, str) or ":" not in value:
+            provider, _, model = value.partition(":") if isinstance(value, str) else ("", "", "")
+            if not provider.strip() or not model.strip():
                 raise ValueError(f"{self.key} must be a 'provider:model' reference")
         elif self.type == "array":
             if not isinstance(value, list):

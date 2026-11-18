@@ -83,13 +83,15 @@ def make_config(
     *,
     configuration_version: str = "1",
     create_route_chunks: bool = False,
+    extra_profiles: dict[str, ChunkingProfile] | None = None,
+    source_profiles: dict[str, str] | None = None,
 ) -> ChunkingConfig:
     return ChunkingConfig(
         configuration_version=configuration_version,
         default_profile=profile.name,
         create_route_chunks=create_route_chunks,
-        profiles={profile.name: profile},
-        source_profiles={},
+        profiles={profile.name: profile, **(extra_profiles or {})},
+        source_profiles=source_profiles or {},
     )
 
 
@@ -100,6 +102,8 @@ def make_service(
     refiner: TextRefiner | None = None,
     create_route_chunks: bool = False,
     additional_strategies: tuple[ChunkStrategy, ...] = (),
+    extra_profiles: dict[str, ChunkingProfile] | None = None,
+    source_profiles: dict[str, str] | None = None,
 ) -> ChunkingService:
     selected_refiner = CharacterRefiner() if refiner is None else refiner
     return build_chunking_service(
@@ -107,6 +111,8 @@ def make_service(
             profile,
             configuration_version=configuration_version,
             create_route_chunks=create_route_chunks,
+            extra_profiles=extra_profiles,
+            source_profiles=source_profiles,
         ),
         token_counter=CharacterCounter(),
         refiner=selected_refiner,

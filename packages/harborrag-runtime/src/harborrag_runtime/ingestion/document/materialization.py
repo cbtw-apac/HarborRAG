@@ -84,20 +84,21 @@ class DocumentMaterializationStages:
             if self._dependencies.run_tools is None
             else self._dependencies.run_tools.chunker_for(request.run_settings)
         )
+        chunking_request = ChunkingRequest(
+            tenant_id=request.tenant_id,
+            document_version_id=prepared.document_version_id,
+            document=document,
+            connector_type=connector_type,
+            content_type=document.content_type,
+        )
         plan = (
             None
             if request.chunking_max_tokens is None
-            else chunker.plan_for_max_tokens(connector_type, request.chunking_max_tokens)
+            else chunker.plan_for_max_tokens(chunking_request, request.chunking_max_tokens)
         )
         chunking = await asyncio.to_thread(
             chunker.chunk,
-            ChunkingRequest(
-                tenant_id=request.tenant_id,
-                document_version_id=prepared.document_version_id,
-                document=document,
-                connector_type=connector_type,
-                content_type=document.content_type,
-            ),
+            chunking_request,
             plan,
         )
         artifacts = await self._dependencies.chunk_writer.put(

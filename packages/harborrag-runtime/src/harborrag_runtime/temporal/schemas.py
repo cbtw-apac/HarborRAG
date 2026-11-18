@@ -345,6 +345,8 @@ class RetryFailuresInput:
     tenant_id: str
     document_ids: tuple[str, ...]
     document_concurrency: int = 8
+    ingestion_activity_timeout_seconds: int | None = None
+    ingestion_max_attempts: int | None = None
     workflow_options: TemporalWorkflowOptions = field(default_factory=TemporalWorkflowOptions)
 
     def __post_init__(self) -> None:

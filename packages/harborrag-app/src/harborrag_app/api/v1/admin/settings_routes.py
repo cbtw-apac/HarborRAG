@@ -117,9 +117,12 @@ async def get_settings(
         bool, Query(description="Merge all levels and show where each value comes from")
     ] = False,
 ) -> dict[str, Any]:
-    """Editors may read ``level=connection:...`` for connections in their projects.
+    """Editors may read ``level=connection:...`` for any connection in the tenant.
 
-    Everything else (``tenant`` and ``project:...``) requires ``admin``.
+    Everything else (``tenant`` and ``project:...``) requires ``admin``. There is
+    no project-membership scoping: ``Principal`` authorizes by tenant and role
+    only, so an editor's connection-level read access is tenant-wide, not
+    limited to projects they are otherwise associated with.
     """
     scope_level, scope_id = parse_level(level)
     if scope_level != "connection":

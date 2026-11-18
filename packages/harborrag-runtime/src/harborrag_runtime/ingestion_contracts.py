@@ -156,6 +156,8 @@ class IngestionRetryRequest:
     tenant_id: str
     document_ids: tuple[str, ...]
     document_concurrency: int = 8
+    ingestion_activity_timeout_seconds: int | None = None
+    ingestion_max_attempts: int | None = None
 
     def __post_init__(self) -> None:
         if any(

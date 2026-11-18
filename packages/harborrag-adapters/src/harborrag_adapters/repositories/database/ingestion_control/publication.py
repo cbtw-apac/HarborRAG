@@ -71,6 +71,14 @@ class DocumentVersionPublisher:
                 candidate_state == DocumentVersionState.ACTIVE
                 and current_active == candidate_document_version_id
             ):
+                await session.execute(
+                    update(DOCUMENT_FAILURES)
+                    .where(
+                        DOCUMENT_FAILURES.c.document_version_id == candidate_document_version_id,
+                        DOCUMENT_FAILURES.c.resolved_at.is_(None),
+                    )
+                    .values(resolved_at=utc_now())
+                )
                 await enqueue_intent(session, document, candidate_document_version_id)
                 return PublicationResult(
                     document_id=DocumentId(document_id),

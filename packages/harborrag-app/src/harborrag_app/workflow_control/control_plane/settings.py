@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from typing import Any, Literal, TypedDict
 
 from harborrag_app.api.errors import ReferenceNotFoundError, ReindexRequiredError
-from harborrag_core.contracts.errors import HarborValidationError
+from harborrag_core.contracts.errors import HarborPreconditionFailedError, HarborValidationError
 from harborrag_core.domain.setting_override import SettingOverride
 from harborrag_core.domain.setting_registry import (
     SETTING_REGISTRY,
@@ -139,6 +139,23 @@ def parse_level(level: str) -> tuple[ScopeLevel, str]:
 def _scope_id_for_tenant(tenant_id: str, scope_level: ScopeLevel, scope_id: str) -> str:
     """The row-level `scope_id` stored for `scope_level`; `tenant` rows key on `tenant_id`."""
     return tenant_id if scope_level == "tenant" else scope_id
+
+
+def _resolve_chain_value(
+    index: dict[tuple[ScopeLevel, str, str], Any],
+    tenant_id: str,
+    chain: list[tuple[ScopeLevel, str]],
+    key: str,
+    default: Any,
+) -> Any:
+    """`default`, overridden by whichever scope in `chain` overrides `key` last (closest wins)."""
+    value = default
+    for level_name, sid in chain:
+        row_sid = _scope_id_for_tenant(tenant_id, level_name, sid)
+        found = index.get((level_name, row_sid, key))
+        if found is not None:
+            value = found
+    return value
 
 
 def _ancestor_chain(
@@ -265,12 +282,15 @@ class SettingsService:
         await self._ensure_scope_exists(tenant_id, scope_level, scope_id)
         overrides_repo = self._overrides()
         row_scope_id = _scope_id_for_tenant(tenant_id, scope_level, scope_id)
-        current = await overrides_repo.get_at(tenant_id, scope_level, row_scope_id)
-        # Ancestors of this scope, excluding it: what a deleted key here falls
-        # back to is whatever the nearest ancestor override says, not the
-        # registry default.
-        ancestor_chain = _ancestor_chain(tenant_id, scope_level, scope_id)[:-1]
-        ancestor_index: dict[tuple[ScopeLevel, str, str], Any] | None = None
+        # `before` (and a deleted key's fallback `after`) must resolve through
+        # the whole ancestor chain, not just this scope's own overrides or the
+        # registry default: a key with no override here still reports its
+        # inherited tenant/project value, not a bare `spec.default` that may
+        # not match what is actually in effect.
+        overrides = await overrides_repo.list_for_tenant(tenant_id)
+        override_index = {(o.scope_level, o.scope_id, o.key): o.value for o in overrides}
+        full_chain = _ancestor_chain(tenant_id, scope_level, scope_id)
+        ancestor_chain = full_chain[:-1]
         planned: list[SettingsChange] = []
         for key, new_value in changes.items():
             try:
@@ -279,17 +299,9 @@ class SettingsService:
                 raise ReferenceNotFoundError(f"unknown setting key: {key!r}") from exc
             if scope_level not in spec.levels:
                 raise HarborValidationError(f"{key} cannot be overridden at level {scope_level!r}")
-            before = current.get(key, spec.default)
+            before = _resolve_chain_value(override_index, tenant_id, full_chain, key, spec.default)
             if new_value is None:
-                if ancestor_index is None:
-                    overrides = await overrides_repo.list_for_tenant(tenant_id)
-                    ancestor_index = {(o.scope_level, o.scope_id, o.key): o.value for o in overrides}
-                after = spec.default
-                for level_name, sid in ancestor_chain:
-                    row_sid = _scope_id_for_tenant(tenant_id, level_name, sid)
-                    found = ancestor_index.get((level_name, row_sid, key))
-                    if found is not None:
-                        after = found
+                after = _resolve_chain_value(override_index, tenant_id, ancestor_chain, key, spec.default)
                 if spec.applies == "reindex" and after != before:
                     raise ReindexRequiredError(
                         f"{key} requires reindex=true, not accepted before v2.1"
@@ -309,6 +321,8 @@ class SettingsService:
 
         if dry_run:
             revision = await self._revisions().get(tenant_id, scope_level, row_scope_id)
+            if expected_revision != revision:
+                raise HarborPreconditionFailedError("setting scope revision does not match")
             return SettingsChangeResult(revision=revision, dry_run=True, changed=planned)
 
         deletes = [change.key for change in planned if changes[change.key] is None]

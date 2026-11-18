@@ -71,7 +71,9 @@ def _parse_overrides(path: Path, default_tenant_id: str) -> list[SettingOverride
         ValueError: The YAML is malformed, or `settings` is not a mapping.
         KeyError: A key is not in `SETTING_REGISTRY`.
     """
-    raw: Any = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    raw: Any = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if raw is None:
+        raw = {}
     if not isinstance(raw, dict):
         raise ValueError("config.yaml must be a mapping")
     tenant = raw.get("tenant")

@@ -93,11 +93,19 @@ def retry_from_task(task: IngestionTask) -> IngestionRetryRequest:
         isinstance(item, str) and item.strip() for item in document_ids
     ):
         raise HarborValidationError("stored retry document identifiers are invalid")
+    activity_timeout_seconds = request.get("ingestion_activity_timeout_seconds")
+    max_attempts = request.get("ingestion_max_attempts")
     return IngestionRetryRequest(
         retry_task_id=task.task_id,
         original_task_id=original_task_id,
         tenant_id=_required_text(request, "tenant_id"),
         document_ids=tuple(document_ids),
+        **(
+            {"ingestion_activity_timeout_seconds": activity_timeout_seconds}
+            if isinstance(activity_timeout_seconds, int)
+            else {}
+        ),
+        **({"ingestion_max_attempts": max_attempts} if isinstance(max_attempts, int) else {}),
     )
 
 

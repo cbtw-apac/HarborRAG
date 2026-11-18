@@ -92,7 +92,13 @@ class IngestionTemporalClient:
         self,
         request: SourceIngestionInput,
     ) -> WorkflowHandle[SourceIngestionInput, SourceIngestionResult]:
-        request = replace(request, workflow_options=self._resolved_workflow_options(request))
+        request = replace(
+            request,
+            workflow_options=self._resolved_workflow_options(
+                activity_timeout_seconds=request.ingestion_activity_timeout_seconds,
+                max_attempts=request.ingestion_max_attempts,
+            ),
+        )
         try:
             return await self._client.start_workflow(
                 "harborrag.source_ingestion",
@@ -113,32 +119,40 @@ class IngestionTemporalClient:
                 f"Could not start ingestion task {request.task_id!r}"
             ) from error
 
-    def _resolved_workflow_options(self, request: SourceIngestionInput) -> TemporalWorkflowOptions:
+    def _resolved_workflow_options(
+        self,
+        *,
+        activity_timeout_seconds: int | None,
+        max_attempts: int | None,
+    ) -> TemporalWorkflowOptions:
         """The deployment's workflow options, overlaid with this run's own settings.
 
         A connection's `ingestion.activity_timeout` / `ingestion.max_attempts`
         overrides travel on the request itself (resolved once at submission,
         same as `pdf_engine` / `chunking_max_tokens`) since `workflow_options`
         would otherwise always be clobbered by the static deployment config.
+        A retry carries the same overrides forward so a replayed run keeps the
+        original connection's timeout/attempts instead of silently reverting
+        to the deployment default.
         """
 
         options = self._config.workflow_options()
-        if request.ingestion_activity_timeout_seconds is not None:
+        if activity_timeout_seconds is not None:
             options = replace(
                 options,
                 timeouts=replace(
                     options.timeouts,
-                    document_seconds=request.ingestion_activity_timeout_seconds,
+                    document_seconds=activity_timeout_seconds,
                 ),
             )
-        if request.ingestion_max_attempts is not None:
+        if max_attempts is not None:
             options = replace(
                 options,
                 retries=replace(
                     options.retries,
                     document=replace(
                         options.retries.document,
-                        maximum_attempts=request.ingestion_max_attempts,
+                        maximum_attempts=max_attempts,
                     ),
                 ),
             )
@@ -159,7 +173,13 @@ class IngestionTemporalClient:
         self,
         request: RetryFailuresInput,
     ) -> RuntimeWorkflowRef:
-        request = replace(request, workflow_options=self._config.workflow_options())
+        request = replace(
+            request,
+            workflow_options=self._resolved_workflow_options(
+                activity_timeout_seconds=request.ingestion_activity_timeout_seconds,
+                max_attempts=request.ingestion_max_attempts,
+            ),
+        )
         workflow_id = RunKind.RETRY.workflow_id(request.retry_task_id)
         try:
             handle = await self._client.start_workflow(

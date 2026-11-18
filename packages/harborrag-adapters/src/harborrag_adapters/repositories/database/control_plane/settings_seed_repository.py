@@ -50,16 +50,16 @@ class SqlSettingsSeedRepository:
                 raise HarborConflictError(
                     "setting_overrides already holds rows; refusing to seed over them"
                 )
-            if overrides:
-                revision_row = await session.get(
-                    RuntimeSettingRevisionRow,
-                    (tenant_id, "tenant", tenant_id),
-                    with_for_update=True,
+            revision_row = await session.get(
+                RuntimeSettingRevisionRow,
+                (tenant_id, "tenant", tenant_id),
+                with_for_update=True,
+            )
+            if revision_row is not None and revision_row.revision != 0:
+                raise HarborConflictError(
+                    f"tenant {tenant_id!r} scope already has a revision; refusing to seed"
                 )
-                if revision_row is not None and revision_row.revision != 0:
-                    raise HarborConflictError(
-                        f"tenant {tenant_id!r} scope already has a revision; refusing to seed"
-                    )
+            if overrides:
                 if revision_row is None:
                     session.add(
                         RuntimeSettingRevisionRow(

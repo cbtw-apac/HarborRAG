@@ -105,16 +105,20 @@ class ChunkCandidatePipeline:
             forced_split_count=sum(unit.forced_split for unit in refined_units),
         )
 
-    def plan_for_max_tokens(self, connector_type: str, max_tokens: int) -> ChunkingPlan:
-        """A plan capping chunks at `max_tokens`, else matching the connector's own profile.
+    def plan_for_max_tokens(self, request: ChunkingRequest, max_tokens: int) -> ChunkingPlan:
+        """A plan capping chunks at `max_tokens`, else matching `request`'s own profile.
 
-        Only `hard_maximum_tokens` is overridden; the other limits are the
-        connector's configured profile, clamped down so they never exceed the
-        new cap (clamping a sorted sequence from above keeps it sorted, which
-        is what `ChunkingPlan` requires).
+        Only `hard_maximum_tokens` is overridden; the other limits come from
+        the same profile `run` would resolve for this request (connector
+        profile, or the source-neutral default for an independently parsed
+        attachment), clamped down so they never exceed the new cap (clamping
+        a sorted sequence from above keeps it sorted, which is what
+        `ChunkingPlan` requires).
         """
 
-        configured = self._config.profile_for(connector_type)
+        configured = self._config.profile_for(
+            request.connector_type, self._profile_override(request)
+        )
         strategy = self._strategies.get(configured.strategy)
         limits = configured.limits
         soft_maximum = limits.soft_maximum_tokens or limits.maximum_tokens

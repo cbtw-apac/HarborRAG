@@ -403,11 +403,23 @@ class IngestionApplicationService:
         )
         try:
             tenant_id = str(original.request.get("tenant_id") or self._settings.ingestion_tenant_id)
+            activity_timeout_seconds = original.request.get("ingestion_activity_timeout_seconds")
+            max_attempts = original.request.get("ingestion_max_attempts")
             retry = IngestionRetryRequest(
                 retry_task_id=retry_task_id,
                 original_task_id=task_id,
                 tenant_id=tenant_id,
                 document_ids=tuple(selected),
+                **(
+                    {"ingestion_activity_timeout_seconds": activity_timeout_seconds}
+                    if isinstance(activity_timeout_seconds, int)
+                    else {}
+                ),
+                **(
+                    {"ingestion_max_attempts": max_attempts}
+                    if isinstance(max_attempts, int)
+                    else {}
+                ),
             )
             await (await self._client_provider()).start_retry_failures(retry)
         except WorkflowSubmissionError as error:
