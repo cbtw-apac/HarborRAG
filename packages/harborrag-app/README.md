@@ -26,8 +26,9 @@ Setup and diagnostics; `auth` under Access; `chat` under Chat; and `projects`,
 
 ## What it provides
 
-- **The `harborrag` CLI.** Each command calls the same operation as its HTTP route, with
-  the same input, output and error codes; the
+- **The `harborrag` CLI.** Each resource command calls the same operation as its HTTP
+  route, with the same input, output and error codes; `doctor`, `auth keys` and
+  `settings import|export` are CLI-only and call no HTTP operation. The
   [CLI reference](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/cli-reference/README.md)
   maps them, and the
   [CLI command reference](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/cli-reference/commands.md)

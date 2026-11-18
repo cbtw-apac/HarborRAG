@@ -85,6 +85,7 @@ any blank variable the model catalog or an enabled remote connector needs.
 Run from a checkout, the CLI loads `env/.env.connector`, `env/.env.parser` and
 `env/.env.models`, plus the MinIO credentials, `HARBORRAG_LOCAL_SOURCE_ROOT`, an uncommented
 `HARBORRAG_CONTROL_DB_URL` line and, with it, the matching
-`HARBORRAG_SECRETS_ENCRYPTION_KEY` from `env/.env.database`; a variable you export wins
-over every file. [Deployment](../../developers/deployment/README.md) lists the files
+`HARBORRAG_SECRETS_ENCRYPTION_KEY` from `env/.env.database`, and
+`HARBORRAG_CORPUS_ACCESS_MODE` and `HARBORRAG_CORPUS_SHARED_TENANT_ID` from
+`env/.env.api`; a variable you export wins over every file. [Deployment](../../developers/deployment/README.md) lists the files
 each service reads.

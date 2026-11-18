@@ -44,10 +44,13 @@ harborrag_engine/
 ├── tools/                   # reader tool catalog, schemas, handlers and checked invocation
 ├── control_plane/           # connections, projects and runs in the HTTP API's shapes
 ├── security/                # rules for MCP reader keys
-└── chat/
-    ├── prompts/             # typed, packaged, provider-neutral chat prompts
-    ├── scope.py             # the projects and connections a chat turn reads
-    └── memory_block.py      # recalled memory as an untrusted prompt block
+├── chat/
+│   ├── prompts/             # typed, packaged, provider-neutral chat prompts
+│   ├── scope.py             # the projects and connections a chat turn reads
+│   └── memory_block.py      # recalled memory as an untrusted prompt block
+├── testing/                 # in-memory retrieval fakes shared by engine and runtime tests
+├── config.py                # EngineConfig: tenant and environment
+└── policy.py                # EnginePolicy: concurrency and retrieval top-k limits
 ```
 
 These boundaries hold across the package:

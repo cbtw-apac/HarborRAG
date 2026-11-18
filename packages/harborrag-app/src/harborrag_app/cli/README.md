@@ -55,6 +55,8 @@ any command builds a service. The kernel modules every command shares:
 | `follow.py` | `--wait` and `--watch`: reads a run every 5 seconds until it ends; a read that fails reports the error with the run's ID and how to re-attach |
 | `inline_run.py` | `ingestions start --inline`: runs the pipeline in this process without Temporal |
 | `environment.py` | Loads the checkout's `env/` files and refuses writes to the local SQLite control database |
+| `typer_app.py` | `new_typer`, which builds every Typer app of the CLI and turns Typer's unknown-command hint off, because Click prints its own |
+| `banner.py` | The ASCII banner above the help output |
 | `project.py` | Finds the checkout or a `harborrag.yaml` project directory |
 | `registry.py` | Which operation each command calls, and which commands and operations have no counterpart |
 | `reference.py` | Renders `docs/users/cli-reference/commands.md` from the command tree, the registry and the OpenAPI document `make openapi` exports: each command's HTTP route, the CLI-only and HTTP-only lists, and every command's options |

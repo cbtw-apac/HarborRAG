@@ -129,6 +129,9 @@ Inside this folder:
 - A new engine goes under `<family>/engines/<engine>/`: `config.py` holds its settings,
   `engine.py` integrates only that engine, and `mapping.py` converts its output when
   needed. The family's router receives the engine through dependency injection.
+- An engine's `config.py` checks its option values with the rules in
+  `common/option_rules.py`, so the YAML catalog loader can run the checks without
+  importing the engine's library.
 - Move behaviour into `common/` only once at least two families use it. PDF page
   analysis, OCR policy, spreadsheet cells, presentation notes and DOM cleanup stay in
   their family.

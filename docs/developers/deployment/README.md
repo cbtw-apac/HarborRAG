@@ -26,7 +26,7 @@ to copying templates by hand. Each service reads these files:
 | Temporal server and worker (`docker-compose.temporal.yml`) | `env/.env.database` and `env/.env.temporal`; the worker also receives `env/.env.connector`, `env/.env.parser` and `env/.env.models` |
 | API (`docker-compose.yml`) | `env/.env.database`, `env/.env.temporal`, `env/.env.connector`, `env/.env.models` and `env/.env.api`; the container itself receives only `env/.env.api` and `env/.env.models` |
 | MCP server (`scripts/deployment/mcp.sh`) | `env/.env.database`, `env/.env.mcp` (required) and `env/.env.models`; from `env/.env.api` only `HARBORRAG_ENV`, so it accepts the reader keys the API's environment issued |
-| Host `harborrag` command in a checkout | `env/.env.connector`, `env/.env.parser` and `env/.env.models`; from `env/.env.database` only the MinIO credentials and an uncommented `HARBORRAG_CONTROL_DB_URL` line with its encryption key |
+| Host `harborrag` command in a checkout | `env/.env.connector`, `env/.env.parser` and `env/.env.models`; from `env/.env.database` only the MinIO credentials, `HARBORRAG_LOCAL_SOURCE_ROOT` and an uncommented `HARBORRAG_CONTROL_DB_URL` line with its encryption key; from `env/.env.api` only `HARBORRAG_CORPUS_ACCESS_MODE` and `HARBORRAG_CORPUS_SHARED_TENANT_ID` |
 
 `HARBORRAG_SECRETS_ENCRYPTION_KEY` in `env/.env.database` encrypts stored connector credentials
 in the control database, and the API and the Temporal worker must read the same value. The
@@ -112,6 +112,12 @@ scripts/deployment/dev.sh up
 Each command owns one part: `temporal` never starts a worker, `worker` starts only the worker,
 and `api` starts the API with `--no-deps`. `dev.sh up --no-worker` omits the worker, and
 `dev.sh down` stops the topology in reverse order.
+
+`up` and `worker` take `--device cpu|gpu` to choose the CPU or the GPU worker image, and
+`down --volumes` passes `--volumes` to Compose, which removes the stack's named volumes. `dev.sh sharepoint-login [--logout]
+[--device cpu|gpu]` signs the worker in for a SharePoint connection with
+`auth_mode: device_code` and keeps the token in the `harborrag-sharepoint-tokens` volume; see
+[Delegated sign-in](../../users/configuration/connector-config.md#delegated-sign-in).
 
 The API and worker commands reuse Compose's existing local `harborrag-api-api` and
 `harborrag-temporal-temporal-worker` images by default. A missing image is built on the first
@@ -259,7 +265,10 @@ and is not inside a checkout, so without one the command stops with
 
 A command that calls an operation also needs the service settings: `HARBORRAG_CONTROL_DB_URL`,
 `HARBORRAG_SECRETS_ENCRYPTION_KEY` and the store endpoints the container can reach, here in
-an environment file of your own, `cli.env`, and `env/.env.models` for chat:
+an environment file of your own, `cli.env`, and `env/.env.models` for chat. The container is
+not a checkout, so it reads no corpus-mode lines and `chat` runs on the default `source_acl`;
+add `HARBORRAG_CORPUS_ACCESS_MODE` and `HARBORRAG_CORPUS_SHARED_TENANT_ID` to `cli.env`, with
+the API's values, to answer from the shared corpus:
 
 ```bash
 mkdir -p cli-project && touch cli-project/harborrag.yaml

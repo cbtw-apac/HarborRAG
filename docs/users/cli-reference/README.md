@@ -230,7 +230,8 @@ Two commands print outside this envelope and table:
 
 - `doctor` prints its own report and exits 0, 1 or 6 as
   [Check the setup](#check-the-setup) describes.
-- `settings export` writes YAML to stdout, or to `--file`.
+- `settings export` writes YAML to stdout. With `--file` it writes the file and prints
+  `{"file": PATH}` like other commands.
 
 ## Run from a repository checkout
 
@@ -513,6 +514,9 @@ What to expect from a checkout:
 - The `corpus mode` line names the mode chat uses for the tenant the command acts in. It
   is `ok` for `tenant_shared` and warns for `source_acl`, where chat reads only the sources
   the caller has permissions for. See [Ask a grounded question](#ask-a-grounded-question).
+- The `control db` line warns, `using the local sqlite fallback, not the stack's Postgres`,
+  while `HARBORRAG_CONTROL_DB_URL` is unset in a checkout; writes refuse that database, as
+  [above](#run-from-a-repository-checkout) describes.
 - The `connector credentials` line warns, and names the connectors, while an enabled
   remote connector has blank variables. Its hint lists the blank variable names per
   connector, never their values. The shipped catalog enables three, so a fresh

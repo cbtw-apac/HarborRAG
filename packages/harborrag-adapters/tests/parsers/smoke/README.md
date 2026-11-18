@@ -56,9 +56,11 @@ uv run python packages/harborrag-adapters/tests/parsers/smoke/parse_file.py \
   path/to/report.pdf --pdf-profile fast
 ```
 
-Automatic routing uses the same registry as ingestion, and a profile builds its PDF parser the way
-ingestion does, through `HarborParserFactory`. A profile whose engines are not installed fails with
-the engine's import error.
+Automatic routing uses `HarborParserFactory`'s default registry, not the engines that
+`config/ingestion/parsers.yaml` enables, so a file can route to a different engine than in a
+deployment; use `connectors/smoke/run.py` for the configured set. A profile builds its PDF
+parser the way ingestion does, through `HarborParserFactory`. A profile whose engines are not
+installed fails with the engine's import error.
 
 ## What the output shows
 

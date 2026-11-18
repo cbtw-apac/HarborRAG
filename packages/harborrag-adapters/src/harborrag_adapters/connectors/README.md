@@ -70,7 +70,10 @@ connector = HarborConnector("local", config=LocalFileConfig(source_path="docs"))
 The `github`, `jira`, `confluence` and `sharepoint` providers take a `destination_policy`
 constructor dependency: the `DestinationPolicy` their HTTP sessions obey. The runtime
 builds it once with `DestinationPolicy.from_environ()`. Without one, a connector reaches
-public addresses only.
+public addresses only. The SharePoint device-code sign-in (`DeviceCodeLogin` and
+`python -m harborrag_adapters.connectors.sharepoint.login`) obeys the same policy: public
+addresses, plus the hosts and proxy setting of `HARBORRAG_CONNECTOR_ALLOWED_HOSTS` and
+`HARBORRAG_CONNECTOR_USE_PROXY`.
 
 ### Provider document transforms
 
@@ -196,7 +199,8 @@ sharepoint = SharePointConnector(
 For app-only SharePoint sign-in, pass `tenant_id`, `client_id` and `client_secret`
 instead of `access_token`. With `auth_mode="device_code"`, pass `tenant_id`,
 `client_id` and either `token_cache_path` or `harborrag_tenant_id`; delegated access
-uses only the signed-in user's token. The sign-in methods each source supports
+uses only the signed-in user's token. `tenant_id` must be a GUID or a domain name:
+anything else raises `ValueError` when the config is built. The sign-in methods each source supports
 are listed in
 [Connections: pick the source type](../../../../../docs/users/connections.md#1-pick-the-source-type).
 

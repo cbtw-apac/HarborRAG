@@ -29,12 +29,14 @@ run it from any folder inside. The
 
 ## Report a problem
 
-Include the output of `harborrag --version` and `harborrag doctor` in a bug report. The
-version tells us which release you run, and it works even when the project directory or
-the services are broken.
+Include the output of `harborrag --version`, `harborrag doctor` and the commit of your
+clone in a bug report. The version names the release line and works even when the project
+directory or the services are broken; a checkout of `main` prints the same version as the
+release, so the commit tells us which code you run.
 
 ```bash
 uv run harborrag --version
+git rev-parse --short HEAD
 ```
 
 ## Installation and imports
