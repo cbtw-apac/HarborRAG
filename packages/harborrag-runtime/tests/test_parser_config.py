@@ -507,6 +507,32 @@ def test_load_parser_catalog_invalid_liteparse_setting_value_is_rejected(
     assert [name for name in named_in_error if name not in message] == []
 
 
+@pytest.mark.parametrize("written", ["null", "5", "[pipeline]"])
+def test_load_parser_catalog_non_text_mineru_backend_is_rejected(
+    tmp_path: Path,
+    written: str,
+) -> None:
+    config_path = _write_config(
+        tmp_path,
+        f"""
+        version: 1
+        parsers:
+          custom-pdf:
+            parser: pdf
+            engines:
+              - backend: mineru
+                settings: {{backend: {written}}}
+        """,
+    )
+
+    with pytest.raises(ParserConfigurationError) as error:
+        load_parser_catalog(config_path)
+
+    message = str(error.value)
+    assert "parser 'custom-pdf' engine 0 (mineru)" in message
+    assert "MinerU backend must be a non-empty string" in message
+
+
 @pytest.mark.parametrize(
     ("settings", "option", "kept"),
     [
