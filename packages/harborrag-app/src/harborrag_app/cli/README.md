@@ -69,9 +69,8 @@ One module per command group in `commands/`:
 | `harborrag connections` | `list`, `get`, `create`, `update`, `delete`, `test` | `commands/connections.py` |
 | `harborrag ingestions` | `start`, `list`, `get`, `pause`, `resume`, `cancel`, `retry-failures` | `commands/ingestions.py` |
 | `harborrag failures` | `list`, `retry` | `commands/failures.py` |
-| `harborrag settings` | `schema`, `get`, `set` | `commands/settings.py` |
+| `harborrag settings` | `schema`, `get`, `set`, `import`, `export` | `commands/settings.py` |
 | `harborrag chat` | none | `commands/chat.py` |
-| `harborrag config` | `import`, `export` | `commands/config.py` |
 | `harborrag doctor` | none | `commands/doctor.py`, `doctor/` |
 | `harborrag auth keys` | `create`, `list`, `revoke`; the global options, the shared body and error output, CLI-only | `commands/auth.py`, `commands/auth_keys.py` |
 | `harborrag source`, `harborrag ingest` (hidden) | the old names | `commands/legacy.py` |
@@ -271,7 +270,7 @@ This package may:
   same way;
 - print bodies and errors in the shape the HTTP route answers, and exit with the codes
   in `exit_codes.py`. Two commands are the exceptions: `doctor` prints its own report and
-  exits 0, 1 or 6, and `config export` writes YAML to stdout. `connections test` and a
+  exits 0, 1 or 6, and `settings export` writes YAML to stdout. `connections test` and a
   followed run exit 8 after printing their body when the check or the run failed.
 
 It must not:

@@ -15,7 +15,6 @@ from harborrag_app.cli.banner import print_banner
 from harborrag_app.cli.commands import (
     auth,
     chat,
-    config,
     connections,
     doctor,
     failures,
@@ -122,19 +121,13 @@ app.add_typer(legacy.INGEST_APP, name="ingest", hidden=True)
 app.add_typer(
     settings.app,
     name="settings",
-    help="Read and change settings.",
+    help="Read, change, import and export settings.",
     rich_help_panel="Resources",
 )
 app.add_typer(
     auth.app,
     name="auth",
     help="Manage MCP reader keys (auth keys create|list|revoke).",
-    rich_help_panel="Operations",
-)
-app.add_typer(
-    config.app,
-    name="config",
-    help="Import and export runtime settings (config import|export).",
     rich_help_panel="Operations",
 )
 app.command(

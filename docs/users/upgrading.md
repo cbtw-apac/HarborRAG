@@ -307,8 +307,11 @@ exist.
 - `source list --type` is now `connections list --source-type`.
 - `chat --session` and `--project` are now `--session-id` and `--project-id`. Without
   `--session-id`, `chat` asks a one-off question and creates no session.
-- `config export --output PATH` is now `--file PATH`; `-o` is the output format on every
-  command.
+- `config import` and `config export` are now `settings import` and `settings export`,
+  with no alias: `harborrag config` exits `2` with `No such command 'config'`. Their
+  arguments, options and output are unchanged.
+- `config export --output PATH` is now `settings export --file PATH`; `-o` is the output
+  format on every command.
 - `doctor --temporal` and `doctor --json` are removed: `doctor` always checks Temporal,
   and `-o json` prints its report.
 - `--tenant`, `-o`, `--profile`, `--config` and `-y`/`--yes` are global options, given
@@ -329,7 +332,7 @@ codes changed:
 | Exit code | Before | Now |
 | --- | --- | --- |
 | `1` | Any failure, including a run that did not complete | Anything else, such as an internal error (`500`) |
-| `2` | Usage error | Usage error or bad input (`400`, `413`, `422`, `501`); an invalid `config import` file, which exited 1 |
+| `2` | Usage error | Usage error or bad input (`400`, `413`, `422`, `501`); an invalid `settings import` file, which exited 1 |
 | `3` | `--timeout` ran out | Not found (`404`) |
 | `4` | none | Conflict (`409`, `412`), such as pausing a paused run, which exited 1 |
 | `5` | none | Not allowed (`401`, `403`) |
@@ -366,7 +369,7 @@ The secret still goes only to its `0600` file, never to the output.
   cleared, so pass `--project-name` on every update.
 - A write into a tenant that holds no data asks first, so a typo in `--tenant` does not
   create a tenant. Without a terminal it stops with exit 2 unless you pass `--yes`. This
-  covers `config import --apply` into a new tenant too.
+  covers `settings import --apply` into a new tenant too.
 - `connections delete` and `projects delete` ask before they remove anything, and need
   `--yes` without a terminal.
 - Projects and connections the CLI writes, and the runs it starts through Temporal,
@@ -841,7 +844,7 @@ old knob, so a copied default would pin the default over a value you changed. Th
 seeds the tenant `HARBORRAG_TENANT_ID` names from that file once, when the tenant has no
 settings revisions. Set `HARBORRAG_SETTINGS_SEED_PATH` to read the file from another
 path. After the seed, edits to the file only log a `config_yaml_drift` warning; change
-settings with the API or `harborrag config import`.
+settings with the API or `harborrag settings import`.
 
 The first sync after any `parsing.*` or `chunking.*` override reprocesses that
 connection, because both feed the processing identity.

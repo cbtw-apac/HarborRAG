@@ -135,5 +135,5 @@ an ontology changes the extraction profile fingerprint, so the affected document
 extracted again instead of mixing two vocabularies.
 
 Per-tenant graph settings live only in the `tenants:` blocks of `config/graph/build.yaml`;
-they are not runtime settings, so `harborrag config import` and `/v1/admin/settings` do not
+they are not runtime settings, so `harborrag settings import` and `/v1/admin/settings` do not
 change them.

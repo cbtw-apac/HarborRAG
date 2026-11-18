@@ -219,7 +219,7 @@ Two commands print outside this envelope and table:
 
 - `doctor` prints its own report and exits 0, 1 or 6 as
   [Check the setup](#check-the-setup) describes.
-- `config export` writes YAML to stdout, or to `--file`.
+- `settings export` writes YAML to stdout, or to `--file`.
 
 ## Run from a repository checkout
 
@@ -246,7 +246,7 @@ A command that writes refuses the checkout's local SQLite control database (the
 database that stores projects, connections and runs), exits 1 and names the fix. That
 covers `projects create`, `update` and `delete`; `connections create`, `update` and
 `delete`; every `ingestions` command that starts or changes a run; `failures retry`;
-`settings set` without `--dry-run`; `config import --apply`; and `config export --file`.
+`settings set` without `--dry-run`; `settings import --apply`; and `settings export --file`.
 To point the CLI at the stack's Postgres, uncomment the `HARBORRAG_CONTROL_DB_URL` line
 in `env/.env.database` (the template is `env-example/.env.database.example`), or export
 the variable. The CLI then also takes `HARBORRAG_SECRETS_ENCRYPTION_KEY` from that file,
@@ -532,16 +532,16 @@ The keys and levels are in [Runtime settings](../configuration/runtime-settings.
 ### Import and export a settings file
 
 ```bash
-uv run harborrag config export --level tenant --file settings.yaml
-uv run harborrag config import settings.yaml
-uv run harborrag config import settings.yaml --apply
+uv run harborrag settings export --level tenant --file settings.yaml
+uv run harborrag settings import settings.yaml
+uv run harborrag settings import settings.yaml --apply
 ```
 
-`config export` writes registry keys only, to stdout or to `--file PATH`, in the shape
+`settings export` writes registry keys only, to stdout or to `--file PATH`, in the shape
 `import` reads, and leaves out overrides of a deleted project or connection, naming each
 on stderr. Without `--level` it writes every level.
 
-`config import` prints what the file would change. For a file that sets
+`settings import` prints what the file would change. For a file that sets
 `retrieval.top_k: 8`, with `-o yaml`:
 
 ```yaml

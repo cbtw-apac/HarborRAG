@@ -101,7 +101,7 @@ carry such a change over, see [Upgrading](../upgrading.md).
   `HARBORRAG_CHAT_RETRIEVAL_MIN_RELEVANCE` and the MCP `score_threshold` compare
   against.
 - A rerank provider error fails the retrieval, the same as an embedding error.
-- `PATCH` and `harborrag config import` accept `true` only when the catalog has a
+- `PATCH` and `harborrag settings import` accept `true` only when the catalog has a
   `rerank` section; otherwise they answer `422 validation_error` with
   `field = "retrieval.rerank"`.
 - The API reads the catalog's `rerank` section when it starts, so restart it after you
@@ -214,7 +214,7 @@ override that replaces its boot setting. Keep only the keys you mean to override
 
 Later starts do not re-apply the file. When it differs from the stored values, the API
 logs one warning, `config_yaml_drift path=<path> keys=<k1,k2,...>`, and the stored
-values stay. Change settings through the API or `harborrag config import`.
+values stay. Change settings through the API or `harborrag settings import`.
 
 The seed file, `import` and `export` share one shape. Keys may be dotted or nested.
 Every top-level entry other than `version`, `projects` and `connections` is tenant
@@ -236,9 +236,9 @@ connections:
 ## Import and export from the CLI
 
 ```bash
-harborrag config import settings.yaml
-harborrag config import settings.yaml --apply
-harborrag config export --level tenant --file settings.yaml
+harborrag settings import settings.yaml
+harborrag settings import settings.yaml --apply
+harborrag settings export --level tenant --file settings.yaml
 ```
 
 `import` is a dry run unless `--apply` is given; `--apply` writes the file as one
@@ -253,7 +253,7 @@ every level). Imports are recorded in the revision log under the operator's `use
 
 `import --apply` into a tenant that holds no data asks before it creates the tenant;
 without a terminal it stops with exit 2 unless you pass `--yes`. From a repository
-checkout, `config import --apply` and `config export --file` refuse the local SQLite
+checkout, `settings import --apply` and `settings export --file` refuse the local SQLite
 control database until the CLI points at the stack's Postgres with
 `HARBORRAG_CONTROL_DB_URL`; see
 [Run from a repository checkout](../cli-reference/README.md#run-from-a-repository-checkout).

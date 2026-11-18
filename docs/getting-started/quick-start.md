@@ -85,7 +85,7 @@ uv run harborrag --help
 ```
 
 `uv run` runs a command inside `.venv/`. You should see the commands grouped by purpose:
-`me`, `doctor`, `auth` and `config` under Operations; `chat` under Chat; and `projects`,
+`me`, `doctor` and `auth` under Operations; `chat` under Chat; and `projects`,
 `source-types`, `connections`, `ingestions`, `failures` and `settings` under Resources.
 
 ## 2. Create the environment files

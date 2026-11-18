@@ -56,8 +56,8 @@ HTTP_ONLY: Mapping[str, str] = {
 
 CLI_ONLY: Mapping[str, str] = {
     "doctor": "Checks the local project, configuration and services",
-    "config import": "Writes a settings file as one revision; no HTTP route in v2.0.0",
-    "config export": "Prints the stored overrides as a settings file; no HTTP route in v2.0.0",
+    "settings import": "Writes a settings file as one revision; no HTTP route in v2.0.0",
+    "settings export": "Prints the stored overrides as a settings file; no HTTP route in v2.0.0",
     "auth keys create": "MCP reader keys are managed from the CLI until v2.1.0",
     "auth keys list": "MCP reader keys are managed from the CLI until v2.1.0",
     "auth keys revoke": "MCP reader keys are managed from the CLI until v2.1.0",

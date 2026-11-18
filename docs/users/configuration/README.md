@@ -27,7 +27,7 @@ HarborRAG reads its configuration from three places:
 - [Model Configuration](model-config.md) - the chat, embedding and reranking models
   and the LiteLLM gateway they go through.
 - [Runtime Settings](runtime-settings.md) - the settings you change without a restart,
-  over HTTP or with `harborrag config import`.
+  over HTTP or with `harborrag settings import`.
 - [Engine Configuration](config-file-reference.md) - every `HARBORRAG_*` environment
   variable the worker, API and MCP server read.
 - [Tenant and Workspace Status](workspace-mode.md) - tenants, projects and their
@@ -73,7 +73,7 @@ loads: copy them, or pass their paths explicitly.
 | Which sources are ingested, or a source's URL or folder | Before the first start: `config/sources/connectors.yaml` and the variables it names in `env/.env.connector`. After it: `harborrag connections create` or `update`, or the API | [Connections](../connections.md). The CLI writes connections only once `HARBORRAG_CONTROL_DB_URL` points it at the stack's Postgres ([Run from a repository checkout](../cli-reference/README.md#run-from-a-repository-checkout)) |
 | How PDFs and images are parsed, and the OCR server | `config/ingestion/parsers.yaml`, `HARBORRAG_OCR_SERVER_URL` in `env/.env.parser` | Restart the API and the worker; the next sync of each connection reprocesses its documents |
 | Chunk sizes and profiles | `config/ingestion/chunking.yaml` | Restart the API and the worker; documents re-chunk on their next ingestion |
-| Retrieval size, reranking, the PDF engine, the chunk cap or concurrency for one tenant, project or connection | A runtime setting, over HTTP, with `harborrag settings set` or with `harborrag config import` | Nothing; see [Runtime Settings](runtime-settings.md) |
+| Retrieval size, reranking, the PDF engine, the chunk cap or concurrency for one tenant, project or connection | A runtime setting, over HTTP, with `harborrag settings set` or with `harborrag settings import` | Nothing; see [Runtime Settings](runtime-settings.md) |
 
 `harborrag doctor` validates the connector, parser, chunking and model files and names
 any blank variable the model catalog or an enabled remote connector needs.

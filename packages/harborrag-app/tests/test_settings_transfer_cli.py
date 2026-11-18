@@ -1,4 +1,4 @@
-"""``harborrag config import|export`` over a migrated SQLite control database."""
+"""``harborrag settings import|export`` over a migrated SQLite control database."""
 
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ _SENTINEL = "ATATT3xFfGF0-sentinel-9f2c"
 
 
 class _ConfigOperations:
-    """The operations the config commands use: the service that holds the importer."""
+    """The operations the import and export commands use: the service that holds the importer."""
 
     def __init__(self, importer: SettingsImporter) -> None:
         self.app_service = SimpleNamespace(settings_importer=importer)
@@ -114,7 +114,7 @@ def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _World:
 
 def _run(capsys: pytest.CaptureFixture[str], *arguments: str) -> tuple[int, str, str]:
     capsys.readouterr()
-    code = cli.main(["config", *arguments])
+    code = cli.main(["settings", *arguments])
     captured = capsys.readouterr()
     return code, captured.out, captured.err
 
@@ -283,3 +283,17 @@ def test_export_has_no_output_option_of_its_own(
 
     assert code == 2
     assert out == ""
+
+
+@pytest.mark.parametrize("subcommand", ["import", "export"])
+def test_the_config_group_is_gone(
+    world: _World, subcommand: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    capsys.readouterr()
+
+    code = cli.main(["config", subcommand])
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert captured.out == ""
+    assert "No such command 'config'" in captured.err

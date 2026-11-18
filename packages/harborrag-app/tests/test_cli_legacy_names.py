@@ -21,7 +21,6 @@ _COMMANDS_IN_HELP = (
     "failures",
     "settings",
     "chat",
-    "config",
     "doctor",
     "auth",
 )

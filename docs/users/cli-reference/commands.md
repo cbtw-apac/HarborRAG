@@ -46,9 +46,9 @@ These commands have no HTTP route, because HTTP cannot do their job.
 | [`harborrag auth keys create`](#harborrag-auth-keys-create) | MCP reader keys are managed from the CLI until v2.1.0 |
 | [`harborrag auth keys list`](#harborrag-auth-keys-list) | MCP reader keys are managed from the CLI until v2.1.0 |
 | [`harborrag auth keys revoke`](#harborrag-auth-keys-revoke) | MCP reader keys are managed from the CLI until v2.1.0 |
-| [`harborrag config export`](#harborrag-config-export) | Prints the stored overrides as a settings file; no HTTP route in v2.0.0 |
-| [`harborrag config import`](#harborrag-config-import) | Writes a settings file as one revision; no HTTP route in v2.0.0 |
 | [`harborrag doctor`](#harborrag-doctor) | Checks the local project, configuration and services |
+| [`harborrag settings export`](#harborrag-settings-export) | Prints the stored overrides as a settings file; no HTTP route in v2.0.0 |
+| [`harborrag settings import`](#harborrag-settings-import) | Writes a settings file as one revision; no HTTP route in v2.0.0 |
 
 ## HTTP-only operations
 
@@ -140,47 +140,6 @@ harborrag chat [OPTIONS] MESSAGE
 | `--mode` | text |  | instant or classic (default: classic); advanced and auto are reserved and answer mode_unavailable until v2.1.0. |
 | `--project-id PROJECT_ID` | text |  | One-off questions: read only this project. |
 | `--connection-ref REF` | text |  | Narrow to this connection, PROJECT_ID/CONNECTION_ID; repeat for more. |
-| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
-| `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
-| `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
-| `--config PATH` | file |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
-| `--yes, -y` | boolean | `false` | Answer yes to confirmation questions, for scripts. |
-
-## harborrag config export
-
-Print the stored overrides as a settings file that ``import`` reads back unchanged.
-
-Overrides of a deleted project or connection are left out, each named on stderr.
-
-```text
-harborrag config export [OPTIONS]
-```
-
-| Name | Type | Default | Description |
-| --- | --- | --- | --- |
-| `--level LEVEL` | text |  | tenant, project:ID or connection:PROJECT/CONNECTION; default: every level. |
-| `--file PATH` | path |  | Write here, not to stdout. |
-| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
-| `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
-| `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
-| `--config PATH` | file |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
-| `--yes, -y` | boolean | `false` | Answer yes to confirmation questions, for scripts. |
-
-## harborrag config import
-
-Show what FILE would change, or write it as one revision with ``--apply``.
-
-Boot-only keys are reported and skipped. An invalid file exits 2, naming the file and the key, and changes nothing.
-
-```text
-harborrag config import [OPTIONS] FILE
-```
-
-| Name | Type | Default | Description |
-| --- | --- | --- | --- |
-| `FILE` | path | required | Settings YAML file. |
-| `--apply` | boolean | `false` | Write the changes; without it, print them only. |
-| `--prune` | boolean | `false` | Also remove stored overrides the file lacks. |
 | `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
@@ -610,6 +569,26 @@ harborrag projects update [OPTIONS] PROJECT
 | `--config PATH` | file |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
 | `--yes, -y` | boolean | `false` | Answer yes to confirmation questions, for scripts. |
 
+## harborrag settings export
+
+Print the stored overrides as a settings file that ``settings import`` reads back unchanged.
+
+Overrides of a deleted project or connection are left out, each named on stderr.
+
+```text
+harborrag settings export [OPTIONS]
+```
+
+| Name | Type | Default | Description |
+| --- | --- | --- | --- |
+| `--level LEVEL` | text |  | tenant, project:ID or connection:PROJECT/CONNECTION; default: every level. |
+| `--file PATH` | path |  | Write here, not to stdout. |
+| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
+| `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
+| `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
+| `--config PATH` | file |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
+| `--yes, -y` | boolean | `false` | Answer yes to confirmation questions, for scripts. |
+
 ## harborrag settings get
 
 Show the overrides stored at a level, or every key's effective value.
@@ -622,6 +601,27 @@ harborrag settings get [OPTIONS]
 | --- | --- | --- | --- |
 | `--level LEVEL` | text | `tenant` | tenant, project:ID or connection:PROJECT_ID/CONNECTION_ID. |
 | `--effective` | boolean | `false` | Show every key's effective value and origin. |
+| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
+| `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
+| `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
+| `--config PATH` | file |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
+| `--yes, -y` | boolean | `false` | Answer yes to confirmation questions, for scripts. |
+
+## harborrag settings import
+
+Show what FILE would change, or write it as one revision with ``--apply``.
+
+Boot-only keys are reported and skipped. An invalid file exits 2, naming the file and the key, and changes nothing.
+
+```text
+harborrag settings import [OPTIONS] FILE
+```
+
+| Name | Type | Default | Description |
+| --- | --- | --- | --- |
+| `FILE` | path | required | Settings YAML file. |
+| `--apply` | boolean | `false` | Write the changes; without it, print them only. |
+| `--prune` | boolean | `false` | Also remove stored overrides the file lacks. |
 | `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
