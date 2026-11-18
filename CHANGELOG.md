@@ -168,6 +168,7 @@ action.
 #### harborrag-adapters
 
 - Chat history and `message_count` leave out the empty or whitespace-only assistant steps of 1.x agent turns, and migration `0047`'s downgrade waits at most 5 s for its locks on Postgres, like its upgrade
+- **Breaking:** LiteParse and image OCR settings outside their permitted values are rejected, instead of being replaced by a default or failing on every document
 
 - The Confluence connector drops a body's attachment references that the attachment list supersedes, matching body media nodes to listed attachments by file ID
 - A SharePoint `tenant_id` that is not a GUID or a domain name is refused: `connections create`, `update` and `test` answer a field error on `credentials.tenant_id`, and a connector config built in Python raises `ValueError`, instead of failing when the first token is requested
@@ -190,6 +191,8 @@ action.
 #### harborrag-runtime
 
 - A `parsers.yaml` definition for one format, such as `docx` or `csv`, replaces only that format's engine, so the other formats of its family, such as DOC, ODT, EPUB or Excel, still parse
+- **Breaking:** a wrong `parsers.yaml` setting value, or two enabled definitions for one parser family, is rejected when the file loads instead of passing the API and failing only in the worker
+- Starting an ingestion while `parsers.yaml` is missing reports the missing file
 - Starting against a control database a newer build already migrated names both schema revisions and how to recover, instead of only "migrations failed"
 - The first-start import gives a Jira or Confluence Cloud entry without its email the `api_token` method, instead of the Data Center `pat` method, so a `PUT` of the email fixes it
 - Cancelling a run keeps its summary, so the run's `discovered` count no longer drops when it is cancelled

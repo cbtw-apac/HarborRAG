@@ -10,6 +10,7 @@ from harborrag_core.ingestion.run_contracts import RunSettings
 from harborrag_engine.ingestion.chunking import ChunkingConfig, ChunkStrategy
 from harborrag_engine.ingestion.chunking.config import cap_chunking_config
 from harborrag_runtime.config.chunking import chunking_settings_from
+from harborrag_runtime.config.errors import ParserConfigurationError
 from harborrag_runtime.config.parsers import load_parser_catalog
 from harborrag_runtime.config.settings import RuntimeSettings
 
@@ -38,7 +39,7 @@ def build_processing_profile(
     """
     chunking = chunking_settings_from(settings)
     chunk_config = chunking_config or chunking.config
-    parser_profile = configuration_file_digest("parser", settings.parser_config_path)
+    parser_profile = _parser_catalog_digest(settings.parser_config_path)
     if run_settings is not None:
         if run_settings.chunk_max_tokens is not None:
             chunk_config = cap_chunking_config(chunk_config, run_settings.chunk_max_tokens)
@@ -67,3 +68,14 @@ def configuration_file_digest(prefix: str, path: Path) -> str:
     """Return ``prefix`` plus a short digest of the file's bytes."""
     digest = sha256(path.read_bytes()).hexdigest()[:16]
     return f"{prefix}-{digest}"
+
+
+def _parser_catalog_digest(path: Path) -> str:
+    """Digest the parser catalog, reporting a missing file as a configuration error."""
+    try:
+        return configuration_file_digest("parser", path)
+    except OSError as error:
+        reason = error.strerror or type(error).__name__
+        raise ParserConfigurationError(
+            f"Parser configuration file cannot be read: {path} ({reason})"
+        ) from error
