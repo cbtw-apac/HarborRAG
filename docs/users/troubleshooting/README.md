@@ -27,6 +27,16 @@ run it from any folder inside. The
 | `source path` warns that `HARBORRAG_LOCAL_SOURCE_ROOT` is unset | The CLI accepts any `local_file` path, but the API refuses every `local_file` connection while the root is unset | Set `HARBORRAG_LOCAL_SOURCE_ROOT` in the API and worker environment, and for the CLI on its line in `env/.env.database` |
 | `connector credentials` warns `blank credentials for: …` | An enabled remote connector (Jira, Confluence or SharePoint) has blank URL or credential variables | Nothing to fix if you do not use them. Otherwise fill them in `env/.env.connector`, or set `enabled: false` on the connectors you do not use in `config/sources/connectors.yaml` |
 
+## Report a problem
+
+Include the output of `harborrag --version` and `harborrag doctor` in a bug report. The
+version tells us which release you run, and it works even when the project directory or
+the services are broken.
+
+```bash
+uv run harborrag --version
+```
+
 ## Installation and imports
 
 | Symptom | Likely cause | Fix |

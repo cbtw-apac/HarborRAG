@@ -6,11 +6,14 @@ import copy
 import logging
 import os
 import sys
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as distribution_version
 from pathlib import Path
 from typing import Annotated, Any
 
 import typer
 
+from harborrag_app import __version__ as app_version
 from harborrag_app.cli.banner import print_banner
 from harborrag_app.cli.commands import (
     auth,
@@ -64,9 +67,34 @@ app = new_typer(
 )
 
 
+def _print_version(requested: bool) -> None:
+    """Print ``harborrag VERSION`` and exit 0 when ``--version`` was given.
+
+    The version is that of the ``harborrag`` distribution, else of ``harborrag-app``, which
+    owns the console script.
+    """
+    if not requested:
+        return
+    try:
+        installed = distribution_version("harborrag")
+    except PackageNotFoundError:
+        installed = app_version
+    typer.echo(f"harborrag {installed}")
+    raise typer.Exit
+
+
 @app.callback()
 def configure(
     context: typer.Context,
+    version: Annotated[
+        bool,
+        typer.Option(
+            "--version",
+            callback=_print_version,
+            is_eager=True,
+            help="Print the version and exit.",
+        ),
+    ] = False,
     no_color: Annotated[
         bool,
         typer.Option(
@@ -85,7 +113,7 @@ def configure(
 ) -> None:
     """Configure presentation shared by all HarborRAG commands."""
 
-    del context, project  # project is consumed before Click ran; see main()
+    del context, version, project  # project is consumed before Click ran; see main()
     if no_color:
         os.environ["NO_COLOR"] = "1"
 
@@ -165,7 +193,7 @@ def main(argv: list[str] | None = None) -> int:
             # file in Docker-image terms to someone who just ran `pip install harborrag`.
             print(_NO_PROJECT_MESSAGE, file=sys.stderr)
             return 1
-    load_project_environment()
+    _load_environment(args)
     _configure_cli_logging(os.environ.get(LEVEL_ENV_VAR, _DEFAULT_CLI_LOG_LEVEL))
     if not args or args[0] in _HELP_FLAGS:
         # Click resolves --help and no_args_is_help before the group callback
@@ -199,9 +227,28 @@ def _command_name(args: list[str]) -> str | None:
     return rest[0] if rest else None
 
 
+def _requests_version(args: list[str]) -> bool:
+    """True when ``--version`` is among the global options before the command name."""
+
+    rest = list(args)
+    while rest and rest[0].startswith("-"):
+        option = rest.pop(0)
+        if option == "--version":
+            return True
+        if option in _VALUE_TAKING_GLOBAL_OPTIONS and rest:
+            rest.pop(0)
+    return False
+
+
 def _activates_project(args: list[str]) -> bool:
-    """Everything except pure help output runs inside the enclosing project."""
-    return not any(arg in _HELP_FLAGS for arg in args)
+    """Everything except pure help and version output runs inside the enclosing project."""
+    return not any(arg in _HELP_FLAGS for arg in args) and not _requests_version(args)
+
+
+def _load_environment(args: list[str]) -> None:
+    """Load the project's env files, except for ``--version``, which needs none."""
+    if not _requests_version(args):
+        load_project_environment()
 
 
 def _needs_catalogs(args: list[str]) -> bool:

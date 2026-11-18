@@ -92,10 +92,21 @@ the three act in the same tenant unless you pass `--tenant`. An exported
 `HARBORRAG_TENANT_ID`, for example from sourcing the API's env file, therefore outranks
 a profile's `tenant`.
 
-Two options belong to `harborrag` itself and go before the command: `--no-color` turns
-color off (as `NO_COLOR=1` does), and `--project DIR` names a project directory (see
-[Choose the project directory](#choose-the-project-directory)).
-`--install-completion` installs shell completion, and `--show-completion` prints it to
+Three options belong to `harborrag` itself and go before the command: `--no-color` turns
+color off (as `NO_COLOR=1` does), `--project DIR` names a project directory (see
+[Choose the project directory](#choose-the-project-directory)), and `--version` prints
+the installed version and exits 0, ignoring any command after it:
+
+```bash
+uv run harborrag --version
+```
+
+```text
+harborrag 2.0.0a2
+```
+
+`--version` reads no project, environment file or database, so it works from any
+directory. `--install-completion` installs shell completion, and `--show-completion` prints it to
 copy or customize.
 
 ### Set defaults in a profile

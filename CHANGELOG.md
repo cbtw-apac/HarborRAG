@@ -34,6 +34,7 @@ action.
 - `harborrag doctor` lists the tenants that hold data and checks the services with the `/readyz` checks, Temporal included
 - `make cli-reference` writes `docs/users/cli-reference/commands.md` from the CLI's help, the command registry and the OpenAPI export, with each command's HTTP route and the CLI-only and HTTP-only lists; a test fails when a command and its HTTP route drift apart or the page is stale
 - `harborrag config import` and `harborrag config export` move runtime settings through a YAML file
+- `harborrag --version` prints `harborrag VERSION` and exits `0` without reading a project, an environment file or the control database
 - `harborrag doctor` validates `config/ingestion/chunking.yaml`
 - `GET /v1/admin/failures` lists failed documents with `counts` per error category, and `POST /v1/admin/failures/retry` starts one retry run per original run
 - HTTP chat and `harborrag chat` rerank their passages when `retrieval.rerank` is on for the session's project, or else the tenant; `PATCH /v1/admin/settings` and `harborrag config import` accept `retrieval.rerank: true` when the model catalog has a `rerank` section, and refuse it with `422 validation_error` otherwise
