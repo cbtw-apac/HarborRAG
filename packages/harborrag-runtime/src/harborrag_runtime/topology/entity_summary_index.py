@@ -2,7 +2,7 @@
 
 A source entity -- a Jira issue with its comments and its attachments -- is the
 first level of the aggregation forest that spans documents, and it is the level a
-question like "who cleared the second interview round" is actually about. Chunk
+question like "which runbooks passed the second review" is actually about. Chunk
 search cannot answer that, because the answer is not in any one chunk.
 
 The point written here carries no card text and no chunk identities: it is a

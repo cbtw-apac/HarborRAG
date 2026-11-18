@@ -236,7 +236,7 @@ services:
       # worker lends its own vector and embed clients; one embedding per entity.
       HARBORRAG_SUMMARY_ENTITY_INDEX_ENABLED: "${HARBORRAG_SUMMARY_ENTITY_INDEX_ENABLED:-false}"
       # The source entity is the level that spans documents -- issue, comments and
-      # CV -- so it gets a dossier budget; section and document cards stay at 60.
+      # attachments -- so it gets a dossier budget; section and document cards stay at 60.
       HARBORRAG_SUMMARY_ENTITY_CARD_MAX_WORDS: "${HARBORRAG_SUMMARY_ENTITY_CARD_MAX_WORDS:-250}"
     volumes:
       # The same config/ as the API and MCP server; a change needs a worker

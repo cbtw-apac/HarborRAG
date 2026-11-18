@@ -93,7 +93,7 @@ async def test_a_page_of_one_repeated_comment_is_backfilled_with_distinct_hits()
 
 
 def test_the_same_text_on_different_subjects_is_different_evidence() -> None:
-    """ "Passed interview with Pepperstone" on two candidates' issues says two things."""
+    """ "Approved by Example Corp" on two different issues says two things."""
 
     issue_a = {"content_hash": "passed", "source_item_id": "jira://ENG/ENG-1"}
     attachment_a = {"content_hash": "passed", "parent_source_item_id": "jira://ENG/ENG-1"}

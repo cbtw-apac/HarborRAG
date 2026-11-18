@@ -61,7 +61,7 @@ class RepeatingVectors(FakeVectorRepository):
     def _results(self, collection: str) -> list[VectorSearchResult]:
         if "evidence" not in collection:
             return []
-        texts = [("Senior Java Engineer", "same")] * 3 + [("Spring Boot microservices", "other")]
+        texts = [("Deployment runbook", "same")] * 3 + [("Spring Boot microservices", "other")]
         return [
             VectorSearchResult(
                 id=f"point-{index}",
@@ -158,7 +158,7 @@ async def test_identical_texts_are_collapsed_and_counted():
     )
 
     assert [result.text for result in report.results] == [
-        "Senior Java Engineer",
+        "Deployment runbook",
         "Spring Boot microservices",
     ]
     assert report.results[0].id == "chunk-0"

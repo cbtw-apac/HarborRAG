@@ -91,7 +91,7 @@ class Vectors:
 
 def binding(node_key: str, chunks=("chunk-1",)) -> SummaryBinding:
     card = SummaryCard(
-        description="Senior Java engineer, banking background, cleared round two.",
+        description="Payments service runbook, reviewed in the second pass.",
         topics=("deployment",),
         attributes=(SummaryAttribute(name="stage", values=("round 2",)),),
     )
@@ -145,7 +145,7 @@ async def test_another_scopes_points_survive_this_scopes_prune():
 
 def test_the_embedded_text_repeats_the_facets_a_query_would_name():
     text = entity_embedding_text(binding("node-a"))
-    assert "cleared round two" in text
+    assert "reviewed in the second pass" in text
     assert "stage: round 2" in text
 
 
@@ -172,7 +172,7 @@ def evidence_record(chunk: str) -> VectorIndexRecord:
             "record_kind": "evidence",
             "document_id": "doc-1",
             "document_version_id": "version-1",
-            "content": "Cleared the second interview round.",
+            "content": "Passed the second review stage.",
         },
     )
 

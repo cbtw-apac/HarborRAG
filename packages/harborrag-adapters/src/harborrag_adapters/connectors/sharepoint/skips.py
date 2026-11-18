@@ -1,8 +1,8 @@
 """SharePoint skip reasons, skip recording, item load errors and log entries.
 
 Log entries carry only IDs, reason codes and counts, never an item's
-``webUrl``, path, file name, page title or free-text detail, because a CV file
-name usually holds the candidate's name. ``ConnectorSkip`` records and the
+``webUrl``, path, file name, page title or free-text detail, because a design-doc file
+name can hold a person's name. ``ConnectorSkip`` records and the
 errors' ``url`` attributes keep the item's location as data for the caller.
 
 Typical usage example:

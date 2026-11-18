@@ -23,6 +23,7 @@ _WORKER_ENVIRONMENT = {
     "MICROSOFT_CLIENT_SECRET": "worker-secret",
     "MICROSOFT_GRAPH_TOKEN": "worker-graph-token",
     "HARBORRAG_INGESTION_TENANT_ID": "worker-harborrag-tenant",
+    "HARBORRAG_TENANT_ID": "worker-harborrag-tenant",
 }
 
 
