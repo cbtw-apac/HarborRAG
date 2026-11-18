@@ -54,7 +54,7 @@ def test_typer_help_groups_commands_and_excludes_removed_sample(capsys) -> None:
 
     rendered = capsys.readouterr().out
     command_names = {command.name for command in cli.app.registered_commands}
-    assert "Operations" in rendered
+    assert "Setup and diagnostics" in rendered
     assert "Resources" in rendered
     assert "sample-ingest" not in rendered
     assert "status" not in command_names

@@ -11,7 +11,9 @@ from importlib.metadata import version as distribution_version
 from pathlib import Path
 from typing import Annotated, Any
 
+import click
 import typer
+from typer.core import TyperGroup
 
 from harborrag_app import __version__ as app_version
 from harborrag_app.cli.banner import print_banner
@@ -56,8 +58,32 @@ _NO_PROJECT_MESSAGE = (
 # keeps `-o json` output on stdout parseable at any level.
 _DEFAULT_CLI_LOG_LEVEL = "WARNING"
 
+SETUP_PANEL = "Setup and diagnostics"
+ACCESS_PANEL = "Access"
+CHAT_PANEL = "Chat"
+RESOURCES_PANEL = "Resources"
+_PANEL_ORDER = (SETUP_PANEL, ACCESS_PANEL, CHAT_PANEL, RESOURCES_PANEL)
+
+
+class _PanelOrderedGroup(TyperGroup):
+    """A command group whose help lists the panels in ``_PANEL_ORDER``.
+
+    Typer lists commands before sub-groups, which would put a panel of groups after every
+    panel of commands; this keeps each panel's commands in registration order.
+    """
+
+    def list_commands(self, ctx: click.Context) -> list[str]:
+        """Command names ordered by panel, then by registration."""
+        return sorted(super().list_commands(ctx), key=self._panel_rank)
+
+    def _panel_rank(self, name: str) -> int:
+        panel = getattr(self.commands[name], "rich_help_panel", None)
+        return _PANEL_ORDER.index(panel) if panel in _PANEL_ORDER else len(_PANEL_ORDER)
+
+
 app = new_typer(
     name="harborrag",
+    cls=_PanelOrderedGroup,
     help="[bold cyan]Operate HarborRAG ingestion workflows.[/bold cyan]",
     epilog="[dim]Use 'harborrag COMMAND --help' for command-specific options.[/dim]",
     no_args_is_help=True,
@@ -121,28 +147,36 @@ def configure(
 app.command(
     "me",
     help="Show the principal, role and tenants the CLI acts with.",
-    rich_help_panel="Operations",
+    rich_help_panel=SETUP_PANEL,
 )(me.command)
 app.command(
     "doctor",
     help="Check project, configuration, environment, and local services.",
-    rich_help_panel="Operations",
+    rich_help_panel=SETUP_PANEL,
 )(doctor.command)
-app.add_typer(projects.app, name="projects", help="Manage projects.", rich_help_panel="Resources")
 app.add_typer(
-    source_types.app, name="source-types", help="List source types.", rich_help_panel="Resources"
+    projects.app, name="projects", help="Manage projects.", rich_help_panel=RESOURCES_PANEL
 )
 app.add_typer(
-    connections.app, name="connections", help="Manage connections.", rich_help_panel="Resources"
+    source_types.app,
+    name="source-types",
+    help="List source types.",
+    rich_help_panel=RESOURCES_PANEL,
+)
+app.add_typer(
+    connections.app, name="connections", help="Manage connections.", rich_help_panel=RESOURCES_PANEL
 )
 app.add_typer(
     ingestions.app,
     name="ingestions",
     help="Start, follow and control ingestion runs.",
-    rich_help_panel="Resources",
+    rich_help_panel=RESOURCES_PANEL,
 )
 app.add_typer(
-    failures.app, name="failures", help="List and retry failed items.", rich_help_panel="Resources"
+    failures.app,
+    name="failures",
+    help="List and retry failed items.",
+    rich_help_panel=RESOURCES_PANEL,
 )
 app.add_typer(legacy.SOURCE_APP, name="source", hidden=True)
 app.add_typer(legacy.INGEST_APP, name="ingest", hidden=True)
@@ -150,18 +184,18 @@ app.add_typer(
     settings.app,
     name="settings",
     help="Read, change, import and export settings.",
-    rich_help_panel="Resources",
+    rich_help_panel=RESOURCES_PANEL,
 )
 app.add_typer(
     auth.app,
     name="auth",
     help="Manage MCP reader keys (auth keys create|list|revoke).",
-    rich_help_panel="Operations",
+    rich_help_panel=ACCESS_PANEL,
 )
 app.command(
     "chat",
     help="Generate a response with the configured chat model.",
-    rich_help_panel="Chat",
+    rich_help_panel=CHAT_PANEL,
 )(chat.command)
 
 

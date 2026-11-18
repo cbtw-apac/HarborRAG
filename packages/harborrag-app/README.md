@@ -19,10 +19,10 @@ From the checkout, list the commands:
 uv run harborrag --help
 ```
 
-You should see the commands grouped by purpose: `me`, `doctor` and `auth` under
-Operations; `chat` under Chat; and `projects`, `source-types`, `connections`,
-`ingestions`, `failures` and `settings` under Resources. `uv run harborrag COMMAND --help`
-lists each command's options.
+You should see the commands grouped by purpose: `me` and `doctor` under
+Setup and diagnostics; `auth` under Access; `chat` under Chat; and `projects`,
+`source-types`, `connections`, `ingestions`, `failures` and `settings` under Resources.
+`uv run harborrag COMMAND --help` lists each command's options.
 
 ## What it provides
 
