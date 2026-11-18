@@ -6,15 +6,15 @@ and compares every evidence point's payload with the source metadata.
 
 from __future__ import annotations
 
+from ingestion.unit.chunking_helpers import make_profile, make_service
+from ingestion.unit.test_vector_projection import chunk_set, representation_set
+
 from harborrag_adapters.connectors.sharepoint.mappers import build_document_metadata
 from harborrag_core.domain.parser import ParsedDocument
 from harborrag_core.domain.raw_document import RawDocument
 from harborrag_engine.ingestion import VectorProjectionBuilder, VectorProjectionInput
 from harborrag_engine.ingestion.chunking import ChunkingRequest
 from harborrag_engine.ingestion.normalizer import DocumentNormalizer
-
-from .chunking_helpers import make_profile, make_service
-from .test_vector_projection import chunk_set, representation_set
 
 SITE = {"id": "contoso.sharepoint.com,SITE,WEB", "name": "hr"}
 DRIVE = {"id": "DRIVE-1", "name": "Documents", "driveType": "documentLibrary"}
