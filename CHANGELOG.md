@@ -30,14 +30,14 @@ action.
 - CLI commands that call the same operation as their HTTP route, with the same input, output and error codes: `me`, `projects list|get|create|update|delete`, `source-types list`, `connections list|get|create|update|delete|test`, `ingestions start|list|get|pause|resume|cancel|retry-failures`, `failures list|retry` and `settings schema|get|set`
 - CLI global options `--tenant`, `-o/--output table|json|yaml`, `--profile`, `--config` and `-y/--yes`, with defaults from `HARBORRAG_TENANT_ID`, `HARBORRAG_OUTPUT`, `HARBORRAG_PROFILE` and the profiles in `~/.config/harborrag/config.yaml` (keys `tenant` and `output`)
 - `harborrag ingestions start --wait` and `ingestions get --watch` follow a run and exit `8` when it ends `failed` or `cancelled`; `ingestions start --inline` runs the pipeline in the CLI's process without Temporal
-- The CLI asks before a write into a tenant that holds no data, `config import --apply` included; `--yes` skips the question
+- The CLI asks before a write into a tenant that holds no data, `settings import --apply` included; `--yes` skips the question
 - `harborrag doctor` lists the tenants that hold data and checks the services with the `/readyz` checks, Temporal included
 - `make cli-reference` writes `docs/users/cli-reference/commands.md` from the CLI's help, the command registry and the OpenAPI export, with each command's HTTP route and the CLI-only and HTTP-only lists; a test fails when a command and its HTTP route drift apart or the page is stale
-- `harborrag config import` and `harborrag config export` move runtime settings through a YAML file
+- `harborrag settings import` and `harborrag settings export` move runtime settings through a YAML file
 - `harborrag --version` prints `harborrag VERSION` and exits `0` without reading a project, an environment file or the control database
 - `harborrag doctor` validates `config/ingestion/chunking.yaml`
 - `GET /v1/admin/failures` lists failed documents with `counts` per error category, and `POST /v1/admin/failures/retry` starts one retry run per original run
-- HTTP chat and `harborrag chat` rerank their passages when `retrieval.rerank` is on for the session's project, or else the tenant; `PATCH /v1/admin/settings` and `harborrag config import` accept `retrieval.rerank: true` when the model catalog has a `rerank` section, and refuse it with `422 validation_error` otherwise
+- HTTP chat and `harborrag chat` rerank their passages when `retrieval.rerank` is on for the session's project, or else the tenant; `PATCH /v1/admin/settings` and `harborrag settings import` accept `retrieval.rerank: true` when the model catalog has a `rerank` section, and refuse it with `422 validation_error` otherwise
 
 #### harborrag-core
 
@@ -101,7 +101,7 @@ action.
 - **Breaking:** `harborrag auth keys` prints the object itself instead of `{"ok": true, "data": …}`, takes `-o table|json|yaml` and the other global options, and reports a failure as the common error envelope with the CLI exit codes instead of `{"ok": false, "error_code": …}` and exit `1`; `--tenant` defaults to `HARBORRAG_TENANT_ID`, else `DEFAULT`, on `create` and `list`. The secret still goes only to its `0600` file
 - `harborrag --help` groups the commands under Setup and diagnostics (`me`, `doctor`), Access (`auth`), Chat and Resources, in place of the Operations panel
 - **Breaking:** `harborrag config import` and `harborrag config export` are `harborrag settings import` and `harborrag settings export`, with no alias for the old group: `harborrag config` exits `2` as an unknown command
-- **Breaking:** `harborrag config export --output` is `--file`, and `harborrag doctor` drops `--json` and `--temporal`: it always checks Temporal and exits `6` when only a service check fails
+- **Breaking:** the export file option is `--file` (`harborrag settings export --file`; it was `config export --output`), and `harborrag doctor` drops `--json` and `--temporal`: it always checks Temporal and exits `6` when only a service check fails
 - The CLI prints `harborrag: using repository checkout DIR` and `using project DIR` only when stderr is a terminal
 - **Breaking:** chat completion failures and accounting change:
   - `503 dependency_unavailable` when the answer cannot be stored, `503 llm_unavailable` for an empty answer, and `422` for a whitespace-only `message`
