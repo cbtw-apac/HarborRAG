@@ -13,24 +13,44 @@ from ..ports import BaseAppService
 if TYPE_CHECKING:
     from harborrag_runtime.config.settings import RuntimeSettings
 
-logger = logging.getLogger("harborrag.app.workflow_control.composition.selection")
+logger = logging.getLogger("harborrag.runtime.application.composition.selection")
 
 
 def select_app_service() -> tuple[BaseAppService, str]:
-    """Return the configured application service and the name of its composition mode."""
-    return runtime_app_service(), "production"
+    """Compose the app service for the API after checking the parser catalog.
+
+    A missing catalog file is logged and left to ingestion to report, so an
+    API without ingestion configuration still starts.
+
+    Returns:
+        The app service and the name of its composition mode.
+
+    Raises:
+        ParserConfigurationError: The parser catalog file exists but is invalid.
+    """
+    from harborrag_runtime.config import load_parser_catalog
+    from harborrag_runtime.config.settings import RuntimeSettings
+
+    settings = RuntimeSettings()
+    if settings.parser_config_path.is_file():
+        load_parser_catalog(settings.parser_config_path)
+    else:
+        logger.warning(
+            "Parser catalog %s not found; skipping its startup check",
+            settings.parser_config_path,
+        )
+    return _app_service_from(settings), "production"
 
 
 def runtime_app_service() -> BaseAppService:
-    """Build the production application service from the process settings."""
-    from harborrag_runtime.composition import CompositionRoot
+    """Compose the app service from environment settings, as the CLI does."""
     from harborrag_runtime.config.settings import RuntimeSettings
 
     return _app_service_from(RuntimeSettings())
 
 
 def get_app_service() -> BaseAppService:
-    """Return the configured application service."""
+    """Compose the API's app service without reporting its composition mode."""
     service, _ = select_app_service()
     return service
 

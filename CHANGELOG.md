@@ -191,6 +191,7 @@ action.
 #### harborrag-runtime
 
 - A `parsers.yaml` definition for one format, such as `docx` or `csv`, replaces only that format's engine, so the other formats of its family, such as DOC, ODT, EPUB or Excel, still parse
+- **Breaking:** the API refuses to start on an invalid `parsers.yaml`, as the worker does, and warns when the file is missing
 - **Breaking:** a wrong `parsers.yaml` setting value, or two enabled definitions for one parser family, is rejected when the file loads instead of passing the API and failing only in the worker
 - Starting an ingestion while `parsers.yaml` is missing reports the missing file
 - Starting against a control database a newer build already migrated names both schema revisions and how to recover, instead of only "migrations failed"

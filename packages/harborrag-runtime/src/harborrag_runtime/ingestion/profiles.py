@@ -33,9 +33,20 @@ def build_processing_profile(
 ) -> ProcessingProfile:
     """Build the deterministic processing identity shared by clients and workers.
 
-    ``chunking_config`` overrides the profiles of ``chunking.yaml``; the refiner
-    choice always comes from the file (or its defaults). ``run_settings`` overrides
-    change the identity only when they change the effective parser or limits.
+    Args:
+        settings: Runtime settings naming the parser and chunking files.
+        chunking_config: Profiles that replace those of ``chunking.yaml``. The
+            refiner choice always comes from the file or its defaults.
+        chunking_strategies: Extra chunking strategies of this deployment.
+        run_settings: Per-run overrides. They change the identity only when
+            they change the effective parser or limits.
+
+    Returns:
+        The identity every stage of the run compares against stored work.
+
+    Raises:
+        ParserConfigurationError: The parser catalog file is missing or
+            unreadable, or is invalid when a run overrides the PDF parser.
     """
     chunking = chunking_settings_from(settings)
     chunk_config = chunking_config or chunking.config

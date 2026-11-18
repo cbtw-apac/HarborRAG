@@ -12,6 +12,40 @@ from harborrag_app.api.app import create_fastapi_app
 from harborrag_app.api.settings import ApiSettings
 from harborrag_runtime.application.composition.selection import select_app_service
 from harborrag_runtime.application.composition.service import AppService
+from harborrag_runtime.config import ParserConfigurationError
+
+_SELECTION_LOGGER = "harborrag.runtime.application.composition.selection"
+
+_EMPTY_BACKEND_CATALOG = """\
+version: 1
+parsers:
+  custom-pdf:
+    parser: pdf
+    engines:
+      - backend: ""
+"""
+
+_OTHER_BACKEND_SETTINGS_CATALOG = """\
+version: 1
+parsers:
+  custom-pdf:
+    parser: pdf
+    engines:
+      - backend: docling
+        settings:
+          do_ocr: true
+          num_workers: 3
+          output_format: markdown
+"""
+
+
+def _use_parser_catalog(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, content: str) -> None:
+    """Point a dev runtime at a parser catalog file holding ``content``."""
+    catalog_path = tmp_path / "parsers.yaml"
+    catalog_path.write_text(content, encoding="utf-8")
+    monkeypatch.setenv("HARBORRAG_ENV", "dev")
+    monkeypatch.setenv("HARBORRAG_CONTROL_DB_URL", f"sqlite+aiosqlite:///{tmp_path}/control.db")
+    monkeypatch.setenv("HARBORRAG_PARSER_CONFIG_PATH", str(catalog_path))
 
 
 @pytest.mark.blackbox
