@@ -52,9 +52,8 @@ def test_every_sharepoint_point_payload_matches_source_metadata() -> None:
         raw, ParsedDocument(content=BODY, parser_name="plain-text")
     )
 
-    service = make_service(
-        make_profile(name="sharepoint", strategy="sharepoint", minimum=20, target=60, maximum=80)
-    )
+    # SharePoint uses the canonical profile; identity is applied at the record layer.
+    service = make_service(make_profile(minimum=20, target=60, maximum=80))
     chunks = service.chunk(
         ChunkingRequest(
             tenant_id="tenant-1",

@@ -11,7 +11,6 @@ from ..sources import (
     ChunkStrategyRegistry,
     ConfluenceChunkingStrategy,
     JiraChunkingStrategy,
-    SharePointChunkingStrategy,
 )
 from ..transforms import (
     CompatiblePeerMerger,
@@ -32,7 +31,6 @@ def builtin_chunking_strategies(token_counter: TokenCounter) -> tuple[ChunkStrat
         CanonicalDocumentChunkingStrategy(token_counter),
         ConfluenceChunkingStrategy(token_counter),
         JiraChunkingStrategy(token_counter),
-        SharePointChunkingStrategy(token_counter),
     )
 
 

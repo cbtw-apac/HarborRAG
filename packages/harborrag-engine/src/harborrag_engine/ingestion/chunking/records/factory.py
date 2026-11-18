@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from re import compile
+from typing import Any
 
 from pydantic import ValidationError
 
@@ -38,6 +40,32 @@ _DOCUMENT_KIND_BY_CONNECTOR = {
     ConnectorType.JIRA: DocumentKind.JIRA_ISSUE,
     ConnectorType.LOCAL: DocumentKind.LOCAL_FILE,
 }
+# SharePoint is an extensible connector type, so it is matched by its string value.
+_SHAREPOINT_CONNECTOR = "sharepoint"
+_SHAREPOINT_EXTRA_FIELDS = ("site_id", "drive_id", "item_id")
+
+
+def _utc_iso(value: Any) -> str | None:
+    """Return a timestamp as ISO 8601 UTC, or ``None`` when it is absent or unreadable.
+
+    A naive timestamp is taken to already be UTC.
+    """
+
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        text = str(value).strip()
+        if not text:
+            return None
+        try:
+            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC).isoformat()
 
 
 @dataclass(frozen=True, slots=True)
@@ -262,6 +290,7 @@ class CanonicalChunkFactory:
         return {
             **({"parent_source_item_id": str(parent)} if parent else {}),
             **cls._local_timestamps(values.request),
+            **cls._source_identity(values.request),
             **values.candidate.metadata,
             "source_version": cls._source_value(
                 values.request,
@@ -277,6 +306,35 @@ class CanonicalChunkFactory:
             "profile_name": values.profile.name,
             "configuration_hash": values.configuration_hash,
         }
+
+    @classmethod
+    def _source_identity(cls, request: ChunkingRequest) -> dict[str, str]:
+        """Carry a SharePoint document's identity onto every one of its chunks.
+
+        Read from the document, not from units, so every chunk -- including route
+        chunks -- gets the same values regardless of how the strategy packed it.
+        Other connectors return nothing here.
+        """
+        if cls._connector_type(request) != ConnectorType(_SHAREPOINT_CONNECTOR):
+            return {}
+        document = request.document
+        extra = document.provenance.extra
+        values: dict[str, str] = {}
+        for key in _SHAREPOINT_EXTRA_FIELDS:
+            value = extra.get(key)
+            if value is not None and str(value).strip():
+                values[key] = str(value).strip()
+        web_url = document.provenance.url or extra.get("url")
+        if web_url is not None and str(web_url).strip():
+            values["web_url"] = str(web_url).strip()
+        if document.provenance.author:
+            values["author"] = document.provenance.author
+        updated = _utc_iso(extra.get("source_updated_at"))
+        if updated is None:
+            updated = _utc_iso(document.provenance.updated_at)
+        if updated is not None:
+            values["source_updated_at"] = updated
+        return values
 
     @classmethod
     def _local_timestamps(cls, request: ChunkingRequest) -> dict[str, str]:

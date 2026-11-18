@@ -157,11 +157,6 @@ def default_chunking_profiles() -> dict[str, ChunkingProfile]:
             strategy="confluence",
             limits=ChunkingLimits(120, 750, 1200, 0),
         ),
-        "sharepoint": ChunkingProfile(
-            name="sharepoint",
-            strategy="sharepoint",
-            limits=ChunkingLimits(120, 700, 1100, 0),
-        ),
     }
 
 
@@ -182,7 +177,6 @@ class ChunkingConfig:
         default_factory=lambda: {
             "confluence": "confluence",
             "jira": "jira",
-            "sharepoint": "sharepoint",
         }
     )
 
