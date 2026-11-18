@@ -41,8 +41,12 @@ LOGIN_HINT = (
 _PATH_SEGMENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 
 
-def _require_plain_id(label: str, value: str) -> None:
-    """Refuse an id that is not a plain name, so it cannot change a path."""
+def require_plain_id(label: str, value: str) -> None:
+    """Refuse an id that is not a plain name, so it cannot change a path.
+
+    Raises:
+        ValueError: ``value`` is not a GUID or a domain-like name.
+    """
     if not _PATH_SEGMENT.fullmatch(value) or ".." in value:
         raise ValueError(f"{label} must be a plain id of letters, digits, '.', '_' or '-'")
 
@@ -53,7 +57,7 @@ def identity_url(tenant_id: str, endpoint: str) -> str:
     Raises:
         ValueError: ``tenant_id`` is not a GUID or a domain-like name.
     """
-    _require_plain_id("tenant_id", tenant_id)
+    require_plain_id("tenant_id", tenant_id)
     return f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/{endpoint}"
 
 
@@ -71,7 +75,7 @@ def default_token_cache_path(harborrag_tenant_id: str, tenant_id: str, client_id
         ("tenant_id", tenant_id),
         ("client_id", client_id),
     ):
-        _require_plain_id(label, value)
+        require_plain_id(label, value)
     folder = Path.home() / ".harborrag" / "sharepoint" / harborrag_tenant_id
     return folder / f"token-{tenant_id}-{client_id}.json"
 

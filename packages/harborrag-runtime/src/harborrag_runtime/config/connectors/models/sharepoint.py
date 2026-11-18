@@ -7,9 +7,11 @@ lives in ``token_cache_path``, and ``pat`` is a pre-issued Graph token.
 
 from __future__ import annotations
 
-from typing import Self
+from typing import Annotated, Self
 
-from pydantic import ConfigDict, Field, model_validator
+from pydantic import AfterValidator, ConfigDict, Field, model_validator
+
+from harborrag_adapters.connectors.sharepoint.delegated import require_plain_id
 
 from .common import PagedHttpTuning
 from .fields import HttpsUrl, Secret, StrictModel, widget
@@ -25,10 +27,19 @@ _TENANT_EXAMPLE = "11111111-2222-3333-4444-555555555555"
 _CLIENT_EXAMPLE = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
 
 
+def _plain_tenant_id(value: str) -> str:
+    """Return ``value`` when it is a GUID or a domain-like name, so it cannot change a URL path."""
+    require_plain_id("tenant_id", value)
+    return value
+
+
+_TenantId = Annotated[str, AfterValidator(_plain_tenant_id)]
+
+
 class SharePointAppCredentials(StrictModel):
     """App-only access with a client secret."""
 
-    tenant_id: str = Field(min_length=1, description=_TENANT_HELP, examples=[_TENANT_EXAMPLE])
+    tenant_id: _TenantId = Field(min_length=1, description=_TENANT_HELP, examples=[_TENANT_EXAMPLE])
     client_id: str = Field(min_length=1, description=_CLIENT_HELP, examples=[_CLIENT_EXAMPLE])
     client_secret: Secret = Field(
         description="Client secret of the app registration", examples=["Q~8xr…"]
@@ -39,7 +50,7 @@ class SharePointAppCredentials(StrictModel):
 class SharePointDelegatedCredentials(StrictModel):
     """Delegated access as the user who signed in with the device-code flow."""
 
-    tenant_id: str = Field(min_length=1, description=_TENANT_HELP, examples=[_TENANT_EXAMPLE])
+    tenant_id: _TenantId = Field(min_length=1, description=_TENANT_HELP, examples=[_TENANT_EXAMPLE])
     client_id: str = Field(min_length=1, description=_CLIENT_HELP, examples=[_CLIENT_EXAMPLE])
     token_cache_path: str | None = Field(
         default=None,

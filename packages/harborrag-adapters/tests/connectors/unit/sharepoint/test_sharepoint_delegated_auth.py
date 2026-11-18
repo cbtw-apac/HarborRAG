@@ -260,6 +260,18 @@ def test_device_code_login_refuses_a_tenant_id_that_is_not_a_path_segment(tmp_pa
     assert session.calls == []
 
 
+@pytest.mark.parametrize("auth", [{"client_secret": "s"}, {"auth_mode": "device_code"}])
+def test_site_config_refuses_a_tenant_id_that_is_not_a_path_segment(auth):
+    with pytest.raises(ValueError, match="tenant_id must be a plain id"):
+        SharePointSiteConfig(
+            site_url="https://example.sharepoint.com/sites/x",
+            tenant_id="a/b",
+            client_id="cid",
+            harborrag_tenant_id="acme",
+            **auth,
+        )
+
+
 def test_device_code_login_refuses_a_private_identity_host_by_default(tmp_path, monkeypatch):
     def resolve_to_loopback(host, port, **_kwargs):
         return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", port))]

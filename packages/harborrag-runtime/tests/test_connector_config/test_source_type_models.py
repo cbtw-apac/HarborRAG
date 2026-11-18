@@ -261,6 +261,35 @@ def test_schemas_refuse_what_the_connector_would_refuse(
     assert issue in caught.value.issues[0].issue
 
 
+_SHAREPOINT_SITE = {"site_url": "https://acme.sharepoint.com/sites/knowledge"}
+
+
+@pytest.mark.parametrize("method", ["app", "oauth"])
+@pytest.mark.parametrize("tenant_id", ["a/b", "..", "t?x=1", "evil.example/../x", "two words"])
+def test_sharepoint_refuses_a_tenant_id_that_is_not_a_plain_id(method: str, tenant_id: str) -> None:
+    credentials = {"method": method, "tenant_id": tenant_id, "client_id": "cid"}
+    if method == "app":
+        credentials["client_secret"] = "secret"
+
+    with pytest.raises(ConnectionValidationError) as caught:
+        validate("sharepoint", credentials, _SHAREPOINT_SITE)
+
+    assert [issue.field for issue in caught.value.issues] == ["credentials.tenant_id"]
+    assert "plain id" in caught.value.issues[0].issue
+    assert tenant_id not in caught.value.issues[0].issue
+
+
+@pytest.mark.parametrize(
+    "tenant_id", ["11111111-2222-3333-4444-555555555555", "acme.onmicrosoft.com"]
+)
+def test_sharepoint_accepts_a_guid_or_a_domain_tenant_id(tenant_id: str) -> None:
+    credentials = {"method": "oauth", "tenant_id": tenant_id, "client_id": "cid"}
+
+    validated = validate("sharepoint", credentials, _SHAREPOINT_SITE)
+
+    assert validated.credentials["tenant_id"] == tenant_id
+
+
 def test_jira_accepts_the_spec_example_body() -> None:
     validated = validate(
         "jira",

@@ -707,6 +707,23 @@ async def test_only_operators_set_the_sharepoint_token_cache_path(world: Connect
 
 
 @pytest.mark.asyncio
+async def test_a_malformed_sharepoint_tenant_id_is_a_field_issue_on_save_and_test(
+    world: ConnectionWorld,
+) -> None:
+    key = ConnectionKey("acme", "demo", "knowledge")
+    app = {"method": "app", "tenant_id": "a/b", "client_id": "cid", "client_secret": "secret"}
+    write = ConnectionWrite("sharepoint", app, _SITE)
+
+    with pytest.raises(ConnectionValidationError) as on_put:
+        await world.service.put(key, write, actor="u")
+    with pytest.raises(ConnectionValidationError) as on_test:
+        await world.service.test(key, write)
+
+    for caught in (on_put, on_test):
+        assert [issue.field for issue in caught.value.issues] == ["credentials.tenant_id"]
+
+
+@pytest.mark.asyncio
 async def test_a_connection_test_never_retries_and_runs_on_its_own_threads(
     world: ConnectionWorld, monkeypatch: pytest.MonkeyPatch
 ) -> None:
