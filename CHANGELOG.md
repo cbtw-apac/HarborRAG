@@ -20,6 +20,7 @@ action.
 
 - Migration `0046` stores runtime settings overrides and an append-only revision log
 - Migration `0047` stores a chat session's `project_id` and an answer's `mode`, `trace_id` and `feedback`
+- Migration `0048` drops the `DEFAULT` server default from `tenant_id` on nine control-plane tables, so the database no longer fills in a missing tenant; stored rows keep their tenant. It takes an `ACCESS EXCLUSIVE` lock on each table, with `lock_timeout` 5 s on Postgres, and belongs before the application release, see the [upgrade guide](docs/users/upgrading.md)
 - Structure-aware splitting of oversized text: code at syntax boundaries, Markdown at headings and fences, prose at sentence ends
 - Markdown code blocks record their language, and source code files keep their indentation and are chunked as code
 
@@ -61,6 +62,8 @@ action.
 
 - **Breaking:** `guarded_session` requires a `DestinationPolicy` and the GitHub, Jira, Confluence and SharePoint connectors take a `destination_policy` constructor argument instead of reading `HARBORRAG_CONNECTOR_ALLOWED_HOSTS` and `HARBORRAG_CONNECTOR_USE_PROXY` when they open a session; code that builds these connectors outside the runtime without a policy reaches public addresses only, see the [upgrade guide](docs/users/upgrading.md#connectors-built-outside-the-runtime)
 - The SharePoint device-code sign-in (`harborrag_adapters.connectors.sharepoint.login`) sends its requests to Microsoft identity through the destination policy, built from `HARBORRAG_CONNECTOR_ALLOWED_HOSTS` and `HARBORRAG_CONNECTOR_USE_PROXY` by the command and public-only for `DeviceCodeLogin` built without a `destination_policy`, and refuses a tenant ID that is not a GUID or a domain name before it builds the endpoint URL
+- GitHub and SharePoint connections read only inside their configured `root_path`, and a run's filters can only narrow the connection's: a source type registers how a run filter combines with the connection's, such as Jira ANDing a run `jql` onto its own, and a filter without one cannot be set by a run once the connection sets it; Jira's `order by` inside a quoted JQL value no longer ends the condition
+- The local file connector sets a chunk's `created_at` to the file's creation time (`st_birthtime`, else `st_ctime`) and adds `updated_at` from the modification time
 - The destination policy refuses a private IPv4 address carried in NAT64 (`64:ff9b::/96`) or IPv4-compatible (`::/96`) IPv6 form, judging these addresses by the IPv4 address they carry; hosts and networks in `HARBORRAG_CONNECTOR_ALLOWED_HOSTS` keep working
 
 #### harborrag-app
@@ -68,6 +71,7 @@ action.
 - The Click requirement is raised to `>=8.4.0,<9` (it was `>=8.2.1,<9`), and a mistyped command prints its "Did you mean" hint once: Click 8.4 adds the hint itself, so the CLI no longer adds a second one
 - `env-example/.env.api.example` sets `HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared` and `HARBORRAG_CORPUS_SHARED_TENANT_ID=DEFAULT`, so chat finds sources on a new deployment; the code default stays `source_acl`, and removing the two lines returns the tenant to it. Nothing changes for an existing deployment until its `env/.env.api` gets the two lines and the API is restarted
 - `env-example/.env.mcp.example` sets `HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared` and `HARBORRAG_CORPUS_SHARED_TENANT_ID=DEFAULT`, so a reader key for `DEFAULT` reads the shared corpus like chat does; `HARBORRAG_MCP_READER_TENANT_ID`, which lets the local bearer token read it, stays commented out. An existing `env/.env.mcp` stays on `source_acl` until it gets the two lines and the MCP server is restarted
+- `harborrag auth keys revoke` takes `--key-id` alone, or `--owner` with an explicit `--tenant`, and never uses the default tenant or `HARBORRAG_TENANT_ID`
 - The CLI reads `HARBORRAG_CORPUS_ACCESS_MODE` and `HARBORRAG_CORPUS_SHARED_TENANT_ID` from `env/.env.api` (or the file `API_ENV_FILE` names) and nothing else in it, and an exported variable outranks the file; `harborrag doctor` shows the `corpus mode` for the acting tenant and warns on `source_acl`
 - **Breaking:** `GET /v1/admin/ingestions/{ingestion_id}/events` sends `run.status`, `stage.progress`, `document.failed` and `run.completed`, replacing `task.<id>.progress`, `.done` and `.control`:
   - frames carry integer ids, a `: ping` arrives every 15 s, and `Last-Event-ID` resumes the stream
@@ -118,6 +122,10 @@ action.
 - The MCP server reads `config/mcp/server.yaml` and, with the file key store, `config/mcp/keys.yaml`
 - `harborrag-mcp` reads `HARBORRAG_MCP_AUDIT_PATH` once at launch and passes the path to the server; code that builds `McpServer(...)` or calls `create_mcp_server()` without a registry gets the default `.harborrag/mcp-audit.jsonl` and no longer reads the variable, so pass `audit=McpAuditLog(path=...)` to choose the path; see the [upgrade guide](docs/users/upgrading.md#mcp-server-built-in-python)
 
+#### harborrag-memory
+
+- `delete_memory` refuses a GLOBAL memory with a `forbidden` error, which the HTTP layer answers as `403`
+
 #### harborrag-runtime
 
 - **Breaking:** `ConnectorPool` and `ConnectionService` require a `destination_policy` keyword argument, and `run_checks` takes a `destination_policy` parameter after `tenant_id`; `build_connector`, `build_connector_from_parts` and connectors built from a config file with `ConnectorDefinition.build` or `ConnectorCatalog.build` reach public addresses only unless the caller passes `destination_policy`, see the [upgrade guide](docs/users/upgrading.md#connectors-built-outside-the-runtime)
@@ -136,6 +144,7 @@ action.
 
 - The development worker mounts `config/` read-only like the API and the MCP server, so a configuration change needs a restart, not an image rebuild
 - `config/sources/schedules.yaml` and `config/mcp/keys.yaml` are git-ignored; each ships as an `.example.yaml` beside it
+- `opentelemetry-api` requires `>=1.45.2,<2` in `harborrag-adapters` (the `opentelemetry` extra) and `harborrag-runtime`
 - The `qdrant` extra of `harborrag-adapters` requires `qdrant-client>=1.17,<1.20` (was `>=1.10,<2`); the lock stays on 1.18.0
 - `config/temporal.example.yaml`, `config/models.example.yaml` and `config/harborrag.example.yaml` are removed
 - `env-example/.env.models.example` sets the five model gateway variables and keeps the direct-provider and other-proxy examples commented out
@@ -157,9 +166,12 @@ action.
 
 - Chat history and `message_count` leave out the empty or whitespace-only assistant steps of 1.x agent turns, and migration `0047`'s downgrade waits at most 5 s for its locks on Postgres, like its upgrade
 
+- The Confluence connector drops a body's attachment references that the attachment list supersedes, matching body media nodes to listed attachments by file ID
+- A SharePoint `tenant_id` that is not a GUID or a domain name is refused: `connections create`, `update` and `test` answer a field error on `credentials.tenant_id`, and a connector config built in Python raises `ValueError`, instead of failing when the first token is requested
+
 #### harborrag-app
 
-- `harborrag doctor` walks up from the current directory to the repository checkout, like the other commands, and no longer warns that `harborrag.yaml` is missing inside one; it reads `HARBORRAG_LOCAL_SOURCE_ROOT` instead of `LOCAL_SOURCE_PATH` and reports an unset root as `ok`, and blank credentials of enabled remote connectors are a warning that names the connectors, so a fresh checkout exits `0`
+- `harborrag doctor` walks up from the current directory to the repository checkout, like the other commands, and no longer warns that `harborrag.yaml` is missing inside one; it reads `HARBORRAG_LOCAL_SOURCE_ROOT` instead of `LOCAL_SOURCE_PATH` and warns when the root is unset, because the API then refuses every `local_file` connection, and blank credentials of enabled remote connectors are a warning that names the connectors, so a fresh checkout exits `0`
 - **Breaking:** `GET /v1/admin/settings/schema` answers `{"groups": [...]}` with a description per setting, `POST /v1/admin/failures/retry` answers `409 invalid_state` when no failure matches instead of `202` with a null `ingestion_id`, and `GET /v1/admin/failures` omits `total` unless `include_total=true`
 - A connection's `stats.errors` counts the failed documents of its latest run, also after a cancel, and is `0` before any run
 - A run whose Temporal workflow ended without recording it, such as one terminated in the Temporal UI, no longer blocks its connection with `409 already_running`, retry runs included: starting an ingestion, removing the connection and cancelling the run record it as `CANCELLED` or `FAILED` first
@@ -167,6 +179,10 @@ action.
 - Cancelling a running or paused run whose Temporal workflow is gone, such as one past the namespace retention, records it as `cancelled` with `error_category` `workflow_not_found`, over HTTP and with `harborrag ingestions cancel`, instead of answering `503` every time; a queued run that is not a retry run still answers `503`
 - `POST /v1/admin/ingestions` with an `updated_after` that has no UTC offset answers `422 validation_error` on `updated_after`, instead of `500`
 - `harborrag ingestions pause`, `resume` and `cancel` follow the HTTP rules: pausing a paused run, pausing or resuming a retry run, and any action on a finished run exit `4` with `invalid_state` and send no signal, cancelling a retry run cancels its own workflow instead of answering "task not found", and an unknown run is not found
+
+#### harborrag-engine
+
+- A retry after a change to chunk metadata, such as the local file timestamps, adopts the chunk set an earlier attempt stored, never replacing it, and rebuilds its index from the stored bytes
 
 #### harborrag-runtime
 

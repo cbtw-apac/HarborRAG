@@ -23,7 +23,7 @@ at the start of every run.
   on an upgrade, it stops with
   `… already holds a database; restore the key it was written with.` Keep a backup of
   the key.
-- The API applies migrations `0041`–`0047` at start-up. `0046` adds the runtime settings
+- The API applies migrations `0041`–`0048` at start-up. `0046` adds the runtime settings
   tables: the overrides and an append-only revision log
   ([Runtime settings](configuration/runtime-settings.md)). `0047` adds empty columns for
   a chat session's `project_id` and an answer's `mode`, `trace_id` and `feedback`;
@@ -32,7 +32,13 @@ at the start of every run.
   messages, replay records of agent sessions, run-scoped and working memories, and the
   session `kind`, message `run_id` and usage `surface` columns. A downgrade brings the
   columns back, with `kind` and `surface` set to `chat` and the rest empty; the deleted
-  rows do not come back. Start the API before the workers.
+  rows do not come back. `0048` removes the `DEFAULT` server default from `tenant_id` on
+  nine tables (`projects`, `sources`, `secrets`, `jobs`, `activity`, `providers`,
+  `workspace_settings`, `members` and `graph_conflicts`), so the database no longer
+  fills in a missing tenant; stored rows keep theirs. It takes an `ACCESS EXCLUSIVE`
+  lock on each table, held until the migration run commits, and waits at most 5 s for it
+  on Postgres, so apply it before the application release, when the control database is
+  quiet. Start the API before the workers.
 - Upgrade the workers together with the API. The worker records the cancellation of a
   retry run, so with an older worker a retry run cancelled through the API ends
   `failed`, or stays `running` until the API next settles it, for example at the next
@@ -433,6 +439,11 @@ connection with `"method": "api_token"` and the `email`; the stored token is kep
   `scripts/deployment/dev.sh sharepoint-login` (or the `login` command with
   `--harborrag-tenant`) before the next sync; connections with an explicit
   `token_cache_path` are unaffected.
+- **GitHub and SharePoint connections read only inside their `root_path`, and a run's
+  filters can only narrow the connection's.** A SharePoint `tenant_id` must be a GUID or
+  a domain name such as `acme.onmicrosoft.com`; `connections create`, `update` and `test`
+  refuse anything else with a field error on `credentials.tenant_id`. Correct a stored
+  value with `connections update`.
 - **Connector configs built in Python take credentials only from their arguments.**
   `GitHubRepositoryConfig`, `ConfluenceSpaceConfig`, `JiraProjectConfig` and
   `SharePointSiteConfig` no longer read `GITHUB_TOKEN`, `CONFLUENCE_*`, `JIRA_*`,

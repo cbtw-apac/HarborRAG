@@ -237,9 +237,10 @@ harborrag: no project found. Run it inside a HarborRAG repository checkout, or p
 
 In a checkout, the CLI reads `env/.env.connector`, `env/.env.parser` and
 `env/.env.models`. From `env/.env.database` it reads only the MinIO credentials, an
-uncommented `HARBORRAG_CONTROL_DB_URL` line and `HARBORRAG_LOCAL_SOURCE_ROOT`. It does not
-read `env/.env.api` or `env/.env.temporal`. An exported variable always wins over a
-file.
+uncommented `HARBORRAG_CONTROL_DB_URL` line and `HARBORRAG_LOCAL_SOURCE_ROOT`. From
+`env/.env.api` it reads only `HARBORRAG_CORPUS_ACCESS_MODE` and
+`HARBORRAG_CORPUS_SHARED_TENANT_ID`. It does not read `env/.env.temporal`. An exported
+variable always wins over a file.
 
 A command that writes refuses the checkout's local SQLite control database (the
 database that stores projects, connections and runs), exits 1 and names the fix. That
