@@ -793,7 +793,7 @@ result and output budgets, and an owner-only JSONL audit at
 `.harborrag/mcp-audit.jsonl` (override with `HARBORRAG_MCP_AUDIT_PATH`). Audit
 records contain a principal identifier, an arguments digest, and the outcome -
 never the bearer token or raw arguments. See
-[Policy and audit](README.md#policy-and-audit) for the full sequence.
+[Policy and audit](README.md#policy-and-audit-status) for the full sequence.
 
 ## Next
 
