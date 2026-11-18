@@ -7,6 +7,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+from typer import rich_utils
 
 from harborrag_app.cli import project as project_module
 
@@ -108,6 +109,16 @@ def _reset_active_project(monkeypatch: pytest.MonkeyPatch) -> None:
     """
 
     monkeypatch.setattr(project_module, "_ACTIVE", None)
+
+
+@pytest.fixture(autouse=True)
+def _plain_cli_output(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Help and usage errors print without colour codes, on CI as on a laptop.
+
+    Typer forces a colour terminal when ``GITHUB_ACTIONS`` is set, and the escape
+    codes then split the option names the tests look for.
+    """
+    monkeypatch.setattr(rich_utils, "FORCE_TERMINAL", False)
 
 
 @pytest.fixture
