@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Sequence
 
 from sqlalchemy import insert, select, update
@@ -8,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from harborrag_adapters.repositories.backends.sqlalchemy import SQLAlchemyDBClient
 from harborrag_core.base import utc_now
 from harborrag_core.chunking import encoded_identifier
-from harborrag_core.contracts import HarborNotFoundError
+from harborrag_core.contracts import HarborNotFoundError, HarborValidationError
 from harborrag_core.ingestion import (
     CleanupJobState,
     DocumentFailure,
@@ -28,6 +29,8 @@ from .schema import (
     PROJECTION_MANIFESTS,
     SOURCE_ITEMS,
 )
+
+logger = logging.getLogger("harborrag.adapters.repositories.database.ingestion_control.reliability")
 
 
 class IngestionReliabilityRepository:
@@ -122,9 +125,21 @@ class IngestionReliabilityRepository:
                 .order_by(DOCUMENT_FAILURES.c.last_failure_at.desc())
                 .limit(limit)
             )
-            return tuple(
-                document_failure_record_from_row(row) for row in result.mappings().all()
-            )
+            records: list[DocumentFailureRecord] = []
+            for row in result.mappings().all():
+                try:
+                    records.append(document_failure_record_from_row(row))
+                except HarborValidationError:
+                    # A row predating stricter write-time validation (or written
+                    # outside it) must not take down the whole listing -- every
+                    # other, valid failure for this connection still has to show.
+                    logger.warning(
+                        "skipping unreadable document_failures row failure_id=%s "
+                        "document_version_id=%s",
+                        row.get("failure_id"),
+                        row.get("document_version_id"),
+                    )
+            return tuple(records)
 
     async def enqueue_cleanup(
         self,

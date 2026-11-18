@@ -6,7 +6,9 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from sqlalchemy import insert
 
+from harborrag_adapters.repositories.database.ingestion_control.schema import DOCUMENT_FAILURES
 from harborrag_adapters.repositories.database.ingestion_control.task_lifecycle import (
     SUBMISSION_CLAIM_STALE_AFTER,
 )
@@ -340,6 +342,57 @@ async def test_list_failures_is_scoped_to_tenant_and_connection(tmp_path: Path) 
             )
             == ()
         )
+
+
+@pytest.mark.asyncio
+async def test_list_failures_skips_an_unreadable_row_instead_of_failing_the_whole_call(
+    tmp_path: Path,
+) -> None:
+    """A pre-existing row with a blank `failed_stage`/`safe_error_code` must not
+    take down the rest of the connection's listing (regression for a row that
+    predates stricter write-time validation, or was written outside it)."""
+
+    control_plane = make_control_plane(tmp_path)
+    async with control_plane:
+        good = candidate("a readable failure")
+        await control_plane.document_versions.create_candidate(good)
+        await control_plane.reliability.record_failure(
+            DocumentFailure(
+                document_id=good.document_id,
+                document_version_id=good.document_version_id,
+                failed_stage="ParseAndNormalize",
+                category=FailureCategory.PARSER_FALLBACKABLE,
+                retryable=True,
+                safe_error_code="parser_rejected_document",
+            )
+        )
+
+        bad = candidate("a legacy row with a blank failed_stage", source=source_identity("page-2"))
+        await control_plane.document_versions.create_candidate(bad)
+        async with control_plane.reliability._client.sessions.begin() as session:
+            await session.execute(
+                insert(DOCUMENT_FAILURES).values(
+                    failure_id="legacy-blank-failure",
+                    document_id=str(bad.document_id),
+                    document_version_id=str(bad.document_version_id),
+                    failed_stage=" ",
+                    failure_category=FailureCategory.PARSER_FALLBACKABLE.value,
+                    retryable=True,
+                    safe_error_code="parser_rejected_document",
+                    artifact_references=[],
+                    projection_manifest_reference=None,
+                    first_failure_at=datetime.now(UTC),
+                    last_failure_at=datetime.now(UTC),
+                    attempt_count=1,
+                )
+            )
+
+        failures = await control_plane.reliability.list_failures(
+            tenant_id="DEFAULT", connection_id="wiki.example"
+        )
+
+        assert len(failures) == 1
+        assert failures[0].document_version_id == good.document_version_id
 
 
 @pytest.mark.asyncio

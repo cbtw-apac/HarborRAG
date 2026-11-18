@@ -123,6 +123,15 @@ async def get_settings(
     no project-membership scoping: ``Principal`` authorizes by tenant and role
     only, so an editor's connection-level read access is tenant-wide, not
     limited to projects they are otherwise associated with.
+
+    With ``effective=true`` this intentionally still surfaces every registry
+    key's *resolved* value and ``origin``, including one inherited from the
+    tenant or project scope an editor cannot read directly: that is what
+    "effective" means -- what this connection actually runs with -- and no
+    registry setting is a secret (credentials are stored as secret refs, not
+    settings). An editor therefore learns a tenant/project override's value,
+    but never which other project/connection also inherits it, and can never
+    write at those scopes.
     """
     scope_level, scope_id = parse_level(level)
     if scope_level != "connection":

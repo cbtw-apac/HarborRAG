@@ -8,8 +8,15 @@ setting, the rest comes from the connector's own configured profile.
 from __future__ import annotations
 
 from harborrag_core.domain.element import DocumentElement
+from harborrag_engine.ingestion.chunking import ChunkingConfig
 
-from .chunking_helpers import make_document, make_profile, make_request, make_service
+from .chunking_helpers import (
+    make_document,
+    make_profile,
+    make_request,
+    make_service,
+    make_service_from_config,
+)
 
 
 def test_plan_for_max_tokens_caps_the_hard_maximum_and_clamps_the_rest() -> None:
@@ -25,6 +32,17 @@ def test_plan_for_max_tokens_caps_the_hard_maximum_and_clamps_the_rest() -> None
     assert plan.minimum_tokens == 20
     assert plan.target_tokens == 20
     assert plan.soft_maximum_tokens == 20
+
+
+def test_plan_for_max_tokens_floors_a_zero_profile_minimum_at_one() -> None:
+    """`ChunkingLimits.minimum_tokens` may be 0; `ChunkingPlan.minimum_tokens` may not."""
+    profile = make_profile(name="jira", strategy="canonical", minimum=0, target=600, maximum=1000)
+    service = make_service(profile)
+    request = make_request(make_document([], source="jira"))
+
+    plan = service.plan_for_max_tokens(request, 20)
+
+    assert plan.minimum_tokens == 1
 
 
 def test_plan_for_max_tokens_leaves_limits_below_the_cap_untouched() -> None:
@@ -67,11 +85,14 @@ def test_plan_for_max_tokens_resolves_the_attachment_profile_override() -> None:
     default_profile = make_profile(
         name="canonical", strategy="canonical", minimum=2, target=20, maximum=25
     )
-    service = make_service(
-        default_profile,
-        extra_profiles={connector_profile.name: connector_profile},
+    config = ChunkingConfig(
+        configuration_version="1",
+        default_profile=default_profile.name,
+        create_route_chunks=False,
+        profiles={default_profile.name: default_profile, connector_profile.name: connector_profile},
         source_profiles={"jira": connector_profile.name},
     )
+    service = make_service_from_config(config)
     document = make_document(
         [DocumentElement("body", "paragraph", "word")],
         source="jira",

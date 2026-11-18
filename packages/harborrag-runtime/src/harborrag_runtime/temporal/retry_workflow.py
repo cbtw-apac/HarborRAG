@@ -27,6 +27,7 @@ from .schemas import (
 )
 
 _CANCELLATION_PATCH = "harborrag-retry-records-cancellation"
+_ACTIVITY_TIMEOUT_PATCH = "harborrag-retry-uses-connection-activity-timeout"
 
 
 @workflow.defn(name="harborrag.document_retry")
@@ -35,13 +36,24 @@ class DocumentRetryWorkflow:
     async def run(self, request: RetryDocumentInput) -> DocumentIngestionOutcome:
         queues = request.workflow_options.task_queues
         retries = request.workflow_options.retries
+        # Pre-patch runs scheduled their activity under a flat 60-minute
+        # timeout; changing what a replaying history schedules would break
+        # them. `document_seconds` also matches the connection's own
+        # `ingestion.activity_timeout` (or the deployment default, same as
+        # the non-retry document pipeline) instead of an unrelated hardcoded
+        # value no setting ever controlled.
+        document_timeout = (
+            timedelta(seconds=request.workflow_options.timeouts.document_seconds)
+            if workflow.patched(_ACTIVITY_TIMEOUT_PATCH)
+            else timedelta(minutes=60)
+        )
         try:
             return DocumentIngestionOutcome(
                 await workflow.execute_activity(
                     "harborrag.retry_document_release",
                     request,
                     task_queue=queues.io,
-                    start_to_close_timeout=timedelta(minutes=60),
+                    start_to_close_timeout=document_timeout,
                     retry_policy=temporal_retry_policy(retries.document),
                     result_type=DocumentIngestionOutcome,
                 )

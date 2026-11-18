@@ -19,11 +19,14 @@ _TZDT = sa.DateTime(timezone=True)
 
 def upgrade() -> None:
     op.add_column("document_failures", sa.Column("resolved_at", _TZDT, nullable=True))
-    # Backfill: a failure row for a version that is already ACTIVE is already
+    # Backfill: a failure row for a version that has ever published is already
     # resolved -- it predates this column and would otherwise sit at NULL
     # forever, since `publish`'s replay branch for an already-ACTIVE version
-    # returns before it ever reaches the resolution update. A failure on a
-    # version that never published stays NULL, same as a fresh unresolved row.
+    # returns before it ever reaches the resolution update. `activated_at IS
+    # NOT NULL` (not `status = 'ACTIVE'`) catches a version that published
+    # and was later retired/superseded, not only one still active today. A
+    # version that never published has no `activated_at` and stays NULL,
+    # same as a fresh unresolved row.
     op.execute(
         """
         UPDATE document_failures
@@ -31,14 +34,14 @@ def upgrade() -> None:
             SELECT document_versions.activated_at
             FROM document_versions
             WHERE document_versions.document_version_id = document_failures.document_version_id
-              AND document_versions.status = 'ACTIVE'
+              AND document_versions.activated_at IS NOT NULL
         )
         WHERE resolved_at IS NULL
           AND EXISTS (
             SELECT 1
             FROM document_versions
             WHERE document_versions.document_version_id = document_failures.document_version_id
-              AND document_versions.status = 'ACTIVE'
+              AND document_versions.activated_at IS NOT NULL
           )
         """
     )

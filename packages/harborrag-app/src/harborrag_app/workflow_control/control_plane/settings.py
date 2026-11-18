@@ -36,6 +36,11 @@ from harborrag_runtime.ingestion.durations import require_activity_timeout_secon
 _PROJECT_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,62}$")
 _CONNECTION_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,62}$")
 
+# Bounds `_consistent_snapshot`'s retry loop: under contention it gives up
+# after this many revision reads rather than looping forever against a
+# scope under constant write pressure.
+_MAX_SNAPSHOT_ATTEMPTS = 3
+
 
 def _check_activity_timeout(value: Any) -> None:
     """``ingestion.activity_timeout`` is a `string` in the registry, but only a
@@ -195,6 +200,26 @@ class SettingsService:
         assert port is not None, "composition did not wire SettingsPatchRepositoryPort"
         return port
 
+    async def _consistent_snapshot(
+        self, tenant_id: str, scope_level: ScopeLevel, row_scope_id: str
+    ) -> tuple[int, list[SettingOverride]]:
+        """The scope's revision and every tenant override, from the same moment.
+
+        Each is its own query, so a write landing between them could pair a
+        pre-write revision with post-write overrides (or vice versa). Bracket
+        the overrides read with two revision reads and retry while they
+        disagree, so the pair returned always reflects one consistent state.
+        """
+        revisions_repo = self._revisions()
+        revision = await revisions_repo.get(tenant_id, scope_level, row_scope_id)
+        for _ in range(_MAX_SNAPSHOT_ATTEMPTS - 1):
+            overrides = await self._overrides().list_for_tenant(tenant_id)
+            current = await revisions_repo.get(tenant_id, scope_level, row_scope_id)
+            if current == revision:
+                return revision, overrides
+            revision = current
+        return revision, await self._overrides().list_for_tenant(tenant_id)
+
     async def _ensure_scope_exists(
         self, tenant_id: str, scope_level: ScopeLevel, scope_id: str
     ) -> None:
@@ -280,14 +305,18 @@ class SettingsService:
                 scope's stored revision.
         """
         await self._ensure_scope_exists(tenant_id, scope_level, scope_id)
-        overrides_repo = self._overrides()
         row_scope_id = _scope_id_for_tenant(tenant_id, scope_level, scope_id)
         # `before` (and a deleted key's fallback `after`) must resolve through
         # the whole ancestor chain, not just this scope's own overrides or the
         # registry default: a key with no override here still reports its
         # inherited tenant/project value, not a bare `spec.default` that may
-        # not match what is actually in effect.
-        overrides = await overrides_repo.list_for_tenant(tenant_id)
+        # not match what is actually in effect. The revision and the overrides
+        # must also come from the same moment: reading them as two
+        # independent queries risks a concurrent write landing in between, so
+        # the plan reflects one state while the revision check later observes
+        # a newer one -- a dry run could then report a stale `before`/`after`
+        # under an `expected_revision` check that actually passes.
+        revision, overrides = await self._consistent_snapshot(tenant_id, scope_level, row_scope_id)
         override_index = {(o.scope_level, o.scope_id, o.key): o.value for o in overrides}
         full_chain = _ancestor_chain(tenant_id, scope_level, scope_id)
         ancestor_chain = full_chain[:-1]
@@ -320,7 +349,6 @@ class SettingsService:
             )
 
         if dry_run:
-            revision = await self._revisions().get(tenant_id, scope_level, row_scope_id)
             if expected_revision != revision:
                 raise HarborPreconditionFailedError("setting scope revision does not match")
             return SettingsChangeResult(revision=revision, dry_run=True, changed=planned)

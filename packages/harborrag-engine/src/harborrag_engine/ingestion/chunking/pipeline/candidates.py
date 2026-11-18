@@ -113,7 +113,9 @@ class ChunkCandidatePipeline:
         profile, or the source-neutral default for an independently parsed
         attachment), clamped down so they never exceed the new cap (clamping
         a sorted sequence from above keeps it sorted, which is what
-        `ChunkingPlan` requires).
+        `ChunkingPlan` requires). `ChunkingLimits.minimum_tokens` may be 0 --
+        `ChunkingPlan.minimum_tokens` may not -- so the clamped minimum is
+        additionally floored at 1.
         """
 
         configured = self._config.profile_for(
@@ -125,7 +127,7 @@ class ChunkCandidatePipeline:
         return ChunkingPlan(
             profile=configured.name,
             strategy_version=strategy.version,
-            minimum_tokens=min(limits.minimum_tokens, max_tokens),
+            minimum_tokens=max(1, min(limits.minimum_tokens, max_tokens)),
             target_tokens=min(limits.target_tokens, max_tokens),
             soft_maximum_tokens=min(soft_maximum, max_tokens),
             hard_maximum_tokens=max_tokens,
