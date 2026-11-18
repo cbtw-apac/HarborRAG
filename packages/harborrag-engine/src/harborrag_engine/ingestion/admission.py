@@ -45,6 +45,29 @@ _RETRIEVAL_METADATA_FIELDS = frozenset(
 )
 
 
+def _sharepoint_projected_fields(
+    document: Document,
+    source_identity: SourceIdentity,
+) -> dict[str, object]:
+    """SharePoint's author and update time are projected onto every chunk.
+
+    They are not in the evidence text, so without this a change to only the
+    timestamp is admitted but classified UNCHANGED and the active payload keeps
+    the old metadata. Other connectors are left out so their fingerprints, and
+    therefore their stored versions, do not change.
+    """
+
+    if source_identity.connector_type.value != "sharepoint":
+        return {}
+    provenance = document.provenance
+    updated = provenance.updated_at
+    return {
+        "sharepoint_author": provenance.author,
+        "sharepoint_updated_at": updated.isoformat() if updated is not None else None,
+        "sharepoint_source_updated_at": provenance.extra.get("source_updated_at"),
+    }
+
+
 class SourceAdmissionPolicy:
     """Make change decisions without coupling correctness to a runtime cache."""
 
@@ -191,6 +214,7 @@ class CanonicalVersionPlanner:
             "table_captions": tuple(
                 table.caption for table in document.table_artifacts if table.caption
             ),
+            **_sharepoint_projected_fields(document, source_identity),
         }
 
     @staticmethod

@@ -42,7 +42,16 @@ _DOCUMENT_KIND_BY_CONNECTOR = {
 }
 # SharePoint is an extensible connector type, so it is matched by its string value.
 _SHAREPOINT_CONNECTOR = "sharepoint"
-_SHAREPOINT_EXTRA_FIELDS = ("site_id", "drive_id", "item_id")
+_SHAREPOINT_EXTRA_FIELDS = ("site_id", "drive_id", "item_id", "page_id")
+
+
+def _present_text(value: object) -> str | None:
+    """Return the stripped text, or ``None`` when the value is absent or blank."""
+
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
 
 
 def _utc_iso(value: Any) -> str | None:
@@ -65,7 +74,11 @@ def _utc_iso(value: Any) -> str | None:
             return None
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=UTC)
-    return parsed.astimezone(UTC).isoformat()
+    try:
+        return parsed.astimezone(UTC).isoformat()
+    except OverflowError:
+        # e.g. 0001-01-01T00:00:00+01:00 has no representable UTC equivalent.
+        return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -287,11 +300,17 @@ class CanonicalChunkFactory:
         # provenance onto its chunks. Its parent's item id is what links a CV back
         # to the issue whose fields describe it, so every chunk carries it.
         parent = values.request.document.provenance.extra.get("parent_source_item_id")
+        identity = cls._source_identity(values.request)
+        # The document's update time is only a fallback: a candidate's own time wins.
+        document_updated = identity.pop("source_updated_at", None)
         return {
             **({"parent_source_item_id": str(parent)} if parent else {}),
             **cls._local_timestamps(values.request),
-            **cls._source_identity(values.request),
+            **({"source_updated_at": document_updated} if document_updated else {}),
             **values.candidate.metadata,
+            # The document's identity is authoritative: a candidate's copy of these
+            # keys must not attribute the chunk to another site, drive or item.
+            **identity,
             "source_version": cls._source_value(
                 values.request,
                 "source_version",
@@ -321,14 +340,15 @@ class CanonicalChunkFactory:
         extra = document.provenance.extra
         values: dict[str, str] = {}
         for key in _SHAREPOINT_EXTRA_FIELDS:
-            value = extra.get(key)
-            if value is not None and str(value).strip():
-                values[key] = str(value).strip()
-        web_url = document.provenance.url or extra.get("url")
-        if web_url is not None and str(web_url).strip():
-            values["web_url"] = str(web_url).strip()
-        if document.provenance.author:
-            values["author"] = document.provenance.author
+            text = _present_text(extra.get(key))
+            if text is not None:
+                values[key] = text
+        web_url = _present_text(document.provenance.url or extra.get("url"))
+        if web_url is not None:
+            values["web_url"] = web_url
+        author = _present_text(document.provenance.author)
+        if author is not None:
+            values["author"] = author
         updated = _utc_iso(extra.get("source_updated_at"))
         if updated is None:
             updated = _utc_iso(document.provenance.updated_at)

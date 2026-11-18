@@ -119,9 +119,9 @@ class VectorProjectionBuilder:
             "resolved_at",
             "due_date",
         ):
-            value = metadata.get(field)
-            if isinstance(value, (str, int)):
-                payload[field] = str(value)
+            text = _present_text(metadata.get(field))
+            if text is not None:
+                payload[field] = text
         # A chunk's own timestamps where the source has them -- a comment or an
         # attachment is written and edited on its own clock -- and the document's
         # otherwise, so every point can be narrowed or sorted by time.
@@ -161,6 +161,19 @@ class VectorProjectionBuilder:
         if isinstance(value, str) or not isinstance(value, (list, tuple)):
             return ()
         return tuple(text for item in value if item is not None and (text := str(item).strip()))
+
+
+def _present_text(value: object) -> str | None:
+    """Return a scalar as text, or ``None`` when it is absent or blank.
+
+    The payload model rejects blank optional text, so a blank value is omitted
+    rather than failing the whole projection batch.
+    """
+
+    if not isinstance(value, (str, int)):
+        return None
+    text = str(value)
+    return text if text.strip() else None
 
 
 def _graph_keys(graph: GraphProjectionBatch | None) -> tuple[dict[str, str], str | None]:
