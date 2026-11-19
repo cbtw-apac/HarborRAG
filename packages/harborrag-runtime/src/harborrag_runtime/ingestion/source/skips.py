@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Mapping
+from typing import TypedDict
 
 from harborrag_adapters.connectors.base import BaseConnector
 from harborrag_adapters.connectors.harbor_connector import HarborConnector
@@ -21,6 +22,11 @@ EXTRACTION_FAILED = "EXTRACTION_FAILED"
 DISCOVERY_SKIPS_KEY = "discovery_skipped_by_reason"
 _EXTRACTION_STAGE = "ParseAndNormalize"
 _RESULT_PAGE_SIZE = 200
+
+
+class SkipSummary(TypedDict):
+    skipped: int
+    skipped_by_reason: dict[str, int]
 
 
 def bind_connector_run(connector: BaseConnector | HarborConnector, run_id: str) -> None:
@@ -54,7 +60,7 @@ def discovery_skip_summary(
 async def run_skip_summary(
     control: IngestionControlPlaneDatabase,
     task_id: str,
-) -> dict[str, object]:
+) -> SkipSummary:
     """Combine discovery skips already on the task with per-document skips.
 
     Document-level skips are recounted from the document results on every
@@ -67,10 +73,10 @@ async def run_skip_summary(
     if isinstance(discovered, Mapping):
         counts.update({str(reason): int(count) for reason, count in discovered.items()})
     counts.update(await _document_skips(control, task_id))
-    return {
-        "skipped": sum(counts.values()),
-        "skipped_by_reason": dict(sorted(counts.items())),
-    }
+    return SkipSummary(
+        skipped=sum(counts.values()),
+        skipped_by_reason=dict(sorted(counts.items())),
+    )
 
 
 async def _document_skips(control: IngestionControlPlaneDatabase, task_id: str) -> Counter[str]:
