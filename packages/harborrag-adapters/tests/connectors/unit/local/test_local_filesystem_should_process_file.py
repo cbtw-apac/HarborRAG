@@ -224,11 +224,40 @@ def test_discover_page_reports_oversized_file_past_the_page_cutoff(tmp_path: Pat
     ]
 
 
-def test_discover_does_not_report_intended_filter_misses(tmp_path: Path):
-    """Extension/glob exclusions are intended filtering, not reportable skips."""
+def test_discover_reports_extension_exclusion_with_reason(tmp_path: Path):
+    """An extension dropped by excluded_extensions is a named skip, like SharePoint's."""
     write_file(tmp_path / "keep.txt", b"ok")
     write_file(tmp_path / "drop.md", b"ok")
     connector = LocalFileConnector(config(tmp_path, excluded_extensions={".md"}))
+
+    records = list(connector.discover())
+
+    assert [r.metadata["relative_path"] for r in records] == ["keep.txt"]
+    assert [(Path(s.path).name, s.reason, s.detail) for s in connector.skipped] == [
+        ("drop.md", "unsupported_extension", "extension '.md' is excluded")
+    ]
+
+
+def test_discover_reports_extension_not_in_allowed_list(tmp_path: Path):
+    write_file(tmp_path / "keep.txt", b"ok")
+    write_file(tmp_path / "legacy.doc", b"ok")
+    write_file(tmp_path / "README", b"ok")
+    connector = LocalFileConnector(config(tmp_path, allowed_extensions={".txt"}))
+
+    records = list(connector.discover())
+
+    assert [r.metadata["relative_path"] for r in records] == ["keep.txt"]
+    assert sorted((Path(s.path).name, s.detail) for s in connector.skipped) == [
+        ("README", "extension '<none>' is not allowed"),
+        ("legacy.doc", "extension '.doc' is not allowed"),
+    ]
+
+
+def test_discover_does_not_report_glob_filter_misses(tmp_path: Path):
+    """Glob exclusions stay intended filtering, not reportable skips."""
+    write_file(tmp_path / "keep.txt", b"ok")
+    write_file(tmp_path / "drop.txt", b"ok")
+    connector = LocalFileConnector(config(tmp_path, exclude_globs=["drop*"]))
 
     records = list(connector.discover())
 

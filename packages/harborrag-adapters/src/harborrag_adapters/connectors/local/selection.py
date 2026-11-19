@@ -93,7 +93,11 @@ class LocalFileSelector:
         extension = file_extension(path)
         allowed = extension_filter(self.config, query, "allowed_extensions")
         excluded = extension_filter(self.config, query, "excluded_extensions")
-        if (allowed and extension not in allowed) or extension in excluded:
+        if allowed and extension not in allowed:
+            self.skips.unsupported_extension(path, extension=extension, reason="is not allowed")
+            return False
+        if extension in excluded:
+            self.skips.unsupported_extension(path, extension=extension, reason="is excluded")
             return False
         include_paths = path_filter(self.config, query, "include_paths")
         if include_paths and not any(

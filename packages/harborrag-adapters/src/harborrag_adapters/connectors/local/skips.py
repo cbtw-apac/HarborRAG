@@ -11,6 +11,7 @@ from harborrag_adapters.connectors.schemas import (
     SKIP_REASON_OUT_OF_SCOPE,
     SKIP_REASON_SIZE_LIMIT_EXCEEDED,
     SKIP_REASON_UNREADABLE,
+    SKIP_REASON_UNSUPPORTED_EXTENSION,
     ConnectorSkip,
 )
 
@@ -59,6 +60,15 @@ class LocalSkipReport:
             path,
             reason=SKIP_REASON_SIZE_LIMIT_EXCEEDED,
             detail=f"exceeds size limit: {size} bytes > max_file_size_bytes {limit}",
+        )
+
+    def unsupported_extension(self, path: str | Path, *, extension: str, reason: str) -> None:
+        """Record a file dropped by ``allowed_extensions`` or ``excluded_extensions``."""
+        shown = extension or "<none>"
+        self.record(
+            path,
+            reason=SKIP_REASON_UNSUPPORTED_EXTENSION,
+            detail=f"extension {shown!r} {reason}",
         )
 
     def unreadable(self, path: str | Path, *, error: OSError) -> None:

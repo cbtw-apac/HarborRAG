@@ -95,6 +95,8 @@ class SourceFinalizationService:
             status=summary.task_state(),
             removal_candidates=removals,
             unresolved_relations=unresolved_relations,
+            skipped=skips["skipped"],
+            skipped_by_reason=skips["skipped_by_reason"],
         )
         logger.info(
             "Source finalization completed task_id=%s status=%s discovered=%d "

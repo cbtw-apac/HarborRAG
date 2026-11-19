@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Mapping
 
 from harborrag_adapters.connectors.base import BaseConnector
 from harborrag_adapters.connectors.harbor_connector import HarborConnector
@@ -30,6 +31,7 @@ from .models import (
 )
 from .operations import SourceDocumentOperations
 from .retry import SourceRetryService
+from .skips import DISCOVERY_SKIPS_KEY
 from .tasks import pending_source_task, source_scan_id
 
 logger = logging.getLogger("harborrag.runtime.ingestion.source")
@@ -309,6 +311,21 @@ class SourceIngestionService(SourceDocumentOperations):
 
         await self._control.source_scans.complete(scan_id)
         logger.debug("Source discovery scan completed scan_id=%s", scan_id)
+
+    async def discovery_skip_counts(self, task_id: str) -> dict[str, int]:
+        """Return the discovery-time skip counts recorded on the task so far."""
+
+        task = await self._control.tasks.get(task_id)
+        if task is None:
+            return {}
+        reasons = task.summary.get(DISCOVERY_SKIPS_KEY)
+        if not isinstance(reasons, Mapping):
+            return {}
+        return {
+            str(reason): int(count)
+            for reason, count in reasons.items()
+            if isinstance(count, int) and not isinstance(count, bool)
+        }
 
     async def record_discovery_planned(self, task_id: str, document_count: int) -> None:
         """Expose durable coarse progress without leaking workflow activities."""

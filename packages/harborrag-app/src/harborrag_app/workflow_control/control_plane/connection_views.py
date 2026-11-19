@@ -20,6 +20,8 @@ from harborrag_core.ingestion import IngestionTask, IngestionTaskState
 from harborrag_core.security.secret_refs import credentials_view
 from harborrag_runtime.ingestion_contracts import RunKind
 
+from ..ingestion.presenters import discovery_skipped_count
+
 _ETAG = re.compile(r'^(?:W/)?"rev-(\d+)"$')
 ANY_VERSION = -2
 
@@ -227,7 +229,9 @@ def ingestion_counters(task: IngestionTask, progress: Mapping[str, int]) -> dict
     if RunKind.of(request) is RunKind.RETRY and not discovered and isinstance(document_ids, list):
         discovered = len(document_ids)
     processed = progress.get("published", 0)
-    skipped = progress.get("unchanged", 0) + progress.get("skipped", 0)
+    skipped = (
+        progress.get("unchanged", 0) + progress.get("skipped", 0) + discovery_skipped_count(summary)
+    )
     failed = progress.get("failed", 0)
     return {
         "discovered": max(discovered, processed + skipped + failed),

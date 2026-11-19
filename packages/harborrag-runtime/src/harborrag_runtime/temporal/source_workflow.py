@@ -202,6 +202,7 @@ class SourceIngestionWorkflow:
     def __init__(self) -> None:
         self._summary = DocumentDispatchSummary()
         self._discovered = 0
+        self._skipped_by_reason: dict[str, int] = {}
         self._batch_number = 0
         self._task_id = "pending"
         self._status = "PENDING"
@@ -221,6 +222,7 @@ class SourceIngestionWorkflow:
         self._status = "RUNNING"
         discovery, start_index = await self._initial_state(request)
         self._discovered = discovery.document_count
+        self._skipped_by_reason = dict(discovery.skipped_by_reason)
         if await self._stop_requested(request):
             return await self._cancelled_result(request, discovery)
         completed_in_run = 0
@@ -260,6 +262,7 @@ class SourceIngestionWorkflow:
                                 next_document_index=end,
                                 batch_number=self._batch_number,
                                 summary=self._summary,
+                                skipped_by_reason=self._skipped_by_reason,
                             ),
                         )
                     )
@@ -331,6 +334,7 @@ class SourceIngestionWorkflow:
                     scan_id=continuation.scan_id,
                     plan_reference=continuation.plan_reference,
                     document_count=continuation.document_count,
+                    skipped_by_reason=continuation.skipped_by_reason,
                 ),
                 continuation.next_document_index,
             )
@@ -610,6 +614,8 @@ class SourceIngestionWorkflow:
             removal_candidates=(),
             unresolved_relations=0,
             status="CANCELLED",
+            skipped=sum(self._skipped_by_reason.values()),
+            skipped_by_reason=dict(self._skipped_by_reason),
         )
 
     @workflow.signal
@@ -652,5 +658,6 @@ class SourceIngestionWorkflow:
             "published": self._summary.published,
             "unchanged": self._summary.unchanged,
             "failed": self._summary.failed,
+            "skipped": sum(self._skipped_by_reason.values()),
             "completed_batches": self._batch_number,
         }

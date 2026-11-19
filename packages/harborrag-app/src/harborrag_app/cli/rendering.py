@@ -46,6 +46,7 @@ _METRICS = (
     ("Processed", "processed", "blue"),
     ("Published", "published", "green"),
     ("Unchanged", "unchanged", "dim"),
+    ("Skipped", "skipped", "yellow"),
     ("Failed", "failed", "red"),
     ("Batches", "completed_batches", "cyan"),
 )
@@ -258,6 +259,7 @@ class CliRenderer:
                     "discovered",
                     "published",
                     "unchanged",
+                    "skipped",
                     "failed",
                 )
                 if key in summary
