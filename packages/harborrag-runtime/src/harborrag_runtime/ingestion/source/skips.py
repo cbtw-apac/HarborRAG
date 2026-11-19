@@ -12,11 +12,14 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Mapping
-from typing import TypedDict
+from typing import TYPE_CHECKING, TypedDict
 
-from harborrag_adapters.connectors.base import BaseConnector
-from harborrag_adapters.connectors.harbor_connector import HarborConnector
-from harborrag_adapters.repositories.database import IngestionControlPlaneDatabase
+if TYPE_CHECKING:
+    # Annotation-only: keeps the database and connector stacks (SQLAlchemy, etc.)
+    # out of modules that just need the constants, such as the CLI presenters.
+    from harborrag_adapters.connectors.base import BaseConnector
+    from harborrag_adapters.connectors.harbor_connector import HarborConnector
+    from harborrag_adapters.repositories.database import IngestionControlPlaneDatabase
 
 EXTRACTION_FAILED = "EXTRACTION_FAILED"
 DISCOVERY_SKIPS_KEY = "discovery_skipped_by_reason"

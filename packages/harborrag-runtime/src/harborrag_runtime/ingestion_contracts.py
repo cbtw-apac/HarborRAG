@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Protocol
 
@@ -199,6 +199,8 @@ class IngestionExecutionResult:
     unresolved_relations: int
     status: str = "COMPLETED"
     removal_count: int | None = None
+    skipped: int = 0
+    skipped_by_reason: dict[str, int] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.removal_count is None:
