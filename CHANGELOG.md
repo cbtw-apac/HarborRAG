@@ -72,6 +72,7 @@ action.
 - GitHub and SharePoint connections read only inside their configured `root_path`, and a run's filters can only narrow the connection's: a source type registers how a run filter combines with the connection's, such as Jira ANDing a run `jql` onto its own, and a filter without one cannot be set by a run once the connection sets it; Jira's `order by` inside a quoted JQL value no longer ends the condition
 - The local file connector sets a chunk's `created_at` to the file's creation time (`st_birthtime`, else `st_ctime`) and adds `updated_at` from the modification time
 - The destination policy refuses a private IPv4 address carried in NAT64 (`64:ff9b::/96`) or IPv4-compatible (`::/96`) IPv6 form, judging these addresses by the IPv4 address they carry; hosts and networks in `HARBORRAG_CONNECTOR_ALLOWED_HOSTS` keep working
+- The destination policy also refuses a private IPv4 address carried in the IPv4-translated (`::ffff:0:0:0/96`) IPv6 form
 
 #### harborrag-app
 
@@ -157,6 +158,7 @@ action.
 - `config/sources/schedules.yaml` and `config/mcp/keys.yaml` are git-ignored; each ships as an `.example.yaml` beside it
 - `opentelemetry-api` requires `>=1.45.2,<2` in `harborrag-adapters` (the `opentelemetry` extra) and `harborrag-runtime`
 - The `qdrant` extra of `harborrag-adapters` requires `qdrant-client>=1.17,<1.20` (was `>=1.10,<2`); the lock stays on 1.18.0
+- `harborrag-app` requires `typer>=0.24,<0.25` (was `<0.27`); Typer 0.26 bundles its own Click, so the CLI's usage errors would print a traceback and exit `1`
 - `config/temporal.example.yaml`, `config/models.example.yaml` and `config/harborrag.example.yaml` are removed
 - `env-example/.env.models.example` sets a model name and a key for chat and for embedding, and keeps the direct-provider and other-proxy examples commented out
 - `env-example/.env.mcp.example` sets the shared corpus for `DEFAULT`, so MCP tools find sources on a new deployment as chat does

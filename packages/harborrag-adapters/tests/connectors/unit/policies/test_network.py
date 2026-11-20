@@ -50,6 +50,10 @@ def test_private_loopback_link_local_and_reserved_addresses_are_blocked(address:
         "64:ff9b::ac12:1",
         "64:ff9b::c0a8:105",
         "64:ff9b::a9fe:a9fe",
+        "::ffff:0:7f00:1",
+        "::ffff:0:a00:1",
+        "::ffff:0:c0a8:105",
+        "::ffff:0:a9fe:a9fe",
         "::127.0.0.1",
         "::10.0.0.1",
         "::192.168.1.5",
@@ -64,7 +68,9 @@ def test_private_ipv4_embedded_in_ipv6_is_blocked(address: str) -> None:
         DestinationPolicy().check("jira.acme.internal", address)
 
 
-@pytest.mark.parametrize("address", ["64:ff9b::808:808", "::8.8.8.8", "::ffff:8.8.8.8"])
+@pytest.mark.parametrize(
+    "address", ["64:ff9b::808:808", "::8.8.8.8", "::ffff:8.8.8.8", "::ffff:0:808:808"]
+)
 def test_public_ipv4_embedded_in_ipv6_is_judged_like_the_ipv4(address: str) -> None:
     DestinationPolicy().check("api.github.com", address)
 

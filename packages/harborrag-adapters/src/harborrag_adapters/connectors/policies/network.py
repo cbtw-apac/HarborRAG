@@ -38,6 +38,7 @@ USE_PROXY_VARIABLE = "HARBORRAG_CONNECTOR_USE_PROXY"
 _TRUE = frozenset({"1", "true", "yes", "on"})
 _NAT64_PREFIX = IPv6Network("64:ff9b::/96")
 _IPV4_COMPATIBLE_PREFIX = IPv6Network("::/96")
+_IPV4_TRANSLATED_PREFIX = IPv6Network("::ffff:0:0:0/96")
 _UNSPECIFIED_AND_LOOPBACK = IPv6Network("::/127")
 _IPV4_MASK = 0xFFFFFFFF
 
@@ -121,8 +122,8 @@ class DestinationPolicy:
     def check(self, host: str, address: str) -> None:
         """Refuse ``address`` unless it is public, or ``host`` or ``address`` is allowed.
 
-        An IPv6 address that carries an IPv4 address (IPv4-mapped, NAT64 or
-        IPv4-compatible) is judged by the IPv4 address it carries.
+        An IPv6 address that carries an IPv4 address (IPv4-mapped, IPv4-translated,
+        NAT64 or IPv4-compatible) is judged by the IPv4 address it carries.
 
         Args:
             host: Host name the address was resolved from.
@@ -146,13 +147,15 @@ class DestinationPolicy:
 
 
 def _embedded_ipv4(address: IPv4Address | IPv6Address) -> IPv4Address | None:
-    """Return the IPv4 address an IPv6 address carries as IPv4-mapped, NAT64 or IPv4-compatible."""
+    """Return the IPv4 address an IPv6 address carries as IPv4-mapped, IPv4-translated, NAT64 or IPv4-compatible."""
     if not isinstance(address, IPv6Address):
         return None
     if address.ipv4_mapped is not None:
         return address.ipv4_mapped
-    if address in _NAT64_PREFIX or (
-        address in _IPV4_COMPATIBLE_PREFIX and address not in _UNSPECIFIED_AND_LOOPBACK
+    if (
+        address in _NAT64_PREFIX
+        or address in _IPV4_TRANSLATED_PREFIX
+        or (address in _IPV4_COMPATIBLE_PREFIX and address not in _UNSPECIFIED_AND_LOOPBACK)
     ):
         return IPv4Address(int(address) & _IPV4_MASK)
     return None

@@ -2332,7 +2332,7 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6.0,<7" },
     { name = "rich", specifier = ">=14,<16" },
     { name = "sse-starlette", marker = "extra == 'api'", specifier = ">=2.1" },
-    { name = "typer", specifier = ">=0.24,<0.27" },
+    { name = "typer", specifier = ">=0.24,<0.25" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'api'", specifier = ">=0.30" },
     { name = "websockets", marker = "extra == 'api'", specifier = ">=12" },
 ]
