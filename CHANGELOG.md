@@ -140,11 +140,12 @@ action.
 - Local Markdown links in angle brackets, or to a name that starts with a space, now link the two documents
 - A local folder whose name ends in a space can be excluded
 - Attachment failure logs name the attachment by its ID instead of its title
-- SharePoint path allowlists match folders named with a no-break space, and accept a folder path that starts with the library's name
+- SharePoint path allowlists match folders named with a no-break space, and accept a folder path that starts with the library's name, also for a library chosen by its ID
 - Files whose name ends in a zero-width space keep their file type instead of being skipped
 - Confluence Data Center page links keep a `+` in the page title
 - A Confluence page whose own or parent page's title is only no-break spaces is ingested instead of failing
-- Confluence and Jira attachment downloads follow a redirect whose file name has accented or other non-ASCII characters
+- Connector downloads follow a redirect whose target has accented or other non-ASCII characters, in any encoding, instead of failing
+- A malformed link in a local Markdown file no longer fails the document
 
 #### harborrag-app
 
@@ -162,6 +163,7 @@ action.
 #### harborrag-core
 
 - Local and GitHub files with spaces in their file or folder name are ingested instead of failing
+- Files whose paths differ only in spacing, such as a trailing or no-break space, stay separate documents
 
 #### harborrag-engine
 

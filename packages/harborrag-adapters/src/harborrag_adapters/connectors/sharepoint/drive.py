@@ -39,6 +39,7 @@ from .drive_paths import (
     item_path,
     matches_pattern,
     site_path_endpoint,
+    validate_graph_id_segment,
 )
 from .mappers import build_source_record, parse_timestamp
 from .skips import (
@@ -617,8 +618,23 @@ class SharePointDriveAPI:
         resolved = [*(self._drives or ()), *((self._drive,) if self._drive else ())]
         for drive in resolved:
             if drive_id and str(drive.get("id")) == drive_id:
-                return library_names(drive)
+                return library_names(self._with_names(drive))
         return ()
+
+    def _with_names(self, drive: dict[str, Any]) -> dict[str, Any]:
+        """Return a resolved drive with its names, fetched once for a drive set by ID.
+
+        A drive configured by ``drive_id`` starts without its web URL. It is fetched
+        only when a path prefix could start with the library's name, so a one-folder
+        allowlist never depends on the lookup. Graph request errors pass through.
+        """
+        if "webUrl" in drive or not self.allowlist.may_name_a_library():
+            return drive
+        drive_id = validate_graph_id_segment(str(drive.get("id") or ""), label="drive_id")
+        fetched = self.client.get_json(f"drives/{drive_id}", params={"$select": DRIVE_SELECT})
+        drive["name"] = drive.get("name") or fetched.get("name")
+        drive["webUrl"] = fetched.get("webUrl")
+        return drive
 
     def _callback_allows_file(self, item: dict[str, Any]) -> bool:
         """Ask the configured ``process_file_callback`` whether to keep a file.

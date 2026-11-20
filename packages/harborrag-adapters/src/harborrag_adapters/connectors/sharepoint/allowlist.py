@@ -92,16 +92,24 @@ class SharePointAllowlist:
         """Return the configured prefixes, plus each one written from the library down.
 
         Prefixes are relative to the library, so ``Shared Documents/Q3 Plans`` in
-        the library named ``Shared Documents`` also allows ``Q3 Plans``.
+        the library named ``Shared Documents`` also allows ``Q3 Plans``. A prefix
+        that is only the library's name still names a folder of that name. The
+        whole library is allowed only by the root prefix ``/``.
         """
         prefixes = self.config.allowed_path_prefixes
         if prefixes is None:
             return None
         names = {path_match_key(name) for name in library_names}
         inside_library = [
-            prefix.partition("/")[2] for prefix in prefixes if prefix.partition("/")[0] in names
+            folder_path
+            for library, _, folder_path in (prefix.partition("/") for prefix in prefixes)
+            if folder_path and library in names
         ]
         return [*prefixes, *inside_library]
+
+    def may_name_a_library(self) -> bool:
+        """Return whether a configured prefix has a folder after its first name."""
+        return any("/" in prefix for prefix in self.config.allowed_path_prefixes or ())
 
 
 def library_names(drive: dict[str, Any]) -> tuple[str, ...]:

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import pytest
 import requests_mock
-from harbor_test_builders import FakeResponse, FakeSession
 
 from harborrag_adapters.connectors.confluence.client import _RequestsConfluenceClient
 from harborrag_adapters.connectors.confluence.config import ConfluenceSpaceConfig
@@ -62,19 +61,22 @@ def test_download_bytes_redirect_location_is_followed_as_sent(
 
 
 def test_download_bytes_redirect_location_not_utf8_is_followed_as_received() -> None:
-    """A Location that is not UTF-8 text is followed unchanged."""
+    """A Location whose bytes are not UTF-8 is followed to exactly those bytes.
+
+    http.client hands the single byte 0xE9 over as the character U+00E9. Requests
+    decodes it as UTF-8 while sending even without following redirects, so the real
+    session is used here rather than a stand-in.
+    """
     client = _client()
-    location = f"{MEDIA_URL}?name=caf\u00e9.pdf"
-    client.session = FakeSession(
-        responses=[FakeResponse(status_code=302, headers={"Location": location})]
-    )
+    location = f"{MEDIA_URL}?name=caf\xe9.pdf"
     with requests_mock.Mocker() as mocker:
+        mocker.get(DOWNLOAD_URL, status_code=302, headers={"Location": location})
         mocker.get(MEDIA_URL, content=ATTACHMENT_BYTES)
 
         body = client.download_bytes(DOWNLOAD_URL)
 
     assert body == ATTACHMENT_BYTES
-    assert mocker.request_history[0].url == f"{MEDIA_URL}?name=caf%C3%A9.pdf"
+    assert mocker.request_history[1].url == f"{MEDIA_URL}?name=caf%E9.pdf"
 
 
 def test_download_bytes_untrusted_raw_utf8_redirect_is_refused() -> None:

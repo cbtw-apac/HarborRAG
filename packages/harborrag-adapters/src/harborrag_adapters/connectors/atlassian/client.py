@@ -32,7 +32,7 @@ from harborrag_adapters.connectors.policies.http import (
     safe_response_error_detail,
     same_origin,
 )
-from harborrag_adapters.connectors.policies.network import guarded_session
+from harborrag_adapters.connectors.policies.network import guarded_session, redirect_location
 from harborrag_adapters.connectors.rate_limiting import (
     ConnectorRateLimiter,
     LocalIntervalRateLimiter,
@@ -67,21 +67,6 @@ def _is_trusted_redirect(location: str, base_url: str) -> bool:
     if (parsed.hostname or "").lower() in _TRUSTED_MEDIA_REDIRECT_HOSTS:
         return True
     return same_origin(location, base_url)
-
-
-def _redirect_location(response: requests.Response) -> str:
-    """Return a response's Location header as the text the server sent.
-
-    http.client decodes header bytes as latin-1, which turns a raw UTF-8 Location
-    into mojibake. Re-encoding as latin-1 and decoding as UTF-8 undoes that, the
-    same repair requests applies to the redirects it follows itself. A value that
-    does not survive the round trip is returned unchanged.
-    """
-    location = response.headers.get("Location") or ""
-    try:
-        return location.encode("latin-1").decode("utf-8")
-    except UnicodeError:
-        return location
 
 
 class AtlassianHttpConfig(Protocol):
@@ -213,7 +198,7 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
         refused. The trusted target is fetched anonymously, so the Confluence or
         Jira credentials never reach another origin.
         """
-        location = _redirect_location(response)
+        location = redirect_location(response.headers.get("Location") or "")
         response.close()
         if not location or not _is_trusted_redirect(location, self.base_url):
             raise FetchError(f"{label} refused HTTP redirect {response.status_code}")

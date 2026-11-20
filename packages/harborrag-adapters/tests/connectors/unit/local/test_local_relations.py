@@ -95,6 +95,21 @@ def test_local_markdown_named_with_a_trailing_space_is_read_for_links(tmp_path: 
     assert [relation["target_id"] for relation in relations] == ["reference.md"]
 
 
+def test_local_malformed_link_is_skipped_without_failing_the_document(tmp_path: Path) -> None:
+    """A link that is not a valid URL resolves to nothing, and the other links still resolve."""
+    source = tmp_path / "start.md"
+    (tmp_path / "reference.md").write_text("reference", encoding="utf-8")
+    source.write_text("[Broken](<https://[broken>) and [Reference](reference.md)", encoding="utf-8")
+
+    relations = LocalDocumentRelationResolver(tmp_path).relations(
+        source_path=source,
+        content=source.read_bytes(),
+        media_type="text/markdown",
+    )
+
+    assert [relation["target_id"] for relation in relations] == ["reference.md"]
+
+
 def test_local_link_outside_source_root_is_ignored(
     tmp_path: Path,
 ) -> None:

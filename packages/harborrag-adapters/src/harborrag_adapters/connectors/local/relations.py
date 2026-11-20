@@ -78,7 +78,9 @@ class LocalDocumentRelationResolver:
         """Return the existing file a link points to beneath the root, or None.
 
         The link is split before it is percent-decoded, and its literal spaces are
-        encoded first, so a target name may start with a space or hold ``#``.
+        encoded first, so a target name may start with a space or hold ``#``. A
+        destination that is not a valid URL, such as ``https://[broken``, has no
+        local target.
         A document may link to a file outside the indexed tree. That link is not
         a local relation, and it never turns document content into an ingestion
         failure.
@@ -86,7 +88,10 @@ class LocalDocumentRelationResolver:
         written = raw_target.strip().strip("<>")
         if not written or written.startswith("#"):
             return None
-        parsed = urlsplit(written.replace(" ", "%20"))
+        try:
+            parsed = urlsplit(written.replace(" ", "%20"))
+        except ValueError:
+            return None
         if parsed.scheme.casefold() in _IGNORED_SCHEMES or parsed.netloc:
             return None
         path_value = unquote(parsed.path)

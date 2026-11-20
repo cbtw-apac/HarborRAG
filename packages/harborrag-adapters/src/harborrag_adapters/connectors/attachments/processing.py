@@ -14,7 +14,11 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Literal
 
 from harborrag_adapters.connectors.exceptions import FetchError
-from harborrag_adapters.connectors.file_filters import ExtensionFilter, file_name_extension
+from harborrag_adapters.connectors.file_filters import (
+    ExtensionFilter,
+    file_name_extension,
+    trim_file_name,
+)
 from harborrag_adapters.connectors.limits import DEFAULT_MAX_DOCUMENT_BYTES
 from harborrag_core.domain.parser import ParseInput
 from harborrag_core.security.redaction import redact_secrets
@@ -350,9 +354,14 @@ class AttachmentProcessor:
 
     @staticmethod
     def _title(attachment: dict) -> str:
-        return str(
-            attachment.get("title") or attachment.get("filename") or attachment.get("name") or ""
-        ).strip()
+        return trim_file_name(
+            str(
+                attachment.get("title")
+                or attachment.get("filename")
+                or attachment.get("name")
+                or ""
+            )
+        )
 
     @staticmethod
     def _created_at(attachment: dict) -> str | None:
