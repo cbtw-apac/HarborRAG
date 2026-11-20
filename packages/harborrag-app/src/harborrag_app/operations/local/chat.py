@@ -90,6 +90,7 @@ class ChatOps:
                 scope.tenant_id, scope.principal.subject, scope.principal.user_id
             ),
             replay=ReplayKey(idempotency_key, body.idempotency_hash()),
+            validate_body=ChatCompletionResponse.model_validate_json,
         )
         answer = _stored_answer(outcome)
         if body.stream:

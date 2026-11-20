@@ -854,4 +854,13 @@ def test_api_and_worker_share_one_tenant_setting(compose_file: str) -> None:
     environment = document["services"][service]["environment"]
 
     assert environment["HARBORRAG_TENANT_ID"] == "${HARBORRAG_TENANT_ID:-DEFAULT}"
-    assert "INGESTION_TENANT_ID" not in text
+
+
+def test_the_worker_receives_the_removed_tenant_name_so_it_refuses_to_start() -> None:
+    worker = yaml.safe_load(
+        (ROOT / "deploy/compose/docker-compose.temporal.yml").read_text(encoding="utf-8")
+    )["services"]["temporal-worker"]["environment"]
+    api = (ROOT / "deploy/compose/docker-compose.yml").read_text(encoding="utf-8")
+
+    assert worker["HARBORRAG_INGESTION_TENANT_ID"] == "${HARBORRAG_INGESTION_TENANT_ID:-}"
+    assert "INGESTION_TENANT_ID" not in api

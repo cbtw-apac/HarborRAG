@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable
 
 from harborrag_core.contracts.errors import (
     HarborConnectionError,
@@ -92,7 +92,12 @@ class ChatClientMixin:
         return result
 
     async def complete_chat_request(
-        self, request: CompletionRequest, *, caller: CompletionCaller, replay: ReplayKey
+        self,
+        request: CompletionRequest,
+        *,
+        caller: CompletionCaller,
+        replay: ReplayKey,
+        validate_body: Callable[[str], object],
     ) -> CompletionOutcome:
         """Answer one completion request once, replaying the stored answer for a repeated key.
 
@@ -104,6 +109,9 @@ class ChatClientMixin:
             request: The question and its narrowing.
             caller: Who asks, from verified claims.
             replay: The idempotency key and the hash of the request body.
+            validate_body: Checks the completion JSON against the transport's response model
+                and raises when it does not fit; the key is then recorded as failed instead of
+                completed, and the error propagates.
 
         Returns:
             The completion as JSON, and whether it was replayed.
@@ -136,6 +144,11 @@ class ChatClientMixin:
             )
         )
         body = json.dumps(completion.data(), ensure_ascii=False, separators=(",", ":"))
+        try:
+            validate_body(body)
+        except BaseException:
+            await attempt.finish()
+            raise
         await attempt.finish(body, session_id=completion.session_id)
         return CompletionOutcome(body, replayed=False)
 

@@ -43,6 +43,12 @@ def test_the_old_tenant_variable_stops_startup(monkeypatch: pytest.MonkeyPatch) 
         RuntimeSettings()
 
 
+def test_a_blank_old_tenant_variable_counts_as_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HARBORRAG_INGESTION_TENANT_ID", "")
+
+    assert RuntimeSettings().tenant_id == "DEFAULT"
+
+
 def test_topology_retrieval_policy_is_versioned_configurable_and_bounded(monkeypatch) -> None:
     monkeypatch.setenv(
         "HARBORRAG_TOPOLOGY_RETRIEVAL_POLICY",

@@ -14,7 +14,7 @@ from harborrag_engine.control_plane.connection_views import ingestion_status
 from harborrag_engine.ingestion.operations import IngestionOperations
 from harborrag_engine.ingestion.presenters import TERMINAL_STATES
 
-_ENDED_STATUSES = frozenset(ingestion_status(state) for state in TERMINAL_STATES)
+ENDED_STATUSES = frozenset(ingestion_status(state) for state in TERMINAL_STATES)
 
 
 class IngestionEventStream(Protocol):
@@ -59,7 +59,7 @@ class IngestionFollower:
         """
         run = await self._runs.get(tenant_id=tenant_id, ingestion_id=ingestion_id)
         events = self._events(ingestion_id, after_seq=after_seq)
-        if run["status"] not in _ENDED_STATUSES:
+        if run["status"] not in ENDED_STATUSES:
             return events
         try:
             first = await events.__anext__()

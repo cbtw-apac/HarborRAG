@@ -18,6 +18,7 @@ from typing import Literal
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from harborrag_core.domain.identity import DEFAULT_TENANT_ID
 from harborrag_core.ingestion.limits import MAX_BATCH_SIZE, MAX_DOCUMENT_CONCURRENCY
 from harborrag_core.invariants import HarborInvariantError
 from harborrag_core.security import RemoteTransportPolicy
@@ -72,7 +73,7 @@ class RuntimeSettings(MemorySettingsMixin, BaseSettings):
     # staging is held to every prod guard: each check below tests env != "dev".
     env: Literal["dev", "staging", "prod"] = "dev"
     tenant_id: str = Field(
-        default="DEFAULT",
+        default=DEFAULT_TENANT_ID,
         min_length=1,
         max_length=128,
         pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$",
@@ -260,8 +261,8 @@ class RuntimeSettings(MemorySettingsMixin, BaseSettings):
     @model_validator(mode="before")
     @classmethod
     def reject_renamed_tenant_variable(cls, data: object) -> object:
-        """Refuse a process that still sets the removed ``HARBORRAG_INGESTION_TENANT_ID``."""
-        if "HARBORRAG_INGESTION_TENANT_ID" in os.environ:
+        """Refuse a process that still sets the removed ``HARBORRAG_INGESTION_TENANT_ID`` to a value."""
+        if os.environ.get("HARBORRAG_INGESTION_TENANT_ID"):
             raise ValueError("HARBORRAG_INGESTION_TENANT_ID was renamed to HARBORRAG_TENANT_ID")
         return data
 

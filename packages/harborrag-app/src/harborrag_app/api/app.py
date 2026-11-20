@@ -33,6 +33,7 @@ from harborrag_app.api.router import register_routes
 from harborrag_app.api.settings import ApiSettings
 from harborrag_app.operations.local import LocalOperations
 from harborrag_core.contracts.errors import HarborConfigurationError
+from harborrag_core.domain.identity import DEFAULT_TENANT_ID
 from harborrag_core.observability.process_logging import configure_logging
 from harborrag_runtime.application.composition.selection import select_app_service
 
@@ -45,7 +46,6 @@ _INGESTION_PROGRESS_INTERVAL_SECONDS = 2.0
 _CONTROL_PLANE_EFFECT_RECOVERY_INTERVAL_SECONDS = 30.0
 _CONNECTION_REMOVAL_RECOVERY_INTERVAL_SECONDS = 60.0
 _SCHEDULE_SYNC_RETRY_INTERVAL_SECONDS = 30.0
-DEFAULT_TENANT_ID = "DEFAULT"
 
 
 def _redirect_root(request: Request) -> RedirectResponse:

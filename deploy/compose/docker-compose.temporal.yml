@@ -228,6 +228,9 @@ services:
       # the shared tenant equals HARBORRAG_TENANT_ID, so they move together -- and
       # with the tenant in config/graph/build.yaml.
       HARBORRAG_TENANT_ID: ${HARBORRAG_TENANT_ID:-DEFAULT}
+      # The removed name reaches the container so RuntimeSettings stops the worker as it
+      # stops the API; blank counts as unset.
+      HARBORRAG_INGESTION_TENANT_ID: ${HARBORRAG_INGESTION_TENANT_ID:-}
       HARBORRAG_CORPUS_ACCESS_MODE: ${HARBORRAG_CORPUS_ACCESS_MODE:-source_acl}
       HARBORRAG_CORPUS_SHARED_TENANT_ID: ${HARBORRAG_CORPUS_SHARED_TENANT_ID:-}
       HARBORRAG_SUMMARY_PROCESSING_ALLOWED: "${HARBORRAG_SUMMARY_PROCESSING_ALLOWED:-false}"

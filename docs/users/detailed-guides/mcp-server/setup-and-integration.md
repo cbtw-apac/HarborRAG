@@ -338,7 +338,7 @@ unlocks the next:
 
 For an unbound owner token, the list holds every tenant that has a source
 scope in the database. It also holds the tenants from the server settings:
-`HARBORRAG_INGESTION_TENANT_ID` (`DEFAULT` when unset),
+`HARBORRAG_TENANT_ID` (`DEFAULT` when unset),
 `HARBORRAG_CORPUS_SHARED_TENANT_ID` and the tenants that
 `config/mcp/server.yaml` overrides. If the database does not answer within two
 seconds, the list holds the settings tenants only and the server logs a

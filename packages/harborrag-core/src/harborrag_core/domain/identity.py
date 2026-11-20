@@ -1,4 +1,4 @@
-"""Caller identity values: the fallback end user and who a chat turn is remembered for.
+"""Caller identity: the fallback tenant and user, and who a turn is remembered for.
 
 Pure values: no I/O and no configuration.
 """
@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from harborrag_core.ports.conversation import ConversationIdentity
 from harborrag_core.ports.memory import MemoryOwner
 
+DEFAULT_TENANT_ID = "DEFAULT"
 DEFAULT_USER = "DEFAULT_USER"
 
 
