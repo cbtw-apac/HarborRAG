@@ -114,7 +114,11 @@ HARBORRAG_RERANKER_MODEL=<the gateway's rerank model name>
 HARBORRAG_RERANKER_API_KEY=<gateway key>
 ```
 
-Set both. With a model and no key, the server stops at start-up and names the empty
+Set the key whenever the gateway needs one. The shipped catalog's `litellm_proxy`
+provider can run without a key, so the services start without it. A gateway that
+requires a key then refuses each rerank call, and chat fails while `retrieval.rerank` is
+on. A catalog of your own whose rerank provider
+always needs a key, such as `cohere`, stops at start-up instead and names the empty
 variable. The three keys may be the same gateway key. Restart the API, the worker and
 the MCP server after you change `env/.env.models`.
 

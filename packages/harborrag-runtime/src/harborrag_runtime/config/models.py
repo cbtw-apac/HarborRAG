@@ -62,8 +62,10 @@ def has_rerank_model(path: str | Path) -> bool:
         Whether a ``rerank`` section is present and names at least one model.
 
     Raises:
-        ValueError: A named rerank model reads its ``api_key`` from a variable
-            that is empty, so the first rerank call would be refused.
+        ValueError: A named rerank model's provider requires an API key, and its
+            ``api_key`` reads a variable that is empty, so every rerank call would
+            be refused. A provider that needs no key, such as ``vllm`` or
+            ``litellm_proxy``, may leave it empty.
     """
     from harborrag_adapters.models.runtime import expand_environment, load_config_document
 
@@ -97,13 +99,34 @@ def _rerank_deployments(section: object) -> list[Mapping[str, Any]] | None:
 
 
 def _require_rerank_key(deployment: Mapping[str, Any]) -> None:
-    """Refuse a rerank deployment whose key variable is set to nothing."""
+    """Refuse an empty key variable when the deployment's provider requires a key.
+
+    An unknown provider is left to the loader, which names the supported ones.
+    """
     from harborrag_adapters.models.runtime import expand_environment
 
     key = deployment.get("api_key")
     variables = _VARIABLE_REFERENCE.findall(key) if isinstance(key, str) else []
-    if variables and not str(expand_environment(key)).strip():
+    if not variables or str(expand_environment(key)).strip():
+        return
+    if _rerank_provider_requires_key(deployment.get("provider")):
         raise ValueError(f"{', '.join(variables)} is empty, and the rerank model needs it")
+
+
+def _rerank_provider_requires_key(provider: object) -> bool:
+    """Whether the rerank provider registry marks ``provider`` as needing an API key."""
+    from harborrag_adapters.models.rerank.registry import (
+        HarborRerankProvider,
+        RerankProviderRegistry,
+    )
+    from harborrag_adapters.models.runtime import expand_environment
+
+    name = str(expand_environment(provider)).strip() if isinstance(provider, str) else ""
+    try:
+        known = HarborRerankProvider(name)
+    except ValueError:
+        return False
+    return RerankProviderRegistry.default().get(known).requires_api_key
 
 
 def _deployment_names(models: Mapping[str, Any]) -> tuple[str, ...]:

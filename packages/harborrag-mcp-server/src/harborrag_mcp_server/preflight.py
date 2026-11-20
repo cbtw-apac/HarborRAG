@@ -1,13 +1,13 @@
 """Start-up check for the MCP server.
 
 Runs the lifespan the transport would run, then stops it. It opens no listener
-and serves no request, and a failure description never repeats a rejected
-setting value.
+and serves no request. A failure description leaves out a validation message
+that repeats eight or more characters of a rejected setting value.
 """
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterator, Mapping
 from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from pydantic_core import ErrorDetails
 
 _MAX_DESCRIPTION_CHARACTERS = 300
+_SHORTEST_REPEAT_CHARACTERS = 8
 
 
 async def start_and_stop(
@@ -43,9 +44,11 @@ def describe_startup_failure(error: BaseException) -> str:
     A message that spans several lines, as a gRPC error's does, is joined, because
     its first line alone does not say what failed.
     A settings validation error lists each field and what is wrong with it,
-    because its own text repeats the rejected values. An error raised while the
-    lifespan is running arrives in an exception group, so the first member is
-    described.
+    because its own text repeats the rejected values. A validator writes its own
+    message and may quote what it rejects, so a message that shares a run of
+    eight characters with a rejected value is replaced by the error type. An
+    error raised while the lifespan is running arrives in an exception group, so
+    the first member is described.
     """
     while isinstance(error, BaseExceptionGroup) and error.exceptions:
         error = error.exceptions[0]
@@ -60,5 +63,31 @@ def describe_startup_failure(error: BaseException) -> str:
 
 
 def _field_problem(detail: ErrorDetails) -> str:
+    """Describe one validation error by its field and a message that quotes no input."""
     field = ".".join(str(part) for part in detail["loc"])
-    return f"{field}: {detail['msg']}" if field else detail["msg"]
+    message = detail["msg"]
+    if _repeats_input(message, detail.get("input")):
+        message = f"invalid value ({detail['type']})"
+    return f"{field}: {message}" if field else message
+
+
+def _repeats_input(message: str, rejected: object) -> bool:
+    """Whether ``message`` contains a run of characters taken from a rejected string."""
+    size = _SHORTEST_REPEAT_CHARACTERS
+    return any(
+        value[start : start + size] in message
+        for value in _strings(rejected)
+        for start in range(len(value) - size + 1)
+    )
+
+
+def _strings(value: object) -> Iterator[str]:
+    """Yield every string in ``value``, which is a string, a mapping or a sequence."""
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, Mapping):
+        for item in value.values():
+            yield from _strings(item)
+    elif isinstance(value, (list, tuple, set, frozenset)):
+        for item in value:
+            yield from _strings(item)

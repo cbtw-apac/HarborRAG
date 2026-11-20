@@ -6,6 +6,7 @@ import json
 import logging
 import re
 import secrets
+import traceback
 from collections.abc import Awaitable, Callable, Sequence
 from html import escape
 from pathlib import Path
@@ -432,8 +433,8 @@ def _call_tool_handler(
     Failures are reported the way the MCP transport reports them. A malformed
     request and a refusal ``call_tool`` raises before the tool runs are the
     caller's to correct, so they are answered in full with 422 or 403. A failure
-    inside the tool is logged with its traceback and answered with its exception
-    type only. A cross-tenant call raises ``Unauthorized``, which the route guard
+    inside the tool is answered with its exception type only, and logged with the
+    tool's name and where it was raised, without any exception message. A cross-tenant call raises ``Unauthorized``, which the route guard
     answers as an authorization decision and not as a server fault.
     """
 
@@ -450,11 +451,16 @@ def _call_tool_handler(
             result = await registry.call_tool(name, arguments, principal_id=principal_id)
         except HarborAuthorizationUnavailableError:
             return error_response("AUTHORIZATION_UNAVAILABLE", status_code=503)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - the route's boundary; logged without the message
             if is_caller_correctable(exc):
                 refused = 403 if isinstance(exc, PermissionError) else 422
                 return error_response(str(exc), status_code=refused)
-            logger.exception("mcp_playground_tool_failed")
+            logger.error(
+                "MCP playground tool %s failed with %s\n%s",
+                name,
+                type(exc).__name__,
+                _message_free_traceback(exc),
+            )
             return error_response(
                 f"tool execution failed ({type(exc).__name__})",
                 status_code=500,
@@ -462,6 +468,25 @@ def _call_tool_handler(
         return configuration_response({"name": name, "result": result})
 
     return call_tool
+
+
+def _message_free_traceback(error: BaseException) -> str:
+    """Say where ``error`` and the errors behind it were raised, without their messages.
+
+    A tool's error message can quote a credential or the corpus text it read, so
+    only each exception's type and its frames are kept.
+    """
+    sections: list[str] = []
+    seen: set[int] = set()
+    current: BaseException | None = error
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        frames = "".join(traceback.format_tb(current.__traceback__))
+        sections.append(f"{type(current).__name__} raised at:\n{frames}")
+        current = current.__cause__ or (
+            None if current.__suppress_context__ else current.__context__
+        )
+    return "\n".join(sections).rstrip()
 
 
 async def _tool_call(request: Request) -> tuple[str, dict[str, object]]:

@@ -141,8 +141,9 @@ fails, for example with `environment variable HARBORRAG_EMBED_API_KEY is not set
 A deployment that sent everything through a LiteLLM proxy gateway keeps
 `HARBORRAG_URL` and its model names. It renames `HARBORRAG_API_KEY` to the three key
 variables, and adds `HARBORRAG_EMBED_PROVIDER=cohere` for a Cohere embedding model.
-With `HARBORRAG_RERANKER_MODEL` set and `HARBORRAG_RERANKER_API_KEY` missing, the
-services stop at start-up and say so; see
+A reranker needs `HARBORRAG_RERANKER_API_KEY` beside `HARBORRAG_RERANKER_MODEL` when
+the gateway asks for a key; without it the services still start, and chat fails
+while `retrieval.rerank` is on. See
 [Send Cohere embeddings and reranking through a gateway](configuration/model-config.md#send-cohere-embeddings-and-reranking-through-a-gateway).
 To call a provider through its own API, keep a catalog of your own, point
 `HARBORRAG_MODEL_CONFIG_PATH` at it, and keep the variables it reads, renamed as in
@@ -372,8 +373,8 @@ token is kept.
   data services by name on `harborrag-data-network`, and Docker publishes the
   HTTP port on `127.0.0.1`. Docker Desktop host networking is no longer
   needed, and `HARBORRAG_QDRANT_PREFER_GRPC=false` can leave `env/.env.mcp`.
-  Start the data services first with `scripts/deployment/dev.sh data`, for
-  `--check` too. The containers start only with `HARBORRAG_ENV=dev`, because
+  Start the data services first with `scripts/deployment/dev.sh data`; only
+  `--check` runs without them. The containers start only with `HARBORRAG_ENV=dev`, because
   the data services there use no TLS. Replace a running server with
   `scripts/deployment/mcp.sh down` and
   `scripts/deployment/mcp.sh --build --http`.

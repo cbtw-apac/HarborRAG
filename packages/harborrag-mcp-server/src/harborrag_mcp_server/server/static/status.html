@@ -390,9 +390,21 @@
       for (const control of configControls) control.disabled = reader || (control === saveButton && !configurationWritable);
       show(reader ? 'A reader key cannot change the configuration. Use the owner token for that.' : '', reader);
     }
-    function clearTenant() {
+    // Leaving a tenant, for another one or by disconnecting, ends what belonged to it:
+    // nothing runs for it from here, and a catalog or a tool result still on its way
+    // is dropped when it arrives (tenantRequest no longer matches).
+    function leaveTenant() {
       tenantRequest += 1;
       tenantId = null;
+      if (running) {
+        running = false;
+        settle('previous run discarded');
+        paint(toolMessage, '');
+      }
+      runTool.disabled = true;
+    }
+    function clearTenant() {
+      leaveTenant();
       toolCatalog = [];
       stepTool.hidden = true;
       selectTool(null);
@@ -447,7 +459,8 @@
     }
     async function loadTenant(name, loaded = null) {
       // A slow answer for an earlier choice must not replace the tenant chosen since.
-      const request = ++tenantRequest;
+      leaveTenant();
+      const request = tenantRequest;
       paint(tenantMessage, 'Loading its tools...');
       try {
         const body = loaded || await api(`/api/tools?${new URLSearchParams({tenant_id: name})}`);
@@ -590,7 +603,7 @@
       const tool = toolCatalog.find(item => item.name === selectedTool);
       toolPanel.hidden = !tool;
       welcome.hidden = Boolean(tool);
-      runTool.disabled = !tool;
+      runTool.disabled = !tool || !tenantId || running;
       for (const button of toolList.querySelectorAll('button')) {
         button.setAttribute('aria-current', String(button.dataset.tool === selectedTool));
       }
@@ -689,35 +702,42 @@
       terminal.classList.add('fresh');
     }
     async function run() {
-      if (running || !selectedTool) return;
+      if (running || !selectedTool || !tenantId) return;
       let argumentsValue;
       try { argumentsValue = collectArguments(); } catch (error) { paint(toolMessage, error.message, true); return; }
       const name = selectedTool;
+      const request = tenantRequest;
       running = true;
       runTool.disabled = true;
       paint(toolMessage, 'Running...');
       print(`> ${name} ${JSON.stringify(argumentsValue)}`);
       spin(`running ${name}`);
       const started = performance.now();
+      let body = null;
+      let failure = null;
       try {
-        const body = await api('/api/tools/call', {
+        body = await api('/api/tools/call', {
           method: 'POST', body: JSON.stringify({name, arguments: argumentsValue})
         });
+      } catch (error) {
+        failure = error;
+      }
+      if (request !== tenantRequest) return;
+      running = false;
+      hasRun = true;
+      if (failure) {
+        print(failure.message);
+        paint(toolMessage, failure.message, true);
+        settle(`${name} - failed`);
+      } else {
         const seconds = ((performance.now() - started) / 1000).toFixed(1);
         const failed = body.result && body.result.ok === false;
         print(JSON.stringify(body.result, null, 2));
         paint(toolMessage, failed ? (body.result.error || 'The tool reported an error.') : `Done in ${seconds} s.`, failed);
         settle(`${name} - ${failed ? 'error' : `${seconds} s`}`);
-      } catch (error) {
-        print(error.message);
-        paint(toolMessage, error.message, true);
-        settle(`${name} - failed`);
-      } finally {
-        running = false;
-        hasRun = true;
-        runTool.disabled = !selectedTool;
-        updateProgress();
       }
+      runTool.disabled = !selectedTool || !tenantId;
+      updateProgress();
     }
 
     function showConfiguration(body, done) {

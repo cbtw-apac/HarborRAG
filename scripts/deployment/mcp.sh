@@ -2,11 +2,12 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-# shellcheck source=common/mcp-launcher.sh
+# shellcheck source-path=SCRIPTDIR source=common/mcp-launcher.sh
 source "${ROOT_DIR}/scripts/deployment/common/mcp-launcher.sh"
 
 MCP_LAUNCHER="scripts/deployment/mcp.sh"
 MCP_SERVICE="mcp"
+MCP_SERVICE_IMAGE="${MCP_IMAGE}"
 MCP_COMPOSE_FILE="docker-compose.mcp.yml"
 MCP_SERVER_LABEL="MCP HTTP server"
 MCP_HTTP_SETTINGS="HARBORRAG_MCP_PORT/PATH"
@@ -32,7 +33,8 @@ port and path come from env/.env.mcp; the server answers on 127.0.0.1 only.
 after source, dependency, or baked configuration changes.
 
 Environment file paths can be overridden with DATABASE_ENV_FILE,
-MODEL_ENV_FILE, and MCP_ENV_FILE. The data services must already be running
+MODEL_ENV_FILE, and MCP_ENV_FILE. Except for --check, which runs with no
+network, the data services must already be running
 ('scripts/deployment/dev.sh data'); the container joins their Docker network,
 and --http publishes its port on 127.0.0.1 only.
 EOF

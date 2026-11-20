@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Shared launcher for the MCP server entrypoints (scripts/deployment/mcp*.sh).
 # Sourced, never executed. Env files are passed to Docker Compose, never
 # sourced, so their values are not evaluated as shell code.
@@ -5,6 +6,7 @@
 # The sourcing script sets ROOT_DIR and, before calling mcp_launcher_main:
 #   MCP_LAUNCHER      its own path for messages, e.g. scripts/deployment/mcp.sh
 #   MCP_SERVICE       the Compose service to run
+#   MCP_SERVICE_IMAGE that service's image, which --check runs without Compose
 #   MCP_COMPOSE_FILE  that service's Compose file under deploy/compose/
 #   MCP_SERVER_LABEL  a name for progress messages
 #   MCP_HTTP_SETTINGS the env/.env.mcp settings that configure --http
@@ -76,6 +78,7 @@ report_unset_model_variables() {
     local -a model_sources=("${ROOT_DIR}/${MCP_ENV_FILE}")
     [[ -f "${ROOT_DIR}/${model_config}" ]] || return 0
     [[ ! -f "${ROOT_DIR}/${MODEL_ENV_FILE}" ]] || model_sources+=("${ROOT_DIR}/${MODEL_ENV_FILE}")
+    # shellcheck disable=SC2016  # the patterns match a literal ${NAME} in the catalog
     missing="$(LC_ALL=C comm -23 \
         <(grep -v '^[[:space:]]*#' "${ROOT_DIR}/${model_config}" |
             grep -o '\${[A-Za-z_][A-Za-z0-9_]*}' | tr -d '${}' | LC_ALL=C sort -u) \
@@ -228,11 +231,20 @@ mcp_launcher_main() {
             fi
             prepare_compose
             "${service_compose[@]}" config --quiet >&2
+            if [[ " $* " == *" --check "* ]]; then
+                # The handshake connects no backend, so it runs without any network,
+                # and without the data network the Compose service joins.
+                mcp_build_images "${rebuild_image}"
+                exec docker run --rm --network none \
+                    --volume "${ROOT_DIR}/config:/app/config:ro" \
+                    --env HARBORRAG_MCP_CONFIG_PATH=/app/config/mcp/server.yaml \
+                    "${MCP_SERVICE_IMAGE}" --transport stdio "$@"
+            fi
             require_data_network
             mcp_build_images "${rebuild_image}"
-            [[ " $* " == *" --check "* ]] || report_unset_model_variables
+            report_unset_model_variables
             # Compose's default command is --http; stdio is selected explicitly and
-            # any forwarded option (including --check) still applies.
+            # any forwarded option still applies.
             exec "${service_compose[@]}" run --rm --no-deps -T "${MCP_SERVICE}" --transport stdio "$@"
             ;;
     esac

@@ -100,13 +100,66 @@ def test_repository_catalog_ships_without_a_rerank_model() -> None:
     assert has_rerank_model(MODELS_YAML) is False
 
 
-def test_repository_catalog_refuses_a_reranker_without_its_key(
+def test_repository_catalog_leaves_the_reranker_key_to_the_endpoint(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("HARBORRAG_RERANKER_MODEL", "rerank-test")
 
-    with pytest.raises(ValueError, match="HARBORRAG_RERANKER_API_KEY"):
-        has_rerank_model(MODELS_YAML)
+    assert has_rerank_model(MODELS_YAML) is True
+
+
+def _catalog_with_an_optional_key(tmp_path: Path, provider: str) -> Path:
+    catalog = tmp_path / "models.yaml"
+    catalog.write_text(
+        "rerank:\n"
+        "  default_model: primary\n"
+        "  models:\n"
+        "    primary:\n"
+        "      deployments:\n"
+        "        - name: rerank\n"
+        f"          provider: {provider}\n"
+        "          model: rerank-test\n"
+        "          api_base: http://127.0.0.1:8080/v1\n"
+        "          api_key: ${RERANK_TEST_KEY:-}\n",
+        encoding="utf-8",
+    )
+    return catalog
+
+
+@pytest.mark.parametrize("provider", ["vllm", "infinity", "litellm_proxy"])
+def test_rerank_provider_that_needs_no_key_accepts_an_empty_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, provider: str
+) -> None:
+    monkeypatch.delenv("RERANK_TEST_KEY", raising=False)
+
+    assert has_rerank_model(_catalog_with_an_optional_key(tmp_path, provider)) is True
+
+
+@pytest.mark.parametrize("provider", ["cohere", "${RERANK_TEST_PROVIDER:-cohere}"])
+def test_rerank_provider_that_needs_a_key_refuses_an_empty_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, provider: str
+) -> None:
+    monkeypatch.delenv("RERANK_TEST_KEY", raising=False)
+    monkeypatch.delenv("RERANK_TEST_PROVIDER", raising=False)
+
+    with pytest.raises(ValueError, match="RERANK_TEST_KEY is empty"):
+        has_rerank_model(_catalog_with_an_optional_key(tmp_path, provider))
+
+
+def test_rerank_provider_that_needs_a_key_accepts_a_set_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("RERANK_TEST_KEY", "rerank-secret")
+
+    assert has_rerank_model(_catalog_with_an_optional_key(tmp_path, "cohere")) is True
+
+
+def test_unknown_rerank_provider_is_left_to_the_loader(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("RERANK_TEST_KEY", raising=False)
+
+    assert has_rerank_model(_catalog_with_an_optional_key(tmp_path, "not-a-provider")) is True
 
 
 def _catalog_with_an_optional_reranker(tmp_path: Path) -> Path:

@@ -285,7 +285,7 @@ def _commit_source(project: Path) -> str:
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("arguments", (("--check",), ("--build", "--http")))
+@pytest.mark.parametrize("arguments", ((), ("--build", "--http")))
 def test_mcp_entrypoint_names_the_fix_when_the_data_network_is_missing(
     tmp_path: Path, arguments: tuple[str, ...]
 ) -> None:
@@ -304,6 +304,24 @@ def test_mcp_entrypoint_names_the_fix_when_the_data_network_is_missing(
 
 
 @pytest.mark.unit
+def test_mcp_check_runs_the_image_without_any_network(tmp_path: Path) -> None:
+    script, docker_log, env = _mcp_project(tmp_path)
+
+    result = _run_mcp(
+        script, {**env, "MCP_IMAGE_PRESENT": "1", "MCP_NETWORK_ABSENT": "1"}, "--check"
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == ""
+    docker_calls = docker_log.read_text(encoding="utf-8")
+    assert "run --rm --network none" in docker_calls
+    assert "/config:/app/config:ro" in docker_calls
+    assert "harborrag-mcp-mcp --transport stdio --check" in docker_calls
+    assert " network inspect " not in docker_calls
+    assert "run --rm --no-deps" not in docker_calls
+
+
+@pytest.mark.unit
 def test_mcp_entrypoint_stops_the_server_without_the_data_network(tmp_path: Path) -> None:
     script, docker_log, env = _mcp_project(tmp_path)
 
@@ -319,14 +337,20 @@ def test_mcp_entrypoint_stops_the_server_without_the_data_network(tmp_path: Path
         (
             ("--check",),
             "1",
-            ("run --rm --no-deps -T mcp --transport stdio --check",),
-            (" build mcp",),
+            ("run --rm --network none", "harborrag-mcp-mcp --transport stdio --check"),
+            (" build mcp", "run --rm --no-deps"),
         ),
         (
             ("--check",),
             "",
-            (" build mcp", "run --rm --no-deps -T mcp --transport stdio --check"),
+            (" build mcp", "harborrag-mcp-mcp --transport stdio --check"),
+            ("run --rm --no-deps",),
+        ),
+        (
             (),
+            "1",
+            ("run --rm --no-deps -T mcp --transport stdio",),
+            (" build mcp", "--network none"),
         ),
         (
             ("--build", "--http"),
@@ -366,7 +390,7 @@ def test_mcp_entrypoint_drives_the_mcp_compose_service(
         assert call in docker_calls
     for call in unexpected_calls:
         assert call not in docker_calls
-    if arguments[-1] == "--http":
+    if arguments[-1:] == ("--http",):
         assert "http://127.0.0.1:8123/" in result.stdout
     else:
         # Stdio and check mode must keep stdout free for the MCP protocol.
@@ -663,7 +687,7 @@ def test_mcp_entrypoint_gives_the_server_the_apis_environment(tmp_path: Path) ->
     env = {k: v for k, v in env.items() if k != "HARBORRAG_ENV"}
 
     result = subprocess.run(
-        ["bash", str(script), "--check"],
+        ["bash", str(script)],
         env={**env, "MCP_IMAGE_PRESENT": "1"},
         stdin=subprocess.DEVNULL,
         capture_output=True,

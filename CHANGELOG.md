@@ -116,7 +116,7 @@ action.
 - `config/temporal.example.yaml`, `config/models.example.yaml` and `config/harborrag.example.yaml` are removed
 - `env-example/.env.models.example` sets a model name and a key for chat and for embedding, and keeps the direct-provider and other-proxy examples commented out
 - `env-example/.env.mcp.example` sets the shared corpus for `DEFAULT`, so MCP tools find sources on a new deployment as chat does
-- **Breaking:** the MCP containers join the data network and publish their port on loopback; Docker Desktop host networking is no longer needed, and the data services must be started first
+- **Breaking:** the MCP containers join the data network and publish their port on loopback; Docker Desktop host networking is no longer needed, and the data services must be started first, except for `mcp.sh --check`
 
 ### Removed
 
@@ -150,7 +150,7 @@ action.
 #### harborrag-mcp-server
 
 - Saving from the status page answers a clear error when the configuration file is read-only, and the page disables Save
-- The status page's tool runner logs a failure inside a tool and answers with the error type only, as the MCP endpoint does
+- The status page's tool runner answers a failure inside a tool with the error type only, as the MCP endpoint does, and logs where it was raised without the error's message
 - A server that listens on every interface no longer prints an address that cannot be opened
 
 #### harborrag-runtime

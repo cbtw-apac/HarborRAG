@@ -665,8 +665,12 @@ _TOOL_FAILURES: dict[str, type[Exception]] = {
 }
 
 
+_TOOL_DETAIL = "corpus passage CANARY-7f3a quoted by the tool"
+_CAUSE_DETAIL = "backend reply CANARY-91c2"
+
+
 class _FailingTool(BaseTool):
-    """Tool whose own execution fails with a message that names internals."""
+    """Tool whose own execution fails with messages that quote what it read."""
 
     spec = ToolSpec(
         "failing_probe",
@@ -684,7 +688,10 @@ class _FailingTool(BaseTool):
     )
 
     async def call(self, arguments, *, principal_id):
-        raise _TOOL_FAILURES[arguments["failure"]]("postgresql://user:secret@db is unreachable")
+        try:
+            raise ConnectionError(_CAUSE_DETAIL)
+        except ConnectionError as cause:
+            raise _TOOL_FAILURES[arguments["failure"]](_TOOL_DETAIL) from cause
 
 
 @pytest.mark.unit
@@ -731,9 +738,15 @@ async def test_tool_playground_masks_and_logs_a_failure_inside_the_tool(
     raised = _TOOL_FAILURES[failure]
     assert response.status_code == 500
     assert response.json()["error"] == f"tool execution failed ({raised.__name__})"
-    assert "secret" not in response.text
-    logged = [record.exc_info for record in caplog.records if record.exc_info]
-    assert [exc_info[0] for exc_info in logged] == [raised]
+    assert "CANARY" not in response.text
+    (record,) = [record for record in caplog.records if record.levelno >= logging.ERROR]
+    logged = caplog.text
+    assert "CANARY" not in logged
+    assert record.exc_info is None
+    assert "failing_probe" in logged
+    assert raised.__name__ in logged
+    assert "ConnectionError" in logged
+    assert "test_http_server.py" in logged
 
 
 class _TokenEchoingVerifier:

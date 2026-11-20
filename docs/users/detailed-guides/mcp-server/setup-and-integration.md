@@ -82,7 +82,8 @@ connection:
 scripts/deployment/mcp.sh --check
 ```
 
-The first run builds the image, which takes a few minutes. The check performs
+The first run builds the image, which takes a few minutes. The check runs the
+image with no network, so the data services need not be running. It performs
 the MCP initialization handshake in memory and prints the tool names:
 
 ```text
@@ -99,7 +100,7 @@ never comes.
 The wrapper runs the server in the `harborrag-mcp` container from
 `deploy/compose/docker-compose.mcp.yml` and builds the image the first time.
 The container joins the Docker network of the data services, so start those
-first.
+first. Only `--check` runs without them.
 
 | Command | Behavior |
 | --- | --- |
@@ -245,9 +246,9 @@ server on `127.0.0.1`, on the port `HARBORRAG_MCP_PORT` names.
 
 ### Checks before the HTTP server starts
 
-The wrapper first checks that `harborrag-data-network` exists, in stdio and
-`--check` mode too. Without it, it says to run
-`scripts/deployment/dev.sh data` and exits with status 2.
+The wrapper first checks that `harborrag-data-network` exists, in stdio mode
+too. Without it, it says to run `scripts/deployment/dev.sh data` and exits with
+status 2. `--check` skips this check, because it runs with no network.
 
 Then it runs `harborrag-mcp --http --preflight` once in the foreground. The
 preflight loads the settings and connects Postgres, the object store, Qdrant

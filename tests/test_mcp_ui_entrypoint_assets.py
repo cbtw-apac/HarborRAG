@@ -74,8 +74,8 @@ def _run(script: Path, env: dict[str, str], *arguments: str) -> subprocess.Compl
         (
             ("--check",),
             "1",
-            ("run --rm --no-deps -T mcp-ui --transport stdio --check",),
-            (" build ",),
+            ("run --rm --network none", "harborrag-mcp-ui --transport stdio --check"),
+            (" build ", "run --rm --no-deps"),
         ),
         (
             ("--check",),
@@ -83,9 +83,9 @@ def _run(script: Path, env: dict[str, str], *arguments: str) -> subprocess.Compl
             (
                 "docker-compose.mcp.yml build mcp",
                 "docker-compose.mcp-ui.yml build mcp-ui",
-                "run --rm --no-deps -T mcp-ui --transport stdio --check",
+                "harborrag-mcp-ui --transport stdio --check",
             ),
-            (),
+            ("run --rm --no-deps",),
         ),
         (
             ("--build", "--http"),

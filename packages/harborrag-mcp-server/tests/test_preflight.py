@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 
 import pytest
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ValidationError, field_validator
 
 import harborrag_mcp_server.__main__ as cli
 from harborrag_core.ports.api_keys import AuthStoreUnavailable
 from harborrag_engine.tools.references import KnowledgeReferenceStore
 from harborrag_mcp_server.preflight import describe_startup_failure
+from harborrag_runtime.config.settings import RuntimeSettings
 
 pytestmark = pytest.mark.unit
 
@@ -141,6 +143,57 @@ def test_startup_failure_description_leaves_setting_values_out() -> None:
     assert "port" in description
     assert "not-a-port-value" not in description
     assert "\n" not in description
+
+
+class _EchoingSettings(BaseModel):
+    """Settings whose validator repeats what it rejects, as a careless one might."""
+
+    endpoint: str
+
+    @field_validator("endpoint")
+    @classmethod
+    def _reachable(cls, value: str) -> str:
+        if value.startswith("whole:"):
+            raise ValueError(f"cannot reach {value}")
+        host = value.partition("@")[2].partition(":")[0]
+        raise ValueError(f"cannot reach host {host}")
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "repeated"),
+    [
+        ("whole:endpoint-canary.internal:6379", "endpoint-canary"),
+        ("reader@cache-canary.internal:6379", "cache-canary.internal"),
+    ],
+)
+def test_startup_failure_description_drops_a_validator_message_that_repeats_the_value(
+    endpoint: str, repeated: str
+) -> None:
+    with pytest.raises(ValidationError) as caught:
+        _EchoingSettings(endpoint=endpoint)
+
+    description = describe_startup_failure(caught.value)
+
+    assert repeated not in description
+    assert "endpoint" in description
+    assert "value_error" in description
+
+
+def test_startup_failure_description_keeps_a_validator_message_that_repeats_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for name in [name for name in os.environ if name.startswith("HARBORRAG_")]:
+        monkeypatch.delenv(name)
+    monkeypatch.setenv("HARBORRAG_ENV", "prod")
+    monkeypatch.setenv("HARBORRAG_CONTROL_DB_URL", "sqlite+aiosqlite:///./canary-control.db")
+
+    with pytest.raises(ValidationError) as caught:
+        RuntimeSettings()
+
+    description = describe_startup_failure(caught.value)
+
+    assert "HARBORRAG_CONTROL_DB_URL must use a production database" in description
+    assert "canary-control" not in description
 
 
 def test_startup_failure_description_keeps_a_multi_line_cause_on_one_line() -> None:
