@@ -6,7 +6,8 @@ import json
 import logging
 import re
 import secrets
-from collections.abc import Awaitable, Callable
+import traceback
+from collections.abc import Awaitable, Callable, Sequence
 from html import escape
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -15,15 +16,17 @@ from pydantic import ValidationError
 
 from harborrag_core.contracts.errors import HarborAuthorizationUnavailableError
 from harborrag_mcp_server.configuration import (
+    ConfigurationReadOnlyError,
     ConfigurationRevisionError,
     McpConfiguration,
     McpConfigurationStore,
 )
 from harborrag_mcp_server.server.http_auth import (
     ADMIN_SCOPE,
-    Unauthorized,
     authorize_administration,
     authorize_request_tenant,
+    granted_tenants,
+    grants_any_tenant,
     owner_only,
     reader_or_owner,
     request_tenant_default,
@@ -33,6 +36,7 @@ from harborrag_mcp_server.server.http_responses import (
     configuration_response,
     error_response,
 )
+from harborrag_mcp_server.server.server import is_caller_correctable
 
 if TYPE_CHECKING:
     from fastmcp import FastMCP
@@ -48,8 +52,6 @@ _LOCAL_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 _REQUIRED_SCOPE = "mcp:read"
 _MAX_CONFIGURATION_REQUEST_BYTES = 1024 * 1024
 _MAX_TOOL_REQUEST_BYTES = 128 * 1024
-# Kept as a real .html file so the markup, CSS, and browser JS stay lintable and
-# formattable instead of living in a Python f-string with every brace doubled.
 _STATUS_TEMPLATE = (Path(__file__).parent / "static" / "status.html").read_text(encoding="utf-8")
 _PLACEHOLDER = re.compile(r"__MCP_(?:ENDPOINT|TOOLS|NONCE)__")
 
@@ -60,20 +62,107 @@ def validate_local_http_settings(
     port: int,
     path: str,
     bearer_token: str | None,
+    allowed_hosts: Sequence[str] = (),
 ) -> str:
     """Validate the deliberately local-only development HTTP boundary."""
-    validate_http_bind(host=host, port=port, path=path)
+    validate_http_bind(host=host, port=port, path=path, allowed_hosts=allowed_hosts)
+    return validate_bearer_token(bearer_token)
+
+
+def validate_bearer_token(bearer_token: str | None) -> str:
+    """Return the static owner token, refusing one too short to resist guessing."""
     token = (bearer_token or "").strip()
     if len(token.encode("utf-8")) < 32:
         raise ValueError("HARBORRAG_MCP_BEARER_TOKEN must contain at least 32 UTF-8 bytes")
     return token
 
 
-def validate_http_bind(*, host: str, port: int, path: str) -> None:
-    """Require loopback serving; remote deployments terminate TLS at a proxy."""
-    if host not in _LOCAL_HOSTS:
+def parse_allowed_hosts(value: str | None) -> tuple[str, ...]:
+    """Split ``HARBORRAG_MCP_ALLOWED_HOSTS`` into the host names it lists."""
+    return tuple(name.strip() for name in (value or "").split(",") if name.strip())
+
+
+def require_loopback_host_names(allowed_hosts: Sequence[str]) -> None:
+    """Keep the static owner token under host names only this machine uses.
+
+    Args:
+        allowed_hosts: The host names ``HARBORRAG_MCP_ALLOWED_HOSTS`` lists.
+
+    Raises:
+        ValueError: A listed host is not ``127.0.0.1``, ``localhost`` or ``::1``.
+    """
+    remote = sorted(set(allowed_hosts) - _LOCAL_HOSTS)
+    if remote:
         raise ValueError(
-            "local MCP HTTP may bind only to 127.0.0.1, localhost, or ::1; "
+            "HARBORRAG_MCP_ALLOWED_HOSTS may list only 127.0.0.1, localhost or ::1 while the "
+            "static owner token is the only credential; set HARBORRAG_MCP_AUTH_MODE=api_key "
+            f"to serve {', '.join(remote)}"
+        )
+
+
+def require_acknowledged_bind(host: str, *, environment: str, acknowledgement: str | None) -> None:
+    """Refuse a bind beyond loopback that a development deployment has not acknowledged.
+
+    Beyond loopback, tokens travel over plain HTTP to whoever can reach the port.
+    The Host header check does not stop such a client, because the client sets
+    that header itself. The acknowledgement is meant for a container whose runtime
+    publishes the port on loopback only.
+
+    Args:
+        host: The address the server is asked to bind.
+        environment: The deployment environment, ``dev``, ``staging`` or ``prod``.
+        acknowledgement: The value of ``HARBORRAG_MCP_ALLOW_INSECURE_BIND``.
+
+    Raises:
+        ValueError: The host is not loopback and the bind is not acknowledged in ``dev``.
+    """
+    if host in _LOCAL_HOSTS:
+        return
+    if environment == "dev" and (acknowledgement or "").strip().lower() == "true":
+        return
+    raise ValueError(
+        "MCP HTTP may bind beyond 127.0.0.1, localhost or ::1 only with HARBORRAG_ENV=dev "
+        "and HARBORRAG_MCP_ALLOW_INSECURE_BIND=true, for a container whose port is published "
+        "on loopback; beyond loopback, tokens are sent over plain HTTP"
+    )
+
+
+def served_origins(allowed_hosts: Sequence[str]) -> tuple[str, ...]:
+    """Return the browser origins of the named hosts that are not loopback.
+
+    A page served under such a host through a TLS proxy sends an ``https`` origin
+    while this server sees plain HTTP, so both schemes are trusted, on any port
+    unless the name carries one.
+
+    Args:
+        allowed_hosts: The host names ``HARBORRAG_MCP_ALLOWED_HOSTS`` lists.
+
+    Returns:
+        One origin pattern per scheme for each host.
+    """
+    return tuple(
+        f"{scheme}://{host}" if ":" in host else f"{scheme}://{host}:*"
+        for host in allowed_hosts
+        if host not in _LOCAL_HOSTS
+        for scheme in ("http", "https")
+    )
+
+
+def validate_http_bind(
+    *, host: str, port: int, path: str, allowed_hosts: Sequence[str] = ()
+) -> None:
+    """Require loopback serving unless the hosts that clients use are named.
+
+    A container listens on every interface while its runtime publishes the port, so
+    it names the hosts it serves, and the Host header check turns away browsers
+    sent there under another name. ``require_acknowledged_bind`` decides whether
+    such a bind is accepted at all. Remote deployments still terminate TLS at a
+    proxy.
+    """
+    if host not in _LOCAL_HOSTS and not allowed_hosts:
+        raise ValueError(
+            "local MCP HTTP may bind only to 127.0.0.1, localhost, or ::1 unless "
+            "HARBORRAG_MCP_ALLOWED_HOSTS names the hosts clients use; "
             "use a TLS reverse proxy and production token verifier for remote access"
         )
     if not 1 <= port <= 65_535:
@@ -85,7 +174,11 @@ def validate_http_bind(*, host: str, port: int, path: str) -> None:
 
 
 def create_local_token_verifier(token: str, *, tenant_id: str = "*") -> TokenVerifier:
-    """Create the explicit static-token verifier used only on loopback."""
+    """Create the explicit static-token verifier used only on loopback.
+
+    The owner administers this server whichever tenant its reads are bound to, so
+    only the tenant list narrows with ``tenant_id``.
+    """
     from fastmcp.server.auth.providers.jwt import StaticTokenVerifier
 
     return cast(
@@ -97,8 +190,6 @@ def create_local_token_verifier(token: str, *, tenant_id: str = "*") -> TokenVer
                     "sub": "harborrag-local",
                     "role": "owner",
                     "tenants": [tenant_id],
-                    # The owner administers this server whichever tenant its reads
-                    # are bound to; only the tenant list narrows with the binding.
                     "scopes": [_REQUIRED_SCOPE, ADMIN_SCOPE],
                 }
             },
@@ -109,9 +200,6 @@ def create_local_token_verifier(token: str, *, tenant_id: str = "*") -> TokenVer
 
 def create_api_key_owner_verifier(
     *,
-    host: str,
-    port: int,
-    path: str,
     bearer_token: str | None,
     tenant_id: str | None,
 ) -> TokenVerifier | None:
@@ -124,7 +212,6 @@ def create_api_key_owner_verifier(
     the ``*`` default would let it read every tenant. Without that binding the
     server starts with reader keys only and says how to enable the owner.
     """
-
     token = (bearer_token or "").strip()
     if not token:
         return None
@@ -137,8 +224,7 @@ def create_api_key_owner_verifier(
             "restart to enable the status UI's configuration editor."
         )
         return None
-    validated = validate_local_http_settings(host=host, port=port, path=path, bearer_token=token)
-    return create_local_token_verifier(validated, tenant_id=tenant)
+    return create_local_token_verifier(validate_bearer_token(token), tenant_id=tenant)
 
 
 def register_http_routes(
@@ -182,7 +268,6 @@ def register_health_route(
     service: str,
 ) -> None:
     """Attach only the unauthenticated health route, for the Explorer UI server."""
-
     server.custom_route("/healthz", methods=["GET"], include_in_schema=False)(
         _health_handler(mcp_path, tool_names, service=service)
     )
@@ -262,7 +347,7 @@ def _replace_configuration_handler(
                 principal_id=principal_id,
                 expected_revision=expected_revision,
             )
-        except ConfigurationRevisionError as exc:
+        except (ConfigurationRevisionError, ConfigurationReadOnlyError) as exc:
             return error_response(str(exc), status_code=409)
         except (ValidationError, ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
             return error_response(str(exc), status_code=422)
@@ -291,8 +376,17 @@ def _list_tools_handler(
     registry: McpServer,
     token_verifier: TokenVerifier,
 ) -> Callable[[Request], Awaitable[Response]]:
-    # Readers see and run their own tenant's catalog; the tenant comes from the
-    # token's grant, and naming another one is refused below.
+    """Build the route that lists a caller's tool catalog.
+
+    A reader sees its own tenant's catalog, and naming another tenant is refused.
+    A token bound to one tenant gets that tenant when the request names none. The
+    response carries the caller's role, so the page can say that configuration
+    needs the owner token. A request that names no tenant also gets the tenants
+    the caller may choose. A token that names tenants gets those. A token for any
+    tenant gets the tenants that hold content and the ones the server was started
+    with.
+    """
+
     @reader_or_owner(token_verifier)
     async def list_tools(request: Request, principal_id: str) -> JSONResponse:
         tenant_value = request.query_params.get("tenant_id")
@@ -300,9 +394,6 @@ def _list_tools_handler(
         if tenant_value is not None and not tenant_id:
             return error_response("tenant_id must not be empty", status_code=422)
         if tenant_id is None:
-            # A token bound to one tenant means that tenant, not every tenant: the
-            # catalog it asks for is its own, and refusing it left the operator UI
-            # with no tool list until the bound tenant was retyped by hand.
             tenant_id = request_tenant_default(request)
         if tenant_id is None:
             authorize_administration(request)
@@ -317,62 +408,110 @@ def _list_tools_handler(
             }
             for spec in registry.list_tools(tenant_id)
         ]
-        return configuration_response(
-            {
-                "tenant_id": tenant_id,
-                "tools": tools,
-                # Lets the page say up front that configuration needs the owner token.
-                "role": getattr(request.state, "token_role", "owner"),
-            }
-        )
+        catalog: dict[str, object] = {
+            "tenant_id": tenant_id,
+            "tools": tools,
+            "role": getattr(request.state, "token_role", "owner"),
+        }
+        if tenant_value is None:
+            any_tenant = grants_any_tenant(request)
+            catalog["any_tenant"] = any_tenant
+            catalog["tenants"] = (
+                await registry.tenant_choices() if any_tenant else granted_tenants(request)
+            )
+        return configuration_response(catalog)
 
     return list_tools
 
 
-def _call_tool_handler(  # noqa: C901 - transport errors map to distinct HTTP outcomes
+def _call_tool_handler(
     registry: McpServer,
     token_verifier: TokenVerifier,
 ) -> Callable[[Request], Awaitable[Response]]:
+    """Build the route that runs one tool for the Tool Playground.
+
+    Failures are reported the way the MCP transport reports them. A malformed
+    request and a refusal ``call_tool`` raises before the tool runs are the
+    caller's to correct, so they are answered in full with 422 or 403. A failure
+    inside the tool is answered with its exception type only, and logged with the
+    tool's name and where it was raised, without any exception message. A cross-tenant call raises ``Unauthorized``, which the route guard
+    answers as an authorization decision and not as a server fault.
+    """
+
     @reader_or_owner(token_verifier)
     async def call_tool(request: Request, principal_id: str) -> JSONResponse:
         try:
-            payload = await _bounded_json(request, maximum=_MAX_TOOL_REQUEST_BYTES)
-            if not isinstance(payload, dict):
-                raise ValueError("request body must be an object")
-            name = payload.get("name")
-            arguments = payload.get("arguments")
-            if not isinstance(name, str) or not name.strip():
-                raise ValueError("name must be a non-empty string")
-            if not isinstance(arguments, dict):
-                raise ValueError("arguments must be an object")
-            tenant_id = _bind_tenant(request, registry, name.strip(), arguments)
-            if isinstance(tenant_id, str):
-                authorize_request_tenant(request, tenant_id)
-            result = await registry.call_tool(
-                name.strip(),
-                arguments,
-                principal_id=principal_id,
-            )
-        except Unauthorized as exc:
-            # Carries its own status. Without this clause the generic handler
-            # below turned a cross-tenant call into "500 tool execution failed
-            # (Unauthorized)" -- an authorization decision reported as a server
-            # fault, which is both wrong and unactionable for the caller.
-            return error_response(exc.message, status_code=exc.status_code)
-        except PermissionError as exc:
-            return error_response(str(exc), status_code=403)
+            name, arguments = await _tool_call(request)
+        except (ValueError, RecursionError) as exc:
+            return error_response(str(exc), status_code=422)
+        tenant_id = _bind_tenant(request, registry, name, arguments)
+        if isinstance(tenant_id, str):
+            authorize_request_tenant(request, tenant_id)
+        try:
+            result = await registry.call_tool(name, arguments, principal_id=principal_id)
         except HarborAuthorizationUnavailableError:
             return error_response("AUTHORIZATION_UNAVAILABLE", status_code=503)
-        except (TypeError, ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-            return error_response(str(exc), status_code=422)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - the route's boundary; logged without the message
+            if is_caller_correctable(exc):
+                refused = 403 if isinstance(exc, PermissionError) else 422
+                return error_response(str(exc), status_code=refused)
+            logger.error(
+                "MCP playground tool %s failed with %s\n%s",
+                name,
+                type(exc).__name__,
+                _message_free_traceback(exc),
+            )
             return error_response(
                 f"tool execution failed ({type(exc).__name__})",
                 status_code=500,
             )
-        return configuration_response({"name": name.strip(), "result": result})
+        return configuration_response({"name": name, "result": result})
 
     return call_tool
+
+
+def _message_free_traceback(error: BaseException) -> str:
+    """Say where ``error`` and the errors behind it were raised, without their messages.
+
+    A tool's error message can quote a credential or the corpus text it read, so
+    only each exception's type and its frames are kept.
+    """
+    sections: list[str] = []
+    seen: set[int] = set()
+    current: BaseException | None = error
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        frames = "".join(traceback.format_tb(current.__traceback__))
+        sections.append(f"{type(current).__name__} raised at:\n{frames}")
+        current = current.__cause__ or (
+            None if current.__suppress_context__ else current.__context__
+        )
+    return "\n".join(sections).rstrip()
+
+
+async def _tool_call(request: Request) -> tuple[str, dict[str, object]]:
+    """Read the tool name and its arguments from a playground request body.
+
+    Args:
+        request: The playground's request to run a tool.
+
+    Returns:
+        The tool's name without surrounding whitespace, and its arguments.
+
+    Raises:
+        ValueError: The body is not the JSON object the playground sends, or it
+            is over the request budget.
+    """
+    payload = await _bounded_json(request, maximum=_MAX_TOOL_REQUEST_BYTES)
+    if not isinstance(payload, dict):
+        raise ValueError("request body must be an object")
+    name = payload.get("name")
+    arguments = payload.get("arguments")
+    if not isinstance(name, str) or not name.strip():
+        raise ValueError("name must be a non-empty string")
+    if not isinstance(arguments, dict):
+        raise ValueError("arguments must be an object")
+    return name.strip(), arguments
 
 
 def _bind_tenant(
@@ -392,7 +531,6 @@ def _bind_tenant(
     disabled for this tenant declares the same schema, and refusing it is
     ``call_tool``'s decision to make.
     """
-
     tenant_id = arguments.get("tenant_id")
     tool = next((item for item in registry.tools or () if item.spec.name == tool_name), None)
     if tenant_id is not None or tool is None:
@@ -408,7 +546,6 @@ def _bind_tenant(
 
 async def _bounded_json(request: Request, *, maximum: int) -> object:
     """Read a JSON body without allocating beyond the HTTP boundary budget."""
-
     content_length = request.headers.get("content-length")
     if content_length is not None:
         try:
@@ -426,13 +563,15 @@ async def _bounded_json(request: Request, *, maximum: int) -> object:
 
 
 def _status_page(*, mcp_path: str, tool_names: list[str], nonce: str) -> str:
-    """Render the operator status page from its standalone HTML template."""
+    """Render the operator status page from its standalone HTML template.
 
+    The template is a real ``.html`` file, so its markup, CSS and browser
+    JavaScript stay lintable. Placeholders are replaced in one pass, so a
+    substituted value that contains another placeholder is not rewritten.
+    """
     substitutions = {
         "__MCP_ENDPOINT__": escape(mcp_path),
         "__MCP_TOOLS__": "".join(f"<li><code>{escape(name)}</code></li>" for name in tool_names),
         "__MCP_NONCE__": escape(nonce, quote=True),
     }
-    # One pass, so a substituted value that happens to contain another placeholder is not
-    # itself rewritten by a later replace().
     return _PLACEHOLDER.sub(lambda match: substitutions[match.group(0)], _STATUS_TEMPLATE)

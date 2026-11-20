@@ -21,6 +21,9 @@ RUN uv export --quiet --frozen --package harborrag-mcp-server --extra reader --e
 WORKDIR /var/lib/harborrag
 USER harborrag
 
+ARG HARBORRAG_GIT_REVISION=unknown
+LABEL org.opencontainers.image.revision="${HARBORRAG_GIT_REVISION}"
+
 STOPSIGNAL SIGTERM
 ENTRYPOINT ["harborrag-mcp-ui"]
 CMD ["--http"]
