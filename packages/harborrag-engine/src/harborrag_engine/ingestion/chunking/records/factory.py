@@ -1,9 +1,14 @@
+"""Construction of canonical chunk records from strategy candidates.
+
+Building a record never changes its candidate, and the same input always gives
+the same record.
+"""
+
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from re import compile
-from typing import Any
 
 from pydantic import ValidationError
 
@@ -26,6 +31,7 @@ from ..errors import ChunkValidationError
 from ..identity import ChunkIdentity, ChunkIdentityBuilder
 from ..schemas import ChunkCandidate, ChunkingRequest
 from .context import ChunkContextBuilder
+from .sharepoint import with_sharepoint_fields
 
 _ROLE_TOKEN_PATTERN = compile(r"[._-]+")
 _CHUNK_KIND_RULES = (
@@ -40,50 +46,27 @@ _DOCUMENT_KIND_BY_CONNECTOR = {
     ConnectorType.JIRA: DocumentKind.JIRA_ISSUE,
     ConnectorType.LOCAL: DocumentKind.LOCAL_FILE,
 }
-# SharePoint is an extensible connector type, so it is matched by its string value.
-_SHAREPOINT_CONNECTOR = "sharepoint"
-_SHAREPOINT_EXTRA_FIELDS = ("site_id", "drive_id", "item_id", "page_id")
-
-
-def _present_text(value: object) -> str | None:
-    """Return the stripped text, or ``None`` when the value is absent or blank."""
-
-    if value is None:
-        return None
-    text = str(value).strip()
-    return text or None
-
-
-def _utc_iso(value: Any) -> str | None:
-    """Return a timestamp as ISO 8601 UTC, or ``None`` when it is absent or unreadable.
-
-    A naive timestamp is taken to already be UTC.
-    """
-
-    if value is None:
-        return None
-    if isinstance(value, datetime):
-        parsed = value
-    else:
-        text = str(value).strip()
-        if not text:
-            return None
-        try:
-            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
-        except ValueError:
-            return None
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=UTC)
-    try:
-        return parsed.astimezone(UTC).isoformat()
-    except OverflowError:
-        # e.g. 0001-01-01T00:00:00+01:00 has no representable UTC equivalent.
-        return None
 
 
 @dataclass(frozen=True, slots=True)
 class CanonicalChunkInput:
-    """Validated engine values required to build one canonical chunk."""
+    """Validated engine values required to build one canonical chunk.
+
+    Attributes:
+        request: The chunking request the candidate was cut from.
+        candidate: The strategy output to turn into a record.
+        identity: Chunk and logical chunk IDs derived for the candidate.
+        content_hash: Hash of the candidate's content.
+        ordinal: Position of the chunk in its document version.
+        previous: Identity of the chunk before this one, if any.
+        next_: Identity of the chunk after this one, if any.
+        strategy_name: Chunking strategy that produced the candidate.
+        strategy_version: Version of that strategy.
+        profile: Chunking profile in effect.
+        configuration_hash: Hash of the chunking configuration.
+        contextualize_embeddings: Embed evidence by its search text instead of
+            its bare content.
+    """
 
     request: ChunkingRequest
     candidate: ChunkCandidate
@@ -100,7 +83,12 @@ class CanonicalChunkInput:
 
 
 class CanonicalChunkFactory:
-    """Translate one identity-bearing candidate into a canonical record."""
+    """Translate one identity-bearing candidate into a canonical record.
+
+    Args:
+        token_counter: Counts the tokens in each chunk's content.
+        identity_builder: Derives permission set IDs and neighbour identities.
+    """
 
     def __init__(
         self,
@@ -113,7 +101,6 @@ class CanonicalChunkFactory:
 
     def build(self, values: CanonicalChunkInput) -> ChunkRecord:
         """Build one complete immutable chunk without mutating its candidate."""
-
         try:
             return self._build_record(values)
         except ValidationError as error:
@@ -198,7 +185,6 @@ class CanonicalChunkFactory:
     @staticmethod
     def kind_for_role(role: str) -> ChunkKind:
         """Map existing structural strategy roles to stable chunk kinds."""
-
         tokens = CanonicalChunkFactory._role_tokens(role)
         return next(
             (
@@ -211,6 +197,7 @@ class CanonicalChunkFactory:
 
     @staticmethod
     def record_kind_for_role(role: str) -> RecordKind:
+        """Return ROUTE for a role with a ``route`` token, and EVIDENCE otherwise."""
         return (
             RecordKind.ROUTE
             if "route" in CanonicalChunkFactory._role_tokens(role)
@@ -263,13 +250,18 @@ class CanonicalChunkFactory:
 
     @staticmethod
     def _search_text(candidate: ChunkCandidate) -> str:
+        """Return the text a chunk is found by.
+
+        A route is found by its content. Evidence adds the last entry of its
+        structural path and its symbol. A part of a long definition also adds
+        the scopes that enclose it, such as ``class Foo:`` and ``def run(self):``,
+        so it is found by those names and not only by its body.
+        """
         if CanonicalChunkFactory.record_kind_for_role(candidate.role) == RecordKind.ROUTE:
             return candidate.content
         local_context = candidate.structural_path[-1:] or ()
         symbol = candidate.metadata.get("symbol")
         symbols = (symbol,) if isinstance(symbol, str) and symbol.strip() else ()
-        # A part of a long definition names what encloses it (``class Foo:`` /
-        # ``def run(self):``), so it is found by that name, not only its body.
         scope = candidate.metadata.get("enclosing_scope")
         scopes = (
             tuple(line.strip() for line in scope.splitlines() if line.strip())
@@ -280,10 +272,13 @@ class CanonicalChunkFactory:
 
     @staticmethod
     def _relations(request: ChunkingRequest) -> tuple[ChunkRelation, ...]:
+        """Return the document's supported relations, one per type and target.
+
+        Two source links that differ only in provenance, such as two Jira
+        "relates to" links to the same issue, collapse to one, because
+        ChunkRecord rejects duplicates.
+        """
         supported = {relation.value: relation for relation in RelationType}
-        # A chunk relation is keyed by type and target, so two source links that
-        # differ only in provenance -- e.g. two separate Jira "relates to" links to
-        # the same issue -- collapse to one. ChunkRecord rejects duplicates.
         unique: dict[tuple[str, str], ChunkRelation] = {}
         for relation in request.document.relations:
             key = (relation.predicate, relation.target_id)
@@ -296,21 +291,22 @@ class CanonicalChunkFactory:
 
     @classmethod
     def _metadata(cls, values: CanonicalChunkInput) -> dict[str, object]:
-        # An attachment is its own document, and most strategies copy nothing from
-        # provenance onto its chunks. Its parent's item id is what links a CV back
-        # to the issue whose fields describe it, so every chunk carries it.
-        parent = values.request.document.provenance.extra.get("parent_source_item_id")
-        identity = cls._source_identity(values.request)
-        # The document's update time is only a fallback: a candidate's own time wins.
-        document_updated = identity.pop("source_updated_at", None)
+        """Merge the document's fields with the candidate's own metadata.
+
+        Most strategies copy nothing from provenance onto a chunk. An attachment
+        is its own document, and its parent's item id is what links a CV back to
+        the issue whose fields describe it, so every chunk carries that id. Local
+        files and SharePoint documents add their document fields here too.
+        """
+        request = values.request
+        parent = request.document.provenance.extra.get("parent_source_item_id")
+        candidate: Mapping[str, object] = values.candidate.metadata
+        if cls._connector_type(request) == ConnectorType.SHAREPOINT:
+            candidate = with_sharepoint_fields(request.document, candidate)
         return {
             **({"parent_source_item_id": str(parent)} if parent else {}),
-            **cls._local_timestamps(values.request),
-            **({"source_updated_at": document_updated} if document_updated else {}),
-            **values.candidate.metadata,
-            # The document's identity is authoritative: a candidate's copy of these
-            # keys must not attribute the chunk to another site, drive or item.
-            **identity,
+            **cls._local_timestamps(request),
+            **candidate,
             "source_version": cls._source_value(
                 values.request,
                 "source_version",
@@ -327,40 +323,11 @@ class CanonicalChunkFactory:
         }
 
     @classmethod
-    def _source_identity(cls, request: ChunkingRequest) -> dict[str, str]:
-        """Carry a SharePoint document's identity onto every one of its chunks.
-
-        Read from the document, not from units, so every chunk -- including route
-        chunks -- gets the same values regardless of how the strategy packed it.
-        Other connectors return nothing here.
-        """
-        if cls._connector_type(request) != ConnectorType(_SHAREPOINT_CONNECTOR):
-            return {}
-        document = request.document
-        extra = document.provenance.extra
-        values: dict[str, str] = {}
-        for key in _SHAREPOINT_EXTRA_FIELDS:
-            text = _present_text(extra.get(key))
-            if text is not None:
-                values[key] = text
-        web_url = _present_text(document.provenance.url or extra.get("url"))
-        if web_url is not None:
-            values["web_url"] = web_url
-        author = _present_text(document.provenance.author)
-        if author is not None:
-            values["author"] = author
-        updated = _utc_iso(extra.get("source_updated_at"))
-        if updated is None:
-            updated = _utc_iso(document.provenance.updated_at)
-        if updated is not None:
-            values["source_updated_at"] = updated
-        return values
-
-    @classmethod
     def _local_timestamps(cls, request: ChunkingRequest) -> dict[str, str]:
         """Carry a local file's document dates onto each chunk.
+
         Local files have no source strategy that copies provenance dates, so this
-        uses the ``created_at``/``updated_at`` names Jira and SharePoint chunks use.
+        uses the ``created_at`` and ``updated_at`` names of the vector payload.
         """
         if cls._connector_type(request) != ConnectorType.LOCAL:
             return {}

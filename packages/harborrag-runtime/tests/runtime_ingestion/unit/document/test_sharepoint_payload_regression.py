@@ -1,13 +1,16 @@
-"""Regression: SharePoint source metadata survives ingestion into Qdrant payloads.
+"""Regression: SharePoint source metadata survives ingestion into vector payloads.
 
-Runs the real path (connector metadata, normalizer, admission, chunker, vector
-projection) and compares every evidence point's payload with the source metadata.
-This spans the SharePoint adapter and the engine, so it lives in the workspace suite.
+Runs the real path, from connector metadata through the normalizer, the version
+planner and the chunker to the vector projection, and compares every evidence
+point's payload with the source metadata. It spans the SharePoint adapter and
+the engine, so it lives in runtime, which depends on both.
 """
 
 from __future__ import annotations
 
 from dataclasses import replace
+
+import pytest
 
 from harborrag_adapters.connectors.sharepoint.mappers import (
     build_document_metadata,
@@ -31,6 +34,8 @@ from harborrag_core.ingestion import (
     SourceBinding,
     SourceIdentity,
     SparseEncoderProfile,
+    canonical_document_bytes,
+    load_canonical_document,
 )
 from harborrag_core.testing.chunking import CharacterCounter, CharacterRefiner
 from harborrag_engine.ingestion import (
@@ -40,6 +45,7 @@ from harborrag_engine.ingestion import (
 )
 from harborrag_engine.ingestion.admission import (
     CanonicalVersionPlanner,
+    PlannedDocumentVersion,
     SourceAdmissionPolicy,
     source_version_from_document,
 )
@@ -50,11 +56,15 @@ from harborrag_engine.ingestion.chunking import (
     ChunkingRequest,
     build_chunking_service,
 )
+from harborrag_engine.ingestion.chunking.records.sharepoint import sharepoint_chunk_fields
 from harborrag_engine.ingestion.normalizer import DocumentNormalizer
+
+pytestmark = pytest.mark.unit
 
 SITE = {"id": "contoso.sharepoint.com,SITE,WEB", "name": "hr"}
 DRIVE = {"id": "DRIVE-1", "name": "Documents", "driveType": "documentLibrary"}
 URL = "https://contoso.sharepoint.com/sites/hr/Shared%20Documents/Policy.docx"
+AUTHOR = "Alex Example"
 ITEM = {
     "id": "ITEM-7",
     "name": "Policy.docx",
@@ -64,11 +74,12 @@ ITEM = {
     "cTag": "ctag-1",
     "createdDateTime": "2026-04-01T09:00:00Z",
     "lastModifiedDateTime": "2026-05-01T08:30:00+02:00",
-    "createdBy": {"user": {"displayName": "Ada Lovelace"}},
-    "lastModifiedBy": {"user": {"displayName": "Grace Hopper"}},
+    "createdBy": {"user": {"displayName": AUTHOR}},
+    "lastModifiedBy": {"user": {"displayName": "Sam Sample"}},
     "parentReference": {"driveId": "DRIVE-1", "id": "PARENT", "path": "/drives/DRIVE-1/root:"},
     "file": {"mimeType": "application/octet-stream", "hashes": {"quickXorHash": "h"}},
 }
+ITEM_RAW_ID = "sharepoint://SITE/DRIVE-1/ITEM-7"
 PAGE_URL = "https://contoso.sharepoint.com/sites/hr/SitePages/Welcome.aspx"
 PAGE = {
     "id": "PAGE-3",
@@ -78,20 +89,23 @@ PAGE = {
     "createdDateTime": "2026-04-02T09:00:00Z",
     "lastModifiedDateTime": "2026-05-03T10:15:00Z",
     "eTag": "etag-page",
-    "createdBy": {"user": {"displayName": "Ada Lovelace"}},
-    "lastModifiedBy": {"user": {"displayName": "Grace Hopper"}},
+    "createdBy": {"user": {"displayName": AUTHOR}},
+    "lastModifiedBy": {"user": {"displayName": "Sam Sample"}},
 }
 BODY = (
     "Annual leave is 25 days for every employee. " * 4
     + "Carry-over of unused leave needs manager approval before March. " * 4
 )
-SOURCE_IDENTITY = SourceIdentity(
+FILE_SOURCE = SourceIdentity(
     tenant_id="tenant-1",
-    connector_type=ConnectorType("sharepoint"),
+    connector_type=ConnectorType.SHAREPOINT,
     connection_id="sharepoint-prod",
     source_item_id="ITEM-7",
     source_scope_id="SITE/DRIVE-1",
     binding=SourceBinding(kind="ROOT"),
+)
+PAGE_SOURCE = FILE_SOURCE.model_copy(
+    update={"source_item_id": "PAGE-3", "source_scope_id": "SITE/pages"}
 )
 PROCESSING = ProcessingProfile(
     parser_profile="plain-text-v1",
@@ -101,6 +115,11 @@ PROCESSING = ProcessingProfile(
     sparse_encoder_profile="bm25-v1",
     graph_projection_version="graph-v1",
 )
+
+
+def _file_document(item: dict[str, object] = ITEM) -> Document:
+    metadata = build_document_metadata(item, site=SITE, drive=DRIVE, checksum="sum").to_dict()
+    return _normalize(metadata, raw_id=ITEM_RAW_ID, url=URL)
 
 
 def _normalize(metadata: dict[str, object], *, raw_id: str, url: str) -> Document:
@@ -116,7 +135,21 @@ def _normalize(metadata: dict[str, object], *, raw_id: str, url: str) -> Documen
     )
 
 
-def _chunks(document: Document) -> tuple[ChunkRecord, ...]:
+def _plan(document: Document, source: SourceIdentity = FILE_SOURCE) -> PlannedDocumentVersion:
+    return CanonicalVersionPlanner().plan(
+        document=document,
+        source_identity=source,
+        admission=AdmissionSnapshot(source_version=source_version_from_document(document)),
+        processing=PROCESSING,
+    )
+
+
+def _stored(document: Document) -> Document:
+    """Return the document as the chunk stage loads it from the canonical artifact store."""
+    return load_canonical_document(canonical_document_bytes(document))
+
+
+def _chunks(planned: PlannedDocumentVersion) -> tuple[ChunkRecord, ...]:
     profile = ChunkingProfile(
         name="canonical",
         strategy="canonical",
@@ -136,17 +169,17 @@ def _chunks(document: Document) -> tuple[ChunkRecord, ...]:
     chunks = service.chunk(
         ChunkingRequest(
             tenant_id="tenant-1",
-            document_version_id="document-version:1",
-            connector_type="sharepoint",
-            document=document,
+            document_version_id=str(planned.candidate.document_version_id),
+            connector_type=ConnectorType.SHAREPOINT.value,
+            document=_stored(planned.document),
         )
     ).chunks
     assert len(chunks) > 1, "fixture must produce several chunks to test consistency"
-    return chunks
+    return tuple(chunks)
 
 
-def _payloads(document: Document) -> list[dict[str, object]]:
-    chunks = _chunks(document)
+def _payloads(planned: PlannedDocumentVersion) -> list[dict[str, object]]:
+    chunks = _chunks(planned)
     batch = VectorProjectionBuilder().build(
         VectorProjectionInput(
             chunks=chunks,
@@ -161,39 +194,32 @@ def _payloads(document: Document) -> list[dict[str, object]]:
     ]
 
 
-def _plan(document: Document):
-    return CanonicalVersionPlanner().plan(
-        document=document,
-        source_identity=SOURCE_IDENTITY,
-        admission=AdmissionSnapshot(source_version=source_version_from_document(document)),
-        processing=PROCESSING,
-    )
-
-
-def test_every_sharepoint_point_payload_matches_source_metadata() -> None:
-    source = build_document_metadata(ITEM, site=SITE, drive=DRIVE, checksum="sum").to_dict()
-    document = _normalize(source, raw_id="sharepoint://SITE/DRIVE-1/ITEM-7", url=URL)
-
+def test_sharepoint_file_points_carry_the_source_metadata() -> None:
+    """Every point of a drive file carries its site, drive, item, link, author and times."""
     expected = {
         "site_id": "contoso.sharepoint.com,SITE,WEB",
         "drive_id": "DRIVE-1",
         "item_id": "ITEM-7",
         "web_url": URL,
-        "author": "Ada Lovelace",
+        "author": AUTHOR,
+        "created_at": "2026-04-01T09:00:00+00:00",
         "updated_at": "2026-05-01T06:30:00+00:00",
     }
-    for payload in _payloads(document):
+
+    for payload in _payloads(_plan(_file_document())):
         for key, value in expected.items():
             assert payload.get(key) == value, f"{key} missing or wrong on a point"
 
 
-def test_site_page_points_carry_page_identity_without_drive_identity() -> None:
-    source = build_page_document_metadata(
+def test_sharepoint_site_page_points_carry_page_identity_without_drive_identity() -> None:
+    """A site page's points carry its page ID and no drive or item ID."""
+    metadata = build_page_document_metadata(
         PAGE, site=SITE, title="Welcome", checksum="sum", has_text_content=True
     ).to_dict()
-    document = _normalize(source, raw_id="sharepoint://SITE/pages/PAGE-3", url=PAGE_URL)
+    document = _normalize(metadata, raw_id="sharepoint://SITE/pages/PAGE-3", url=PAGE_URL)
 
-    payloads = _payloads(document)
+    payloads = _payloads(_plan(document, PAGE_SOURCE))
+
     assert payloads
     for payload in payloads:
         assert payload.get("page_id") == "PAGE-3"
@@ -203,45 +229,48 @@ def test_site_page_points_carry_page_identity_without_drive_identity() -> None:
         assert "item_id" not in payload
 
 
-def test_timestamp_only_change_reaches_active_payload_and_repeat_stays_unchanged() -> None:
-    first_meta = build_document_metadata(ITEM, site=SITE, drive=DRIVE, checksum="sum").to_dict()
-    later_item = {**ITEM, "lastModifiedDateTime": "2026-06-01T10:00:00Z"}
-    later_meta = build_document_metadata(
-        later_item, site=SITE, drive=DRIVE, checksum="sum"
-    ).to_dict()
-    first_id = "sharepoint://SITE/DRIVE-1/ITEM-7"
-
-    first_plan = _plan(_normalize(first_meta, raw_id=first_id, url=URL))
+def test_sharepoint_update_time_only_change_is_a_new_version_with_the_new_time() -> None:
+    """A changed update time alone is METADATA_CHANGED and reaches the new version's points."""
+    first = _plan(_file_document())
     active = DocumentVersionSnapshot(
-        document_id=first_plan.candidate.document_id,
-        document_version_id=first_plan.candidate.document_version_id,
-        fingerprints=first_plan.candidate.fingerprints,
+        document_id=first.candidate.document_id,
+        document_version_id=first.candidate.document_version_id,
+        fingerprints=first.candidate.fingerprints,
         state=DocumentVersionState.ACTIVE,
     )
     policy = SourceAdmissionPolicy()
 
-    later_document = _normalize(later_meta, raw_id=first_id, url=URL)
-    later_plan = _plan(later_document)
+    later = _plan(_file_document({**ITEM, "lastModifiedDateTime": "2026-06-01T10:00:00Z"}))
+    repeat = _plan(_file_document())
+
     assert (
-        policy.after_normalization(active=active, fingerprints=later_plan.candidate.fingerprints)
+        policy.after_normalization(active=active, fingerprints=later.candidate.fingerprints)
         == SourceAdmissionDecision.METADATA_CHANGED
     )
-    for payload in _payloads(later_document):
+    for payload in _payloads(later):
+        assert payload["document_version_id"] == str(later.candidate.document_version_id)
         assert payload.get("updated_at") == "2026-06-01T10:00:00+00:00"
-
-    repeat_plan = _plan(_normalize(first_meta, raw_id=first_id, url=URL))
     assert (
-        policy.after_normalization(active=active, fingerprints=repeat_plan.candidate.fingerprints)
+        policy.after_normalization(active=active, fingerprints=repeat.candidate.fingerprints)
         == SourceAdmissionDecision.UNCHANGED
     )
 
 
-def test_blank_author_is_omitted_instead_of_failing_the_batch() -> None:
-    source = build_document_metadata(ITEM, site=SITE, drive=DRIVE, checksum="sum").to_dict()
-    document = _normalize(source, raw_id="sharepoint://SITE/DRIVE-1/ITEM-7", url=URL)
+def test_sharepoint_fingerprinted_fields_match_the_stored_document() -> None:
+    """Admission hashes the same SharePoint fields the chunk stage reads from storage."""
+    document = _file_document()
+
+    stored = _stored(_plan(document).document)
+
+    assert sharepoint_chunk_fields(document) == sharepoint_chunk_fields(stored)
+
+
+def test_sharepoint_blank_author_is_left_out_instead_of_failing_the_batch() -> None:
+    """A blank author is dropped from every point rather than failing the projection."""
+    document = _file_document()
     blank = replace(document, provenance=replace(document.provenance, author="   "))
 
-    for payload in _payloads(blank):
+    for payload in _payloads(_plan(blank)):
         assert "author" not in payload
 
 
