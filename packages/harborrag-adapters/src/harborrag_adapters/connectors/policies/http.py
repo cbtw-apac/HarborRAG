@@ -1,9 +1,15 @@
+"""Retry, size-cap, origin and error-text policies shared by every connector.
+
+Error text built here can reach logs, run status and API responses, so it is
+redacted and truncated before it leaves this module.
+"""
+
 from __future__ import annotations
 
 import json
 import random
 import time
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from http.client import HTTPResponse
@@ -20,6 +26,9 @@ _ALLOWED_SCHEMES = frozenset({"http", "https"})
 DEFAULT_ERROR_BODY_LIMIT = 500
 DEFAULT_ERROR_BODY_READ_LIMIT = 8 * 1024
 DEFAULT_JSON_BODY_LIMIT = 8 * 1024 * 1024
+
+_REDACTED = "<redacted>"
+_MIN_KNOWN_SECRET_LENGTH = 4
 
 
 class StreamingResponse(Protocol):
@@ -39,30 +48,60 @@ class StreamingResponse(Protocol):
         ...
 
 
-def safe_error_detail(text: str | None, *, limit: int = DEFAULT_ERROR_BODY_LIMIT) -> str:
-    """Return a truncated, secret-redacted snippet of a response body."""
+def safe_error_detail(
+    text: str | None,
+    *,
+    limit: int = DEFAULT_ERROR_BODY_LIMIT,
+    known_secrets: Iterable[str | None] = (),
+) -> str:
+    """Return a truncated, secret-redacted snippet of a response body.
+
+    Generic redaction only finds labelled values and well-known token shapes.
+    Each known secret is also replaced wherever it appears, longest first and
+    before truncation, so no part of it survives.
+
+    Args:
+        text: Response body or provider message, or ``None`` when there is none.
+        limit: Maximum characters kept before the truncation marker.
+        known_secrets: Credential values sent with the request. ``None`` and
+            values shorter than four characters are skipped, because replacing
+            them would blank ordinary words in the message.
+
+    Returns:
+        One line of redacted text, or an empty string when ``text`` is empty.
+    """
     if not text:
         return ""
-    text = redact_secrets(text)
+    text = redact_secrets(_remove_known_secrets(text, known_secrets), replacement=_REDACTED)
     text = text.strip().replace("\n", " ")
     if len(text) > limit:
         return f"{text[:limit]}… (truncated)"
     return text
 
 
+def _remove_known_secrets(text: str, known_secrets: Iterable[str | None]) -> str:
+    """Replace each known secret, longest first, so none is left partly shown."""
+    values = {value for value in known_secrets if value and len(value) >= _MIN_KNOWN_SECRET_LENGTH}
+    for value in sorted(values, key=len, reverse=True):
+        text = text.replace(value, _REDACTED)
+    return text
+
+
 def summarize_provider_error(exc: Exception) -> str:
     """Reduce a connector exception to one diagnostic line for re-raising.
 
-    Prefers the exception's raw provider ``detail`` (set on `FetchError`) over
-    `str(exc)`, since some call sites format the latter with a redundant
-    "request failed with HTTP ..." prefix. If that detail is a JSON error
-    body -- as Confluence's often is -- pulls just its ``message`` field so
-    callers see a sentence instead of a raw envelope; anything that isn't a
-    JSON object with a string ``message`` (a different shape, or truncation
-    cutting the JSON short) falls back to the raw detail unchanged.
+    The provider body kept on a `FetchError` is preferred over the exception
+    text, which can repeat the HTTP status. When that body is a JSON object with
+    a non-blank string ``message``, only the message is kept. Any other body,
+    including JSON cut short by truncation, is returned unchanged.
+
+    Args:
+        exc: Exception raised by a connector request.
+
+    Returns:
+        The provider's message, or the raw detail when it has none.
     """
-    detail = getattr(exc, "detail", None)
-    detail = detail if isinstance(detail, str) and detail else str(exc)
+    detail = exc.detail if isinstance(exc, FetchError) and exc.detail else str(exc)
     try:
         payload = json.loads(detail)
     except ValueError:
@@ -74,28 +113,26 @@ def summarize_provider_error(exc: Exception) -> str:
 
 
 def _with_status_code(message: str, status_code: int | None) -> str:
-    """Append the raw HTTP status so it's always visible, even when the
-    provider's own error body happens not to mention it (Jira Cloud's 401
-    body is just "Client must be authenticated..." with no digits, while
-    Confluence's 403 body happens to embed "403 FORBIDDEN" -- callers must
-    not depend on incidental provider wording to see the status code)."""
+    """Append the HTTP status, since a provider's error body may not mention it."""
     return message if status_code is None else f"{message} (HTTP {status_code})"
 
 
 def verify_credentials(probe: Callable[[], object], *, provider: str) -> None:
     """Run a cheap authenticated probe and normalize how it fails.
 
-    A bad credential (401) otherwise reaches the caller as a bare, un-prefixed
-    provider message, raised deep in the shared HTTP client. A 403 means the
-    credential itself checks out but lacks permission/scope for the probed
-    resource -- a different failure a caller must be able to tell apart from
-    an outright invalid credential, so it is reported as an authorization
-    failure, not an authentication one. Some deployments reject a probe with
-    a bare 403 `FetchError` instead of the shared client's own
-    `AuthorizationError`, so that case is normalized here too. Every branch
-    re-raises through the same message template so every connector's
-    ``connect()`` reports each kind of failure the same way regardless of
-    provider.
+    A rejected credential is reported as an authentication failure. A 403,
+    including a bare 403 `FetchError`, means the credential is valid but lacks
+    permission, so it is reported as an authorization failure. Each message
+    starts with the provider name, so every connector reports failures alike.
+
+    Args:
+        probe: Callable that sends one authenticated request to the provider.
+        provider: Provider name that starts each error message.
+
+    Raises:
+        AuthenticationError: The provider rejected the credential.
+        AuthorizationError: The credential lacks permission for the probed resource.
+        FetchError: The probe failed for any other reason.
     """
     try:
         probe()
@@ -128,16 +165,28 @@ def verify_credentials(probe: Callable[[], object], *, provider: str) -> None:
 
 
 def require_same_origin_url(url: str, base_url: str, *, label: str) -> str:
-    """Validate absolute URLs before sending authenticated requests.
+    """Return a source-supplied URL only when it keeps the configured origin.
 
-    Connectors often receive download links from source APIs. Relative links are
-    safe to join against the configured base URL, but absolute links must stay on
-    the same scheme, host, and port to avoid leaking credentials to another
-    origin. Absoluteness is decided by parsing (not a case-sensitive prefix
-    check), and any non-http(s) scheme is rejected outright.
+    Source APIs return links that are fetched with the connector's credentials.
+    A path-relative link, with neither scheme nor host, is returned for the
+    caller to join to ``base_url``. A link that names a host must use http or
+    https on the scheme, host and port of ``base_url``, so a scheme-relative
+    ``//host/path`` link is refused.
+
+    Args:
+        url: Link taken from a source response.
+        base_url: Configured base URL whose origin the link must keep.
+        label: Short name of the link's purpose, used in the error message.
+
+    Returns:
+        ``url`` unchanged.
+
+    Raises:
+        ValueError: ``url`` has a scheme other than http or https, names a
+            host without a scheme, or points outside the origin of ``base_url``.
     """
     parsed = urlparse(url)
-    if not parsed.scheme:
+    if not parsed.scheme and not parsed.netloc:
         return url
     if parsed.scheme.lower() not in _ALLOWED_SCHEMES:
         raise ValueError(f"Unsafe {label} URL scheme")
@@ -147,7 +196,7 @@ def require_same_origin_url(url: str, base_url: str, *, label: str) -> str:
 
 
 class ResponseTooLargeError(ValueError):
-    """Raised when a streamed response body exceeds the configured byte cap."""
+    """A streamed response body is larger than the configured byte cap."""
 
 
 def read_capped_content(
@@ -156,12 +205,22 @@ def read_capped_content(
     *,
     chunk_size: int = 64 * 1024,
 ) -> bytes:
-    """Read a ``requests`` response body while enforcing a hard byte ceiling.
+    """Read a streamed response body while enforcing a hard byte ceiling.
 
-    Streaming with an incremental cap bounds peak memory even when the provider
-    misreports (or omits) the size and when ``Content-Length`` is absent. The
-    read is aborted — and the connection released — as soon as the cap is
-    exceeded, so a hostile/unbounded body can never be fully buffered.
+    The cap is checked as each chunk arrives, so peak memory stays bounded when
+    ``Content-Length`` is missing or wrong. A declared length over the cap is
+    refused before reading. The response is closed in every case.
+
+    Args:
+        response: Streamed response to read.
+        max_bytes: Largest body accepted, or ``None`` for no cap.
+        chunk_size: Bytes requested per read.
+
+    Returns:
+        The whole response body.
+
+    Raises:
+        ResponseTooLargeError: The declared or downloaded body is over ``max_bytes``.
     """
     if max_bytes is not None:
         declared = response.headers.get("Content-Length")
@@ -192,8 +251,19 @@ def read_capped_json(
     *,
     max_bytes: int = DEFAULT_JSON_BODY_LIMIT,
 ) -> object:
-    """Decode JSON only after incrementally enforcing the connector body limit."""
+    """Decode a JSON response body after reading it under a byte cap.
 
+    Args:
+        response: Streamed response to read.
+        max_bytes: Largest body accepted.
+
+    Returns:
+        The decoded JSON value.
+
+    Raises:
+        ResponseTooLargeError: The body is over ``max_bytes``.
+        ValueError: The body is not valid JSON.
+    """
     body = read_capped_content(response, max_bytes)
     return json.loads(body)
 
@@ -202,18 +272,41 @@ def safe_response_error_detail(
     response: StreamingResponse,
     *,
     limit: int = DEFAULT_ERROR_BODY_LIMIT,
+    known_secrets: Iterable[str | None] = (),
 ) -> str:
-    """Read only a small error-body prefix before redacting and rendering it."""
+    """Read a small prefix of an error body, then redact and truncate it.
 
+    Args:
+        response: Error response. It is closed after the read.
+        limit: Maximum characters kept before the truncation marker.
+        known_secrets: Credential values sent with the request, replaced as
+            `safe_error_detail` does.
+
+    Returns:
+        The redacted detail, or a fixed message when the body is over the read cap.
+    """
     try:
         body = read_capped_content(response, DEFAULT_ERROR_BODY_READ_LIMIT)
     except ResponseTooLargeError:
         return "response body exceeded safe diagnostic limit"
-    return safe_error_detail(body.decode("utf-8", errors="replace"), limit=limit)
+    return safe_error_detail(
+        body.decode("utf-8", errors="replace"), limit=limit, known_secrets=known_secrets
+    )
 
 
 def same_origin(url: str, base_url: str) -> bool:
-    """Return whether two URLs share scheme, host, and effective port."""
+    """Return whether two URLs share scheme, host and effective port.
+
+    Scheme and host compare case-insensitively. An http or https URL without a
+    port counts as using that scheme's default port.
+
+    Args:
+        url: URL to check.
+        base_url: URL whose origin ``url`` must match.
+
+    Returns:
+        ``True`` when both URLs have the same origin.
+    """
     parsed = urlparse(url)
     base = urlparse(base_url)
     return (
@@ -232,12 +325,18 @@ def retry_delay_seconds(
 ) -> float:
     """Choose a retry delay from provider headers or a fallback backoff.
 
-    HTTP providers commonly return either ``Retry-After`` or
-    ``X-RateLimit-Reset``. This helper centralizes that interpretation so every
-    connector sleeps consistently when it is throttled. The result is always
-    clamped to ``max_delay`` (defending against hostile headers) and, when
-    ``jitter`` is set, spread by a small random factor to avoid a thundering
-    herd of synchronized retries across workers.
+    ``Retry-After`` is read first, then ``X-RateLimit-Reset``. The result is
+    clamped to ``max_delay`` so a hostile header cannot stall a worker. Jitter
+    keeps many workers from retrying at the same moment.
+
+    Args:
+        headers: Response headers, or ``None`` when there is no response.
+        fallback_delay: Seconds to wait when no header gives a usable delay.
+        max_delay: Largest delay returned, in seconds.
+        jitter: Add a random delay of up to 10 percent, at most one second.
+
+    Returns:
+        Seconds to wait before the next attempt, from 0 to ``max_delay``.
     """
     delay = _raw_delay(headers, fallback_delay)
     delay = max(0.0, min(delay, max_delay))
@@ -250,6 +349,7 @@ def _raw_delay(
     headers: Mapping[str, str] | HTTPResponse | None,
     fallback_delay: float,
 ) -> float:
+    """Return the delay the headers ask for, before clamping and jitter."""
     if not headers:
         return fallback_delay
 
@@ -270,6 +370,7 @@ def _raw_delay(
 
 
 def _header(headers: Mapping[str, str] | HTTPResponse, name: str) -> str | None:
+    """Read one stripped header from a mapping or an object with ``getheader``."""
     if hasattr(headers, "get"):
         value = headers.get(name)
     elif hasattr(headers, "getheader"):
@@ -280,6 +381,7 @@ def _header(headers: Mapping[str, str] | HTTPResponse, name: str) -> str | None:
 
 
 def _parse_retry_after(value: str) -> float | None:
+    """Parse ``Retry-After`` as seconds or an HTTP date, or return ``None``."""
     try:
         return max(0.0, float(value))
     except ValueError:
@@ -295,6 +397,7 @@ def _parse_retry_after(value: str) -> float | None:
 
 
 def _port(parsed: ParseResult) -> int | None:
+    """Return the explicit port, or the default port of an http or https URL."""
     if parsed.port is not None:
         return parsed.port
     if parsed.scheme.lower() == "https":

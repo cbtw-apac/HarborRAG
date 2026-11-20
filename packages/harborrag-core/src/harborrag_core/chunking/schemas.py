@@ -1,3 +1,13 @@
+"""Canonical chunk schema shared by chunking, projections and retrieval.
+
+Stored chunks and graphs keep these enum values, so members are only ever
+appended, never removed or reordered.
+
+The ``*_PROPERTIES`` tuples list the node and relation properties of the
+versioned semantic-v3 and enterprise-v1 graph contract that describe_graph
+documents. No model enforces those shapes yet, so they are declared here.
+"""
+
 from __future__ import annotations
 
 from enum import StrEnum
@@ -32,6 +42,7 @@ class ConnectorType(_ExtensibleIdentifier):
     CONFLUENCE = "confluence"
     JIRA = "jira"
     LOCAL = "local"
+    SHAREPOINT = "sharepoint"
 
 
 class DocumentKind(_ExtensibleIdentifier):
@@ -44,6 +55,8 @@ class DocumentKind(_ExtensibleIdentifier):
 
 
 class ChunkKind(StrEnum):
+    """Content kind of a chunk, derived from its strategy role."""
+
     TEXT = "text"
     TABLE = "table"
     CODE = "code"
@@ -53,11 +66,18 @@ class ChunkKind(StrEnum):
 
 
 class RecordKind(StrEnum):
+    """Whether a chunk is evidence or a route record.
+
+    Only evidence is projected into the vector evidence collection.
+    """
+
     ROUTE = "route"
     EVIDENCE = "evidence"
 
 
 class ContainerKind(StrEnum):
+    """Kind of structural container around a chunk, such as a section or a tab."""
+
     SECTION = "section"
     TAB_SET = "tab_set"
     TAB = "tab"
@@ -69,21 +89,30 @@ class ContainerKind(StrEnum):
 class RelationType(StrEnum):
     """Relation predicates, split by whether the graph projection emits them.
 
-    Members are never removed: a relation_type value already written into a graph must
-    stay decodable, and GraphEntityType is deliberately an open set, so closing this one
-    would be inconsistent.
+    Members are never removed. A relation_type already written into a graph must
+    stay decodable, and GraphEntityType is an open set too.
+
+    ``PROJECTED_RELATION_TYPES`` lists the predicates the projection emits, and
+    the graph tools offer only those as filters. A filter on a predicate that is
+    never emitted would return an empty result that looks like a genuine miss.
+
+    SUPPORTS is no longer projected. 2.0.0a1 wrote (:Chunk)-[:SUPPORTS]->(:Structure),
+    and the projection now writes (:Structure)-[:HAS_CHUNK]->(:Chunk) instead. So
+    HAS_CHUNK is projected although it is declared among the reserved members.
+
+    INCLUDES is Confluence transclusion, where an ``include`` macro renders another
+    page's body inside this one. It is not LINKS_TO. A link is a reference the
+    reader may follow, and a transclusion is content already on the page.
+
+    The members from HAS_SECTION on, except HAS_CHUNK, are reserved. They are
+    accepted on input but never projected. CHILD_OF and ATTACHED_TO are stored as
+    reversed PARENT_OF and HAS_ATTACHMENT edges, and the rest describe structure
+    that CONTAINS already carries.
     """
 
-    # Projected. With HAS_CHUNK (declared below), these are the only predicates the
-    # graph builder emits today, and the only edge types present in a graph written by
-    # the current schema version. SUPPORTS is the exception in this block: see its note.
     HAS_DATA_SOURCE = "has_data_source"
     CONTAINS = "contains"
     HAS_VERSION = "has_version"
-    # No longer projected. 2.0.0a1 linked a chunk as (:Chunk)-[:SUPPORTS]->(:Structure);
-    # the projection now writes (:Structure)-[:HAS_CHUNK]->(:Chunk) instead. Kept so an
-    # old value still decodes, but it is not in PROJECTED_RELATION_TYPES, so the graph
-    # tools no longer accept 'supports' as a filter.
     SUPPORTS = "supports"
     PARENT_OF = "parent_of"
     LINKS_TO = "links_to"
@@ -94,20 +123,8 @@ class RelationType(StrEnum):
     RELATES_TO = "relates_to"
     POINTS_TO = "points_to"
     RESOLVED_AT = "resolved_at"
-    # Confluence transclusion: an `include` macro renders another page's body inside this
-    # one, so the two are genuinely coupled -- a reader of the host sees the target's
-    # content. It is not LINKS_TO: a link is a reference the reader may follow, whereas a
-    # transclusion is content already on the page, and collapsing them would make
-    # "what does this page actually say" unanswerable.
     INCLUDES = "includes"
-
-    # Reserved: accepted on input but never projected. CHILD_OF and ATTACHED_TO are
-    # normalized into reversed PARENT_OF and HAS_ATTACHMENT edges rather than stored in
-    # their own direction; the rest describe structure that CONTAINS already carries.
     HAS_SECTION = "has_section"
-    # Projected, despite its place in this block: the chunk edge,
-    # (:Structure)-[:HAS_CHUNK]->(:Chunk), which replaced SUPPORTS. Members are not
-    # reordered, because enum order is observable.
     HAS_CHUNK = "has_chunk"
     HAS_TABLE = "has_table"
     HAS_COMMENT = "has_comment"
@@ -118,10 +135,6 @@ class RelationType(StrEnum):
     MENTIONS = "mentions"
 
 
-# The predicates a caller can usefully filter on. Offering the full enum in a tool schema
-# advertises eight predicates the projection never emits, so a filter on one of them
-# returns an empty result that is indistinguishable from a genuine miss. Reserved members
-# stay decodable on read; they are simply not selectable.
 PROJECTED_RELATION_TYPES: tuple[RelationType, ...] = (
     RelationType.HAS_DATA_SOURCE,
     RelationType.CONTAINS,
@@ -140,10 +153,6 @@ PROJECTED_RELATION_TYPES: tuple[RelationType, ...] = (
 )
 
 
-# Property catalogs for the forward-looking, versioned semantic-v3 / enterprise-v1
-# entity-relation contract (see describe_graph's tool documentation). No Pydantic model
-# in this repo enforces the Entity/RELATES property shapes yet, so these are declared
-# statically here rather than derived from a canonical source.
 COMMON_NODE_PROPERTIES: tuple[str, ...] = ("node_key", "name", "description", "entity_type")
 DOCUMENT_OWNED_PROPERTIES: tuple[str, ...] = (
     "document_id",
@@ -180,6 +189,7 @@ class ChunkContainer(StrictModel):
     @field_validator("container_id")
     @classmethod
     def validate_container_id(cls, value: str) -> str:
+        """Reject a blank container ID."""
         if not value.strip():
             raise ValueError("container_id must be non-empty")
         return value
@@ -187,6 +197,7 @@ class ChunkContainer(StrictModel):
     @field_validator("title")
     @classmethod
     def validate_title(cls, value: str | None) -> str | None:
+        """Reject a title that is present but blank."""
         if value is not None and not value.strip():
             raise ValueError("container title must be non-empty when provided")
         return value
@@ -208,6 +219,7 @@ class ChunkHierarchy(StrictModel):
 
     @model_validator(mode="after")
     def validate_hierarchy(self) -> ChunkHierarchy:
+        """Reject blank IDs and an inconsistent ancestry, parent or neighbour chain."""
         values = (
             *self.section_path,
             *self.ancestry,
@@ -256,6 +268,7 @@ class ChunkRelation(StrictModel):
     @field_validator("target_id", "target_version_id")
     @classmethod
     def validate_target(cls, value: str | None) -> str | None:
+        """Reject a blank target ID or target version ID."""
         if value is not None and not value.strip():
             raise ValueError("relation target identifiers must be non-empty")
         return value
@@ -271,6 +284,7 @@ class ChunkQuality(StrictModel):
     @field_validator("issues")
     @classmethod
     def validate_issues(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        """Reject blank or duplicate quality issues."""
         if any(not value.strip() for value in values):
             raise ValueError("chunk quality issues must be non-empty")
         if len(set(values)) != len(values):

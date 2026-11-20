@@ -10,6 +10,7 @@ from harborrag_adapters.connectors.policies.http import (
     read_capped_content,
     require_same_origin_url,
     safe_error_detail,
+    safe_response_error_detail,
     same_origin,
 )
 
@@ -81,6 +82,28 @@ def test_safe_error_detail_redacts_secrets():
     detail = safe_error_detail("auth failed: password=supersecretvalue123")
     assert "supersecretvalue123" not in detail
     assert "<redacted>" in detail
+
+
+def test_safe_error_detail_removes_known_secrets_longest_first():
+    """A secret that contains another is removed whole; short or missing values are kept."""
+    detail = safe_error_detail(
+        "abc rejected Xq8~ExampleSecret.42 and Xq8~ExampleSecret.42-rotated",
+        known_secrets=["Xq8~ExampleSecret.42", "Xq8~ExampleSecret.42-rotated", None, "abc"],
+    )
+    assert detail == "abc rejected <redacted> and <redacted>"
+
+
+def test_safe_error_detail_removes_a_known_secret_before_truncating():
+    """A secret cut in half by the length limit leaves none of its characters behind."""
+    secret = "Xq8~ExampleSecret.42"
+    detail = safe_error_detail("x" * 45 + secret, limit=50, known_secrets=[secret])
+    assert "Xq8~E" not in detail
+
+
+def test_safe_response_error_detail_removes_known_secrets():
+    response = FakeResponse(status_code=401, text="echo Xq8~ExampleSecret.42")
+    detail = safe_response_error_detail(response, known_secrets=["Xq8~ExampleSecret.42"])
+    assert detail == "echo <redacted>"
 
 
 def test_require_same_origin_allows_relative_urls():

@@ -148,6 +148,7 @@ def build_page_document_metadata(
         site_name=site.get("name") or site.get("displayName"),
         page_id=page_id,
         item_name=str(page.get("name") or ""),
+        url=_web_url(page),
         page_layout=page.get("pageLayout"),
         etag=page.get("eTag"),
         author=_identity_name(page.get("createdBy")),
@@ -219,6 +220,7 @@ def build_document_metadata(
         drive_type=drive.get("driveType"),
         item_id=item_id,
         item_name=title,
+        url=_web_url(item),
         path=item_path(item),
         size=int(item.get("size") or 0),
         etag=item.get("eTag"),
@@ -233,6 +235,12 @@ def build_document_metadata(
         ),
         sharepoint_hashes=_hashes(item),
     )
+
+
+def _web_url(entry: dict[str, Any]) -> str | None:
+    """Return the Graph ``webUrl`` (the document's SharePoint URL), if present."""
+    value = entry.get("webUrl")
+    return str(value) if value else None
 
 
 def _item_checksum(item: dict[str, Any]) -> str | None:

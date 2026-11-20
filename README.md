@@ -27,7 +27,8 @@ HarborRAG is a retrieval-augmented generation (RAG) framework: it reads document
 systems your team already uses, splits them into passages, indexes those passages as vectors
 and as a knowledge graph, and lets people and AI assistants search them and get answers that
 cite the passages they came from. You run it from a clone of this repository, with its
-services in Docker containers on your machine and the language models behind a model gateway.
+services in Docker containers on your machine and the language models at OpenAI or another
+OpenAI-compatible endpoint.
 
 > **Status** HarborRAG is alpha software, built for local development, integration testing
 > and controlled single-host staging; staging is supported once the manual release gate, the
@@ -43,9 +44,9 @@ Follow the [Quick Start](docs/getting-started/quick-start.md). In about half an 
 you from `git clone` to an answer about this repository's own documentation: you clone the
 repository, fill in two settings, start the local stack, ingest a folder and ask a question.
 
-You need Git, uv, Docker Engine with Compose v2, and a model gateway (a LiteLLM proxy) that
-serves a chat, an embedding and a reranking model. The Quick Start links each tool's own
-installation guide. HarborRAG runs on Linux and macOS, and on Windows inside WSL 2.
+You need Git, uv, Docker Engine with Compose v2, and an API key for OpenAI or another
+OpenAI-compatible endpoint that serves a chat and an embedding model. The Quick Start links
+each tool's own installation guide. HarborRAG runs on Linux and macOS, and on Windows inside WSL 2.
 
 **If `scripts/deployment/dev.sh up` stops with**
 `HARBORRAG_SECRETS_ENCRYPTION_KEY is blank in env/.env.database, but compose_pg_data already holds a database; restore the key it was written with.`,
@@ -66,9 +67,7 @@ After the Quick Start:
 - [Connections](docs/users/connections.md) - add Jira, Confluence, SharePoint or GitHub
   sources.
 - [MCP setup and integration](docs/users/detailed-guides/mcp-server/setup-and-integration.md) -
-  search HarborRAG from Claude Desktop, Cursor, VS Code or another MCP client. On Windows,
-  the MCP container also needs Docker Desktop host networking; see the
-  [`harborrag-mcp-server` README](packages/harborrag-mcp-server/README.md#docker-desktop-on-windows).
+  search HarborRAG from Claude Desktop, Cursor, VS Code or another MCP client.
 - [Python SDK](docs/users/python-sdk/README.md) - ingest, search and chat from your own
   Python code.
 - [Installation](docs/getting-started/installation.md) - reference for later: pip installs,

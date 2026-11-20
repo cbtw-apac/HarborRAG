@@ -12,7 +12,7 @@ from typing import Self
 from pydantic import ConfigDict, Field, model_validator
 
 from .common import PagedHttpTuning
-from .fields import HttpsUrl, Secret, StrictModel, widget
+from .fields import HttpsUrl, PathText, Secret, StrictModel, widget
 from .spec import AuthMethodSpec, Capabilities, Setup, SourceTypeSpec
 
 _GRAPH_HELP = (
@@ -90,7 +90,7 @@ class SharePointConfig(StrictModel):
     drive_name: str | None = Field(
         default=None, description="Document library name, instead of drive_id"
     )
-    root_path: str | None = Field(
+    root_path: PathText | None = Field(
         default=None, description="Folder inside the library; not with item_ids"
     )
     item_ids: list[str] | None = Field(
