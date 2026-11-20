@@ -1,14 +1,20 @@
 from __future__ import annotations
 
+import errno
 import logging
+import os
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
+from pathlib import Path
 from threading import Event, Thread
 
 import pytest
 
+import harborrag_mcp_server.configuration.store as store_module
 from harborrag_engine.tools.base import BaseTool, ToolSpec
 from harborrag_mcp_server.audit import McpAuditLog
 from harborrag_mcp_server.configuration import (
+    ConfigurationReadOnlyError,
     ConfigurationRevisionError,
     McpConfiguration,
     McpConfigurationStore,
@@ -50,10 +56,10 @@ class ConfigurableTool(BaseTool):
         return {"results": [], "arguments": arguments, "principal_id": principal_id}
 
 
-def _store(tmp_path, configuration, *, environment=None):
+def _store(tmp_path, configuration, *, environment=None, path=None):
     audit = McpAuditLog(path=tmp_path / "audit.jsonl")
     return McpConfigurationStore(
-        path=tmp_path / "mcp.yaml",
+        path=path or tmp_path / "mcp.yaml",
         configuration=McpConfiguration.model_validate(configuration),
         specs=[ConfigurableTool.spec],
         audit=audit,
@@ -289,3 +295,79 @@ def test_alpha1_shipped_configuration_loads_against_the_current_catalog(tmp_path
     assert path.defaults["max_paths"] == 5
     assert path.limits == {"max_depth": 4, "max_paths": 5}
     assert store.resolve("graph_subgraph_search", None).limits["max_depth"] == 4
+
+
+@pytest.fixture
+def read_only_directory(tmp_path: Path) -> Iterator[Path]:
+    """A directory the server cannot write into, as a read-only config mount is."""
+
+    directory = tmp_path / "mounted"
+    directory.mkdir()
+    directory.chmod(0o555)
+    yield directory
+    directory.chmod(0o755)
+
+
+_ROOT_IGNORES_PERMISSIONS = pytest.mark.skipif(
+    os.geteuid() == 0, reason="root can write into a directory without write permission"
+)
+
+
+@pytest.mark.unit
+@_ROOT_IGNORES_PERMISSIONS
+def test_store_says_whether_its_file_can_be_saved(tmp_path, read_only_directory) -> None:
+    saved_beside_tests = _store(tmp_path, {})
+    mounted = _store(tmp_path, {}, path=read_only_directory / "mcp.yaml")
+    not_created_yet = _store(tmp_path, {}, path=tmp_path / "later" / "mcp.yaml")
+
+    assert saved_beside_tests.describe()["writable"] is True
+    assert mounted.describe()["writable"] is False
+    assert not_created_yet.describe()["writable"] is True
+
+
+@pytest.mark.unit
+@_ROOT_IGNORES_PERMISSIONS
+def test_replace_on_a_read_only_directory_refuses_and_keeps_the_configuration(
+    tmp_path, read_only_directory
+) -> None:
+    store = _store(tmp_path, {}, path=read_only_directory / "mcp.yaml")
+    revision = store.describe()["revision"]
+    update = McpConfiguration.model_validate({"tools": {"search": {"defaults": {"top_k": 3}}}})
+
+    with pytest.raises(ConfigurationReadOnlyError, match="read-only"):
+        store.replace(update, principal_id="owner")
+
+    assert store.describe()["revision"] == revision
+    assert list(read_only_directory.iterdir()) == []
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("code", [errno.EACCES, errno.EPERM, errno.EROFS])
+def test_replace_reports_a_refused_write_as_read_only(
+    tmp_path, monkeypatch: pytest.MonkeyPatch, code: int
+) -> None:
+    store = _store(tmp_path, {})
+    monkeypatch.setattr(store_module, "_write_configuration", _failing_write(code))
+
+    with pytest.raises(ConfigurationReadOnlyError):
+        store.replace(McpConfiguration(), principal_id="owner")
+
+
+@pytest.mark.unit
+def test_replace_does_not_call_a_full_disk_read_only(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = _store(tmp_path, {})
+    monkeypatch.setattr(store_module, "_write_configuration", _failing_write(errno.ENOSPC))
+
+    with pytest.raises(OSError, match="No space left") as failure:
+        store.replace(McpConfiguration(), principal_id="owner")
+
+    assert not isinstance(failure.value, ConfigurationReadOnlyError)
+
+
+def _failing_write(code: int) -> Callable[..., None]:
+    def write(*_: object) -> None:
+        raise OSError(code, os.strerror(code))
+
+    return write

@@ -11,7 +11,12 @@ services:
       dockerfile: deploy/docker/Dockerfile.mcp-ui
       args:
         HARBORRAG_MCP_IMAGE: ${HARBORRAG_MCP_IMAGE:-harborrag-mcp-mcp}
+        HARBORRAG_GIT_REVISION: ${HARBORRAG_GIT_REVISION:-unknown}
     command: ["--http"]
+    environment:
+      HARBORRAG_MCP_UI_PORT: "8011"
+    ports: !override
+      - "127.0.0.1:${HARBORRAG_MCP_UI_PORT:-8011}:8011"
     volumes: !override
       - ../../config:/app/config:ro
       - harborrag_mcp_ui_audit:/var/lib/harborrag/.harborrag
@@ -27,6 +32,11 @@ services:
       timeout: 10s
       retries: 5
       start_period: 30s
+
+networks:
+  harborrag-data-network:
+    name: harborrag-data-network
+    external: true
 
 volumes:
   harborrag_mcp_ui_audit:
