@@ -1,10 +1,6 @@
 """Liveness and readiness probes.
 
-Handles:
-- ``GET /healthz``: the process is up, with no dependency calls
-- ``GET /readyz``: ``200`` when every dependency check is ``ok``, ``503`` otherwise
-
-Does NOT authenticate, rate-limit or use the error envelope: probes answer the same
+Probes neither authenticate, rate-limit nor use the error envelope: they answer the same
 body whatever credential a caller sends.
 """
 
@@ -15,9 +11,8 @@ from typing import Literal
 from fastapi import APIRouter, Request, Response, status
 from pydantic import BaseModel
 
+from harborrag_app.operations.readiness import ReadinessChecks, build_readiness_checks
 from harborrag_runtime.config.settings import RuntimeSettings
-
-from .readiness import ReadinessChecks, build_readiness_checks
 
 router = APIRouter(tags=["Probes"])
 
@@ -46,7 +41,11 @@ def _readiness(request: Request) -> ReadinessChecks:
             return health is not None and (await health()).ok
 
         readiness = ReadinessChecks(
-            build_readiness_checks(RuntimeSettings(), app.state.settings, temporal=temporal)
+            build_readiness_checks(
+                RuntimeSettings(),
+                capacity_redis_url=app.state.settings.api_capacity_redis_url,
+                temporal=temporal,
+            )
         )
         app.state.readiness = readiness
     return readiness

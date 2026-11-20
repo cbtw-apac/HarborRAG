@@ -46,20 +46,22 @@ at `/v1/chat/completions`.
    `env/.env.mcp`, `env/.env.models` when it exists, and only `HARBORRAG_ENV`
    from `env/.env.api`. The server connects with the `POSTGRES_*` and
    `MINIO_ROOT_*` accounts of `env/.env.database`.
-3. Decide what the server may read. By default
-   (`HARBORRAG_CORPUS_ACCESS_MODE=source_acl`) a caller sees only the documents
-   whose source permissions it holds. For a development stack whose whole
-   corpus everyone may read, uncomment these three lines in `env/.env.mcp`:
+3. Decide what the server may read. The shipped `env/.env.mcp` sets these two
+   lines, so every principal in the `DEFAULT` tenant, where your checkout's
+   connections are imported, reads its whole published corpus, as `chat` does:
 
    ```bash
-   HARBORRAG_MCP_READER_TENANT_ID=DEFAULT
    HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared
    HARBORRAG_CORPUS_SHARED_TENANT_ID=DEFAULT
    ```
 
-   `DEFAULT` is the tenant your checkout's connections are imported into. A
-   running server keeps its old policy until you restart it. The details are
-   in [Shared corpus access](#shared-corpus-access).
+   Remove both lines to return to the code default,
+   `HARBORRAG_CORPUS_ACCESS_MODE=source_acl`, where a caller sees only the
+   documents whose source permissions it holds. A running server keeps its old
+   policy until you restart it. An `env/.env.mcp` created from an older
+   template has no such lines, and every tool then answers with empty results;
+   add them to get the same. The details are in
+   [Shared corpus access](#shared-corpus-access).
 
 The MCP server never needs `HARBORRAG_SECRETS_ENCRYPTION_KEY`: it never
 decrypts stored connector secrets and is not given the key.
@@ -80,7 +82,8 @@ connection:
 scripts/deployment/mcp.sh --check
 ```
 
-The first run builds the image, which takes a few minutes. The check performs
+The first run builds the image, which takes a few minutes. The check runs the
+image with no network, so the data services need not be running. It performs
 the MCP initialization handshake in memory and prints the tool names:
 
 ```text
@@ -96,20 +99,21 @@ never comes.
 
 The wrapper runs the server in the `harborrag-mcp` container from
 `deploy/compose/docker-compose.mcp.yml` and builds the image the first time.
-The container uses the host network, so start the data services first.
+The container joins the Docker network of the data services, so start those
+first. Only `--check` runs without them.
 
 | Command | Behavior |
 | --- | --- |
 | `mcp.sh [OPTION...]` | Stdio server (`docker compose run -T`); options are forwarded to `harborrag-mcp` |
 | `mcp.sh --check [OPTION...]` | One-off handshake that prints the advertised tools |
-| `mcp.sh --http` | Starts the HTTP server in the background and waits for its health check |
+| `mcp.sh --http` | Checks the configuration, then starts the HTTP server in the background and waits for its health check |
 | `mcp.sh down` / `mcp.sh logs` | Stops, or shows the logs of, the background HTTP server |
 | `mcp.sh --build ...` | Rebuilds the image first; use it after source or dependency changes |
 
 Forwarded options are the `harborrag-mcp` flags (`--config`, `--transport`,
 `--env-file`, ...). Paths refer to the container, where the checkout's
-`config/` is mounted read-only at `/app/config`. The HTTP host, port and path
-come from `env/.env.mcp`.
+`config/` is mounted read-only at `/app/config`. The HTTP port and path come
+from `env/.env.mcp`.
 
 On a server where the package is installed instead of a checkout, run the
 command directly, without the wrapper or checkout-specific variables:
@@ -132,7 +136,8 @@ harborrag-mcp --http --env-file /etc/harborrag/reader.env --config /etc/harborra
 The database file supplies the Compose variables that build the backend
 addresses and credentials; the MCP file is required and the model file is
 optional. Compose reads the files as data, so no shell code in an env file
-runs.
+runs. A model variable that no file sets is named before the server starts;
+see [Checks before the HTTP server starts](#checks-before-the-http-server-starts).
 
 ## Connect an MCP client
 
@@ -223,7 +228,7 @@ terminal to see whether the server itself starts.
 
 ## Local HTTP and status UI
 
-Start the HTTP transport, bound to loopback only, in the background:
+Start the HTTP transport in the background. It answers on `127.0.0.1` only:
 
 ```bash
 scripts/deployment/mcp.sh --http
@@ -232,6 +237,52 @@ scripts/deployment/mcp.sh --http
 When the server is healthy, the wrapper prints
 `HarborRAG MCP status UI: http://127.0.0.1:8010/` and how to stop it
 (`scripts/deployment/mcp.sh down`).
+
+The container joins `harborrag-data-network` and reaches Postgres, the object
+store, Qdrant and the graph store by their service names there. Those
+addresses are fixed in `deploy/compose/docker-compose.mcp.yml` and use no TLS,
+which the server accepts only when `HARBORRAG_ENV=dev`. Docker publishes the
+server on `127.0.0.1`, on the port `HARBORRAG_MCP_PORT` names.
+
+### Checks before the HTTP server starts
+
+The wrapper first checks that `harborrag-data-network` exists, in stdio mode
+too. Without it, it says to run `scripts/deployment/dev.sh data` and exits with
+status 2. `--check` skips this check, because it runs with no network.
+
+Then it runs `harborrag-mcp --http --preflight` once in the foreground. The
+preflight loads the settings and connects Postgres, the object store, Qdrant
+and the graph store the way the server does at start-up. In `api_key` mode it also reads the reader-key table. Then it stops.
+When a step fails, nothing is started and the wrapper exits with status 2. The
+cause is one line:
+
+```text
+HarborRAG MCP preflight failed: ValueError: environment variable HARBORRAG_EMBED_API_KEY is not set
+HarborRAG MCP HTTP server was not started. The line above says why: a missing setting belongs in env/.env.mcp or env/.env.models, and an unreachable backend means the data services are not up yet ('scripts/deployment/dev.sh data').
+```
+
+The wrapper also prints a `Note:` line in these cases, in stdio mode too. A setting
+that has a default is never reported; left out of `env/.env.mcp`, it uses that default.
+
+| Note | What to do |
+| --- | --- |
+| `config/models/models.yaml reads ..., which env/.env.models does not set` | Copy the variables it names from `env-example/.env.models.example` and fill them in |
+| `image ... was built from ... and the source has changed since` | Run the command again with `--build` |
+| `image ... does not record a commit of this checkout` | The image was built before this check existed; run with `--build` once |
+
+An image built from uncommitted changes cannot be compared, so the wrapper
+says nothing about it.
+
+If the server starts but is not healthy within `HARBORRAG_MCP_STARTUP_TIMEOUT`
+seconds, the wrapper prints its last 20 log lines, stops it and exits with
+status 2. A running server comes back by itself after Docker or the host restarts.
+
+Where the package is installed without a checkout, run the same check yourself
+before starting the service:
+
+```bash
+harborrag-mcp --http --preflight
+```
 
 ### Local HTTP endpoints
 
@@ -244,6 +295,13 @@ When the server is healthy, the wrapper prints
 The first two are deliberately open so a loopback health check needs no
 credential. The page never shows the token, and every tool call and
 configuration change behind it needs one.
+
+The server answers only requests addressed to `127.0.0.1`, `localhost` or
+`::1`. A request with another `Host` header gets `421 Misdirected Request`, and
+one with an `Origin` header from another site gets `403 Forbidden Origin`.
+To serve another name, such as a reverse proxy's, list it in
+`HARBORRAG_MCP_ALLOWED_HOSTS`, separated by commas. A name that is not
+loopback is accepted only with reader keys (`HARBORRAG_MCP_AUTH_MODE=api_key`).
 
 ### Connect an HTTP client
 
@@ -259,17 +317,32 @@ client = Client("http://127.0.0.1:8010/mcp", auth="<token>")
 
 ### Run tools from the browser
 
-The Tool Playground on the status page runs any tool by hand:
+The Tool Playground on the status page runs any tool by hand. Each step
+unlocks the next:
 
 1. Open `http://127.0.0.1:8010/`.
-2. Enter the bearer token from `env/.env.mcp`, or a reader key issued by
-   `harborrag auth keys create` (server in `api_key` mode). In `api_key` mode
-   the bearer token is accepted only when `HARBORRAG_MCP_READER_TENANT_ID`
-   names one tenant.
-3. Enter a tenant ID and select **Load tools**. Leave it blank to use the
-   tenant bound to the token: `HARBORRAG_MCP_READER_TENANT_ID` for the owner
-   token, or the key's own tenant for a reader key, which cannot pick another.
-4. Fill in the arguments and select **Run tool**.
+2. Under **Connect**, enter the bearer token from `env/.env.mcp`, or a reader
+   key issued by `harborrag auth keys create` (server in `api_key` mode), and
+   select **Connect**. In `api_key` mode the bearer token is accepted only when
+   `HARBORRAG_MCP_READER_TENANT_ID` names one tenant.
+3. Under **Choose a tenant**, pick one. A token bound to one tenant gets only
+   that tenant: `HARBORRAG_MCP_READER_TENANT_ID` for the owner token, or the
+   key's own tenant for a reader key. An unbound owner token gets every tenant
+   that holds content, and **Other tenant...** to type another. A single tenant
+   is chosen for you.
+4. Pick a tool from the list. Its required arguments are shown, and the others
+   are under **More options**.
+5. Fill in the arguments and select **Run tool**. The tenant from step 3 is
+   sent as `tenant_id`, so the form does not ask for it. The result appears in
+   the panel on the right.
+
+For an unbound owner token, the list holds every tenant that has a source
+scope in the database. It also holds the tenants from the server settings:
+`HARBORRAG_TENANT_ID` (`DEFAULT` when unset),
+`HARBORRAG_CORPUS_SHARED_TENANT_ID` and the tenants that
+`config/mcp/server.yaml` overrides. If the database does not answer within two
+seconds, the list holds the settings tenants only and the server logs a
+warning.
 
 The page loads that tenant's effective catalog and builds argument controls
 from each tool's JSON schema. A tool run goes through the same configuration,
@@ -280,13 +353,21 @@ after an authenticated caller runs a tool.
 ### Configure tools from the browser
 
 1. Open `http://127.0.0.1:8010/`.
-2. Enter the owner token, the value of `HARBORRAG_MCP_BEARER_TOKEN`.
-3. Select **Load**.
+2. Under **Connect**, enter the owner token, the value of
+   `HARBORRAG_MCP_BEARER_TOKEN`, and select **Connect**.
+3. Select **Configuration** at the top of the page. The editor loads the
+   current settings, and **Load** reads them again.
 
 The editor shows the validated JSON form of `config/mcp/server.yaml`. **Save**
 writes it back as YAML in one atomic step; **Reload YAML** discards unsaved
 changes and reloads the file. What the file controls is in
 [Tool configuration](#tool-configuration).
+
+The wrapper mounts `config/` read-only in the container. There the page
+disables **Save** and says so, and `PUT /api/config` answers `409`. Edit
+`config/mcp/server.yaml` in the checkout and select **Reload YAML**. **Save**
+works where the server can write its configuration file, such as
+`harborrag-mcp --http` from an installed package.
 
 ## Tenant-bound reader keys and shared corpus access
 
@@ -300,8 +381,9 @@ change the server.
 1. Set `HARBORRAG_MCP_AUTH_MODE=api_key` in `env/.env.mcp` and restart the
    server.
 2. Inside your repository checkout, create a key. `auth keys create` requires
-   `--tenant`, `--owner` (`user-<name>`, `svc-<name>` or `team-<name>`),
-   `--name` (the device or workload) and `--expires-in`:
+   `--tenant`, `--owner` (`user-<name>`, `svc-<name>` or `team-<name>`), `--name` (the
+   device or workload) and `--expires-in`. `--tenant` names the tenant the key may read and
+   never defaults, so a mistyped tenant cannot mint a key in the wrong one:
 
    ```bash
    uv run harborrag auth keys create \
@@ -380,23 +462,26 @@ strictly at startup and reads it again whenever it changes:
 
 ### Shared corpus access
 
-`HARBORRAG_CORPUS_ACCESS_MODE=source_acl` is the default: a caller reads only
-the documents whose current source and document permission snapshots allow it.
-Set it to `tenant_shared` only for a tenant whose published corpus is
+`HARBORRAG_CORPUS_ACCESS_MODE=source_acl` is the code default: a caller reads
+only the documents whose current source and document permission snapshots allow
+it. The shipped `env-example/.env.mcp.example` sets `tenant_shared` for the
+`DEFAULT` tenant, so every caller of that tenant reads its whole published
+corpus. Use `tenant_shared` only for a tenant whose published corpus is
 intentionally shared among all its readers, and name that tenant with
-`HARBORRAG_CORPUS_SHARED_TENANT_ID`, for example `DEFAULT`. Other tenants keep
-`source_acl`, even in the same process.
+`HARBORRAG_CORPUS_SHARED_TENANT_ID`. Other tenants keep `source_acl`, even in
+the same process. Remove the two lines to return `DEFAULT` to `source_acl`.
 
 A reader key's tenant must match each tool call's `tenant_id`; a caller cannot
 select another tenant. Both HTTP modes bind to loopback; put TLS and any remote
-access at a reverse proxy.
+access at a reverse proxy on the same host, and list the proxy's host name in
+`HARBORRAG_MCP_ALLOWED_HOSTS`.
 
 The local `HARBORRAG_MCP_BEARER_TOKEN` authenticates a connection but does not
-grant corpus access by itself. To use it on an intentionally shared corpus,
-also set `HARBORRAG_MCP_READER_TENANT_ID`,
-`HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared` and
-`HARBORRAG_CORPUS_SHARED_TENANT_ID` to the target tenant, then restart the MCP
-server; a running server keeps its previous access policy.
+grant corpus access by itself. On the shared tenant it reads the whole corpus
+when a tool call names that tenant. On any other tenant it reads only what its
+principal holds permissions for, which is nothing until permissions are
+imported. Restart the MCP server after you change the corpus lines; a running
+server keeps its previous access policy.
 
 `HARBORRAG_MCP_READER_TENANT_ID` limits what the local token reads, not what it
 may administer: the owner keeps the configuration API and the browser editor,
@@ -412,7 +497,7 @@ write a card, a short dossier, for each source entity; `find_entities` and
 `facet.*` filters search those cards.
 
 Background summaries need their own approval. For a shared `DEFAULT` corpus,
-set `HARBORRAG_INGESTION_TENANT_ID=DEFAULT` and
+set `HARBORRAG_TENANT_ID=DEFAULT` and
 `HARBORRAG_SUMMARY_PROCESSING_ALLOWED=true`, and change
 `HARBORRAG_SUMMARY_PROCESSING_REVISION` whenever that approval changes. The
 summarization switch, model and budget of
@@ -476,8 +561,8 @@ regenerates that scope's source-entity cards and nothing else.
 With `HARBORRAG_SUMMARY_ENTITY_INDEX_ENABLED=true`, facets are also written to
 the entity point's payload under `facet.<name>` and indexed, so they filter:
 
-- `vector_search` and the runtime retrieval service (the SDK and
-  `harborrag retrieve --filters-json`) accept `facet.*` keys in `filters`, for
+- `vector_search` and the runtime retrieval service (the SDK) accept `facet.*`
+  keys in `filters`, for
   example `{"facet.stage": "Done", "facet.component": ["billing", "payments"]}`.
   Such a filter selects entities on the entity lane and is taken out of the
   chunk filter, so the semantic lanes stay on instead of falling back to flat
@@ -489,9 +574,8 @@ the entity point's payload under `facet.<name>` and indexed, so they filter:
 
 ## Filter search results
 
-`vector_search`, the runtime retrieval service (the SDK and
-`harborrag retrieve --filters-json`) and chat accept filters that narrow the
-search to matching chunks.
+`vector_search`, the runtime retrieval service (the SDK) and chat accept
+filters that narrow the search to matching chunks.
 
 ### Filter evidence by Jira fields
 
@@ -500,11 +584,11 @@ be filtered directly too: every chunk of a Jira issue document (its summary,
 description and comments) carries the issue's typed custom fields under
 `fields.<key>`.
 
-- An attachment, such as a design document, is a document of its own and does not copy the
-  fields. A `fields.*` filter is first resolved to the matching issues, then
-  the search covers those issues' evidence *and* the evidence of every
-  document attached to them. Editing a field in Jira therefore takes effect as
-  soon as the issue is ingested again, without reprocessing its attachments.
+- An attachment, such as a design document, is a document of its own and does not copy
+  the fields. A `fields.*` filter is first resolved to the matching issues, then the
+  search covers those issues' evidence *and* the evidence of every document attached to
+  them. Editing a field in Jira therefore takes effect as soon as the issue is ingested
+  again, without reprocessing its attachments.
 - The key is the field's display name in snake case (`Story Points` ->
   `story_points`, `Budget ($)` -> `budget`). A name that collides with
   another or with a reserved runtime key falls back to the field ID
@@ -564,9 +648,9 @@ Matching rules:
 }
 ```
 
-Keys combine with AND. HarborRAG builds only equality, any-of and range
-conditions from `filters`, so a filter cannot express "not equal" or "field
-exists". The list of indexed keys is `EVIDENCE_PAYLOAD_INDEXES` in
+Keys combine with AND. HarborRAG builds only equality, any-of and range conditions from
+`filters`, so a filter cannot express "not equal" or "field exists". The list of indexed
+keys is `EVIDENCE_PAYLOAD_INDEXES` in
 `packages/harborrag-engine/src/harborrag_engine/ingestion/projections/vector/vector_store.py`.
 
 ## Explorer MCP UI server
@@ -633,7 +717,7 @@ From a checkout, `scripts/deployment/mcp-ui.sh` runs it in Docker the way
 | `mcp-ui.sh --build ...` | Rebuilds the reader image and the Explorer layer first |
 
 The container comes from `deploy/compose/docker-compose.mcp-ui.yml`. It extends
-the reader service, so it gets the same env files, host networking, database
+the reader service, so it gets the same env files, Docker network, database
 role, object-store credentials and read-only `config/` mount. Its image,
 `deploy/docker/Dockerfile.mcp-ui`, is a thin layer over the reader image that
 adds only the locked `ui` extra. Its audit trail lives in its own
@@ -795,10 +879,10 @@ The local HTTP server also answers a small JSON API, used by the status page.
 
 | Endpoint | Token | Purpose |
 | --- | --- | --- |
-| `GET /api/config` | Owner | Source and effective settings, revision, active environment overrides, restart state |
-| `PUT /api/config` | Owner | Saves a configuration; takes `configuration` and `expected_revision` |
+| `GET /api/config` | Owner | Source and effective settings, revision, active environment overrides, restart state, and whether the file can be saved (`writable`) |
+| `PUT /api/config` | Owner | Saves a configuration; takes `configuration` and `expected_revision`. Answers `409` when the revision is stale or the file is read-only |
 | `POST /api/config/reload` | Owner | Reloads and validates the YAML file |
-| `GET /api/tools?tenant_id=<tenant>` | Reader or owner | The tenant's effective tool catalog |
+| `GET /api/tools?tenant_id=<tenant>` | Reader or owner | The tenant's effective tool catalog. Without `tenant_id`, also the tenants the caller may choose |
 | `POST /api/tools/call` | Reader or owner | Runs a named tool with an `arguments` object |
 
 A reader key reaches only its own tenant through the two tool endpoints.
@@ -816,13 +900,16 @@ for tool in list_tools():
     print(tool["name"])
 ```
 
-To call tools, build the server on a reader application. It reads the same
+To call tools, build the server on a reader application and give it an audit
+log. It reads the same
 `HARBORRAG_*` settings as the server, so the database, object store, vector
 store and model variables must be set:
 
 ```python
 import asyncio
+from pathlib import Path
 
+from harborrag_mcp_server.audit import McpAuditLog
 from harborrag_mcp_server.server import McpServer
 from harborrag_runtime.composition.readers import open_reader_application
 from harborrag_runtime.config.settings import RuntimeSettings
@@ -830,7 +917,11 @@ from harborrag_runtime.config.settings import RuntimeSettings
 
 async def main() -> None:
     application = open_reader_application(RuntimeSettings())
-    server = McpServer(invoker=application.invoker, references=application.references)
+    server = McpServer(
+        invoker=application.invoker,
+        references=application.references,
+        audit=McpAuditLog(path=Path(".harborrag/mcp-audit.jsonl")),
+    )
     await application.start()
     try:
         result = await server.call_tool(
@@ -868,9 +959,9 @@ An MCP client that starts the container must keep stdin open with `-i` and
 provide the protected model and database environment plus reachable data
 service addresses.
 
-The checked-in HTTP launcher is loopback-only on purpose. Run
-`scripts/deployment/mcp.sh --http` on the host for the status page and
-configuration editor; do not publish an unauthenticated or remotely bound
+The checked-in HTTP launcher publishes its port on `127.0.0.1` only, on
+purpose. Run `scripts/deployment/mcp.sh --http` for the status page and
+Tool Playground; do not publish an unauthenticated or remotely reachable
 development MCP endpoint from a container.
 
 ## Security boundaries
@@ -878,8 +969,21 @@ development MCP endpoint from a container.
 - **No secrets key.** The server is not given
   `HARBORRAG_SECRETS_ENCRYPTION_KEY`, so it cannot decrypt stored connector
   credentials.
-- **Loopback only.** The launcher refuses to bind anything but `127.0.0.1`,
-  `localhost` or `::1`. Static tokens are for local development only.
+- **Loopback only, with one exception.** The server refuses to bind anything
+  but `127.0.0.1`, `localhost` or `::1`, because beyond loopback its tokens
+  travel over plain HTTP. The exception is a development container: with
+  `HARBORRAG_ENV=dev`, `HARBORRAG_MCP_ALLOW_INSECURE_BIND=true` and
+  `HARBORRAG_MCP_ALLOWED_HOSTS`, the server listens on every interface of the
+  container's own network. The launcher's Compose file sets these, and Docker
+  publishes the port on `127.0.0.1` only. Do not set them for a server you
+  start outside a container, and do not widen the published port. Static
+  tokens are for local development only: with one, the host list may hold only
+  loopback names.
+- **Host and Origin are checked.** The HTTP server refuses a request addressed
+  to another host name (`421`) or sent from another origin (`403`), which
+  stops a web page from reaching it through DNS rebinding. A reverse proxy
+  that forwards its own host name must be listed in
+  `HARBORRAG_MCP_ALLOWED_HOSTS`, which needs reader keys.
 - **Local stdio is the one unauthenticated path.** It opens no listener and
   must be selected explicitly. Every other transport fails closed without an
   authentication provider.
@@ -892,7 +996,9 @@ development MCP endpoint from a container.
 
 Every call passes a capability check, JSON-schema validation, argument budgets,
 result and output budgets, and an owner-only JSONL audit at
-`.harborrag/mcp-audit.jsonl` (change it with `HARBORRAG_MCP_AUDIT_PATH`). Audit
+`.harborrag/mcp-audit.jsonl`. The `harborrag-mcp` launch changes the path with
+`HARBORRAG_MCP_AUDIT_PATH`; a server you build in Python takes its path from the
+`audit=McpAuditLog(path=...)` argument and ignores the variable. Audit
 records hold a principal identifier, a digest of the arguments and the
 outcome, never the bearer token or raw arguments. See
 [Policy and audit status](README.md#policy-and-audit-status) for the full
@@ -903,5 +1009,5 @@ sequence.
 - [MCP Tools](README.md): the eleven tools, their arguments, and what they
   return.
 - [Extending HarborRAG](../../../developers/extending/README.md#application-and-mcp-surfaces):
-  keep service tools in `harborrag-mcp-server` and call runtime or service
-  interfaces rather than provider clients.
+  keep service tools in `harborrag-mcp-server` and call runtime or service interfaces
+  rather than provider clients.

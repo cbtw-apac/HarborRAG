@@ -47,8 +47,8 @@ What each key does:
   `config/ingestion/chunking.yaml`; a profile already at or below the cap is unchanged.
   Route chunks keep their 512-token cap.
 - `ingestion.concurrency` is the number of documents processed at once. An explicit
-  value on the submission (`harborrag ingest start --document-concurrency`) wins over
-  it.
+  `document_concurrency` on an SDK `IngestionRequest` wins over it; the CLI and the HTTP
+  API take no per-run value.
 - Keys that start with `database.`, `redis.`, `temporal.`, `qdrant.`, `graph.`,
   `listeners.`, `auth.`, `telemetry.` or `secrets.` are boot-only and are refused at
   every entry point.
@@ -62,10 +62,10 @@ without them leaves those fields out.
 
 ## Levels and precedence
 
-A level is `tenant`, `project:<project_id>` or `connection:<project_id>/<connection_id>`.
-A request without a level means `tenant`. The effective value resolves default, then
-tenant, then project, then connection; the most specific override wins. An override
-is accepted only at the levels its key lists.
+A level is `tenant`, `project:<project_id>` or
+`connection:<project_id>/<connection_id>`. A request without a level means `tenant`. The
+effective value resolves default, then tenant, then project, then connection; the most
+specific override wins. An override is accepted only at the levels its key lists.
 
 A key with no override leaves its boot setting in charge. The registry default equals
 the shipped value of that boot setting, so upgrading changes nothing. An override at
@@ -87,13 +87,14 @@ carry such a change over, see [Upgrading](../upgrading.md).
 
 ## Rerank chat retrieval
 
-`retrieval.rerank: true` makes chat reorder its passages with the rerank model of
-`config/models/models.yaml` ([The shipped gateway catalog](model-config.md#the-shipped-gateway-catalog)).
+`retrieval.rerank: true` makes chat reorder its passages with the rerank model of the
+model catalog. The shipped `config/models/models.yaml` has one only when
+`HARBORRAG_RERANKER_MODEL` is set; see
+[Send Cohere embeddings and reranking through a gateway](model-config.md#send-cohere-embeddings-and-reranking-through-a-gateway).
 
 - Only chat reads it, over HTTP and with `harborrag chat`, at the same level as
   `retrieval.top_k`: the session's project, or the one project a one-off question
-  names, else the tenant. The MCP `vector_search` tool and `harborrag retrieve` do not
-  rerank.
+  names, else the tenant. The MCP `vector_search` tool does not rerank.
 - Retrieval fetches a pool of four times `top_k` passages, at most 100 and never fewer
   than `top_k`. The rerank model orders the pool, and chat keeps the first `top_k`.
 - Each reranked result carries the model's score in its `metadata` as `rerank_score`;
@@ -101,12 +102,12 @@ carry such a change over, see [Upgrading](../upgrading.md).
   `HARBORRAG_CHAT_RETRIEVAL_MIN_RELEVANCE` and the MCP `score_threshold` compare
   against.
 - A rerank provider error fails the retrieval, the same as an embedding error.
-- `PATCH` and `harborrag config import` accept `true` only when the catalog has a
-  `rerank` section; otherwise they answer `422 validation_error` with
+- `PATCH` and `harborrag settings import` accept `true` only when the catalog names a
+  rerank model; otherwise they answer `422 validation_error` with
   `field = "retrieval.rerank"`.
-- The API reads the catalog's `rerank` section when it starts, so restart it after you
-  add or remove the section. An override still on after the section is gone is served
-  in retrieval order, and each such turn logs a warning.
+- The API reads the catalog's rerank model when it starts, so restart it after you set
+  or remove `HARBORRAG_RERANKER_MODEL`. An override still on after the model is gone is
+  served in retrieval order, and each such turn logs a warning.
 
 ## What reprocesses on the next sync
 
@@ -192,10 +193,21 @@ Nothing is saved when any key is refused.
 | `PATCH /v1/admin/settings` | `admin` |
 | `GET /v1/admin/settings/schema` | `editor` |
 
+From a terminal, `harborrag settings get`, `harborrag settings set` and
+`harborrag settings schema` call the same routes, with the same checks and errors:
+
+```bash
+harborrag settings get --effective
+harborrag settings set retrieval.top_k=3 --level tenant
+```
+
+`settings set` reads the current `ETag` and sends it as `If-Match`. See
+[Read and change runtime settings](../cli-reference/README.md#read-and-change-runtime-settings).
+
 ## Seed file and drift
 
-`config/settings.yaml` seeds the tenant named by `HARBORRAG_INGESTION_TENANT_ID` once,
-at the first API start when that tenant has no revisions. The path is
+`config/settings.yaml` seeds the tenant named by `HARBORRAG_TENANT_ID` once, at the
+first API start when that tenant has no revisions. The path is
 `HARBORRAG_SETTINGS_SEED_PATH` (`/app/config/settings.yaml` in the API image). The file
 is git-ignored. `config/settings.example.yaml` lists every tenant-level key you can set
 at its default; do not use it whole, because each key in the seed file becomes an
@@ -203,7 +215,7 @@ override that replaces its boot setting. Keep only the keys you mean to override
 
 Later starts do not re-apply the file. When it differs from the stored values, the API
 logs one warning, `config_yaml_drift path=<path> keys=<k1,k2,...>`, and the stored
-values stay. Change settings through the API or `harborrag config import`.
+values stay. Change settings through the API or `harborrag settings import`.
 
 The seed file, `import` and `export` share one shape. Keys may be dotted or nested.
 Every top-level entry other than `version`, `projects` and `connections` is tenant
@@ -225,25 +237,27 @@ connections:
 ## Import and export from the CLI
 
 ```bash
-harborrag config import settings.yaml
-harborrag config import settings.yaml --apply
-harborrag config export --level tenant --output settings.yaml
+harborrag settings import settings.yaml
+harborrag settings import settings.yaml --apply
+harborrag settings export --level tenant --file settings.yaml
 ```
 
 `import` is a dry run unless `--apply` is given; `--apply` writes the file as one
-revision. `--prune` also removes every stored override the file lacks, at any level.
-An invalid file exits `1`, names the file and the key, and applies nothing; boot-only
-keys are reported and skipped. `export` writes registry keys only, in the shape above,
-and `import` reads the result back unchanged. Overrides of a deleted project or
-connection stay in the store but are left out of the export, each named on stderr.
-Both take `--tenant` (default `DEFAULT`, or `HARBORRAG_INGESTION_TENANT_ID`); `export`
-takes `--level` (default: every level) and `import` takes `--json`. Imports are
-recorded in the revision log under the operator's `user@host`.
+revision. `--prune` also removes every stored override the file lacks, at any level. An
+invalid file exits `2`, names the file and the key, and applies nothing; boot-only keys
+are reported and skipped. `export` writes registry keys only, in the shape above, to
+stdout or to `--file`, and `import` reads the result back unchanged. Overrides of a
+deleted project or connection stay in the store but are left out of the export, each
+named on stderr. Both take the CLI's global options, such as `--tenant` (default
+`HARBORRAG_TENANT_ID`, else `DEFAULT`) and `-o json`; `export` takes `--level` (default:
+every level). Imports are recorded in the revision log under the operator's `user@host`.
 
-From a repository checkout, `config import --apply` and `config export --output`
-refuse the local SQLite control database until the CLI points at the stack's Postgres
-with `HARBORRAG_CONTROL_DB_URL`; see
-[Checkout quick start](../../developers/checkout-quick-start.md).
+`import --apply` into a tenant that holds no data asks before it creates the tenant;
+without a terminal it stops with exit 2 unless you pass `--yes`. From a repository
+checkout, `settings import --apply` and `settings export --file` refuse the local SQLite
+control database until the CLI points at the stack's Postgres with
+`HARBORRAG_CONTROL_DB_URL`; see
+[Run from a repository checkout](../cli-reference/README.md#run-from-a-repository-checkout).
 
 ## Propagation and outages
 

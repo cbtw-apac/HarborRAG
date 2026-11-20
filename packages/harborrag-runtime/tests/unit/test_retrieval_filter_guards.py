@@ -9,17 +9,22 @@ identically, no longer fill a whole page.
 from __future__ import annotations
 
 import pytest
-from retrieval_test_support import FakeChunkReader, FakeEmbedClient, FakeVectorRepository
-from retrieval_test_support import policy as _policy
-from retrieval_test_support import resources as _resources
 
 from harborrag_core.contracts.errors import HarborValidationError
 from harborrag_core.indexing import VectorFilter, VectorFilterCondition, VectorSearchResult
+from harborrag_engine.retrieval.service.contracts import RetrievalOptions
+from harborrag_engine.retrieval.service.service import RuntimeRetrievalService
+from harborrag_engine.testing.retrieval_fakes import (
+    FakeChunkReader,
+    FakeEmbedClient,
+    FakeVectorRepository,
+)
+from harborrag_engine.testing.retrieval_fakes import policy as _policy
+from harborrag_engine.testing.retrieval_fakes import resources as _resources
 from harborrag_runtime.config.graph_build import GraphBuildConfig
 from harborrag_runtime.ingestion.field_indexes import declared_field_indexes
-from harborrag_runtime.retrieval import RetrievalOptions, RuntimeRetrievalService
 
-ISSUE = "jira://CPM/CPM-116680"
+ISSUE = "jira://DEMO/DEMO-116680"
 
 
 class IndexedVectors(FakeVectorRepository):
@@ -56,7 +61,7 @@ class RepeatingVectors(FakeVectorRepository):
     def _results(self, collection: str) -> list[VectorSearchResult]:
         if "evidence" not in collection:
             return []
-        texts = [("Senior Java Engineer", "same")] * 3 + [("Spring Boot microservices", "other")]
+        texts = [("Deployment runbook", "same")] * 3 + [("Spring Boot microservices", "other")]
         return [
             VectorSearchResult(
                 id=f"point-{index}",
@@ -72,7 +77,7 @@ class RepeatingVectors(FakeVectorRepository):
                     "connector_type": "jira",
                     "content": text,
                     "content_hash": content_hash,
-                    "issue_key": f"CPM-{index}",
+                    "issue_key": f"DEMO-{index}",
                 },
             )
             for index, (text, content_hash) in enumerate(texts)
@@ -153,11 +158,11 @@ async def test_identical_texts_are_collapsed_and_counted():
     )
 
     assert [result.text for result in report.results] == [
-        "Senior Java Engineer",
+        "Deployment runbook",
         "Spring Boot microservices",
     ]
     assert report.results[0].id == "chunk-0"
-    assert report.results[0].metadata["issue_key"] == "CPM-0"
+    assert report.results[0].metadata["issue_key"] == "DEMO-0"
     assert report.diagnostics.duplicates_collapsed == 2
 
 

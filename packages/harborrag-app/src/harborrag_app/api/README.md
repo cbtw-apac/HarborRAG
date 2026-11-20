@@ -4,9 +4,9 @@ Run HarborRAG's HTTP API, find its routes, and look up its errors, authenticatio
 and settings. These are contributor notes for the `harborrag_app.api` package.
 
 The package is HarborRAG's FastAPI boundary. It validates HTTP input, authenticates
-callers, delegates every operation to the transport-neutral application service, and maps
-results onto stable HTTP responses. Connector execution, parsing, chunking, indexing and
-Temporal workflow rules stay outside this package.
+callers, delegates each operation to transport-neutral code it shares with the CLI, and
+maps results onto stable HTTP responses. Connector execution, parsing, chunking, indexing
+and Temporal workflow rules stay outside this package.
 
 The public API lives under `/v1`. The probes `/healthz` and `/readyz` sit at the root, and
 Prometheus `/metrics` answers only on the separate ops port. `/` redirects to `/docs`
@@ -44,10 +44,22 @@ generated metrics scrape token and `dev.sh api` for the API alone are in the
 
 ## Composition
 
-The application lifespan builds one `AppService` through the runtime's production
-composition and closes it at process shutdown. Its control database is
-`HARBORRAG_CONTROL_DB_URL`, a local SQLite file by default. Outside
-`HARBORRAG_ENV=dev`, SQLite and `HARBORRAG_AUTH_MODE=none` are both refused at startup.
+The application lifespan builds one `AppService` and closes it at process shutdown.
+`AppService` is defined in `harborrag_runtime.application` and built through the runtime's
+production composition. Its control database is `HARBORRAG_CONTROL_DB_URL`, a local SQLite
+file by default. Outside `HARBORRAG_ENV=dev`, SQLite and `HARBORRAG_AUTH_MODE=none` are both
+refused at startup.
+
+The lifespan also wraps the `AppService` in `LocalOperations`, the in-process
+implementation of the `Operations` port in `harborrag_app/operations/`. Every `/v1` route
+takes it through `OperationsDependency` and the caller and tenant through
+`ScopeDependency`, both in `dependencies.py`. `/v1/me` takes its guard's principal and the
+optional tenant instead of a scope, since it can answer with no tenant picked.
+
+Each route parses its input, calls the port method named after it, and turns the result
+into the status code and headers: `ETag`, `Location`, `Idempotency-Replayed`, and the
+`text/event-stream` body of an ingestion's events or a streamed chat completion. The
+probes and the lifespan's background loops call the `AppService` directly.
 
 ## Routes
 
@@ -129,8 +141,8 @@ one envelope:
 }
 ```
 
-- `code` comes from the catalog in `errors.CATALOG`; clients branch on `code`, never on
-  `message`.
+- `code` comes from the catalog in `operations/errors.py` (`CATALOG`), which the CLI
+  shares; clients branch on `code`, never on `message`.
 - `details` is `null`, an object, or for `validation_error` a list of `{field, issue}`.
   A body that is not valid JSON fails on field `body`.
 - A connection failure no service translated is `503 dependency_unavailable`, with
@@ -195,9 +207,9 @@ before its stream opens. A streamed ingestion event body has its own
 
 | Mechanism | Rule |
 | --- | --- |
-| `ETag` | `W/"rev-<n>"` on reads and successful writes of projects and connections |
-| `If-Match: <etag>` | The write fails with `412 precondition_failed` unless it matches |
-| `If-Match: *` | Connection `PUT` updates only |
+| `ETag` | `W/"rev-<n>"` on reads and successful writes of projects, connections and settings |
+| `If-Match: <etag>` | The write fails with `412 precondition_failed` unless it matches; settings `PATCH` without it is `422` on field `If-Match` |
+| `If-Match: *` | Connection `PUT` updates only; settings `PATCH` applies to the current revision |
 | `If-None-Match: *` | Project and connection `PUT` create only |
 | `Idempotency-Key` | `POST /v1/chat/completions` only: the same key and body within 24 h replay the stored answer without a model call; see [Retry without duplicates](../../../../../docs/users/chat/limits.md#retry-without-duplicates) |
 | Paging | `?limit=` 1-100 (20 by default) and `?cursor=`; the body is `{"items": [...], "next_cursor": null}`. A cursor the server did not issue is `422` on field `cursor` |
@@ -255,7 +267,7 @@ API process settings use the `HARBORRAG_` prefix. The model is `ApiSettings` in
 | `HARBORRAG_LOG_LEVEL` | `INFO` | HarborRAG namespace log level |
 
 The per-user and per-tenant capacity variables are in
-[Limits and accounting](../../../../../docs/users/chat/limits.md#request-rates-and-concurrency).
+[Request rates and concurrency](../../../../../docs/users/chat/limits.md#request-rates-and-concurrency).
 Credentialed CORS rejects wildcard origins. Swagger and `/openapi.json` default to
 disabled under `HARBORRAG_ENV=staging` and `prod` unless an operator enables them.
 
@@ -274,12 +286,13 @@ uv run python -m harborrag_app.api.export_openapi > openapi.json
 ```text
 api/
 ├── app.py, router.py, settings.py, serve.py, dependencies.py
-├── errors.py, dependency_failures.py, middleware.py, schemas.py, sse.py
-├── auth/                 # credentials, tenants, the ordered role guard
-├── probes.py, readiness.py
+├── errors.py, middleware.py   # errors.py holds the handlers
+├── auth/                 # credentials, tenants and the ordered role guard
+├── probes.py
 ├── ops.py, metrics.py    # the ops port and its Prometheus registry
 ├── rate_limit.py, deadline.py, capacity*.py
 ├── pagination.py, openapi.py, export_openapi.py
+├── sse.py                # stream deadline and heartbeat
 └── v1/                   # the public /v1 routes
     ├── admin/            # source types, connections, projects and settings
     ├── chat/             # chat sessions and completions
@@ -287,9 +300,32 @@ api/
     └── me.py
 ```
 
+The sibling `harborrag_app/operations/` package imports no web framework, so the CLI can
+use it too. It holds the `Operations` port (`port.py`) and its in-process implementation
+(`local/`), the role and serialization table of every operation (`contract.py`), and the
+error catalogue with its status and code mapping (`errors.py`, `dependency_failures.py`).
+The package also holds what the routes and the commands both use: the request and
+response models (`schemas/`), the `Principal` and its role check (`principal.py`), SSE
+event framing (`sse.py`) and the readiness checks (`readiness.py`). The HTTP stream
+deadline and heartbeat stay in this package (`sse.py`). This package imports `operations`;
+`operations` never imports this one.
+
+Each `LocalOperations` method is thin: it checks the caller's role, turns the wire request
+into one application-service call and maps the result onto the response model (`Tagged`,
+`Saved`, `Accepted`, an ETag or a `Location`). Existence checks, error translation,
+sequencing, chat modes and filters, and `Idempotency-Key` replay run in the application
+services, so the CLI and the routes get them from the same place; the one exception is the
+`409` for a replayed chat body stored under an older contract, which `LocalOperations`
+raises in `operations/local/chat.py`.
+
+The application services live in `harborrag_runtime.application`, which this package
+imports and which never imports it; see its
+[README](../../../../../packages/harborrag-runtime/src/harborrag_runtime/application/README.md).
+
 This package may validate and serialize HTTP messages, authenticate principals and
-enforce route roles, manage the API process and its middleware, and delegate operations
-through `BaseAppService`. It must not instantiate connectors, parsers, model clients or
+enforce route roles, manage the API process and its middleware, and delegate `/v1`
+operations through the `Operations` port and probes and background loops through
+`BaseAppService`. It must not instantiate connectors, parsers, model clients or
 repositories, implement ingestion state transitions, expose Temporal SDK handles on the
 wire, or return provider exception details or secrets.
 

@@ -1,3 +1,81 @@
-"""Fallback end-user identity for direct and unauthenticated local callers."""
+"""Caller identity: the fallback tenant and user, and who a turn is remembered for.
 
+Pure values: no I/O and no configuration.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from harborrag_core.ports.conversation import ConversationIdentity
+from harborrag_core.ports.memory import MemoryOwner
+
+DEFAULT_TENANT_ID = "DEFAULT"
 DEFAULT_USER = "DEFAULT_USER"
+
+
+@dataclass(frozen=True, slots=True)
+class MemoryIdentity:
+    """Who a chat turn is remembered for.
+
+    ``principal_id`` is the authenticated subject that owns the session;
+    ``user_id`` is the identity user-scoped memory is keyed by; ``project_id``
+    is the validated project the turn happened in, when the caller supplied one.
+    ``session_id`` is ``None`` for a one-off question, which has no conversation.
+
+    On the authenticated API path ``user_id`` comes from a verified token claim.
+    """
+
+    tenant_id: str
+    principal_id: str
+    user_id: str
+    session_id: str | None
+    project_id: str | None = None
+
+    @classmethod
+    def build(
+        cls,
+        *,
+        tenant_id: str,
+        principal_id: str,
+        session_id: str | None,
+        user_id: str | None = None,
+        project_id: str | None = None,
+    ) -> MemoryIdentity:
+        """Use the temporary shared user when no explicit SDK identity is supplied."""
+        return cls(
+            tenant_id=tenant_id,
+            principal_id=principal_id,
+            user_id=user_id or DEFAULT_USER,
+            session_id=session_id,
+            project_id=project_id,
+        )
+
+    def owner(self) -> MemoryOwner:
+        """Return the long-term memory isolation key for this caller."""
+        return MemoryOwner(
+            tenant_id=self.tenant_id,
+            project_id=self.project_id,
+            principal_id=self.principal_id,
+            user_id=self.user_id,
+            session_id=self.session_id,
+        )
+
+    def conversation(self) -> ConversationIdentity:
+        """Return the conversation-history isolation key for this session.
+
+        ``user_id`` is what owns the conversation: one service principal
+        fronting several people must not make ``session_id`` the only thing
+        keeping their histories apart.
+
+        Raises:
+            ValueError: The turn is a one-off question with no session.
+        """
+        if self.session_id is None:
+            raise ValueError("a one-off question has no conversation")
+        return ConversationIdentity(
+            self.tenant_id,
+            self.principal_id,
+            self.session_id,
+            self.user_id,
+        )

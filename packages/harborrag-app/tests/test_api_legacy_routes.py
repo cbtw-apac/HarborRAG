@@ -14,7 +14,7 @@ from harborrag_app.api.settings import ApiSettings
 
 REMOVED = [
     ("GET", "/api/v1/projects"),
-    ("GET", "/api/v1/projects/cpm"),
+    ("GET", "/api/v1/projects/demo"),
     ("GET", "/api/v1/sources"),
     ("POST", "/api/v1/sources"),
     ("GET", "/v1/connections"),
@@ -34,7 +34,7 @@ REMOVED = [
     ("GET", "/v1/admin/projections/DEFAULT"),
     ("PATCH", "/v1/chat/sessions/session-1"),
     ("DELETE", "/v1/chat/sessions/session-1"),
-    ("POST", "/v1/admin/projects/cpm/connections/cpm-tickets/sync"),
+    ("POST", "/v1/admin/projects/demo/connections/demo-tickets/sync"),
     ("POST", "/v1/ingestions"),
     ("GET", "/v1/ingestions"),
     ("GET", "/v1/ingestions/ing_1"),

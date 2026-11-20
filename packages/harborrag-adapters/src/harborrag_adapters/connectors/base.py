@@ -1,3 +1,5 @@
+"""Base class that turns a source's raw pages into connector pages and skips."""
+
 from __future__ import annotations
 
 import logging
@@ -8,13 +10,18 @@ from itertools import islice
 
 from harborrag_core.domain.raw_document import RawDocument
 from harborrag_core.domain.source import SourceRecord
+from harborrag_core.ingestion.connector_contracts import (
+    ConnectorCapabilities,
+    ConnectorPage,
+    ConnectorQuery,
+    ConnectorSkip,
+)
 
 from .descriptors import (
     ConnectorDocumentDescriptor,
     default_document_descriptor,
 )
 from .exceptions import AuthenticationError
-from .schemas import ConnectorCapabilities, ConnectorPage, ConnectorQuery, ConnectorSkip
 
 logger = logging.getLogger("harborrag.adapters.connectors.base")
 
@@ -84,7 +91,6 @@ class BaseConnector(ABC):
         record: SourceRecord,
     ) -> ConnectorDocumentDescriptor:
         """Resolve admission descriptors without fetching large source bytes."""
-
         return default_document_descriptor(record)
 
     def discover_page(
@@ -100,7 +106,6 @@ class BaseConnector(ABC):
         existing third-party connectors while making its numeric replay cursor
         explicit instead of leaking offset logic into runtime.
         """
-
         if page_size < 1:
             raise ValueError("connector page_size must be positive")
         try:

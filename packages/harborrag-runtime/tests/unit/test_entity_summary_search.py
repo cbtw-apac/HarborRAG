@@ -16,7 +16,7 @@ from harborrag_core.summaries import (
     SummaryManifest,
 )
 from harborrag_core.topology.derived import ContextualIndexProfile
-from harborrag_runtime.retrieval.entity_summary import EntitySummarySearch
+from harborrag_engine.retrieval.service.entity_summary import EntitySummarySearch
 from harborrag_runtime.topology.entity_summary_index import (
     EntitySummaryIndex,
     entity_embedding_text,
@@ -91,8 +91,8 @@ class Vectors:
 
 def binding(node_key: str, chunks=("chunk-1",)) -> SummaryBinding:
     card = SummaryCard(
-        description="Senior Java engineer, banking background, cleared round two.",
-        topics=("hiring",),
+        description="Payments service runbook, reviewed in the second pass.",
+        topics=("deployment",),
         attributes=(SummaryAttribute(name="stage", values=("round 2",)),),
     )
     return SummaryBinding(
@@ -115,6 +115,7 @@ def binding(node_key: str, chunks=("chunk-1",)) -> SummaryBinding:
 
 @pytest.mark.asyncio
 async def test_publication_is_idempotent_and_removes_entities_the_scope_lost():
+    """The dossier itself belongs to the authority, never to the index."""
     vectors, embed = Vectors(), Embed()
     index = EntitySummaryIndex(vectors, embed, PROFILE)
 
@@ -125,7 +126,6 @@ async def test_publication_is_idempotent_and_removes_entities_the_scope_lost():
     assert stored.payload["record_kind"] == "entity_summary"
     assert stored.payload["node_key"] == "node-a"
     assert stored.payload["attribute_names"] == ["stage"]
-    # The dossier itself belongs to the authority, never to the index.
     assert "description" not in stored.payload
 
     await index.publish("DEFAULT", "scope", (binding("node-a"),))
@@ -145,7 +145,7 @@ async def test_another_scopes_points_survive_this_scopes_prune():
 
 def test_the_embedded_text_repeats_the_facets_a_query_would_name():
     text = entity_embedding_text(binding("node-a"))
-    assert "cleared round two" in text
+    assert "reviewed in the second pass" in text
     assert "stage: round 2" in text
 
 
@@ -172,7 +172,7 @@ def evidence_record(chunk: str) -> VectorIndexRecord:
             "record_kind": "evidence",
             "document_id": "doc-1",
             "document_version_id": "version-1",
-            "content": "Cleared the second interview round.",
+            "content": "Passed the second review stage.",
         },
     )
 
@@ -211,6 +211,7 @@ async def test_an_entity_hit_contributes_the_chunks_the_authority_released():
 
 @pytest.mark.asyncio
 async def test_a_binding_the_caller_may_not_read_contributes_nothing():
+    """The vector index still matched; the authority declined to release evidence."""
     chunk = "chunk-1"
     vectors = Vectors(
         records={
@@ -219,18 +220,17 @@ async def test_a_binding_the_caller_may_not_read_contributes_nothing():
         },
         hits=(entity_hit("node-a"),),
     )
-    # The vector index still matched; the authority declined to release evidence.
     search = EntitySummarySearch(Summaries({}), vectors, PROFILE)
     assert await search.expand((), (1.0, 0.0), context=CONTEXT) == ()
 
 
 @pytest.mark.asyncio
 async def test_a_missing_index_or_absent_vector_degrades_to_plain_chunk_retrieval():
+    """A vector of the wrong width is a profile mismatch, not a reason to fail."""
     existing = (VectorSearchResult(id="a", score=1.0, raw_score=1.0, payload={"chunk_id": "c"}),)
     search = EntitySummarySearch(Summaries({}), Vectors(), PROFILE)
     assert await search.expand(existing, None, context=CONTEXT) == existing
     assert await search.expand(existing, (1.0, 0.0), context=CONTEXT) == existing
-    # A vector of the wrong width is a profile mismatch, not a reason to fail.
     assert await search.expand(existing, (1.0, 0.0, 0.0), context=CONTEXT) == existing
 
 

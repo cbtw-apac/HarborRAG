@@ -15,6 +15,10 @@ from harborrag_adapters.repositories.object_store import (
 )
 from harborrag_core.ingestion import SparseEncoderProfile
 from harborrag_engine.ingestion import BM25SparseEncoder
+from harborrag_engine.retrieval.service.contextual import ContextualEvidenceSearch
+from harborrag_engine.retrieval.service.contracts import RetrievalPolicy, RetrievalResources
+from harborrag_engine.retrieval.service.entity_summary import EntitySummarySearch
+from harborrag_engine.retrieval.service.service import RuntimeRetrievalService
 
 from ..composition.resources import (
     build_ingestion_control,
@@ -29,16 +33,15 @@ from ..config.models import has_rerank_model
 from ..config.settings import RuntimeSettings
 from ..observability.model import IngestionTelemetry, build_model_telemetry
 from ..topology.embedding_profile import build_contextual_profile
-from .contextual import ContextualEvidenceSearch
-from .contracts import RetrievalPolicy, RetrievalResources
-from .entity_summary import EntitySummarySearch
-from .service import RuntimeRetrievalService
 
 
 async def connect_retrieval_service(
     settings: RuntimeSettings,
 ) -> RuntimeRetrievalService:
-    """Connect Postgres, MinIO, Qdrant, and FalkorDB as one owned resource set."""
+    """Connect Postgres, MinIO, Qdrant, and FalkorDB as one owned resource set.
+
+    Summary views are joined onto nodes only when summarization is enabled.
+    """
     settings = GraphBuildConfig.from_settings(settings).effective_settings(settings)
     embed_config = HarborEmbedClientConfig.from_file(settings.model_config_path)
     model = settings.embedding_model or embed_config.default_model
@@ -64,7 +67,7 @@ async def connect_retrieval_service(
     control = build_ingestion_control(settings)
     if settings.summary_processing_allowed:
         control.summaries.allow_shared_processing(
-            settings.ingestion_tenant_id, settings.summary_processing_revision
+            settings.tenant_id, settings.summary_processing_revision
         )
     object_store = build_object_store(settings)
     vector_repository = build_vector_repository(settings)
@@ -106,7 +109,6 @@ async def connect_retrieval_service(
             ),
             graph_repository=graph_repository,
             topology_repository=control.topology,
-            # Without summarization there are no summary views to join onto nodes.
             summary_repository=(control.summaries if settings.topology_parent_enabled else None),
             contextual_search=ContextualEvidenceSearch(
                 control.topology, vector_repository, contextual_profile

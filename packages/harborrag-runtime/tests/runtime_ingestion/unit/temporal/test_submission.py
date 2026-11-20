@@ -9,6 +9,8 @@ from typing import Any
 
 import pytest
 
+from harborrag_core.ingestion.run_contracts import SourceSubmission
+from harborrag_core.ingestion.source_query import SourceQuery
 from harborrag_runtime.config.errors import ConnectorConfigurationError
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.execution.source_submission import (
@@ -16,11 +18,7 @@ from harborrag_runtime.execution.source_submission import (
     prepare_source_submission,
 )
 from harborrag_runtime.ingestion.connections import ResolvedConnection
-from harborrag_runtime.temporal.schemas import SourceQuery
-from harborrag_runtime.temporal.submission import (
-    SourceSubmission,
-    build_source_input,
-)
+from harborrag_runtime.temporal.submission import build_source_input
 from runtime_ingestion.connection_support import resolved_connection
 
 pytestmark = pytest.mark.unit
@@ -136,13 +134,13 @@ def test_config_jql_reaches_the_query_but_editing_it_keeps_the_scope(tmp_path: P
     settings = _settings(tmp_path)
 
     first = build_source_input(
-        settings, _submission(), connection=_jira(config={"jql": "project = CPM"})
+        settings, _submission(), connection=_jira(config={"jql": "project = DEMO"})
     )
     second = build_source_input(
         settings, _submission(), connection=_jira(config={"jql": "project = HR"})
     )
 
-    assert '"jql":"project = CPM"' in first.query.filters_json
+    assert '"jql":"project = DEMO"' in first.query.filters_json
     assert first.source_scope_id == second.source_scope_id
     assert first.configuration_fingerprint != second.configuration_fingerprint
 
@@ -151,26 +149,26 @@ def test_run_jql_narrows_the_connection_jql_instead_of_replacing_it(tmp_path: Pa
     source = build_source_input(
         _settings(tmp_path),
         _submission(query=SourceQuery(filters_json='{"jql":"project = HR"}')),
-        connection=_jira(config={"jql": "project = CPM"}),
+        connection=_jira(config={"jql": "project = DEMO"}),
     )
 
-    assert json.loads(source.query.filters_json)["jql"] == "(project = CPM) and (project = HR)"
+    assert json.loads(source.query.filters_json)["jql"] == "(project = DEMO) and (project = HR)"
 
 
 def test_an_empty_run_jql_keeps_the_connection_jql(tmp_path: Path) -> None:
     source = build_source_input(
         _settings(tmp_path),
         _submission(query=SourceQuery(filters_json='{"jql":""}')),
-        connection=_jira(config={"jql": "project = CPM"}),
+        connection=_jira(config={"jql": "project = DEMO"}),
     )
 
-    assert json.loads(source.query.filters_json)["jql"] == "project = CPM"
+    assert json.loads(source.query.filters_json)["jql"] == "project = DEMO"
 
 
 @pytest.mark.parametrize(
     "config",
     [
-        pytest.param({"jql": "project = CPM"}, id="connection-jql"),
+        pytest.param({"jql": "project = DEMO"}, id="connection-jql"),
         pytest.param({}, id="no-connection-jql"),
     ],
 )
@@ -190,7 +188,7 @@ def test_an_empty_run_jql_gets_the_scope_of_a_run_without_jql(
 
 
 def test_run_filter_without_a_source_type_narrower_is_rejected(tmp_path: Path) -> None:
-    connection = _jira(config={"jql": "project = CPM"})
+    connection = _jira(config={"jql": "project = DEMO"})
     without_narrower = replace(connection, spec=replace(connection.spec, query_narrowers={}))
 
     with pytest.raises(ConnectorConfigurationError, match="can only narrow"):
@@ -215,7 +213,7 @@ def test_run_jql_that_cannot_narrow_the_connection_jql_is_rejected(
         prepare_source_submission(
             _settings(tmp_path),
             _submission(query=SourceQuery(filters_json=filters_json)),
-            connection=_jira(config={"jql": "project = CPM"}),
+            connection=_jira(config={"jql": "project = DEMO"}),
         )
 
 
@@ -225,7 +223,7 @@ def test_editing_the_connection_jql_keeps_the_scope_of_a_run_with_its_own_jql(
     run = _submission(query=SourceQuery(filters_json='{"jql":"status = Done"}'))
 
     first = build_source_input(
-        _settings(tmp_path), run, connection=_jira(config={"jql": "project = CPM"})
+        _settings(tmp_path), run, connection=_jira(config={"jql": "project = DEMO"})
     )
     second = build_source_input(
         _settings(tmp_path), run, connection=_jira(config={"jql": "project = HR"})

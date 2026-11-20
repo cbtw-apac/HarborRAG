@@ -10,21 +10,20 @@ from typing import Any, Literal
 from pydantic import Field
 
 from .common import NoCredentials, NoTuning
-from .fields import StrictModel, widget
+from .fields import PathText, StrictModel, widget
 from .spec import AuthMethodSpec, Capabilities, FieldIssue, Setup, SourceTypeSpec
 
 LOCAL_SOURCE_ROOT_VARIABLE = "HARBORRAG_LOCAL_SOURCE_ROOT"
-LOCAL_SOURCE_PATH_VARIABLE = "LOCAL_SOURCE_PATH"
 
 
 def local_source_root(environ: Mapping[str, str] | None = None) -> Path | None:
     """The directory local connections must stay inside, when the install sets one.
 
-    ``HARBORRAG_LOCAL_SOURCE_ROOT`` wins; otherwise the ``LOCAL_SOURCE_PATH``
-    directory the compose files configure.
+    Read only from ``HARBORRAG_LOCAL_SOURCE_ROOT``; ``LOCAL_SOURCE_PATH`` names a
+    host or connectors.yaml path and never sets the root.
     """
     env = os.environ if environ is None else environ
-    value = env.get(LOCAL_SOURCE_ROOT_VARIABLE) or env.get(LOCAL_SOURCE_PATH_VARIABLE)
+    value = env.get(LOCAL_SOURCE_ROOT_VARIABLE)
     return Path(value).expanduser().resolve() if value else None
 
 
@@ -61,7 +60,7 @@ def local_source_api_issues(config: Mapping[str, Any]) -> list[FieldIssue]:
 class LocalFileSyncConfig(StrictModel):
     """What to sync from the file system."""
 
-    source_path: str = Field(
+    source_path: PathText = Field(
         min_length=1,
         description="Absolute path as the worker sees it, inside the install's local source root",
         examples=["/data/sources"],
@@ -75,15 +74,15 @@ class LocalFileSyncConfig(StrictModel):
         ),
     )
     excluded_extensions: list[str] = Field(default_factory=list, description="File types to drop")
-    include_paths: list[str] = Field(
+    include_paths: list[PathText] = Field(
         default_factory=list, description="Paths under source_path to read; empty reads all"
     )
-    exclude_paths: list[str] = Field(default_factory=list, description="Paths to skip")
-    include_globs: list[str] = Field(
+    exclude_paths: list[PathText] = Field(default_factory=list, description="Paths to skip")
+    include_globs: list[PathText] = Field(
         default_factory=list, description="Glob patterns to read, such as **/*.pdf"
     )
-    exclude_globs: list[str] = Field(default_factory=list, description="Glob patterns to skip")
-    excluded_dir_names: list[str] | None = Field(default=None, description="Folders to skip")
+    exclude_globs: list[PathText] = Field(default_factory=list, description="Glob patterns to skip")
+    excluded_dir_names: list[PathText] | None = Field(default=None, description="Folders to skip")
     include_hidden: bool = Field(default=False, description="Include hidden files and folders")
     follow_symlinks: bool = Field(default=False, description="Follow links inside the path")
     max_depth: int | None = Field(default=None, ge=0, description="Folder depth limit")

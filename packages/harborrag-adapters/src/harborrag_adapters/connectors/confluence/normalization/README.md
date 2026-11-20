@@ -2,8 +2,8 @@
 
 This package turns one Confluence page into HarborRAG's canonical `Document`, keeping
 the page's structure, macros and tables. Read it before you change how Confluence
-pages are represented; the Confluence connector's `document_transform.py` is its only
-caller.
+pages are represented; the Confluence connector's `document_transform.py` is the only
+caller of the page normalizer, and `discovery.py` uses `schemas.space_identity`.
 
 ## Entry point
 

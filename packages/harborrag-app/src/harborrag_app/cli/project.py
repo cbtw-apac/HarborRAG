@@ -32,6 +32,7 @@ _ACTIVE: Project | None = None
 # it; anything else (a later chdir, a test that never activated) means "use the CWD".
 _INVOCATION: tuple[Path, Path] | None = None
 
+STDIO_PATH = "-"
 PROJECT_FILE = "harborrag.yaml"
 # A repository checkout carries no harborrag.yaml but does ship catalogs under config/.
 LEGACY_CONFIG_MARKER = Path("config") / "sources" / "connectors.yaml"
@@ -195,6 +196,13 @@ def invocation_cwd() -> Path:
     return cwd
 
 
+def from_invocation(path: str | Path) -> Path:
+    """Expand ``~`` and anchor a relative path at :func:`invocation_cwd`."""
+
+    expanded = Path(path).expanduser()
+    return expanded if expanded.is_absolute() else invocation_cwd() / expanded
+
+
 def invocation_path(
     *, exists: bool = False, dir_okay: bool = True
 ) -> Callable[[Path | None], Path | None]:
@@ -205,14 +213,18 @@ def invocation_path(
     absolute, which is also what a command should report back. This is a callback rather
     than a ``click.Path`` subclass because Typer 0.26+ vendors Click and no longer installs
     it, so ``harborrag-app`` must not import ``click`` itself.
+
+    Raises:
+        typer.BadParameter: The value is ``-``, because no option using this callback
+            reads stdin or writes stdout, so ``-`` would name a file called ``-``.
     """
 
     def rebase(value: Path | None) -> Path | None:
-        if value is None or os.fspath(value) == "-":
+        if value is None:
             return value
-        path = Path(value).expanduser()
-        if not path.is_absolute():
-            path = invocation_cwd() / path
+        if os.fspath(value) == STDIO_PATH:
+            raise typer.BadParameter("'-' is not accepted here; name a file")
+        path = from_invocation(value)
         if exists and not path.exists():
             raise typer.BadParameter(f"File '{value}' does not exist.")
         if not dir_okay and path.is_dir():

@@ -1,9 +1,5 @@
 """Failure inbox: the latest failed result of each document, with its history.
 
-Handles:
-- paging unresolved or resolved failures with per-category counts
-- selecting the retryable failures a retry run should pick up
-
 The inbox is computed from ``task_document_results`` in one pass of window
 functions per query; nothing is stored beside the results.
 """

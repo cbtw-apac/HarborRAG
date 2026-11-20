@@ -12,7 +12,8 @@ from harborrag_core.chunking import ConnectorType, RelationType
 from harborrag_core.domain.raw_document import RawDocument
 from harborrag_core.domain.source import SourceRecord
 from harborrag_core.ingestion import AdmissionSnapshot, DocumentIdentityBuilder, GraphEntityType
-from harborrag_runtime.ingestion import DocumentReleaseService, SourceIngestionService
+from harborrag_engine.ingestion.release.service import DocumentReleaseService
+from harborrag_runtime.ingestion import SourceIngestionService
 
 from ...fixtures.connectors import SourceConnector
 from ...fixtures.release import (

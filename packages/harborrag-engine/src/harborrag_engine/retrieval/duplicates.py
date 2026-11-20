@@ -1,7 +1,7 @@
 """Collapse search hits that carry the same text.
 
 A Jira tenant is full of identical short chunks -- "Bounced - Unable to Send
-Mailing" posted on hundreds of issues, a three-word "Senior Java Engineer"
+Mailing" posted on hundreds of issues, a three-word "Deployment runbook"
 comment -- and identical text embeds identically, so they rank together and
 can fill every slot of a result page with one sentence. A second copy tells the
 caller nothing the first did not, so only the best-ranked one is kept and the
@@ -10,8 +10,8 @@ search window behind it supplies the next distinct hit.
 Identity is the payload's ``content_hash`` -- the projection's own hash of the
 chunk text -- within one subject: the source item the chunk is about, which for
 an attachment is its parent (an issue and everything attached to it). The same
-text on two subjects is two pieces of evidence: "Passed interview with
-Pepperstone" on eight candidates' issues says something about each of them,
+text on two subjects is two pieces of evidence: "Approved by Example
+Corp" on eight issues says something about each of them,
 while the same file attached twice to one issue says it once. A hit without a
 hash is never collapsed, because guessing equality from anything else could
 merge two different pieces of evidence.

@@ -21,8 +21,7 @@ from harborrag_adapters.connectors.exceptions import (
 from harborrag_adapters.connectors.sharepoint.skips import SharePointItemUnavailableError
 from harborrag_adapters.parsers.errors import ParseError
 from harborrag_core.contracts.errors import HarborConflictError
-from harborrag_core.ingestion import FailureCategory
-from harborrag_engine.ingestion import IngestionFailureClassifier
+from harborrag_core.ingestion import FailureCategory, IngestionFailureClassifier
 from harborrag_runtime.ingestion.observability import IngestionTelemetry
 from harborrag_runtime.temporal.activity_observability import (
     ActivityObservability,

@@ -104,6 +104,42 @@ def test_chat_request_examples_are_sendable_as_written() -> None:
     assert examples["session_question"]["value"]["session_id"].startswith("ses_")
 
 
+_OPERATION_IDS = {
+    ("get", "/v1/me"): "me",
+    ("get", "/v1/admin/source-types"): "list_source_types",
+    ("get", "/v1/admin/connections"): "list_connections",
+    ("get", "/v1/admin/projects/{project_id}/connections/{connection_id}"): "get_connection",
+    ("put", "/v1/admin/projects/{project_id}/connections/{connection_id}"): "put_connection",
+    ("delete", "/v1/admin/projects/{project_id}/connections/{connection_id}"): "delete_connection",
+    ("post", "/v1/admin/projects/{project_id}/connections/{connection_id}/test"): "test_connection",
+    ("get", "/v1/admin/projects"): "list_projects",
+    ("get", "/v1/admin/projects/{project_id}"): "get_project",
+    ("put", "/v1/admin/projects/{project_id}"): "put_project",
+    ("delete", "/v1/admin/projects/{project_id}"): "delete_project",
+    ("get", "/v1/projects/{project_id}/connections"): "list_searchable_connections",
+    ("post", "/v1/admin/ingestions"): "start_ingestion",
+    ("get", "/v1/admin/ingestions"): "list_ingestions",
+    ("get", "/v1/admin/ingestions/{ingestion_id}"): "get_ingestion",
+    ("get", "/v1/admin/ingestions/{ingestion_id}/documents"): "list_ingestion_documents",
+    ("get", "/v1/admin/ingestions/{ingestion_id}/events"): "stream_ingestion",
+    ("post", "/v1/admin/ingestions/{ingestion_id}/pause"): "pause_ingestion",
+    ("post", "/v1/admin/ingestions/{ingestion_id}/resume"): "resume_ingestion",
+    ("post", "/v1/admin/ingestions/{ingestion_id}/cancel"): "cancel_ingestion",
+    ("post", "/v1/admin/ingestions/{ingestion_id}/retry-failures"): "retry_ingestion_failures",
+    ("get", "/v1/admin/failures"): "list_failures",
+    ("post", "/v1/admin/failures/retry"): "retry_failures",
+    ("get", "/v1/admin/settings"): "read_settings",
+    ("patch", "/v1/admin/settings"): "patch_settings",
+    ("get", "/v1/admin/settings/schema"): "settings_schema",
+    ("post", "/v1/chat/completions"): "create_chat_completion",
+    ("post", "/v1/chat/sessions"): "create_chat_session",
+    ("get", "/v1/chat/sessions"): "list_chat_sessions",
+    ("get", "/v1/chat/sessions/{session_id}/messages"): "list_conversation_messages",
+    ("get", "/healthz"): "healthz",
+    ("get", "/readyz"): "readyz",
+}
+
+
 @pytest.fixture(scope="module")
 def openapi() -> dict[str, Any]:
     return json.loads(export_openapi())
@@ -138,3 +174,14 @@ def test_framework_validation_schemas_are_gone(openapi: dict[str, Any]) -> None:
     assert "HTTPValidationError" not in schemas
     assert "ValidationError" not in schemas
     assert set(schemas["Error"]["required"]) == {"error"}
+
+
+@pytest.mark.blackbox
+def test_operation_ids_are_route_names(openapi: dict[str, Any]) -> None:
+    actual = {
+        (method, path): operation["operationId"]
+        for path, item in openapi["paths"].items()
+        for method, operation in item.items()
+    }
+
+    assert actual == _OPERATION_IDS

@@ -3,8 +3,10 @@
 Composes [HarborRAG](https://github.com/cbtw-apac/HarborRAG) for production: it builds the
 repositories, model clients and engine policies from settings, and runs ingestion either
 inline or durably on Temporal. It also hosts the SDK facade, retrieval, chat and memory
-composition, schedules and topology enrichment. Domain types and ports live in
-`harborrag-core`; adapters and the engine stay unaware of Temporal.
+composition, schedules, topology enrichment and the application services that the
+`harborrag-app` HTTP API and CLI call. Domain types and ports live in `harborrag-core`;
+the retrieval, ingestion and topology use cases live in `harborrag-engine`; the memory use
+cases live in `harborrag-memory`; adapters and the engine stay unaware of Temporal.
 
 To use HarborRAG as a library, install the [`harborrag`](https://pypi.org/project/harborrag/)
 facade instead, which re-exports this package's SDK.
@@ -15,9 +17,10 @@ facade instead, which re-exports this package's SDK.
 pip install "harborrag-runtime[temporal]"
 ```
 
-The `temporal` extra adds the Temporal client that durable ingestion needs. `reader` adds
-the clients retrieval needs, `production` the clients the ingestion worker needs, `chat`
-the model client and `memory` the `harborrag-memory` package.
+The install brings `harborrag-core`, `harborrag-engine`, `harborrag-adapters` and
+`harborrag-memory`. The `temporal` extra adds the Temporal client that durable ingestion
+needs. `reader` adds the clients retrieval needs, `production` the clients the ingestion
+worker needs and `chat` the model client.
 
 ## Find your way around the package
 
@@ -26,9 +29,10 @@ src/harborrag_runtime/
   sdk/                      # stable SDK facade: HarborRAG, its configuration and service facades
   execution/                # direct and durable execution strategies, source submission, task registry
   temporal/                 # workflows, activities, client, gateway, schedule backend and the worker
-  ingestion/                # document release, source orchestration and maintenance services
-  retrieval/                # authoritative dense, sparse, hybrid and graph retrieval, and reranking
+  ingestion/                # document normalization and per-run parser choice, source orchestration, relation repair, retention and failure classification
+  retrieval/                # composition of the retrieval service from settings, and service facades
   chat/                     # chat service, model-client composition and per-tenant chat clients
+  application/              # application services that harborrag-app calls: chat, memory, ingestion, control plane, retrieval access, scheduling
   memory/                   # database-backed conversation memory and its composition
   scheduling/               # schedule management on top of the execution engine
   topology/                 # opt-in durable topology enrichment, independent of publication
@@ -39,21 +43,21 @@ src/harborrag_runtime/
   security/                 # operator-side security operations
   observability/            # telemetry shared by reader and ingestion compositions
   events/                   # runtime event contracts and publication
-  ingestion_contracts.py    # provider-neutral durable ingestion gateway and DTOs
+  ingestion_contracts.py    # provider-neutral durable ingestion gateway and its outcomes
   contracts.py              # stable request and response contracts of the SDK
   reader_contracts.py       # compatibility exports for reader contracts
-  source_query.py           # secret-free source query and processing inputs
   document_stage_catalog.py # sandbox-safe catalog of document stages
   temporal_models.py        # replay-safe routing and retry models
   plugins.py                # entry-point plugin discovery and registration
   rate_limiting.py          # connector rate-limit coordination
   serialization.py          # deterministic JSON conversion of runtime values
-  tokenization.py           # provider-neutral token estimates
   errors.py                 # runtime and Temporal boundary errors
 ```
 
 The ingestion services and their dependency rules are described in the
 [ingestion runtime notes](https://github.com/cbtw-apac/HarborRAG/blob/main/packages/harborrag-runtime/src/harborrag_runtime/ingestion/README.md),
+the application services in the
+[application notes](https://github.com/cbtw-apac/HarborRAG/blob/main/packages/harborrag-runtime/src/harborrag_runtime/application/README.md),
 and chat composition in the
 [runtime chat notes](https://github.com/cbtw-apac/HarborRAG/blob/main/packages/harborrag-runtime/src/harborrag_runtime/chat/README.md).
 
@@ -63,7 +67,7 @@ behind it. Direct and Temporal strategies use the same submission builder, so th
 execution mode does not change request identity or filtering semantics.
 
 Applications submit durable ingestion through `ingestion_contracts.IngestionGateway`. Its
-submission, retry, status and result DTOs hold no Temporal replay state or workflow
+submission, retry, status and result types hold no Temporal replay state or workflow
 options; `temporal.gateway.TemporalIngestionGateway` translates them to Temporal payloads
 and back. Connector preparation and task registration live in
 `execution/source_submission.py` and `execution/task_registry.py`, so changing the
@@ -120,8 +124,8 @@ deployment. Every supported field is listed in
 [Temporal configuration](https://github.com/cbtw-apac/HarborRAG/blob/main/deploy/temporal/README.md).
 Keep `HARBORRAG_TEMPORAL_API_KEY` in `env/.env.temporal` or a secret manager.
 
-Operators drive the same runtime with the `harborrag ingest` commands of a repository
-checkout. Their options and how to name a connection are in the
+Operators drive the same runtime with the `harborrag ingestions` commands of a repository
+checkout. How they name a connection and follow a run is in the
 [CLI reference](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/cli-reference/README.md#run-and-control-ingestion).
 
 Applications that bypass the SDK can submit to Temporal with
@@ -131,6 +135,14 @@ submission, connection=...)` needs the `ResolvedConnection` that
 resolving a connection also saves a connection revision to the control database. The
 client's `start_ingestion` returns a reference whose `run_id` is the task ID that
 `get_status` takes.
+
+## Topology operator services
+
+`topology/` holds the operator services for topology enrichment: tenant configuration,
+status, runs, rebuild, entity and build inspection, summary projection, cleanup and ACL
+snapshot import, plus `ingestion/maintenance/projection_admin.py` for the projection
+inventory. The `harborrag topology` commands that called them were removed in 2.0.0, and
+no HTTP route or MCP tool calls them yet, so they have no operator entry point.
 
 ## Use the SDK from Python
 
@@ -149,15 +161,21 @@ groups are `harborrag.connectors`, `harborrag.parsers`, `harborrag.model_provide
 
 ## Retrieve and rerank
 
-Retrieval composes the same embedding model, active Qdrant collection, FalkorDB graph and
-canonical chunk object store that ingestion writes. Query embeddings are marked sensitive
-and non-cacheable.
-
-`retrieval/reranking.py` holds the rerank stage. `PassageReranker` orders passages the
-caller may already read, using the client built from the `rerank` section of the model
-catalog. It puts the model's score in `metadata["rerank_score"]` and leaves `relevance`
-at the lane's similarity. Passage text is sent to the rerank provider as sensitive and
+The retrieval use cases (permission-scoped search, evidence selection, graph and reader
+workflows) live in the
+[`harborrag_engine.retrieval.service`](https://github.com/cbtw-apac/HarborRAG/tree/main/packages/harborrag-engine/src/harborrag_engine/retrieval/service)
+package, where `RuntimeRetrievalService` is `retrieval/service/service.py`. This
+package's `retrieval/` module wires it to adapters: `connect_retrieval_service` composes
+the same embedding model, active Qdrant collection, FalkorDB graph and canonical chunk
+object store that ingestion writes. Query embeddings are marked sensitive and
 non-cacheable.
+
+The rerank stage is `PassageReranker` in the engine's
+[`reranking.py`](https://github.com/cbtw-apac/HarborRAG/blob/main/packages/harborrag-engine/src/harborrag_engine/retrieval/service/reranking.py).
+It orders passages the caller may already read, using the client built from the `rerank`
+section of the model catalog. It puts the model's score in `metadata["rerank_score"]` and
+leaves `relevance` at the lane's similarity. Passage text is sent to the rerank provider
+as sensitive and non-cacheable.
 
 ## Monitor ingestion
 

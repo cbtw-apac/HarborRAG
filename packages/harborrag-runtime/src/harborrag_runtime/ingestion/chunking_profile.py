@@ -13,22 +13,22 @@ from harborrag_adapters.chunking import (
     text_refiner_fingerprint,
 )
 from harborrag_adapters.chunking.factory import grammar_set_problems
+from harborrag_core.chunking.tokenization import ApproximateTokenCounter
 from harborrag_core.contracts.chunking import TextRefiner, TokenCounter
 from harborrag_engine.ingestion.chunking import ChunkingConfig, ChunkStrategy, ChunkStrategyRegistry
 from harborrag_engine.ingestion.chunking.pipeline.composition import builtin_chunking_strategies
 from harborrag_engine.ingestion.chunking.table.rendering import TableRenderer
 from harborrag_runtime.config.chunking import RefinerConfig, default_chunking_settings
 from harborrag_runtime.config.errors import ChunkingConfigurationError
-from harborrag_runtime.tokenization import ApproximateTokenCounter
 
 
 def default_chunking_config() -> ChunkingConfig:
+    """Return the chunking configuration from the default settings."""
     return default_chunking_settings().config
 
 
 def build_refiner(token_counter: TokenCounter, refiner: RefinerConfig | None = None) -> TextRefiner:
     """Build the oversized-unit refiner selected in ``chunking.yaml``."""
-
     refiner = refiner or RefinerConfig()
     if refiner.strategy == "recursive":
         return RecursiveTextRefiner(token_counter)
@@ -50,7 +50,6 @@ def code_grammar_problems(refiner: RefinerConfig | None = None) -> list[str]:
 
     Empty when grammars match the declared set or the refiner does not parse code.
     """
-
     if (refiner or RefinerConfig()).strategy != "structure":
         return []
     return grammar_set_problems()
@@ -62,7 +61,6 @@ def refiner_fingerprint(refiner: RefinerConfig | None = None) -> str:
     Independent of installed extras (``require_code_grammars`` only decides
     whether missing grammars fail startup), so API and worker processes agree.
     """
-
     if (refiner or RefinerConfig()).strategy == "recursive":
         return f"{RecursiveTextRefiner.name}:{RecursiveTextRefiner.version}"
     return text_refiner_fingerprint()
@@ -75,7 +73,6 @@ def chunk_strategy_fingerprint(
     refiner: RefinerConfig | None = None,
 ) -> str:
     """Hash normalized policies and explicit versions, independent of mapping order."""
-
     counter = ApproximateTokenCounter()
     strategies = (*builtin_chunking_strategies(counter), *additional_strategies)
     registry = ChunkStrategyRegistry(strategies)

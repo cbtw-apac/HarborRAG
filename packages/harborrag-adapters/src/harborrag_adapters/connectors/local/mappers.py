@@ -8,11 +8,23 @@ from pathlib import Path
 from harborrag_core.domain.source import SourceRecord
 
 from .filesystem_paths import (
+    file_extension,
     guess_mime_type,
     relative_path,
     stat_datetime,
 )
 from .schemas import LocalFileMetadata
+
+
+def file_created_timestamp(stat: os.stat_result) -> float:
+    """Return the file creation timestamp exposed by the local OS.
+
+    Windows exposes ``st_birthtime`` for the file's creation time, while many
+    POSIX platforms only expose ``st_ctime`` and use it as the closest available
+    metadata timestamp. The caller still interprets this as "created" rather than
+    "last metadata-changed".
+    """
+    return getattr(stat, "st_birthtime", stat.st_ctime)
 
 
 def path_from_record(record: SourceRecord) -> Path:
@@ -40,20 +52,24 @@ def build_source_record(
     relative = relative_path(path, root_path)
     mime_type = guess_mime_type(path)
 
+    created_at = stat_datetime(file_created_timestamp(stat))
+    updated_at = stat_datetime(stat.st_mtime)
+
     return SourceRecord(
         id=relative,
         source_type=mime_type,
         locator=relative,
-        updated_at=stat_datetime(stat.st_mtime),
+        updated_at=updated_at,
         checksum=checksum,
         metadata={
             "source_system": "local",
             "relative_path": relative,
             "name": path.name,
             "parent_relative_path": Path(relative).parent.as_posix(),
-            "suffix": path.suffix.lower(),
+            "suffix": file_extension(path),
             "size": stat.st_size,
-            "created_at": stat_datetime(stat.st_ctime),
+            "created_at": created_at,
+            "updated_at": updated_at,
             "accessed_at": stat_datetime(stat.st_atime),
             "is_symlink": is_symlink,
         },
@@ -79,12 +95,12 @@ def build_document_metadata(
         record_id=relative,
         title=path.name,
         checksum=checksum,
-        created_at=stat_datetime(stat.st_ctime),
+        created_at=stat_datetime(file_created_timestamp(stat)),
         updated_at=stat_datetime(stat.st_mtime),
         relative_path=relative,
         name=path.name,
         parent_relative_path=Path(relative).parent.as_posix(),
-        suffix=path.suffix.lower(),
+        suffix=file_extension(path),
         size=stat.st_size,
         accessed_at=stat_datetime(stat.st_atime),
         is_symlink=is_symlink,

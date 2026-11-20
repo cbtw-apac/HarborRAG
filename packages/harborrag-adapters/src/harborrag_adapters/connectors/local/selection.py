@@ -1,14 +1,18 @@
-"""Local-file candidate selection kept separate from traversal and secure reads."""
+"""Local-file candidate selection kept separate from traversal and secure reads.
+
+Only an exclusion a caller would want named becomes a skip: an unreadable file,
+a size limit, an extension policy or a callback rejection. Date, pattern, path
+and glob filters narrow the scope silently, and run before any reporting check.
+"""
 
 from __future__ import annotations
 
-import logging
 import os
 from collections.abc import Callable
 from pathlib import Path
 
 from harborrag_adapters.connectors.exceptions import DocumentProcessingError, FetchError
-from harborrag_adapters.connectors.schemas import ConnectorQuery
+from harborrag_core.ingestion.connector_contracts import ConnectorQuery
 
 from .config import LocalFileConfig
 from .filesystem_paths import (
@@ -24,11 +28,17 @@ from .filesystem_paths import (
 from .filters import extension_filter, path_filter
 from .skips import LocalSkipReport
 
-logger = logging.getLogger("harborrag.adapters.connectors.local")
-
 
 class LocalFileSelector:
-    """Apply query, size, link, and callback policy to local candidates."""
+    """Apply query, size, link, and callback policy to local candidates.
+
+    Args:
+        config: The local connector's settings.
+        root_path: Root that relative paths and filters are resolved against.
+        skips: Report that receives every reportable skip.
+        within_source_scope: Whether a path stays inside the configured source.
+        has_symlink_component: Whether any component of a path is a symlink.
+    """
 
     def __init__(
         self,
@@ -47,7 +57,6 @@ class LocalFileSelector:
 
     def should_process_file(self, path: Path, query: ConnectorQuery) -> bool:
         """Apply all configured selection policy to one candidate path."""
-
         if not self._is_candidate(path):
             return False
         file_stat = self._candidate_stat(path)
@@ -85,16 +94,16 @@ class LocalFileSelector:
         query: ConnectorQuery,
         file_stat: os.stat_result,
     ) -> bool:
+        """Apply the query's filters, checking the extension last."""
         updated_at = stat_datetime(file_stat.st_mtime)
         if query.updated_after and updated_at <= query.updated_after:
             return False
         if not matches_pattern(path, self.root_path, query.pattern):
             return False
-        extension = file_extension(path)
-        allowed = extension_filter(self.config, query, "allowed_extensions")
-        excluded = extension_filter(self.config, query, "excluded_extensions")
-        if (allowed and extension not in allowed) or extension in excluded:
-            return False
+        return self._in_path_scope(path, query) and self._extension_allowed(path, query)
+
+    def _in_path_scope(self, path: Path, query: ConnectorQuery) -> bool:
+        """Apply include and exclude paths and globs, which drop files silently."""
         include_paths = path_filter(self.config, query, "include_paths")
         if include_paths and not any(
             path_in_scope(path, self.root_path, value) for value in include_paths
@@ -108,6 +117,19 @@ class LocalFileSelector:
             return False
         exclude_globs = path_filter(self.config, query, "exclude_globs")
         return not matches_globs(path, self.root_path, exclude_globs)
+
+    def _extension_allowed(self, path: Path, query: ConnectorQuery) -> bool:
+        """Apply the extension allow and exclude lists, reporting each file they drop."""
+        extension = file_extension(path)
+        allowed = extension_filter(self.config, query, "allowed_extensions")
+        if allowed and extension not in allowed:
+            self.skips.unsupported_extension(path, extension=extension, reason="is not allowed")
+            return False
+        excluded = extension_filter(self.config, query, "excluded_extensions")
+        if extension in excluded:
+            self.skips.unsupported_extension(path, extension=extension, reason="is excluded")
+            return False
+        return True
 
     def _within_size_limit(self, path: Path, size: int) -> bool:
         limit = self.config.max_file_size_bytes
@@ -129,8 +151,7 @@ class LocalFileSelector:
         except Exception as exc:
             if self.config.fail_on_error:
                 raise
-            logger.exception("Local file callback failed for %s", path)
-            self.skips.callback_rejected(path, reason=f"raised {type(exc).__name__}: {exc}")
+            self.skips.callback_failed(path, error=exc)
             return False
         if not should_process:
             self.skips.callback_rejected(path, reason=reason)

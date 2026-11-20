@@ -11,19 +11,19 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 from temporalio.exceptions import ApplicationError
 
+from harborrag_core.chunking.tokenization import ApproximateTokenCounter
 from harborrag_core.domain.document import Document
 from harborrag_core.domain.element import DocumentElement
 from harborrag_core.domain.provenance import DocumentProvenance
+from harborrag_core.ingestion.run_contracts import RunSettings
 from harborrag_engine.ingestion.chunking import ChunkingRequest
+from harborrag_engine.ingestion.release.materialization import DocumentMaterializationStages
 from harborrag_runtime.config.chunking import default_chunking_settings
 from harborrag_runtime.config.parsers import load_parser_catalog
-from harborrag_runtime.ingestion.document.materialization import DocumentMaterializationStages
 from harborrag_runtime.ingestion.document.run_tools import ParserUnavailableError, RunTools
 from harborrag_runtime.ingestion.runtime_builder import build_default_chunker
-from harborrag_runtime.ingestion_contracts import RunSettings
 from harborrag_runtime.temporal import ingestion_activities as activity_module
 from harborrag_runtime.temporal.ingestion_activities import IngestionActivities
-from harborrag_runtime.tokenization import ApproximateTokenCounter
 
 pytestmark = pytest.mark.unit
 
@@ -142,8 +142,9 @@ async def test_chunk_stage_uses_run_cap() -> None:
     run_tools.chunker_for.return_value = chunker
     chunk_writer = SimpleNamespace(put=AsyncMock())
     dependencies = SimpleNamespace(
-        run_tools=run_tools,
+        chunker_for=run_tools.chunker_for,
         chunker=object(),
+        failures=object(),
         control=SimpleNamespace(),
         canonical_artifacts=None,
         chunk_reader=None,

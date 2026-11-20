@@ -19,7 +19,7 @@ def _run(code: str) -> subprocess.CompletedProcess[str]:
 
 def test_app_service_module_imports_without_temporalio() -> None:
     result = _run(
-        "import harborrag_app.workflow_control.composition.service as s; "
+        "import harborrag_runtime.application.composition.service as s; "
         "from harborrag_app.cli import main; print('imported')"
     )
     assert result.returncode == 0, result.stderr
@@ -29,8 +29,8 @@ def test_app_service_module_imports_without_temporalio() -> None:
 def test_connecting_the_temporal_client_without_temporalio_explains_the_extra() -> None:
     result = _run(
         "import asyncio\n"
-        "from harborrag_app.workflow_control.composition.factories import connect_temporal_client\n"
-        "from harborrag_app.workflow_control.errors import MissingOptionalDependencyError, public_error_message\n"
+        "from harborrag_runtime.application.composition.factories import connect_temporal_client\n"
+        "from harborrag_runtime.application.errors import MissingOptionalDependencyError, public_error_message\n"
         "try:\n"
         "    asyncio.run(connect_temporal_client(None))\n"
         "except MissingOptionalDependencyError as exc:\n"

@@ -5,15 +5,16 @@ from __future__ import annotations
 import json
 from datetime import datetime
 
-from harborrag_adapters.connectors.schemas import ConnectorQuery
 from harborrag_core.chunking import ConnectorType
 from harborrag_core.ingestion import ProcessingProfile
-from harborrag_runtime.ingestion.source.models import SourceIngestionRequest
-from harborrag_runtime.ingestion_contracts import PreparedSourceSubmission
-from harborrag_runtime.source_query import ProcessingProfileInput
+from harborrag_core.ingestion.connector_contracts import ConnectorQuery
+from harborrag_core.ingestion.run_contracts import PreparedSourceSubmission
+from harborrag_core.ingestion.source_query import ProcessingProfileInput
+from harborrag_engine.ingestion.source.models import SourceIngestionRequest
 
 
 def to_source_request(source: PreparedSourceSubmission) -> SourceIngestionRequest:
+    """Convert a prepared submission to a source ingestion request."""
     query = source.query
     updated_after = (
         datetime.fromisoformat(query.updated_after) if query.updated_after is not None else None
@@ -48,6 +49,7 @@ def to_source_request(source: PreparedSourceSubmission) -> SourceIngestionReques
 def to_processing_profile(
     processing: ProcessingProfileInput,
 ) -> ProcessingProfile:
+    """Convert the submitted processing input to a processing profile."""
     return ProcessingProfile(
         parser_profile=processing.parser_profile,
         normalizer_version=processing.normalizer_version,

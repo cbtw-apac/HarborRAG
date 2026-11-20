@@ -2,12 +2,20 @@
 
 from __future__ import annotations
 
+import http.server
+import threading
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from harborrag_adapters.connectors.exceptions import AuthenticationError
+from harborrag_adapters.connectors.policies.network import (
+    ALLOWED_HOSTS_VARIABLE,
+    BlockedDestinationError,
+    DestinationPolicy,
+)
 from harborrag_adapters.parsers import HarborParserFactory
 from harborrag_core.domain.connection import ConnectionBuilder
 from harborrag_core.testing.control_plane_fakes import (
@@ -62,6 +70,7 @@ async def _github(
 
 
 def _pool(revisions: FakeConnectionRevisionRepository, **kwargs: Any) -> ConnectorPool:
+    kwargs.setdefault("destination_policy", DestinationPolicy())
     return ConnectorPool(
         revisions=revisions,
         secrets=default_secret_resolver(
@@ -201,7 +210,9 @@ async def test_the_pool_refuses_unknown_snapshots_and_unreadable_secrets(stores:
         tenant_id="tenant-1", source_key="handbook"
     )
     without_env = ConnectorPool(
-        revisions=revisions, secrets=default_secret_resolver(FakeSecrets(), environ={})
+        revisions=revisions,
+        secrets=default_secret_resolver(FakeSecrets(), environ={}),
+        destination_policy=DestinationPolicy(),
     )
 
     with pytest.raises(ConnectorConfigurationError, match="unknown"):
@@ -264,3 +275,86 @@ async def _status(connections: FakeConnectionRepository) -> str:
     row = await connections.get_by_source_key(tenant_id="tenant-1", source_key="handbook")
     assert row is not None
     return row.status
+
+
+@pytest.fixture
+def local_server() -> Iterator[str]:
+    server = http.server.HTTPServer(("127.0.0.1", 0), http.server.SimpleHTTPRequestHandler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    yield f"http://localhost:{server.server_port}/"
+    server.shutdown()
+
+
+async def _github_connector(stores: Any, pool_policy: DestinationPolicy, task_id: str) -> Any:
+    connections, revisions = stores
+    await _github(connections)
+    resolved = await ConnectionResolver(connections, revisions).resolve(
+        tenant_id="tenant-1", source_key="handbook"
+    )
+    pool = _pool(revisions, destination_policy=pool_policy)
+    return await pool.connector(
+        tenant_id="tenant-1", task_id=task_id, configuration_fingerprint=resolved.fingerprint
+    )
+
+
+@pytest.mark.asyncio
+async def test_the_pool_gives_every_connector_its_destination_policy(
+    stores: Any, local_server: str
+) -> None:
+    allowing = DestinationPolicy(hosts=frozenset({"localhost"}))
+
+    connector = await _github_connector(stores, allowing, "run-1")
+
+    assert connector.provider.client.session.get(local_server, timeout=5).status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_the_pool_does_not_read_the_environment_for_each_connector(
+    stores: Any, local_server: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    connections, revisions = stores
+    await _github(connections)
+    resolved = await ConnectionResolver(connections, revisions).resolve(
+        tenant_id="tenant-1", source_key="handbook"
+    )
+    monkeypatch.setenv(ALLOWED_HOSTS_VARIABLE, "localhost,127.0.0.0/8")
+    pool = _pool(revisions, destination_policy=DestinationPolicy.from_environ())
+    monkeypatch.setenv(ALLOWED_HOSTS_VARIABLE, "")
+
+    for task_id in ("run-1", "run-2"):
+        connector = await pool.connector(
+            tenant_id="tenant-1", task_id=task_id, configuration_fingerprint=resolved.fingerprint
+        )
+        assert connector.provider.client.session.get(local_server, timeout=5).status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_a_pool_policy_without_allowed_hosts_refuses_loopback_whatever_the_environment_says(
+    stores: Any, local_server: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv(ALLOWED_HOSTS_VARIABLE, "localhost,127.0.0.0/8")
+
+    connector = await _github_connector(stores, DestinationPolicy(), "run-1")
+
+    with pytest.raises(BlockedDestinationError):
+        connector.provider.client.session.get(local_server, timeout=5)
+
+
+@pytest.mark.asyncio
+async def test_a_connector_built_without_a_policy_reaches_public_addresses_only(
+    stores: Any, local_server: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    connections, revisions = stores
+    await _github(connections)
+    resolved = await ConnectionResolver(connections, revisions).resolve(
+        tenant_id="tenant-1", source_key="handbook"
+    )
+    secrets = await default_secret_resolver(
+        FakeSecrets(), environ={"TEST_GITHUB_TOKEN": "ghp_x"}
+    ).resolve_credentials(resolved.snapshot.credentials, tenant_id="tenant-1")
+    monkeypatch.setenv(ALLOWED_HOSTS_VARIABLE, "localhost,127.0.0.0/8")
+
+    connector = build_connector(resolved.snapshot, secrets)
+
+    with pytest.raises(BlockedDestinationError):
+        connector.provider.client.session.get(local_server, timeout=5)

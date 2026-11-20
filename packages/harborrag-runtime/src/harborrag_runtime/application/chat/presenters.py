@@ -1,0 +1,222 @@
+"""Public response projection for chat completions."""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+from unicodedata import category
+from urllib.parse import urlsplit, urlunsplit
+
+from harborrag_core.domain.retrieval import RetrievalResult
+from harborrag_core.models.chat import HarborChatResponse, HarborChatStreamChunk
+from harborrag_core.models.cost import ModelCost
+
+
+def citation_data(result: RetrievalResult) -> dict[str, object]:
+    """Project one retrieval result with human-readable source provenance."""
+    metadata = result.metadata
+    section = _citation_section(metadata.get("section_path"))
+    citation: dict[str, object] = {
+        "document_id": str(result.metadata.get("document_id", "")),
+        "chunk_id": result.id,
+        "score": result.score,
+    }
+    title = display_text(metadata.get("document_title"), 256)
+    if title is not None:
+        citation["document_title"] = title
+    if section:
+        citation["section_path"] = section
+    locator = metadata.get("citation_locator")
+    location = _citation_location(locator) or citation_uri(locator)
+    if location is not None:
+        citation["location"] = location
+    return citation
+
+
+def citation_marker(index: int, result: RetrievalResult) -> str:
+    """Return the ``[n]`` label the model cites passage ``index`` of its prompt with."""
+    del result
+    return f"[{index}]"
+
+
+def source_heading(result: RetrievalResult) -> str:
+    """Name the passage's document title and section (or page) as a reader would."""
+    metadata = result.metadata
+    title = (
+        display_text(metadata.get("document_title"), 256)
+        or display_text(metadata.get("document_id"), 128)
+        or "Untitled document"
+    )
+    section = " > ".join(_citation_section(metadata.get("section_path")))
+    location = section or _citation_location(metadata.get("citation_locator"))
+    return f'"{title}" — {location}' if location else f'"{title}"'
+
+
+def evidence_data(index: int, result: RetrievalResult) -> dict[str, object]:
+    """Return bounded authorized evidence to clients, never to telemetry metadata."""
+    return {
+        **citation_data(result),
+        "marker": citation_marker(index, result),
+        "content": result.text[:8000],
+        **({"content_truncated": True} if len(result.text) > 8000 else {}),
+    }
+
+
+def cited_evidence(
+    answer: str, results: Sequence[RetrievalResult]
+) -> tuple[dict[str, object], ...]:
+    """Return the evidence entries of the results whose ``[n]`` marker appears in ``answer``."""
+    return tuple(
+        evidence_data(index, result)
+        for index, result in enumerate(results, start=1)
+        if citation_marker(index, result) in answer
+    )
+
+
+def display_text(value: object, limit: int) -> str | None:
+    """Return ``value`` without control characters, whitespace collapsed, at most ``limit`` long."""
+    if not isinstance(value, str):
+        return None
+    safe = "".join(
+        character for character in value[: limit + 1] if not category(character).startswith("C")
+    )
+    normalized = " ".join(safe.split()).strip()
+    return normalized[:limit] if normalized else None
+
+
+def _citation_section(value: object) -> tuple[str, ...]:
+    if not isinstance(value, (list, tuple)):
+        return ()
+    parts: list[str] = []
+    for item in value[:16]:
+        part = display_text(item, 128)
+        if part is not None:
+            parts.append(part)
+    return tuple(parts)
+
+
+def _citation_location(value: object) -> str | None:
+    if not isinstance(value, dict):
+        return None
+    for start_key, end_key, label in (
+        ("page_start", "page_end", "page"),
+        ("start_line", "end_line", "line"),
+    ):
+        start = value.get(start_key)
+        end = value.get(end_key)
+        if (
+            isinstance(start, int)
+            and not isinstance(start, bool)
+            and isinstance(end, int)
+            and not isinstance(end, bool)
+        ):
+            return f"{label} {start}" if start == end else f"{label}s {start}–{end}"
+    return None
+
+
+def citation_uri(value: object) -> str | None:
+    """Expose a bounded source page when a chunk has no heading or page range."""
+    if not isinstance(value, dict):
+        return None
+    raw = value.get("uri")
+    if (
+        not isinstance(raw, str)
+        or len(raw) > 2048
+        or any(category(character).startswith("C") for character in raw)
+    ):
+        return None
+    try:
+        parsed = urlsplit(raw)
+    except ValueError:
+        return None
+    if (
+        parsed.scheme not in {"https", "http"}
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+    ):
+        return None
+    uri = urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
+    return uri if len(uri) <= 1024 else None
+
+
+def cited_results(
+    answer: str,
+    results: Sequence[RetrievalResult],
+) -> tuple[RetrievalResult, ...]:
+    """Return the retrieved results the answer actually cited, in retrieval order.
+
+    Retrieval returns its top-k whether or not any of it bears on the
+    question, so reporting all of it as citations claims evidence the answer
+    never used -- "Your name is Alex." came back citing five unrelated
+    documents. The model is instructed to mark what it uses, and marks
+    nothing when it uses nothing, which is the only signal here that
+    distinguishes the two.
+
+    An index outside the retrieved set is dropped rather than raising: the
+    marker is model output, and a hallucinated number must not become a
+    citation of the wrong document.
+    """
+    if not results:
+        return ()
+    cited: list[RetrievalResult] = []
+    for index, result in enumerate(results, start=1):
+        readable = citation_marker(index, result)
+        if readable in answer:
+            cited.append(result)
+    return tuple(cited)
+
+
+def chat_response_data(
+    response: HarborChatResponse,
+    results: Sequence[RetrievalResult] = (),
+    *,
+    session_id: str,
+    project_id: str | None = None,
+    memory_persisted: bool = True,
+) -> dict[str, object]:
+    """Project a provider response without leaking deployment metadata.
+
+    ``project_id`` echoes the validated project the turn was scoped to (or
+    None). ``memory_persisted`` is False when the answer was generated but could not
+    be appended to conversation memory; the answer is still returned.
+
+    ``citations`` are the sources the answer cited, not everything retrieval
+    returned: retrieval hands back its top-k regardless of relevance, so
+    reporting all of it claims evidence the answer never used.
+    """
+    return {
+        "completion_id": response.id,
+        "created": response.created,
+        "model": response.logical_model,
+        "provider": response.provider,
+        "provider_model": response.provider_model,
+        "message": {
+            "role": response.message.role.value,
+            "content": response.text,
+        },
+        "finish_reason": str(response.finish_reason),
+        "usage": response.usage.model_dump(mode="json"),
+        "cost": ModelCost().add_call(response.estimated_cost_usd).model_dump(mode="json"),
+        "latency_ms": response.latency_ms,
+        "retry_count": response.retry_count,
+        "fallback_count": response.fallback_count,
+        "citations": cited_evidence(response.text, results),
+        "session_id": session_id,
+        "project_id": project_id,
+        "memory_persisted": memory_persisted,
+    }
+
+
+def chat_stream_chunk_data(chunk: HarborChatStreamChunk) -> dict[str, object]:
+    """Project one stream chunk without leaking deployment/provider-error metadata."""
+    return {
+        "event": chunk.event.value,
+        "model": chunk.logical_model,
+        "provider": chunk.provider,
+        "provider_model": chunk.provider_model,
+        "content": chunk.text_delta,
+        "reasoning": chunk.reasoning_delta,
+        "finish_reason": chunk.finish_reason,
+        "usage": chunk.usage.model_dump(mode="json") if chunk.usage is not None else None,
+        "cost": ModelCost().add_call(chunk.estimated_cost_usd).model_dump(mode="json"),
+    }

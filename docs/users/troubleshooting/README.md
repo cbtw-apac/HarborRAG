@@ -6,18 +6,38 @@ them from inside a clone of the repository, with `uv run harborrag …`.
 ## Start with `harborrag doctor`
 
 `doctor` checks the setup one line at a time: the project, the Python clients, the
-connector, parser and model catalogs, blank credential variables, the local source folder,
-and the local services. Add `--temporal` to check Temporal too.
+connector, parser and model catalogs, the local source root, the credential variables of
+remote connectors, and the local services, Temporal included. It ends with the tenants
+that hold data.
 
 ```bash
 uv run harborrag doctor
 ```
 
 Each ✗ line names the problem, and the hint under it names the `env/.env.*` file or the
-`scripts/deployment/dev.sh` command that fixes it. `doctor` exits 1 while a required check
-fails; a warning does not. In a clone, the `project` line warns
-`no harborrag.yaml found; using the current directory`, which is expected. The
+`scripts/deployment/dev.sh` command that fixes it. `doctor` exits 1 while a required
+configuration check fails, and 6 when only service checks fail; a warning does not count.
+Like the other commands, it walks up from the current directory to the clone, so you can
+run it from any folder inside. The
 [CLI reference](../cli-reference/README.md#check-the-setup) lists every check.
+
+| Symptom | Likely cause | Fix |
+| --- | --- | --- |
+| `source path` warns that `HARBORRAG_LOCAL_SOURCE_ROOT` does not name a directory on this host | The value is a container path such as `/data/sources`, which only the API and workers have | Expected when you ingest through the stack; `connections test` on a `local_file` connection reports `"ok": false` and exits 8 for the same reason. Set the variable to a folder on this machine to test locally |
+| `source path` warns that `HARBORRAG_LOCAL_SOURCE_ROOT` is unset | The CLI accepts any `local_file` path, but the API refuses every `local_file` connection while the root is unset | Set `HARBORRAG_LOCAL_SOURCE_ROOT` in the API and worker environment, and for the CLI on its line in `env/.env.database` |
+| `connector credentials` warns `blank credentials for: …` | An enabled remote connector (Jira, Confluence or SharePoint) has blank URL or credential variables | Nothing to fix if you do not use them. Otherwise fill them in `env/.env.connector`, or set `enabled: false` on the connectors you do not use in `config/sources/connectors.yaml` |
+
+## Report a problem
+
+Include the output of `harborrag --version`, `harborrag doctor` and the commit of your
+clone in a bug report. The version names the release line and works even when the project
+directory or the services are broken; a checkout of `main` prints the same version as the
+release, so the commit tells us which code you run.
+
+```bash
+uv run harborrag --version
+git rev-parse --short HEAD
+```
 
 ## Installation and imports
 
@@ -35,7 +55,7 @@ fails; a warning does not. In a clone, the `project` line warns
 | The connector catalog example fails to load | The path was copied without the `.example` suffix | Load `config/sources/connectors.example.yaml`; see [Load and build](../configuration/connector-config.md#load-and-build) |
 | `Connector 'harborrag-workspace' requires environment variable 'LOCAL_SOURCE_PATH' for 'source_path'` | The example maps `source_path` to that variable | Export it, or pass `environment=` or `overrides=` to `catalog.build` |
 | `python -m harborrag_adapters.models validate` reports a missing environment variable | `config/models/models.yaml` expands every `${VARIABLE}` when it loads | Set every variable the selected family and profile use, for example with `uv run --env-file env/.env.models` |
-| `PATCH /v1/admin/settings` refuses `retrieval.rerank: true` with `422 validation_error` | The model catalog has no `rerank` section, or the API started before it was added | Add the `rerank` section, set `HARBORRAG_RERANKER_MODEL`, and restart the API; see [Rerank chat retrieval](../configuration/runtime-settings.md#rerank-chat-retrieval) |
+| `PATCH /v1/admin/settings` refuses `retrieval.rerank: true` with `422 validation_error` | The model catalog names no rerank model, as the shipped one does not until `HARBORRAG_RERANKER_MODEL` is set, or the API started before it was | Set `HARBORRAG_RERANKER_MODEL` and `HARBORRAG_RERANKER_API_KEY` in `env/.env.models` and restart the API; see [Rerank chat retrieval](../configuration/runtime-settings.md#rerank-chat-retrieval) |
 | `Enabled parser definitions '…' and '…' both configure family 'pdf'` | More than one enabled definition replaces the same parser | Enable only one definition per parser family |
 | Unknown fields are rejected | Configuration models use strict validation | Fix the spelling, or move Python-only callbacks into code overrides |
 
@@ -57,8 +77,12 @@ Postgres database).
 | `harborrag` is not found | The console script is not on your `PATH` | Run `uv run harborrag` from the clone |
 | `harborrag: no project found. Run it inside a HarborRAG repository checkout, or pass --project DIR for a directory containing harborrag.yaml.` | The command ran outside a clone of the repository | `cd` into the clone, or any folder inside it, and run the command again; see [Run from a repository checkout](../cli-reference/README.md#run-from-a-repository-checkout) |
 | `Refusing to ingest or change connections from a repo checkout in the local sqlite control DB` | The CLI in a clone uses a local SQLite file until you point it at the stack's Postgres; `doctor` warns `using the local sqlite fallback` | Uncomment the `HARBORRAG_CONTROL_DB_URL` line in `env/.env.database`, or export the variable; see [Run from a repository checkout](../cli-reference/README.md#run-from-a-repository-checkout) |
-| `ConnectionNotFoundError` from `ingest run` or `ingest start` | The argument is not the connection's `source_key`: a source type such as `local` is not one, a connection made through the API or `source add` uses `PROJECT/CONNECTION`, and an imported connection exists only in tenant `DEFAULT` | Use the key, such as `harborrag-workspace` or `default/harborrag-workspace`, without `--tenant`, or run `uv run harborrag source sync PROJECT/CONNECTION`; see [Name the connector](../cli-reference/README.md#name-the-connector) |
-| An ingestion command cannot connect to Temporal | `HARBORRAG_TEMPORAL_TARGET` does not name a reachable Temporal frontend | Set it, normally to `localhost:7233` from the host; `ingest run` needs no Temporal |
+| `Invalid value for REF: expected PROJECT_ID/CONNECTION_ID` | The command was given a bare key such as `harborrag-workspace`, or a source type such as `local` | Pass the connection's ref, such as `default/harborrag-workspace`; `uv run harborrag connections list` lists them |
+| `ingestions start` fails with `422 reference_not_found` | The project or the connection does not exist in the tenant; an imported connection exists only in the tenant `HARBORRAG_TENANT_ID` named at the first start, `DEFAULT` unless set | Check the ref and `--tenant` with `uv run harborrag connections list`; see [Run and control ingestion](../cli-reference/README.md#run-and-control-ingestion) |
+| `connections get` fails with `404 not_found` and exit 3 | No connection has that ref in the tenant | Check the ref and `--tenant` with `uv run harborrag connections list` |
+| An old subcommand such as `harborrag source list` exits 2 with `was renamed` | The command was renamed in 2.0.0 | Run the command the message names; see [Upgrading](../upgrading.md#update-scripts-for-cli-v200) |
+| `ingestions start` fails with `Tenant … has no data yet; pass --yes to create it` | The write goes to a tenant that holds no data, without a terminal to ask | Check `--tenant`, `HARBORRAG_TENANT_ID` and the CLI profile for a typo; pass `--yes` only to create the tenant |
+| An ingestion command cannot connect to Temporal | `HARBORRAG_TEMPORAL_TARGET` does not name a reachable Temporal frontend | Set it, normally to `localhost:7233` from the host; `ingestions start --inline` needs no Temporal |
 | Temporal starts but no HarborRAG worker appears | The worker was not started | Run `scripts/deployment/dev.sh worker` |
 | The Temporal worker exits at startup | A configuration path, a model credential or a store endpoint is wrong | Check the connector, parser and model configuration paths, the model credentials, and the Qdrant and FalkorDB endpoints |
 | `HARBORRAG_SECRETS_ENCRYPTION_KEY or HARBORRAG_SECRETS_ENCRYPTION_KEY_FILE must be set when HARBORRAG_CONTROL_DB_URL is not SQLite` | The process has no key to encrypt and read stored connection secrets | Give the API and every worker the same key; `scripts/deployment/dev.sh bootstrap` generates one, or generate it by hand with `openssl rand -hex 32` |
@@ -77,7 +101,7 @@ curl --fail-with-body \
 
 The local stack answers without a token. On a deployment that requires one, send the
 `Authorization` header shown in [Connections](../connections.md#add-a-connection). From the
-CLI, `uv run harborrag ingest status INGESTION_ID` reads the same run.
+CLI, `uv run harborrag ingestions get INGESTION_ID` reads the same run.
 
 `counters.discovered` above 0 with `counters.processed` at 0 can mean the first bounded
 batch of documents is still running; it does not mean the worker is idle. Follow the
@@ -104,7 +128,7 @@ finish, deploy the current worker, and retry its retryable document failures wit
 ### A stopped ingestion still answers `409 already_running`
 
 Stop an ingestion with `POST /v1/admin/ingestions/{ingestion_id}/cancel` or
-`uv run harborrag ingest cancel INGESTION_ID`, not with Terminate in the Temporal UI. A
+`uv run harborrag ingestions cancel INGESTION_ID`, not with Terminate in the Temporal UI. A
 terminated workflow never records its end, so the run stays `running`.
 
 Before HarborRAG refuses a start, it asks Temporal about the running ingestion. A run whose
@@ -124,14 +148,18 @@ Chat answers over HTTP and the CLI only; the MCP server exposes retrieval tools 
 
 | Symptom | Likely cause | Fix |
 | --- | --- | --- |
-| `uv run harborrag retrieve` or `chat` returns nothing from a clone | The CLI does not read `env/.env.temporal`, so it keeps the default `source_acl` access mode, in which its principal may read no source | Export `HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared` and `HARBORRAG_CORPUS_SHARED_TENANT_ID=DEFAULT`, the values the worker template sets; see [Retrieve evidence](../cli-reference/README.md#retrieve-evidence) |
-| Chat fails with `environment variable HARBORRAG_URL is not set`, or names another gateway value | `config/models/models.yaml` expands the gateway URL, key and model names before the first call | Fill in `env/.env.models`, or inject the same values through the deployment's secret manager; see [Model configuration](../configuration/model-config.md#the-shipped-gateway-catalog) |
-| Answers got worse after a change of `HARBORRAG_EMBED_MODEL`, with no error | The stored vectors come from the previous embedding model; both models write 1536 dimensions, so nothing fails | Re-ingest every source with `--force-reprocess`; see [Model configuration](../configuration/model-config.md#the-shipped-gateway-catalog) |
+| HTTP chat or `uv run harborrag chat` answers that no sources were retrieved, or its answer has no citations although content is ingested | The tenant runs `source_acl`, where a caller with no source permissions gets no sources. The shipped `env-example/.env.api.example` sets `tenant_shared`, so an `env/.env.api` created from an older template, or a tenant other than the shared one, lands here. `uv run harborrag doctor` shows the `corpus mode` the CLI uses | Add `HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared` and `HARBORRAG_CORPUS_SHARED_TENANT_ID=DEFAULT` to `env/.env.api` and restart the API; the CLI reads those two lines from the same file, and an exported variable outranks it. See [Ask from the CLI](../chat/README.md#ask-from-the-cli) and [Read access inside a tenant](../configuration/workspace-mode.md#read-access-inside-a-tenant) |
+| Chat fails with `environment variable HARBORRAG_CHAT_API_KEY is not set`, or names another model variable | `config/models/models.yaml` expands the key and the model names before the first call | Fill in `env/.env.models`, or inject the same values through the deployment's secret manager; see [Model configuration](../configuration/model-config.md#the-shipped-catalog) |
+| Answers got worse after a change of `HARBORRAG_EMBED_MODEL`, with no error | The stored vectors come from the previous embedding model; both models write 1536 dimensions, so nothing fails | Re-ingest every connection with `uv run harborrag ingestions start PROJECT_ID/CONNECTION_ID --mode force`; see [Model configuration](../configuration/model-config.md#the-shipped-catalog) |
 | HTTP chat returns `409 no_indexed_content` | Nothing is published in the session's or the question's projects | Ingest a connection of that project first; see [Chat](../chat/README.md#handle-errors) |
 | HTTP chat returns `503 llm_unavailable` | Model configuration, credentials, provider reachability or a provider limit failed; provider details are not returned to callers | Read the API logs, and check the chat family with `uv run --env-file env/.env.models python -m harborrag_adapters.models validate config/models/models.yaml --family chat` |
 | MCP appears to do nothing when started in a terminal | The stdio MCP server waits for a client over pipes and has no port or prompt | Run `scripts/deployment/mcp.sh --check`, or start it with `--http` and open `http://127.0.0.1:8010/` |
+| `mcp.sh --http` prints `HarborRAG MCP preflight failed` and starts nothing | A setting or backend the server needs at start-up is missing or unreachable. The line names it, and a `Note:` line above it lists model variables that no env file sets | Fix what the line names and run the command again; see [Checks before the HTTP server starts](../detailed-guides/mcp-server/setup-and-integration.md#checks-before-the-http-server-starts) |
+| The MCP HTTP server answers `421 Misdirected Request` or `403 Forbidden Origin` | The request is addressed to a host name other than `127.0.0.1`, `localhost` or `::1`, for example through a reverse proxy, or it comes from a page on another origin | Call the server by a loopback name, or list the proxy's host name in `HARBORRAG_MCP_ALLOWED_HOSTS`, with `HARBORRAG_MCP_AUTH_MODE=api_key`, and restart it |
+| The status page disables **Save**, or `PUT /api/config` answers `409` | The container mounts `config/` read-only | Edit `config/mcp/server.yaml` in the checkout and select **Reload YAML** |
+| A tool run on the status page answers `tool execution failed (<ErrorType>)` | The tool failed inside the server. The page receives only the error type, as an MCP client does | The server log names the tool, the error type and where it was raised, without the error's message: `scripts/deployment/mcp.sh logs` |
 | The browser cannot load or run tools | The owner token is missing or wrong, or the HTTP server is not running | Load `HARBORRAG_MCP_BEARER_TOKEN` from the git-ignored `env/.env.mcp`; never paste model API keys into the UI |
-| MCP accepts the bearer token but retrieval is denied or empty | The token authenticates the client; `source_acl` remains the default reader policy, or the tool call names another tenant | For a deliberately shared corpus, set `HARBORRAG_MCP_READER_TENANT_ID`, `HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared` and `HARBORRAG_CORPUS_SHARED_TENANT_ID` to the same tenant, then restart MCP. For restricted corpora, import current source and document ACLs instead |
+| MCP accepts the bearer token but retrieval is denied or empty | The token authenticates the client; the tenant runs `source_acl` (an `env/.env.mcp` created from an older template has no corpus lines), or the tool call names a tenant other than the shared one | For a deliberately shared corpus, set `HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared` and `HARBORRAG_CORPUS_SHARED_TENANT_ID` to that tenant in `env/.env.mcp`, then restart MCP. For restricted corpora, import current source and document ACLs instead |
 | A tool change is saved but clients still list the old schema | FastMCP snapshots the advertised schemas at startup | Restart when the UI reports `restart_required=true` |
 
 The MCP configuration UI changes enablement, defaults, numeric limits and tenant overrides
@@ -154,8 +182,9 @@ error-like text as system output. The default `allowed_extensions` already leave
 If logs are not knowledge sources, exclude them in the connection's `config` with
 `excluded_extensions`, `exclude_paths` and `exclude_globs` (for example
 `["**/*.log", "**/logs/**", "**/*.jsonl"]`), then re-ingest. An update replaces `config`
-whole, so start from `uv run harborrag source show PROJECT/CONNECTION --json`; see
-[Manage connections](../cli-reference/README.md#manage-connections).
+whole, so start from `uv run harborrag connections get PROJECT_ID/CONNECTION_ID -o yaml`;
+see
+[Manage projects and connections](../cli-reference/README.md#manage-projects-and-connections).
 
 If logs are meant to be searched, keep the chunk limits below the embedding model's input
 limit, with room for provider-added formatting: `limits.maximum_tokens` in

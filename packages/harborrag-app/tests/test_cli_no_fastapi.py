@@ -33,6 +33,13 @@ def test_cli_imports_without_fastapi(monkeypatch: pytest.MonkeyPatch) -> None:
 
     module = importlib.import_module("harborrag_app.cli.main")
     assert module is not None
+    assert importlib.import_module("harborrag_app.operations") is not None
+    for name in (
+        "harborrag_app.operations.contract",
+        "harborrag_app.operations.schemas.ingestions",
+        "harborrag_app.operations.schemas.chat",
+    ):
+        assert importlib.import_module(name) is not None
 
 
 def test_ingestion_cli_service_does_not_import_model_provider_runtime() -> None:
@@ -44,7 +51,7 @@ def test_ingestion_cli_service_does_not_import_model_provider_runtime() -> None:
             "-c",
             (
                 "import sys; "
-                "import harborrag_app.workflow_control.composition.service; "
+                "import harborrag_runtime.application.composition.service; "
                 "assert 'litellm' not in sys.modules"
             ),
         ],

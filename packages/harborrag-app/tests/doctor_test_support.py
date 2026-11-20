@@ -5,7 +5,7 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-from harborrag_app.cli.doctor import probes
+from harborrag_app.cli.doctor import probes, suite
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SHIPPED_CATALOGS = (
@@ -47,12 +47,15 @@ connectors:
       token_env: GITHUB_TOKEN
 """,
 }
-GATEWAY_VARIABLES = (
+MODEL_VARIABLES = (
     "HARBORRAG_URL",
-    "HARBORRAG_API_KEY",
     "HARBORRAG_CHAT_MODEL",
+    "HARBORRAG_CHAT_API_KEY",
     "HARBORRAG_EMBED_MODEL",
+    "HARBORRAG_EMBED_API_KEY",
+    "HARBORRAG_EMBED_PROVIDER",
     "HARBORRAG_RERANKER_MODEL",
+    "HARBORRAG_RERANKER_API_KEY",
 )
 
 
@@ -64,8 +67,8 @@ def project(
     Args:
         tmp_path: Directory that becomes the project root.
         monkeypatch: Moves into the project and clears variables that would leak in.
-        api_key: ``HARBORRAG_API_KEY`` written to the project's ``.env``; ``None``
-            leaves it blank.
+        api_key: Chat and embedding key written to the project's ``.env``; ``None``
+            leaves both blank.
         connectors: Key of ``CONNECTORS`` written as the connector catalog.
     """
     for relative in SHIPPED_CATALOGS:
@@ -80,8 +83,9 @@ def project(
     (tmp_path / "docs").mkdir(exist_ok=True)
     monkeypatch.chdir(tmp_path)
     for name in (
-        *GATEWAY_VARIABLES,
+        *MODEL_VARIABLES,
         "LOCAL_SOURCE_PATH",
+        "HARBORRAG_LOCAL_SOURCE_ROOT",
         "HARBORRAG_QDRANT_URL",
         "HARBORRAG_PROJECT",
     ):
@@ -101,16 +105,43 @@ def _environment(api_key: str | None) -> str:
         "HARBORRAG_OBJECT_STORE_SECRET_ACCESS_KEY=test-object-store-secret\n"
         "HARBORRAG_OCR_SERVER_URL=\n"
         "LOCAL_SOURCE_PATH=./docs\n"
-        "HARBORRAG_URL=https://gateway.example.com\n"
-        f"HARBORRAG_API_KEY={api_key or ''}\n"
         "HARBORRAG_CHAT_MODEL=chat-test\n"
+        f"HARBORRAG_CHAT_API_KEY={api_key or ''}\n"
         "HARBORRAG_EMBED_MODEL=embed-test\n"
-        "HARBORRAG_RERANKER_MODEL=rerank-test\n"
+        f"HARBORRAG_EMBED_API_KEY={api_key or ''}\n"
     )
 
 
+def readiness(monkeypatch, **results: bool | None) -> None:
+    """Replace the readiness checks doctor runs with fixed answers.
+
+    Args:
+        monkeypatch: Patches the suite's ``build_readiness_checks``.
+        results: Dependency name mapped to whether it answers; ``None`` keeps the check the
+            suite built, which is how ``temporal`` reaches the service's health call.
+    """
+
+    def build(runtime, *, capacity_redis_url, temporal):
+        def answer(ok: bool):
+            async def check() -> bool:
+                return ok
+
+            return check
+
+        return {name: temporal if ok is None else answer(ok) for name, ok in results.items()}
+
+    monkeypatch.setattr(suite, "build_readiness_checks", build)
+
+
 def unreachable(monkeypatch) -> None:
+    readiness(monkeypatch, postgres=False, redis=False, temporal=False, qdrant=False, graph=False)
     monkeypatch.setattr(probes, "tcp_reachable", lambda *a, **k: "connection refused")
     monkeypatch.setattr(probes, "http_ok", lambda *a, **k: "connection refused")
-    monkeypatch.setattr(probes, "redis_ping", lambda *a, **k: "connection refused")
     monkeypatch.setattr(probes, "s3_credentials", lambda *a, **k: "unreachable")
+
+
+def reachable(monkeypatch) -> None:
+    readiness(monkeypatch, postgres=True, redis=True, temporal=True, qdrant=True, graph=True)
+    monkeypatch.setattr(probes, "tcp_reachable", lambda *a, **k: None)
+    monkeypatch.setattr(probes, "http_ok", lambda *a, **k: None)
+    monkeypatch.setattr(probes, "s3_credentials", lambda *a, **k: None)

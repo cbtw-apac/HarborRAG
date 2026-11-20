@@ -1,11 +1,7 @@
 """Who is calling: bearer tokens, API keys and the role and tenant checks on a principal.
 
-Handles:
-- Verifying a user token (HS256 JWT) or an API key into a ``Principal``
-- One ``401 unauthenticated`` message for every rejected credential, whatever check failed
-- Role and tenant checks on a principal that handlers call for fields in a body
-
-Does NOT order the checks of a route; ``auth.access.require_role`` does.
+Every rejected credential gets the same ``401 unauthenticated`` message, whatever check
+failed. The order of a route's checks is set by ``auth.access.require_role``.
 """
 
 from __future__ import annotations
@@ -21,8 +17,9 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from harborrag_app.api.auth.base import BaseTokenVerifier
 from harborrag_app.api.auth.hmac import HmacTokenVerifier
-from harborrag_app.api.auth.principal import ROLE_ORDER, Principal
 from harborrag_app.api.settings import ApiSettings
+from harborrag_app.operations.errors import TenantForbiddenError
+from harborrag_app.operations.principal import Principal
 from harborrag_core.contracts.errors import (
     HarborAuthError,
     HarborCapabilityError,
@@ -42,28 +39,31 @@ UNAUTHENTICATED = "missing or invalid credentials"
 API_KEY_ROLE: Role = "reader"
 
 
-class TenantForbiddenError(HarborAuthError):
-    """The request names a tenant the credential does not hold."""
-
-    error_code = "tenant_forbidden"
-
-    def __init__(self, message: str = "the credential does not hold this tenant") -> None:
-        super().__init__(message, forbidden=True)
-
-
 class VerifiedApiKey(Protocol):
-    @property
-    def key_id(self) -> str: ...
+    """An API key that passed verification."""
 
     @property
-    def tenant_id(self) -> str: ...
+    def key_id(self) -> str:
+        """Identifier of the key."""
+        ...
 
     @property
-    def owner(self) -> str: ...
+    def tenant_id(self) -> str:
+        """Tenant the key belongs to."""
+        ...
+
+    @property
+    def owner(self) -> str:
+        """Owner the key acts for."""
+        ...
 
 
 class ApiKeyVerifier(Protocol):
-    async def verify_key(self, raw_key: str) -> VerifiedApiKey | None: ...
+    """Verifies raw API keys."""
+
+    async def verify_key(self, raw_key: str) -> VerifiedApiKey | None:
+        """Return the verified key for a raw key, or None when it is unknown or revoked."""
+        ...
 
 
 def build_token_verifier(settings: ApiSettings) -> BaseTokenVerifier | None:
@@ -72,6 +72,12 @@ def build_token_verifier(settings: ApiSettings) -> BaseTokenVerifier | None:
     none -> None (implicit owner principal); hmac -> HS256 against
     HARBORRAG_AUTH_SECRET; oidc -> HarborCapabilityError until M5.
     Fails closed: auth cannot be disabled when HARBORRAG_ENV is staging or prod.
+
+    `env` and `auth_mode` both default to permissive values ("dev" and "none"), so a deployment that
+    forgets to set HARBORRAG_ENV=prod falls through here silently -- the process boots and every
+    request is treated as an implicit owner with unrestricted tenant access, with no signal that
+    auth is off. Log loudly so that's never silent, even though the prod check above can't catch a
+    misconfigured env.
     """
     if settings.auth_mode == "none":
         if settings.env != "dev":
@@ -84,12 +90,6 @@ def build_token_verifier(settings: ApiSettings) -> BaseTokenVerifier | None:
                 "HARBORRAG_ALLOW_INSECURE_DEV=true to acknowledge an unauthenticated "
                 "non-loopback development listener"
             )
-        # `env` and `auth_mode` both default to permissive values ("dev" and
-        # "none"), so a deployment that forgets to set HARBORRAG_ENV=prod
-        # falls through here silently -- the process boots and every request
-        # is treated as an implicit owner with unrestricted tenant access,
-        # with no signal that auth is off. Log loudly so that's never silent,
-        # even though the prod check above can't catch a misconfigured env.
         logger.warning(
             "Starting with HARBORRAG_AUTH_MODE=none: every request is treated "
             "as an implicit owner principal with unrestricted tenant access. "
@@ -120,7 +120,6 @@ def build_token_verifier(settings: ApiSettings) -> BaseTokenVerifier | None:
 
 def _is_loopback_host(host: str) -> bool:
     """Accept explicit loopback names and addresses, never unresolved hostnames."""
-
     normalized = host.strip().lower().removeprefix("[").removesuffix("]")
     if normalized == "localhost":
         return True
@@ -139,7 +138,6 @@ def _arrived_on_loopback(request: Request) -> bool:
     non-IP value (a Unix socket path, or a test transport) is not a network
     listener and is left to the startup check.
     """
-
     server = request.scope.get("server")
     if not server:
         return True
@@ -246,13 +244,6 @@ async def get_principal(
         raise HarborAuthError(UNAUTHENTICATED) from None
 
 
-def authorize_role(principal: Principal, minimum: Role) -> None:
-    """Reject a principal below the minimum role, for in-body field checks."""
-
-    if ROLE_ORDER[principal.role] < ROLE_ORDER[minimum]:
-        raise HarborAuthError(f"requires {minimum} role", forbidden=True)
-
-
 def authorize_tenant(principal: Principal, tenant_id: str) -> None:
     """Reject a tenant named in a body or query that the credential does not hold.
 
@@ -269,6 +260,5 @@ def authorize_task_tenant(principal: Principal, task: Mapping[str, object]) -> N
     Shared by the v1 and legacy ingestion routes so both authorize identically
     against the same task-store record (``task["tenant"]``).
     """
-
     if not principal.can_access_tenant(str(task["tenant"])):
         raise HarborNotFoundError("Ingestion task was not found")

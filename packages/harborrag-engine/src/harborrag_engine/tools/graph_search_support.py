@@ -13,7 +13,7 @@ from harborrag_engine.ingestion.projections.graph.source_projector_support impor
 
 from .retrieval_inputs import string_list
 
-logger = logging.getLogger("harborrag.runtime.tools.graph_search")
+logger = logging.getLogger("harborrag.engine.tools.graph_search_support")
 
 COMPLETION_SCHEMA: dict[str, object] = {
     "type": "object",
@@ -27,6 +27,7 @@ COMPLETION_SCHEMA: dict[str, object] = {
 
 
 def relations(arguments: dict[str, object]) -> tuple[RelationType, ...]:
+    """Parse the relationship types argument."""
     return tuple(RelationType(item) for item in string_list(arguments, "relationship_types"))
 
 
@@ -34,6 +35,7 @@ def direction(
     arguments: dict[str, object],
     default: GraphDirection,
 ) -> GraphDirection:
+    """Parse the direction argument, falling back to the default."""
     value = arguments.get("direction", default.value)
     if not isinstance(value, str):
         raise HarborValidationError("direction must be incoming, outgoing, or both")
@@ -55,7 +57,6 @@ def node_selector(value: str) -> str:
     ``scheme://`` identity (node keys, chunk and document ids, titles) passes unchanged,
     as does a scheme the projection does not reduce.
     """
-
     scheme, separator, _ = value.partition("://")
     if not separator or not scheme:
         return value
@@ -70,7 +71,6 @@ def backend_failure(tool_name: str, exc: Exception, *, narrow: str) -> dict[str,
     what to narrow; ``narrow`` lists the arguments that bound this tool's search. Every
     other backend error stays opaque so provider internals do not leak to callers.
     """
-
     if isinstance(exc, HarborDeadlineExceeded):
         logger.warning("%s graph query timed out", tool_name)
         return {"ok": False, "error": f"graph query timed out; narrow {narrow}"}
@@ -81,6 +81,7 @@ def backend_failure(tool_name: str, exc: Exception, *, narrow: str) -> dict[str,
 def completion(
     diagnostics: dict[str, object], *, extra_reasons: tuple[str, ...] = ()
 ) -> dict[str, object]:
+    """Summarize a graph search's completeness from its diagnostics."""
     reasons = list(extra_reasons)
     if diagnostics.get("projection_truncated") and "edge_limit" not in reasons:
         reasons.append("candidate_limit")

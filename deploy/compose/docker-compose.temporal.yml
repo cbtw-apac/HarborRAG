@@ -191,6 +191,7 @@ services:
       HARBORRAG_MODEL_CONFIG_PATH: /app/config/models/models.yaml
       HARBORRAG_GRAPH_BUILD_CONFIG_PATH: /app/config/graph/build.yaml
       LOCAL_SOURCE_PATH: /data/sources
+      HARBORRAG_LOCAL_SOURCE_ROOT: /data/sources
       HARBORRAG_CONTROL_DB_URL: postgresql+asyncpg://${POSTGRES_USER:?set POSTGRES_USER in the database environment file}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in the database environment file}@postgres:5432/${POSTGRES_DB:?set POSTGRES_DB in the database environment file}
       # Compose interpolates profile-disabled services while loading the project.
       # Keep server-only Temporal startup independent of worker secrets; RuntimeSettings
@@ -220,14 +221,16 @@ services:
       HARBORRAG_CONTROL_DB_MAX_OVERFLOW: ${HARBORRAG_CONTROL_DB_MAX_OVERFLOW:-16}
       # Summarization resolves an ACL snapshot per document and per scope, and blocks
       # the scope with SUMMARY_PERMISSION_SNAPSHOT_MISSING when one is absent. Nothing
-      # in ingestion writes those rows -- only the operator-run
-      # `topology security permissions-import` does -- so a corpus of any size is
-      # unreachable that way. These three put the worker on the shared-processing
-      # basis instead, which SummaryRuntimeFactory.initialize grants to the single
-      # tenant named here. RuntimeSettings rejects the combination unless the mode is
-      # tenant_shared and the shared tenant equals the ingestion tenant, so they move
-      # together -- and with the tenant in config/graph/build.yaml.
-      HARBORRAG_INGESTION_TENANT_ID: ${HARBORRAG_INGESTION_TENANT_ID:-DEFAULT}
+      # in ingestion writes those rows, so a corpus of any size is unreachable that
+      # way. These three put the worker on the shared-processing basis instead, which
+      # SummaryRuntimeFactory.initialize grants to the single tenant named here.
+      # RuntimeSettings rejects the combination unless the mode is tenant_shared and
+      # the shared tenant equals HARBORRAG_TENANT_ID, so they move together -- and
+      # with the tenant in config/graph/build.yaml.
+      HARBORRAG_TENANT_ID: ${HARBORRAG_TENANT_ID:-DEFAULT}
+      # The removed name reaches the container so RuntimeSettings stops the worker as it
+      # stops the API; blank counts as unset.
+      HARBORRAG_INGESTION_TENANT_ID: ${HARBORRAG_INGESTION_TENANT_ID:-}
       HARBORRAG_CORPUS_ACCESS_MODE: ${HARBORRAG_CORPUS_ACCESS_MODE:-source_acl}
       HARBORRAG_CORPUS_SHARED_TENANT_ID: ${HARBORRAG_CORPUS_SHARED_TENANT_ID:-}
       HARBORRAG_SUMMARY_PROCESSING_ALLOWED: "${HARBORRAG_SUMMARY_PROCESSING_ALLOWED:-false}"
@@ -236,7 +239,7 @@ services:
       # worker lends its own vector and embed clients; one embedding per entity.
       HARBORRAG_SUMMARY_ENTITY_INDEX_ENABLED: "${HARBORRAG_SUMMARY_ENTITY_INDEX_ENABLED:-false}"
       # The source entity is the level that spans documents -- issue, comments and
-      # CV -- so it gets a dossier budget; section and document cards stay at 60.
+      # attachments -- so it gets a dossier budget; section and document cards stay at 60.
       HARBORRAG_SUMMARY_ENTITY_CARD_MAX_WORDS: "${HARBORRAG_SUMMARY_ENTITY_CARD_MAX_WORDS:-250}"
     volumes:
       # The same config/ as the API and MCP server; a change needs a worker

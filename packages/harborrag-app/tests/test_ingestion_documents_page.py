@@ -6,7 +6,6 @@ from collections.abc import Iterator, Sequence
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from app_test_connections import ConnectionWorld, connection_world
 from app_test_fixtures import MockAppService
 from fastapi.testclient import TestClient
 from test_api_admin_connections import _SECRET, _token
@@ -15,8 +14,6 @@ from test_api_admin_ingestion_reads import without_offset
 from harborrag_app.api import app as api_app
 from harborrag_app.api.app import create_fastapi_app
 from harborrag_app.api.settings import ApiSettings
-from harborrag_app.workflow_control.control_plane.connection_views import IngestionLinks
-from harborrag_app.workflow_control.ingestion.operations import IngestionOperations
 from harborrag_core.domain.project import Project
 from harborrag_core.ingestion import (
     IngestionTask,
@@ -24,6 +21,11 @@ from harborrag_core.ingestion import (
     StoredTaskDocumentResult,
     TaskDocumentPage,
 )
+from harborrag_engine.control_plane.connection_views import IngestionLinks
+from harborrag_engine.ingestion.operations import IngestionOperations
+from harborrag_runtime.testing.connection_fakes import ConnectionWorld, connection_world
+
+pytestmark = pytest.mark.unit
 
 _URL = "/v1/admin/ingestions/ing_1/documents"
 _ITEM_KEYS = {"document_ref", "document_id", "status", "stage", "error_category", "duration_ms"}
@@ -120,7 +122,7 @@ def runs() -> _Runs:
         2,
         failure_stage="ParseAndNormalize",
         safe_error_code="parse_failed",
-        title="Alex Example CV",
+        title="Alex Example Runbook",
     )
     stored.add("doc-d", "removed", 3)
     stored.add("doc-e", "cancelled", 4)
@@ -129,7 +131,7 @@ def runs() -> _Runs:
 
 @pytest.fixture
 def client(monkeypatch: pytest.MonkeyPatch, runs: _Runs) -> Iterator[TestClient]:
-    world = connection_world([Project(id="cpm", name="CPM", collection="cpm", tenant_id="acme")])
+    world = connection_world([Project(id="demo", name="DEMO", collection="demo", tenant_id="acme")])
     monkeypatch.setattr(api_app, "select_app_service", lambda: (_App(world, runs), "test"))
     app = create_fastapi_app(ApiSettings(auth_mode="hmac", auth_secret=_SECRET))
     with TestClient(app) as test_client:

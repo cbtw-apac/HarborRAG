@@ -15,7 +15,9 @@ from configured_inspection import (
     inspect_configured_source,
 )
 
-from harborrag_adapters.connectors.schemas import ConnectorQuery
+from harborrag_adapters.connectors.policies.network import DestinationPolicy
+from harborrag_core.ingestion.connector_contracts import ConnectorQuery
+from harborrag_core.ingestion.source_query import SourceQuery
 from harborrag_runtime.config import (
     connector_fingerprint,
     load_connector_catalog,
@@ -25,10 +27,7 @@ from harborrag_runtime.config.temporal import TemporalRuntimeConfig
 from harborrag_runtime.temporal.client import (
     IngestionTemporalClient,
 )
-from harborrag_runtime.temporal.schemas import (
-    SourceIngestionInput,
-    SourceQuery,
-)
+from harborrag_runtime.temporal.schemas import SourceIngestionInput
 
 _MAX_LIVE_ATTACHMENTS = 2
 _SELECTION_WINDOW = 10
@@ -81,6 +80,10 @@ class SourceSelection:
 
 
 async def run_configured_smoke() -> dict[str, object]:
+    """A Confluence/Jira locator is an ID that rarely appears in chunk content.
+
+    Sparse term matching needs the title.
+    """
     configuration = load_smoke_configuration()
     run_token = uuid4().hex
     configuration = replace(
@@ -116,8 +119,6 @@ async def run_configured_smoke() -> dict[str, object]:
                 connection_id=selected.connection_id,
                 source_item_id=selected.source_item_id,
                 dense_query=selected.title,
-                # A Confluence/Jira locator is an ID that rarely appears in
-                # chunk content; sparse term matching needs the title.
                 sparse_query=selected.title,
                 expected_documents=result.discovered,
             )
@@ -169,7 +170,12 @@ def _select_sources() -> tuple[SourceSelection, ...]:
         )
         if definition is None:
             raise AssertionError(f"no enabled {provider} connector is configured")
-        connector = definition.build(connector_kwargs={"parser": parser})
+        connector = definition.build(
+            connector_kwargs={
+                "parser": parser,
+                "destination_policy": DestinationPolicy.from_environ(),
+            }
+        )
         fingerprint = connector_fingerprint(
             catalog_version=catalog.version,
             definition=definition,

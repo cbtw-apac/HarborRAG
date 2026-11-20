@@ -1,0 +1,32 @@
+"""Generate one inexpensive conversation title without overwriting a manual edit."""
+
+from __future__ import annotations
+
+import logging
+
+from harborrag_core.ports.conversation import ConversationHistoryRepository, ConversationIdentity
+
+logger = logging.getLogger("harborrag.memory.titles")
+
+
+async def conversation_title(
+    repository: ConversationHistoryRepository,
+    identity: ConversationIdentity,
+    *,
+    prompt: str | None = None,
+) -> str | None:
+    """Optionally initialize the title, then return its current stored value.
+
+    Callers supply a prompt only after the exchange has been persisted. The
+    repository's compare-and-set gives manual edits precedence across workers.
+    Title failures are advisory: they must never discard a completed answer.
+    """
+    try:
+        if prompt is not None:
+            title = " ".join(prompt.split()[:10])[:80].rstrip()
+            if title:
+                await repository.set_generated_title(identity, title=title)
+        return await repository.get_title(identity)
+    except Exception:  # noqa: BLE001 - a title is advisory metadata
+        logger.warning("Conversation title unavailable for session=%s", identity.session_id)
+        return None

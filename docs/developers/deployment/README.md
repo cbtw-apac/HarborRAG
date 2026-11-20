@@ -26,7 +26,7 @@ to copying templates by hand. Each service reads these files:
 | Temporal server and worker (`docker-compose.temporal.yml`) | `env/.env.database` and `env/.env.temporal`; the worker also receives `env/.env.connector`, `env/.env.parser` and `env/.env.models` |
 | API (`docker-compose.yml`) | `env/.env.database`, `env/.env.temporal`, `env/.env.connector`, `env/.env.models` and `env/.env.api`; the container itself receives only `env/.env.api` and `env/.env.models` |
 | MCP server (`scripts/deployment/mcp.sh`) | `env/.env.database`, `env/.env.mcp` (required) and `env/.env.models`; from `env/.env.api` only `HARBORRAG_ENV`, so it accepts the reader keys the API's environment issued |
-| Host `harborrag` command in a checkout | `env/.env.connector`, `env/.env.parser` and `env/.env.models`; from `env/.env.database` only the MinIO credentials and an uncommented `HARBORRAG_CONTROL_DB_URL` line with its encryption key |
+| Host `harborrag` command in a checkout | `env/.env.connector`, `env/.env.parser` and `env/.env.models`; from `env/.env.database` only the MinIO credentials, `HARBORRAG_LOCAL_SOURCE_ROOT` and an uncommented `HARBORRAG_CONTROL_DB_URL` line with its encryption key; from `env/.env.api` only `HARBORRAG_CORPUS_ACCESS_MODE` and `HARBORRAG_CORPUS_SHARED_TENANT_ID` |
 
 `HARBORRAG_SECRETS_ENCRYPTION_KEY` in `env/.env.database` encrypts stored connector credentials
 in the control database, and the API and the Temporal worker must read the same value. The
@@ -112,6 +112,12 @@ scripts/deployment/dev.sh up
 Each command owns one part: `temporal` never starts a worker, `worker` starts only the worker,
 and `api` starts the API with `--no-deps`. `dev.sh up --no-worker` omits the worker, and
 `dev.sh down` stops the topology in reverse order.
+
+`up` and `worker` take `--device cpu|gpu` to choose the CPU or the GPU worker image, and
+`down --volumes` passes `--volumes` to Compose, which removes the stack's named volumes. `dev.sh sharepoint-login [--logout]
+[--device cpu|gpu]` signs the worker in for a SharePoint connection with
+`auth_mode: device_code` and keeps the token in the `harborrag-sharepoint-tokens` volume; see
+[Delegated sign-in](../../users/configuration/connector-config.md#delegated-sign-in).
 
 The API and worker commands reuse Compose's existing local `harborrag-api-api` and
 `harborrag-temporal-temporal-worker` images by default. A missing image is built on the first
@@ -249,13 +255,29 @@ configuration and the packaged chat prompts. They run as the non-root `harborrag
 Configuration paths inside the images point to `/app/config`; mount a replacement directory
 there read-only to deploy a different catalog.
 
-The CLI image uses `harborrag` as its entry point. Provide `env/.env.models` for chat, and the
-relevant service settings for retrieval or ingestion commands:
+The CLI image uses `harborrag` as its entry point, and its default command is
+`doctor -o json`, which runs without a project. Every other command needs a project
+directory: the image's working directory, `/var/lib/harborrag`, holds no `harborrag.yaml`
+and is not inside a checkout, so without one the command stops with
+`harborrag: no project found. …` and exit 1. Mount a directory that holds a
+`harborrag.yaml`, which may be empty, and name it with `HARBORRAG_PROJECT`; the image's
+`HARBORRAG_*_CONFIG_PATH` variables keep the catalogs at `/app/config`.
+
+A command that calls an operation also needs the service settings: `HARBORRAG_CONTROL_DB_URL`,
+`HARBORRAG_SECRETS_ENCRYPTION_KEY` and the store endpoints the container can reach, here in
+an environment file of your own, `cli.env`, and `env/.env.models` for chat. The container is
+not a checkout, so it reads no corpus-mode lines and `chat` runs on the default `source_acl`;
+add `HARBORRAG_CORPUS_ACCESS_MODE` and `HARBORRAG_CORPUS_SHARED_TENANT_ID` to `cli.env`, with
+the API's values, to answer from the shared corpus:
 
 ```bash
+mkdir -p cli-project && touch cli-project/harborrag.yaml
 docker run --rm \
   --env-file env/.env.models \
-  harborrag-cli chat "Explain HarborRAG." --json
+  --env-file cli.env \
+  --volume "$PWD/cli-project:/project:ro" \
+  --env HARBORRAG_PROJECT=/project \
+  harborrag-cli chat "Explain HarborRAG." -o json
 ```
 
 The MCP image uses `python -m harborrag_mcp_server` as its entry point and defaults to stdio.
@@ -264,8 +286,16 @@ and database settings and network-reachable data services. Its writable JSONL au
 `/var/lib/harborrag/.harborrag/mcp-audit.jsonl`.
 
 Use `scripts/deployment/mcp.sh --http` for the authenticated loopback HTTP transport and the
-local status and configuration UI. Remote MCP needs TLS and a production JWT/JWKS verifier,
+local status page. Its container joins `harborrag-data-network`, and Docker publishes the
+port on `127.0.0.1` only. The wrapper runs `harborrag-mcp --http --preflight` before it starts the
+server, so a missing setting is one line and not a restart loop. Remote MCP needs TLS and a
+production JWT/JWKS verifier,
 and the local container command intentionally does not provide it.
+
+The MCP image records the commit it was built from in its
+`org.opencontainers.image.revision` label. The wrapper passes it when it builds, compares it
+with the checkout on later runs and says when to rebuild. To stamp a manual build, add
+`--build-arg "HARBORRAG_GIT_REVISION=$(git rev-parse HEAD)"`.
 
 The Explorer MCP UI server is optional and separate. `scripts/deployment/mcp-ui.sh` builds
 `deploy/docker/Dockerfile.mcp-ui`, a layer over the MCP image that adds the `ui` extra and runs

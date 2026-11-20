@@ -16,10 +16,10 @@ from harborrag_core.indexing import VectorFilter, VectorFilterCondition
 from harborrag_core.security import AccessContext
 from harborrag_core.storage import StorageOperationContext
 from harborrag_core.summaries import SummaryAttribute, SummaryCard, SummaryView
+from harborrag_engine.retrieval.service.entity_summary import EntitySummarySearch
 from harborrag_engine.tools.catalog import build_reader_tool_catalog
 from harborrag_engine.tools.find_entities import FindEntitiesTool
 from harborrag_engine.tools.references import KnowledgeReferenceStore
-from harborrag_runtime.retrieval.entity_summary import EntitySummarySearch
 
 pytestmark = pytest.mark.unit
 
@@ -41,7 +41,7 @@ class Retrieval:
                     source_scope_id="AUTA-2",
                     rank=1,
                     score=0.91,
-                    description="Senior Java engineer, banking, cleared round two.",
+                    description="Payments service runbook, reviewed in the second pass.",
                     coverage_mode="partial",
                     attributes=(
                         {
@@ -65,12 +65,12 @@ async def test_the_tool_passes_facets_through_and_reports_partial_coverage() -> 
     result = await tool.call(
         {
             "tenant_id": "AUTA-2",
-            "query": "senior java engineer with banking experience",
+            "query": "payments service runbook with rollback steps",
             "facets": {"stage": "round 2", "years_experience": {"gte": 5}},
             "source_ids": ["AUTA-2"],
             "limit": 5,
         },
-        principal_id="recruiter-1",
+        principal_id="reviewer-1",
     )
     request = retrieval.requests[0]
     assert request.facets == {"stage": "round 2", "years_experience": {"gte": 5}}
@@ -187,7 +187,7 @@ class Released:
         source_scopes: dict[str, str] | None = None,
     ) -> dict[str, SummaryView]:
         card = SummaryCard(
-            description="Senior Java engineer.",
+            description="Payments service runbook.",
             attributes=(SummaryAttribute(name="skill_set", values=("BE-Java",)),),
         )
         return {

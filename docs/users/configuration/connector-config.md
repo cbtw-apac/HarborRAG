@@ -4,8 +4,8 @@
 starts for the first time: a folder of local files, a GitHub repository, a Confluence
 space, Jira projects or a SharePoint site. This page describes the file's format and
 the options of each provider, the kind of system a connector reads. After the first
-start, you change the same sources as connections through the API or
-`harborrag source`; see [Connections](../connections.md).
+start, you change the same sources as connections through the API or the
+`harborrag connections` commands; see [Connections](../connections.md).
 
 The repository ships two versions of the file in `config/sources/`:
 
@@ -23,20 +23,22 @@ A connection is one configured data source, stored in the control database, the
 database where HarborRAG keeps its own state such as connections, runs and settings.
 HarborRAG turns this file into connections once:
 
-- The API imports it at its first start, and the CLI before its first ingestion. The
-  import runs only while the install holds no project and no connection in any tenant.
-  A failed import is recorded and never retried.
+- The API imports it at its first start. The import runs only while the install holds
+  no project and no connection in any tenant. A failed import is recorded and never
+  retried.
 - Each entry becomes a connection in project `default` of the tenant
-  `HARBORRAG_INGESTION_TENANT_ID` names (`DEFAULT` unless set). The entry's key becomes
-  the connection's `source_key`, the name you pass to `harborrag ingest run`. It is also
-  the `connection_id` when it is a valid id; otherwise the id is a slug of the key.
+  `HARBORRAG_TENANT_ID` names (`DEFAULT` unless set). The entry's key becomes the
+  connection's `source_key`. It is also the `connection_id` when it is a valid id;
+  otherwise the id is a slug of the key. So the entry `jira-main` becomes the connection
+  `default/jira-main`, the ref that `harborrag ingestions start` takes.
 - Entries with `enabled: false` are skipped.
 - Values named under `environment:` are read once, at the import, and stored with the
   connection. Tokens and passwords named under `secrets:` are stored as references to
   their variable, which the process running the ingestion reads at the start of every
   run, so a new token takes effect without another import.
 - An entry whose variable is unset is still imported, with status `error`. Fix it with
-  `harborrag source update` or the API; see [Connection status](../connections.md#connection-status).
+  `harborrag connections update` or the API; see
+  [Connection status](../connections.md#connection-status).
 
 After the import, the service ignores edits to this file. `harborrag doctor` and the
 Python loader below still read it.
@@ -121,6 +123,19 @@ connectors:
 `exclude_globs` remove candidates from it. Filters apply to future discovery; a
 document that is already published leaves through the normal source reconciliation
 and cleanup.
+
+Files that the extension filters, `max_file_size_bytes` or `process_file_callback`
+leave out count as skipped in the run's status, as do paths that cannot be read or
+that resolve outside `source_path`. Path and glob filters, hidden files and
+`excluded_dir_names` drop files without counting them. Each skipped file is logged
+once as a `local.file_skipped` warning with its reason, the run ID and a
+`path_digest` instead of its name, because a file name can name a person. The digest
+is the first 12 characters of the SHA-256 of the file's absolute path, so you can
+check whether a warning is about a file you suspect:
+
+```bash
+printf '%s' "/data/docs/report.pdf" | sha256sum | cut -c1-12
+```
 
 A relative `source_path` written in the YAML resolves against the YAML file's folder.
 A relative path read from an environment variable, or passed as a code override,
@@ -343,22 +358,26 @@ uv run python -m harborrag_adapters.connectors.sharepoint.login \
 The IDs default to `MICROSOFT_TENANT_ID` and `MICROSOFT_CLIENT_ID`. When they are not
 exported, the command reads those two values, and nothing else, from
 `env/.env.connector` (or `$CONNECTOR_ENV_FILE`) relative to the current directory, so
-from a checkout the command without arguments is enough.
+from a checkout the command without arguments is enough. A connection's own configuration
+does not read these two variables. The command refuses a tenant ID that is not a GUID or a
+domain name such as `contoso.onmicrosoft.com`, and it reaches Microsoft identity only
+through the destination policy: public addresses, plus the hosts and proxy setting of
+`HARBORRAG_CONNECTOR_ALLOWED_HOSTS` and `HARBORRAG_CONNECTOR_USE_PROXY`.
 
-The command prints a code to enter at `https://microsoft.com/devicelogin`, then
-stores the refresh token in
-`~/.harborrag/sharepoint/<harborrag-tenant>/token-<tenant>-<client>.json`, in the
-folder of the HarborRAG tenant the connection belongs to, so two tenants never share a
-sign-in. The tenant comes from `--harborrag-tenant`, else
-`HARBORRAG_INGESTION_TENANT_ID`, else `DEFAULT`. To use another file, set
-`token_cache_path` on the connection and pass the same path as `--token-cache-path`.
-Each run redeems the token and stores the rotated one. If the token expires or access
-is revoked, the run fails with an authentication error asking you to sign in again.
-`--logout` deletes the stored sign-in.
+The command prints a code to enter at `https://microsoft.com/devicelogin`, then stores
+the refresh token in
+`~/.harborrag/sharepoint/<harborrag-tenant>/token-<tenant>-<client>.json`, in the folder
+of the HarborRAG tenant the connection belongs to, so two tenants never share a sign-in.
+The tenant comes from `--harborrag-tenant`, else `HARBORRAG_TENANT_ID`, else `DEFAULT`.
+To use another file, set `token_cache_path` on the connection and pass the same path as
+`--token-cache-path`. Each run redeems the token and stores the rotated one. If the
+token expires or access is revoked, the run fails with an authentication error asking
+you to sign in again. `--logout` deletes the stored sign-in.
 
-That sign-in serves ingestion that runs on your machine (`harborrag ingest run`). The
-Temporal worker (`harborrag ingest start`) runs in a container that cannot read your
-home folder, so sign it in separately:
+That sign-in serves ingestion that runs on your machine
+(`harborrag ingestions start --inline`). The Temporal worker, which runs what
+`harborrag ingestions start` submits, runs in a container that cannot read your home
+folder, so sign it in separately:
 
 ```bash
 scripts/deployment/dev.sh sharepoint-login
@@ -452,12 +471,11 @@ documents. Discovery is checkpointed per provider page and resumes after a failu
 and each document workflow reads only the plan page that holds it, so the run itself
 is bounded. What decides whether it finishes is outside the code:
 
-- **Rehearse with a limit.** Run the same scope first with `--limit` on
-  `harborrag ingest run|start`, which stops after that many discovered artifacts. It
-  gives the real documents-per-issue
-  ratio, the attachment size distribution, the failure classes (for example Word 6.0/95
-  `.doc` files, which are rejected as unsupported) and the throughput of *your* host. Extrapolate from
-  that, not from the issue count.
+- **Rehearse on a smaller scope.** Run a connection whose `jql` selects a few hundred
+  issues of the same project first. It gives the real documents-per-issue ratio, the attachment size distribution, the
+  failure classes (for example Word 6.0/95 `.doc` files, which are rejected as
+  unsupported) and the throughput of *your* host. Extrapolate from that, not from the
+  issue count.
 - **Throughput is CPU-bound.** OCR of image attachments dominates; on a 4-vCPU host
   with three workers expect roughly half a document per second, which is days for
   400,000 documents. A first pass with `include_attachments: false` finishes in hours
@@ -466,11 +484,11 @@ is bounded. What decides whether it finishes is outside the code:
   after its retries. Use a service credential that does not rotate during the run.
 - **Disk.** Every attachment is kept as an immutable artifact (up to
   `max_attachment_size_bytes` each). Size the object store from the rehearsal.
-- **Why did it stop?** `harborrag ingest status RUN_ID` and the run's event log record
-  pause, resume and cancel requests with who asked (`task.<id>.control` events, stored
-  but not sent on the HTTP event stream, where the new status appears as
-  `run.status`). A run that ends with `cancelled_at_safe_boundary` was cancelled on
-  request; it was not a timeout.
+- **Why did it stop?** `harborrag ingestions get INGESTION_ID` shows the run's status,
+  counters and `error_category`. The run's event log records pause, resume and cancel
+  requests with who asked (`task.<id>.control` events, stored but not sent on the HTTP
+  event stream, where the new status appears as `run.status`). A run that ends with
+  `cancelled_at_safe_boundary` was cancelled on request; it was not a timeout.
 
 HTTP connectors validate timeouts, retry counts, backoff, page sizes, request rates
 and source-specific collection and size limits. A connector's configuration is read

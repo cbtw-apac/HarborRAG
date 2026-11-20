@@ -13,10 +13,10 @@ import copy
 import pytest
 from test_api_capacity import FakeRedis, limits, scope
 
-from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.capacity import LocalApiCapacityLimiter, RedisApiCapacityLimiter
 from harborrag_app.api.capacity_dependency import capacity_scope_for
 from harborrag_app.api.capacity_scope import plan_capacity_buckets
+from harborrag_app.operations.principal import Principal
 from harborrag_core.contracts.errors import HarborRateLimitError
 
 _ALICE = scope(user="alice", principal="shared-credential")
@@ -25,6 +25,7 @@ _BOB = scope(user="bob", principal="shared-credential")
 
 @pytest.mark.asyncio
 async def test_one_user_cannot_starve_the_others_behind_a_shared_credential() -> None:
+    """The tenant and the credential still have room, so Bob is unaffected."""
     limiter = LocalApiCapacityLimiter(limits(user=(1, 5), principal=(50, 50), tenant=(50, 50)))
 
     await limiter.reserve(_ALICE)
@@ -32,7 +33,6 @@ async def test_one_user_cannot_starve_the_others_behind_a_shared_credential() ->
         await limiter.reserve(_ALICE)
 
     assert rejection.value.details["limit_scope"] == "user"
-    # The tenant and the credential still have room, so Bob is unaffected.
     assert await limiter.reserve(_BOB)
 
 
@@ -69,6 +69,7 @@ async def test_rejected_reservation_leaves_the_surviving_buckets_unchanged() -> 
 
 @pytest.mark.asyncio
 async def test_rejected_reservation_does_not_leak_a_concurrency_lease() -> None:
+    """Bob's own single-lease bucket would be full had the rejection leaked."""
     limiter = LocalApiCapacityLimiter(limits(user=(50, 1), principal=(50, 50), tenant=(50, 1)))
     alice = scope(user="alice", principal="alice-key")
     bob = scope(user="bob", principal="bob-key")
@@ -79,7 +80,6 @@ async def test_rejected_reservation_does_not_leak_a_concurrency_lease() -> None:
     await limiter.release(alice, alice_lease)
 
     assert rejection.value.details["limit_scope"] == "tenant"
-    # Bob's own single-lease bucket would be full had the rejection leaked.
     assert await limiter.reserve(bob)
 
 
@@ -177,6 +177,7 @@ def test_distinct_user_and_principal_ids_key_three_independent_buckets() -> None
 
 @pytest.mark.asyncio
 async def test_tenant_overrides_apply_and_unknown_tenants_keep_the_defaults() -> None:
+    """The override is per tenant: the enterprise bucket still has its third slot."""
     limiter = LocalApiCapacityLimiter(
         limits(user=(1, 5), principal=(50, 50), tenant=(50, 50)),
         300.0,
@@ -192,7 +193,6 @@ async def test_tenant_overrides_apply_and_unknown_tenants_keep_the_defaults() ->
     with pytest.raises(HarborRateLimitError, match="rate") as rejection:
         await limiter.reserve(starter)
     assert rejection.value.details["limit_scope"] == "user"
-    # The override is per tenant: the enterprise bucket still has its third slot.
     assert await limiter.reserve(enterprise)
 
 

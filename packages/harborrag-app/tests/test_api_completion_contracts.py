@@ -8,7 +8,7 @@ from test_api_chat_stream import _sse_frames
 from harborrag_app.api import app as api_app
 from harborrag_app.api.app import create_fastapi_app
 from harborrag_app.api.settings import ApiSettings
-from harborrag_app.api.v1.chat.schemas import ChatCompletionResponse
+from harborrag_app.operations.schemas.chat import ChatCompletionResponse
 
 PATH = "/v1/chat/completions"
 

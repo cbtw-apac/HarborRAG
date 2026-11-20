@@ -17,12 +17,10 @@ from harborrag_adapters.topology.extractor import (
     default_extraction_profile,
     pinned_configuration,
 )
-from harborrag_adapters.topology.output_policy import ExtractionOutputPolicy
 from harborrag_core.topology.derived import DescriptionOutput, DescriptionPacket
 from harborrag_core.topology.extraction import (
     ChunkExtractionInput,
     EvidenceSpan,
-    ExtractedAssertion,
     ExtractedEntity,
     ExtractionOutput,
 )
@@ -61,40 +59,6 @@ def output():
             ),
         ),
     )
-
-
-def test_output_policy_rejects_overflow_and_invalid_candidates_without_mutating_them():
-    original = output()
-    valid = original.entities[0].model_copy(
-        update={
-            "description": "word " * 60,
-            "aliases": ("Alpha Service", "123", "This is a sentence."),
-        }
-    )
-    invalid = valid.model_copy(update={"local_id": "bad", "name": "42"})
-    assertion = ExtractedAssertion(
-        local_id="a1",
-        subject_id="e1",
-        object_id="bad",
-        predicate="related_to",
-        span=EvidenceSpan(start=0, end=5, quote="Alpha"),
-        statement_text="word " * 60,
-    )
-    candidate = original.model_copy(
-        update={
-            "title": "123",
-            "description": "word " * 60,
-            "entities": (valid, invalid),
-            "assertions": (assertion,),
-        }
-    )
-    with pytest.raises(ValueError, match=r"4 violation\(s\).+invalid_endpoint"):
-        ExtractionOutputPolicy().apply(
-            candidate,
-            ChunkExtractionInput(chunk_id="c", content="Alpha", heading_path=("Useful heading",)),
-        )
-    assert candidate.description.endswith("word ")
-    assert len(candidate.entities) == 2 and len(candidate.assertions) == 1
 
 
 def test_unset_thinking_is_not_claimed_to_be_disabled():

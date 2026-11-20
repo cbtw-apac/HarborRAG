@@ -21,8 +21,8 @@ from http import HTTPStatus
 from typing import Any
 
 from harborrag_adapters.connectors.exceptions import DocumentProcessingError, FetchError
-from harborrag_adapters.connectors.schemas import ConnectorQuery
 from harborrag_core.domain.source import SourceRecord
+from harborrag_core.ingestion.connector_contracts import ConnectorQuery
 
 from .client import GitHubClient
 from .config import GitHubRepositoryConfig
@@ -70,6 +70,12 @@ class GitHubRepositoryAPI:
     Args:
         config: Validated repository, ref, filter and size settings.
         client: GitHub HTTP client that sends every request.
+
+    Attributes:
+        config: Validated repository configuration.
+        client: GitHub HTTP client.
+        owner: Repository owner.
+        repo: Repository name.
     """
 
     def __init__(self, config: GitHubRepositoryConfig, client: GitHubClient) -> None:

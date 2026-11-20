@@ -96,7 +96,7 @@ connectors:
       max_file_size_bytes: 20971520
       fail_on_error: false
       requests_per_minute: 120
-      page_size: 200
+      page_size: 100
       request_timeout_seconds: 60
       max_retries: 3
       backoff_factor: 0.5

@@ -33,7 +33,9 @@ class HttpTuning(StrictModel):
 class PagedHttpTuning(HttpTuning):
     """HTTP tuning for connectors that page through list endpoints."""
 
-    page_size: int | None = Field(default=None, ge=1, description="Items to ask for per page")
+    page_size: int | None = Field(
+        default=None, ge=1, le=100, description="Items to ask for per page, at most 100"
+    )
 
 
 class NoCredentials(StrictModel):

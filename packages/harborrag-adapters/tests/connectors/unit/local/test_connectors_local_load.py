@@ -13,10 +13,10 @@ from local_test_helpers import config, write_file
 from harborrag_adapters.connectors import LocalFileConnector
 from harborrag_adapters.connectors.exceptions import DocumentProcessingError, FetchError
 from harborrag_adapters.connectors.local.filesystem_paths import guess_mime_type
-from harborrag_adapters.connectors.schemas import ConnectorQuery
 from harborrag_core.chunking import ConnectorType
 from harborrag_core.domain.source import SourceRecord
 from harborrag_core.ingestion import DocumentIdentityBuilder
+from harborrag_core.ingestion.connector_contracts import ConnectorQuery
 
 pytestmark = [pytest.mark.unit, pytest.mark.blackbox]
 

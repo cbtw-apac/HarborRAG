@@ -39,7 +39,7 @@ each one implements today.
   - [Graph build configuration](configuration/graph-build-config.md) - how the knowledge
     graph is built.
   - [Model configuration](configuration/model-config.md) - the chat, embedding and
-    reranking models and the gateway they go through.
+    reranking models and the endpoint they are called at.
   - [Runtime settings](configuration/runtime-settings.md) - the six settings you change
     without a restart.
   - [Engine configuration](configuration/config-file-reference.md) - every `HARBORRAG_*`

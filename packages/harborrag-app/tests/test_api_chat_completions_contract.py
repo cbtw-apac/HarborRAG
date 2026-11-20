@@ -11,13 +11,13 @@ import re
 from collections.abc import Iterator
 
 import pytest
-from app_test_chat import ANSWER
 from app_test_conversations import ALICE, auth, hmac_app
 from app_test_fixtures import MockAppService
 from fastapi.testclient import TestClient
 
 from harborrag_core.models.errors import HarborChatConnectionError
 from harborrag_runtime.config.settings import RuntimeSettings
+from harborrag_runtime.testing.chat_service_double import ANSWER
 
 pytestmark = pytest.mark.blackbox
 
@@ -41,7 +41,7 @@ USAGE_FIELDS = {
     "reasoning_tokens",
     "cost_usd",
 }
-QUESTION = "Who has Go and Kubernetes experience in Hanoi?"
+QUESTION = "Which runbook covers rolling back the billing service?"
 KEY = "5f0c2b1e-8d4a-4c3e-9f7b-1a2b3c4d5e6f"
 TRACE = "4bf92f3577b34da6a3ce929d0e0e4736"
 MARKER = re.compile(r"\[(\d+)\]")
@@ -50,9 +50,9 @@ MARKER = re.compile(r"\[(\d+)\]")
 @pytest.fixture
 def service() -> MockAppService:
     double = MockAppService()
-    double.tenant_projects = {"DEFAULT": {"cpm", "empty", "other"}}
-    double.catalog.add("cpm", "cpm/cpm-tickets", ("scope-cpm-tickets",), documents=4)
-    double.catalog.add("cpm", "cpm/cpm-wiki", ("scope-cpm-wiki",), documents=3)
+    double.tenant_projects = {"DEFAULT": {"demo", "empty", "other"}}
+    double.catalog.add("demo", "demo/demo-tickets", ("scope-demo-tickets",), documents=4)
+    double.catalog.add("demo", "demo/demo-wiki", ("scope-demo-wiki",), documents=3)
     double.catalog.add("other", "other/conn", ("scope-other",), documents=2)
     double.catalog.add("empty", "empty/new-board", (), documents=0)
     return double
@@ -64,7 +64,7 @@ def client(monkeypatch: pytest.MonkeyPatch, service: MockAppService) -> Iterator
         yield test_client
 
 
-def _session(client: TestClient, project_id: str | None = "cpm") -> str:
+def _session(client: TestClient, project_id: str | None = "demo") -> str:
     body = {} if project_id is None else {"project_id": project_id}
     response = client.post("/v1/chat/sessions", json=body, headers=auth())
     assert response.status_code == 201, response.text
@@ -160,16 +160,19 @@ def test_every_answer_marker_has_a_citation_and_every_citation_a_marker(
     assert markers == {citation["n"] for citation in citations} == {1, 2}
     assert (
         answer
-        == "Two candidates match: CPM-4411 [1] and CPM-4502 [2]; see also. CPM-4411 [1] led it."
+        == "Two runbooks match: DEMO-2 [1] and DEMO-1 [2]; see also. DEMO-2 [1] covers rollback."
     )
     first, second = citations
-    assert (first["n"], first["chunk_id"], first["document_id"]) == (1, "chk_4411", "doc_4411")
-    assert first["title"] == "CPM-4411 Senior Go engineer, Hanoi"
+    assert (first["n"], first["chunk_id"], first["document_id"]) == (1, "chk_2", "doc_2")
+    assert first["title"] == "DEMO-2 Rollback runbook"
     assert first["page"] == 2 and first["url"] is None
     assert len(first["snippet"]) <= 300
-    assert (second["n"], second["chunk_id"]) == (2, "chk_4502")
-    assert second["url"] == "https://jira.example.test/browse/CPM-4502" and second["page"] is None
-    assert second["snippet"] == "Seven years of Go services and Kubernetes operators in Hanoi."
+    assert (second["n"], second["chunk_id"]) == (2, "chk_1")
+    assert second["url"] == "https://jira.example.test/browse/DEMO-1" and second["page"] is None
+    assert (
+        second["snippet"]
+        == "The deploy runbook lists the steps that promote a release to production."
+    )
 
 
 def test_retrieval_reads_only_the_session_projects_connections(
@@ -181,7 +184,7 @@ def test_retrieval_reads_only_the_session_projects_connections(
 
     request = service.retrieval.request
     assert request is not None
-    assert request.filters == {"source_scope_id": ["scope-cpm-tickets", "scope-cpm-wiki"]}
+    assert request.filters == {"source_scope_id": ["scope-demo-tickets", "scope-demo-wiki"]}
 
 
 def test_the_model_calls_carry_the_completions_trace_id(
@@ -223,7 +226,7 @@ def test_instant_skips_the_scope_check_call_and_graph_observation(
 def test_a_one_off_question_answers_without_creating_a_session(
     client: TestClient, service: MockAppService
 ) -> None:
-    status, body = _ask(client, {"message": QUESTION, "project_ids": ["cpm"]})
+    status, body = _ask(client, {"message": QUESTION, "project_ids": ["demo"]})
 
     assert status == 200, body
     assert body["session_id"] is None
@@ -231,7 +234,7 @@ def test_a_one_off_question_answers_without_creating_a_session(
     assert client.get("/v1/chat/sessions", headers=auth()).json()["items"] == []
     request = service.retrieval.request
     assert request is not None
-    assert request.filters == {"source_scope_id": ["scope-cpm-tickets", "scope-cpm-wiki"]}
+    assert request.filters == {"source_scope_id": ["scope-demo-tickets", "scope-demo-wiki"]}
 
 
 def test_a_one_off_question_in_an_unknown_project_is_a_reference_not_found(
@@ -281,11 +284,11 @@ def test_a_connection_inside_the_scope_narrows_retrieval_to_it(
 
     status, _ = _ask(
         client,
-        {"session_id": session_id, "message": QUESTION, "connections": ["cpm/cpm-wiki"]},
+        {"session_id": session_id, "message": QUESTION, "connections": ["demo/demo-wiki"]},
     )
 
     assert status == 200
-    assert service.retrieval.request.filters == {"source_scope_id": ["scope-cpm-wiki"]}  # type: ignore[union-attr]
+    assert service.retrieval.request.filters == {"source_scope_id": ["scope-demo-wiki"]}  # type: ignore[union-attr]
 
 
 def test_a_filter_narrows_retrieval_and_an_unsupported_one_is_refused(
@@ -294,7 +297,7 @@ def test_a_filter_narrows_retrieval_and_an_unsupported_one_is_refused(
     session_id = _session(client)
     supported = {
         "and": [
-            {"field": "connection", "op": "in", "value": ["cpm/cpm-tickets"]},
+            {"field": "connection", "op": "in", "value": ["demo/demo-tickets"]},
             {"field": "document_kind", "op": "eq", "value": "jira_issue"},
         ]
     }
@@ -314,7 +317,7 @@ def test_a_filter_narrows_retrieval_and_an_unsupported_one_is_refused(
     assert ok_status == 200
     assert service.retrieval.request.filters == {  # type: ignore[union-attr]
         "document_kind": "jira_issue",
-        "source_scope_id": ["scope-cpm-tickets"],
+        "source_scope_id": ["scope-demo-tickets"],
     }
     assert or_status == 422
     assert _field(or_body) == "filters"
@@ -402,7 +405,7 @@ def test_eight_thousand_characters_are_accepted(client: TestClient) -> None:
         {"tenant_id": "DEFAULT"},
         {"model": "primary"},
         {"graph_search": True},
-        {"project_id": "cpm"},
+        {"project_id": "demo"},
     ],
     ids=["prompt", "idempotency_key", "tenant_id", "model", "graph_search", "project_id"],
 )
@@ -455,11 +458,11 @@ def test_the_session_projects_top_k_applies_live(
     client: TestClient, service: MockAppService
 ) -> None:
     session_id = _session(client)
-    service.settings_overrides.overrides = {"project:cpm": 2, "tenant": 7}
+    service.settings_overrides.overrides = {"project:demo": 2, "tenant": 7}
 
     _ask(client, {"session_id": session_id, "message": QUESTION})
     first = service.retrieval.request.top_k  # type: ignore[union-attr]
-    service.settings_overrides.overrides = {"project:cpm": 3, "tenant": 7}
+    service.settings_overrides.overrides = {"project:demo": 3, "tenant": 7}
     _ask(client, {"session_id": session_id, "message": QUESTION})
     second = service.retrieval.request.top_k  # type: ignore[union-attr]
 
@@ -469,9 +472,9 @@ def test_the_session_projects_top_k_applies_live(
 def test_a_one_off_question_reads_its_one_projects_top_k(
     client: TestClient, service: MockAppService
 ) -> None:
-    service.settings_overrides.overrides = {"project:cpm": 2, "tenant": 7}
+    service.settings_overrides.overrides = {"project:demo": 2, "tenant": 7}
 
-    _ask(client, {"message": QUESTION, "project_ids": ["cpm"]})
+    _ask(client, {"message": QUESTION, "project_ids": ["demo"]})
 
     assert service.retrieval.request.top_k == 2  # type: ignore[union-attr]
 

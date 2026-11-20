@@ -10,8 +10,10 @@ from harborrag_core.base import utc_now
 from harborrag_core.topology import ExtractionOutput
 from harborrag_core.topology.derived import ChunkEnrichment
 from harborrag_core.topology.permissions import ResolvedPermissionSnapshot
+from harborrag_engine.topology.inspection import TopologyInspectionBuilder
 from harborrag_runtime.topology import operations
-from harborrag_runtime.topology.inspection import TopologyInspectionBuilder
+
+pytestmark = pytest.mark.unit
 
 
 async def _permit_reader(harness: Harness, document_id: str) -> None:

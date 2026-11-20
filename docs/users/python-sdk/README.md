@@ -23,7 +23,7 @@ for evidence and document reads and `memory` for conversation context.
   Export at least `HARBORRAG_CONTROL_DB_URL` and `HARBORRAG_SECRETS_ENCRYPTION_KEY`
   with the stack's values, the object-store keys `HARBORRAG_OBJECT_STORE_ACCESS_KEY_ID`
   and `HARBORRAG_OBJECT_STORE_SECRET_ACCESS_KEY` (the stack's MinIO root user and
-  password), and the model gateway variables of `env/.env.models`.
+  password), and the model variables of `env/.env.models`.
 
 Without `HARBORRAG_CONTROL_DB_URL`, the SDK keeps connections and run state in a local
 SQLite file, `./harborrag_control.db`, while it reads and writes the same vector, graph
@@ -100,9 +100,11 @@ result = await harbor.ingestion.run(request)
 ```
 
 `run` waits for the result, an `IngestionResult` with `task_id`, `status`, `discovered`,
-`published`, `unchanged` and `failed`. Under `execution_mode: direct` it runs inline,
-without Temporal; under `execution_mode: temporal` it submits the run to Temporal and
-waits for it.
+`published`, `unchanged`, `failed` and `skipped`. Items left out at discovery, such as
+files outside the connection's `allowed_extensions`, count in `skipped` but not in
+`discovered`. A document skipped later, for example because it failed to parse, counts
+in both `failed` and `skipped`. Under `execution_mode: direct` it runs inline, without
+Temporal; under `execution_mode: temporal` it submits the run to Temporal and waits for it.
 
 For long runs, submit durably and control the workflow:
 
@@ -127,16 +129,17 @@ Cancelling a paused run releases that wait and stops at the same safe boundary.
 `status(task_id)` returns an `IngestionStatus` with `task_id`, `status`, `paused` and
 `cancel_requested`, and nothing more: no stages and no progress counts. Its `status` is
 the workflow's own state, such as `RUNNING`, not the HTTP API's run status (`queued`,
-`running`, `succeeded` and so on). `harborrag ingest watch` shows a richer view because
-it goes through the application service, which combines workflow status, per-stage
-progress and execution status; that view is not available through the SDK.
+`running`, `succeeded` and so on). `harborrag ingestions get` and
+`GET /v1/admin/ingestions/{ingestion_id}` show a richer view, with the run's status and
+counters, because they go through the application service; that view is not available
+through the SDK.
 
 `IngestionRequest` also accepts scoping and tuning fields: `task_id`, `connection_id`,
 `source_scope_id`, `path`, `pattern`, `recursive`, `updated_after`, `limit`,
 `include_attachments`, `filters`, `force_reprocess`, `discovery_page_size`,
 `discovery_concurrency` and `document_concurrency`. `force_reprocess=True` is the same
-switch as `"mode": "force"` on `POST /v1/admin/ingestions` and `--force-reprocess` on
-the CLI; see [Ingestion modes](../ingestion-modes.md).
+switch as `"mode": "force"` on `POST /v1/admin/ingestions` and `--mode force` on
+`harborrag ingestions start`; see [Ingestion modes](../ingestion-modes.md).
 
 ## Retrieval
 
@@ -236,7 +239,7 @@ constructs the connector, so the mapping it returns holds only the keys you supp
 
 `ingestion.run` cannot take a definition built this way: an `IngestionRequest` names a
 stored connection. To ingest it, create a connection through the API or
-`harborrag source add`.
+`harborrag connections create`.
 
 ## What needs backing services
 

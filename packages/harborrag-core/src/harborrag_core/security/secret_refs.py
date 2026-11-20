@@ -1,12 +1,6 @@
 """Secret references held in connection credentials.
 
-Handles:
-- ``SecretRef``: ``secret://…`` (stored through ``SecretsPort``), ``env:NAME``
-  and ``vault:<path>`` pointers
-- ``StoredSecret``: the stored form ``{"secret_ref", "last4", "updated_at"}``
-- ``secret_status`` and ``credentials_view``: the read-side ``SecretStatus``
-
-Does NOT resolve a reference to its value; the runtime resolvers own that.
+Runtime resolvers turn a reference into its value; nothing here does.
 """
 
 from __future__ import annotations

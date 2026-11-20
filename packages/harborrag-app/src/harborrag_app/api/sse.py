@@ -1,21 +1,20 @@
-"""Server-Sent Events framing and the server-owned stream deadline."""
+"""HTTP stream deadline and heartbeat for Server-Sent Events responses.
+
+Owns the server-side wall-clock budget and keep-alive pings of a streamed response; the
+event framing itself lives in ``harborrag_app.operations.sse``.
+"""
 
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from collections.abc import AsyncGenerator, AsyncIterator
+
+from harborrag_app.operations.sse import sse_frame
 
 logger = logging.getLogger("harborrag.app.api.sse")
 
 STREAM_DEADLINE_ERROR_CODE = "deadline_exceeded"
-
-
-def sse_frame(name: str, payload: object) -> bytes:
-    """Encode one ``event: <name>\\ndata: <json>\\n\\n`` frame."""
-
-    return f"event: {name}\ndata: {json.dumps(payload)}\n\n".encode()
 
 
 async def bounded_sse_frames(
@@ -41,7 +40,6 @@ async def bounded_sse_frames(
     delivered. Backpressure while sending that final frame must not turn an
     already completed response into a second timeout error.
     """
-
     loop = asyncio.get_running_loop()
     deadline = loop.time() + timeout_seconds
     terminal_prefixes = tuple(f"event: {name}\n".encode() for name in terminal_events)
@@ -76,7 +74,6 @@ async def with_heartbeat(
     One pending ``anext`` is kept across timeouts, because cancelling it would finalize the
     source generator.
     """
-
     pending: asyncio.Future[bytes] | None = None
     try:
         while True:

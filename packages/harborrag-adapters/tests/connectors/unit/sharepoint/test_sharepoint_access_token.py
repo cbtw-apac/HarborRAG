@@ -25,6 +25,7 @@ def test_sharepoint_access_token_uses_configured_token_directly():
 
 
 def test_sharepoint_access_token_fetches_and_caches_via_client_credentials():
+    """Only one token response is queued, so the second call must come from the cache."""
     client = client_credentials_sharepoint_client()
     client.session = FakeSession(
         responses=[
@@ -35,7 +36,6 @@ def test_sharepoint_access_token_fetches_and_caches_via_client_credentials():
         ]
     )
     assert client._access_token() == "fresh-token"
-    # Cached: no further responses queued, so a second call must not re-request.
     assert client._access_token() == "fresh-token"
 
 
@@ -61,11 +61,11 @@ def test_sharepoint_access_token_refreshes_when_expired():
 
 
 def test_sharepoint_access_token_raises_on_request_exception():
+    """With ``max_retries=1`` the second connection error ends the token request."""
     import requests
 
     from harborrag_adapters.connectors.exceptions import AuthenticationError
 
-    # max_retries=1 means two total attempts before the error propagates.
     client = client_credentials_sharepoint_client()
     client.session = FakeSession(
         responses=[requests.ConnectionError("boom"), requests.ConnectionError("boom")]
@@ -114,6 +114,44 @@ def test_sharepoint_access_token_raises_on_error_status():
     )
     with pytest.raises(AuthenticationError):
         client._access_token()
+
+
+def test_sharepoint_access_token_error_never_echoes_the_client_secret():
+    from harborrag_adapters.connectors.exceptions import AuthenticationError
+
+    secret = "Xq8~SecretValue.123"
+    client = client_credentials_sharepoint_client(client_secret=secret)
+    client.session = FakeSession(
+        responses=[
+            FakeResponse(
+                status_code=401,
+                text=f"rejected client secret {secret} by policy",
+            )
+        ]
+    )
+    with pytest.raises(AuthenticationError) as error:
+        client._access_token()
+    assert secret not in str(error.value)
+    assert "<redacted>" in str(error.value)
+    assert error.value.status_code == 401
+
+
+def test_sharepoint_access_token_keeps_status_and_hides_secret_after_retries():
+    """With ``max_retries=1`` the second 503 ends the token request."""
+    from harborrag_adapters.connectors.exceptions import AuthenticationError
+
+    secret = "Xq8~SecretValue.123"
+    client = client_credentials_sharepoint_client(client_secret=secret)
+    client.session = FakeSession(
+        responses=[
+            FakeResponse(status_code=503, text=f"unavailable for {secret}"),
+            FakeResponse(status_code=503, text=f"unavailable for {secret}"),
+        ]
+    )
+    with pytest.raises(AuthenticationError) as error:
+        client._access_token()
+    assert secret not in str(error.value)
+    assert error.value.status_code == 503
 
 
 def test_sharepoint_access_token_raises_on_non_json_response():

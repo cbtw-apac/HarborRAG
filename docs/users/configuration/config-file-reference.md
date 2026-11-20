@@ -19,7 +19,7 @@ service reads in a repository checkout.
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `HARBORRAG_ENV` | `dev` | `dev`, `staging` or `prod`; anything but `dev` turns on the production checks, such as refusing a SQLite control database |
-| `HARBORRAG_INGESTION_TENANT_ID` | `DEFAULT` | Default tenant of the `ingest`, `source` and `config` commands, the `connectors.yaml` import and the settings seed |
+| `HARBORRAG_TENANT_ID` | `DEFAULT` | The one default tenant of the API (for a `*` credential that sends no `X-Tenant-Id`), the workers and the CLI, the `connectors.yaml` import and the settings seed; the removed `HARBORRAG_INGESTION_TENANT_ID` stops startup |
 | `HARBORRAG_CONNECTOR_CONFIG_PATH` | `config/sources/connectors.yaml` | Connector file ([Connector Configuration](connector-config.md)) |
 | `HARBORRAG_PARSER_CONFIG_PATH` | `config/ingestion/parsers.yaml` | Parser file ([Parser Configuration](parser-config.md)) |
 | `HARBORRAG_CHUNKING_CONFIG_PATH` | `config/ingestion/chunking.yaml` | Chunking file; optional, built-in defaults apply when the default path is absent ([Chunking Configuration](chunking-config.md)) |
@@ -49,7 +49,7 @@ Database URLs, API keys, object-store credentials and FalkorDB passwords are sec
 `RuntimeSettings` masks them; supply them through the protected deployment
 environment, never through checked-in files.
 
-`HARBORRAG_EMBEDDING_MODEL` is not the gateway's model name, which
+`HARBORRAG_EMBEDDING_MODEL` is not the endpoint's model name, which
 `HARBORRAG_EMBED_MODEL` sets below.
 
 ## API process limits
@@ -63,24 +63,27 @@ Only the API reads these (`ApiSettings`).
 | `HARBORRAG_API_MAX_INFLIGHT_PER_PRINCIPAL` | `4` | Concurrent requests per principal |
 | `HARBORRAG_API_REQUEST_TIMEOUT_SECONDS` | `120` | Time limit of one request handler |
 
-## Model gateway environment
+## Model endpoint environment
 
 HTTP and CLI chat, ingestion and retrieval share `HARBORRAG_MODEL_CONFIG_PATH`. The
-checked-in `config/models/models.yaml` sends chat, embedding and reranking through one
-LiteLLM proxy gateway and references these protected values:
+checked-in `config/models/models.yaml` serves OpenAI and an OpenAI-compatible gateway
+from one file, and references these protected values:
 
 | Variable | Meaning |
 | --- | --- |
-| `HARBORRAG_URL` | Base URL of the gateway, without `/v1`, for example `https://gateway.example.com` |
-| `HARBORRAG_API_KEY` | Gateway API key, used for chat, embedding and reranking; not an API-process setting despite its name |
-| `HARBORRAG_CHAT_MODEL` | Gateway model name for the `primary` chat model |
-| `HARBORRAG_EMBED_MODEL` | Gateway model name for the `primary` embedding model |
-| `HARBORRAG_RERANKER_MODEL` | Gateway model name for the `primary` rerank model |
+| `HARBORRAG_CHAT_MODEL` | The endpoint's name for the `primary` chat model |
+| `HARBORRAG_CHAT_API_KEY` | API key for chat |
+| `HARBORRAG_EMBED_MODEL` | The endpoint's name for the `primary` embedding model |
+| `HARBORRAG_EMBED_API_KEY` | API key for embedding; it may equal the chat key |
+| `HARBORRAG_URL` | Optional. Base URL of another OpenAI-compatible endpoint for every family, such as a LiteLLM proxy gateway; the default is `https://api.openai.com/v1` |
+| `HARBORRAG_EMBED_PROVIDER` | Optional. `cohere` when the embedding model is a Cohere model, so HarborRAG sends its `input_type`; the default is `openai_compatible`, and `openai` means the same |
+| `HARBORRAG_RERANKER_MODEL` | Optional. The endpoint's name for a rerank model; set, it makes `retrieval.rerank` available |
+| `HARBORRAG_RERANKER_API_KEY` | API key for reranking; needed with `HARBORRAG_RERANKER_MODEL` |
 
-The three model values are the gateway's own model names, as
-`GET <HARBORRAG_URL>/v1/models` lists them, without a provider prefix. All five are
-required, even while reranking is off, and changing `HARBORRAG_EMBED_MODEL` needs a
-re-index; see [The shipped gateway catalog](model-config.md#the-shipped-gateway-catalog).
+The first four are required. The model values are names the endpoint serves, as its
+`/models` path lists them. Changing `HARBORRAG_EMBED_MODEL` or
+`HARBORRAG_EMBED_PROVIDER` needs a re-index; see
+[The shipped catalog](model-config.md#the-shipped-catalog).
 
 Keep the populated values in the git-ignored `env/.env.models` file or a secret
 manager. The catalog loader does not read `.env` files: in a checkout the CLI loads
@@ -94,9 +97,11 @@ The MCP server keeps transport and tool policy separate from model policy:
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `HARBORRAG_MCP_CONFIG_PATH` | `config/mcp/server.yaml` | Versioned tool defaults, limits, enablement and tenant overrides |
-| `HARBORRAG_MCP_AUDIT_PATH` | `.harborrag/mcp-audit.jsonl` | Owner-only audit output |
+| `HARBORRAG_MCP_AUDIT_PATH` | `.harborrag/mcp-audit.jsonl` | Owner-only audit output of the `harborrag-mcp` launch; a server built in Python passes `audit=McpAuditLog(path=...)` |
 | `HARBORRAG_MCP_BEARER_TOKEN` | None | Local HTTP owner token; at least 32 bytes |
-| `HARBORRAG_MCP_HOST` | `127.0.0.1` | Loopback HTTP bind address |
+| `HARBORRAG_MCP_HOST` | `127.0.0.1` | HTTP bind address. One that is not loopback is refused outside a development container; see `HARBORRAG_MCP_ALLOW_INSECURE_BIND` |
+| `HARBORRAG_MCP_ALLOWED_HOSTS` | None | Comma-separated host names the HTTP server answers besides `127.0.0.1`, `localhost` and `::1`, such as a reverse proxy's |
+| `HARBORRAG_MCP_ALLOW_INSECURE_BIND` | `false` | `true` accepts a bind beyond loopback, where tokens travel over plain HTTP. Honoured only with `HARBORRAG_ENV=dev` and with `HARBORRAG_MCP_ALLOWED_HOSTS` set. The Compose launcher sets it for its container, whose port Docker publishes on loopback |
 | `HARBORRAG_MCP_PORT` | `8010` | Local HTTP and status UI port |
 | `HARBORRAG_MCP_PATH` | `/mcp` | Streamable HTTP MCP path |
 

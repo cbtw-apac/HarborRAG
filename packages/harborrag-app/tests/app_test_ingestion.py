@@ -2,18 +2,21 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import AsyncGenerator, Mapping
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
-from harborrag_app.workflow_control.errors import (
+from harborrag_core.contracts.errors import (
     IngestionActionStateError,
     IngestionAlreadyCompletedError,
     IngestionNotFoundError,
 )
-from harborrag_app.workflow_control.ingestion.models import IngestionCreateCommand
-from harborrag_app.workflow_control.schemas import AppResponse
+from harborrag_core.contracts.events import HarborEvent
+from harborrag_engine.ingestion.models import IngestionCreateCommand
+from harborrag_runtime.application.ingestion.follower import IngestionFollower
+from harborrag_runtime.application.ingestion.starter import IngestionStarter
+from harborrag_runtime.application.schemas import AppResponse
 
 
 class FixtureIngestionOperations:
@@ -38,7 +41,7 @@ class FixtureIngestionOperations:
             "counters": {"discovered": 2, "processed": 1, "skipped": 0, "failed": 0},
             "stages": [],
             "error_category": None,
-            "triggered_by": {"principal_type": "user", "principal_id": "u_huy"},
+            "triggered_by": {"principal_type": "user", "principal_id": "u_alex"},
             "settings_revision": "",
             "workflow_id": f"harborrag-source:{ingestion_id}",
             "run_id": ingestion_id,
@@ -86,6 +89,29 @@ class IngestionServiceFixture:
     direct_runs: list[dict[str, object]]
     direct_final_status: str = "completed"
     ingestion_operations: Any = FixtureIngestionOperations()
+    connection_service: Any
+    project_service: Any
+    stream_ingestion_events: Any
+
+    @property
+    def ingestion_starter(self) -> IngestionStarter:
+        """The real starter over the double's project, connection and run services, once it has them."""
+        return IngestionStarter(
+            projects=self.project_service,
+            connections=self.connection_service,
+            runs=self.ingestion_operations,
+        )
+
+    @property
+    def ingestion_follower(self) -> IngestionFollower:
+        """The real follower over the double's run reads and its ``stream_ingestion_events``."""
+        return IngestionFollower(runs=self.ingestion_operations, events=self._ingestion_events)
+
+    def _ingestion_events(
+        self, task_id: str, *, after_seq: int | None = None
+    ) -> AsyncGenerator[HarborEvent, None]:
+        """The events of a run from the subclass's ``stream_ingestion_events``, when it has one."""
+        return self.stream_ingestion_events(task_id, after_seq=after_seq)  # type: ignore[no-any-return]
 
     async def run_ingestion(  # noqa: PLR0913 - mirrors the service port
         self,
@@ -104,7 +130,7 @@ class IngestionServiceFixture:
         filters: Mapping[str, object] | None = None,
         force_reprocess: bool = False,
     ) -> AppResponse:
-        # Every option `ingest run` forwards, so a test can assert the request it made.
+        """Every option `ingest run` forwards, so a test can assert the request it made."""
         self.direct_runs.append(
             {
                 "tenant_id": tenant_id,
@@ -216,66 +242,3 @@ class IngestionServiceFixture:
             "accepted_document_count": len(document_ids) or 1,
             "message": "Failed documents accepted for retry",
         }
-
-    async def start_ingestion(  # noqa: PLR0913 - mirrors the legacy CLI service port
-        self,
-        *,
-        tenant_id: str,
-        connector_name: str,
-        run_id: str | None = None,
-        connection_id: str | None = None,
-        source_scope_id: str | None = None,
-        path: str | None = None,
-        pattern: str | None = None,
-        recursive: bool = True,
-        updated_after: str | None = None,
-        max_artifacts: int | None = None,
-        include_attachments: bool = True,
-        filters: Mapping[str, object] | None = None,
-        force_reprocess: bool = False,
-        batch_size: int | None = None,
-        document_concurrency: int | None = None,
-        wait: bool = False,
-    ) -> AppResponse:
-        del (
-            force_reprocess,
-            include_attachments,
-            max_artifacts,
-            path,
-            pattern,
-            recursive,
-            updated_after,
-            wait,
-        )
-        return AppResponse(
-            True,
-            {
-                "run": {
-                    "run_id": run_id or "mock-run",
-                    "tenant_id": tenant_id,
-                    "connector_name": connector_name,
-                    "connection_id": connection_id or connector_name,
-                    "source_scope_id": source_scope_id or "mock-scope",
-                    "filters": dict(filters or {}),
-                    "batch_size": batch_size,
-                    "document_concurrency": document_concurrency,
-                },
-                "workflow": {"workflow_id": "mock-workflow"},
-            },
-        )
-
-    async def ingestion_status(self, run_id: str) -> AppResponse:
-        return AppResponse(True, {"status": {"run_id": run_id, "status": "completed"}})
-
-    async def ingestion_result(self, run_id: str) -> AppResponse:
-        return AppResponse(True, {"result": {"run_id": run_id, "status": "completed"}})
-
-    async def control_ingestion(
-        self,
-        run_id: str,
-        action: str,
-    ) -> AppResponse:
-        return AppResponse(
-            True,
-            {"run_id": run_id, "action": action},
-        )

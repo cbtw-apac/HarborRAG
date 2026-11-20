@@ -22,7 +22,7 @@ indexes are being rebuilt. It is alpha software.
 
 The Quick Start creates an `env/` folder of settings with `scripts/deployment/dev.sh bootstrap`,
 which also generates the key that encrypts stored connection secrets; back that key up. Two
-settings have no safe default: the five model gateway values in `env/.env.models`, and the
+settings have no safe default: the four model values in `env/.env.models`, and the
 `HARBORRAG_CONTROL_DB_URL` line in `env/.env.database`, which ships commented out.
 [Quick Start step 2](quick-start.md#2-create-the-environment-files) explains each one.
 

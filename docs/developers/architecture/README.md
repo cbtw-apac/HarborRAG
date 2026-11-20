@@ -54,9 +54,9 @@ These rules matter more than any single provider choice:
 | `harborrag-core` | Domain records, identifiers, errors, access context and ports | Provider-independent language |
 | `harborrag-adapters` | Connectors, parsers, model clients and repository implementations | External I/O boundary |
 | `harborrag-engine` | Ingestion, retrieval, topology and chat-prompt policy, plus the reader tools MCP serves | Business behaviour and invariants |
-| `harborrag-memory` | Provider-neutral conversation state and memory policy | Required package; memory itself is optional configuration |
-| `harborrag-runtime` | Composition, direct and Temporal executors, lifecycle, scheduling and configuration loading | Execution boundary |
-| `harborrag-app` | HTTP API, CLI, authentication and presentation mapping | User transport |
+| `harborrag-memory` | Provider-neutral conversation state, memory policy and the memory use cases: history records, titles, introspection and erasure | Required package; memory itself is optional configuration |
+| `harborrag-runtime` | Composition, direct and Temporal executors, lifecycle, scheduling, configuration loading and the application services behind the HTTP API and CLI | Execution boundary |
+| `harborrag-app` | HTTP API, CLI and operations layer: authentication and presentation mapping | User transport |
 | `harborrag-mcp-server` | MCP schemas, safety budgets, principal propagation, policy and audit | Agent transport |
 | `harborrag` | Stable SDK re-exports and the installation bundle | `HarborRAG` public facade |
 
@@ -70,13 +70,14 @@ harborrag_adapters   -> core
 harborrag_memory     -> core
 harborrag_engine     -> core
 harborrag_runtime    -> core, adapters, engine, memory
-harborrag_app        -> core, runtime, engine
+harborrag_app        -> core, runtime, engine, memory
 harborrag_mcp_server -> core, runtime, engine
 harborrag            -> any HarborRAG package
 ```
 
 The app and MCP server import `harborrag_engine` directly for the shared reader-tool layer and
-its budgets; engine imports only core, so this inverts nothing. `.importlinter` holds the
+its budgets, and the app imports `harborrag_memory` for conversation history; engine and memory
+import only core, so this inverts nothing. `.importlinter` holds the
 [import-linter](https://import-linter.readthedocs.io/en/stable/) contracts that enforce the
 same layering plus finer rules inside runtime. For example, the app may not import
 `harborrag_runtime.temporal`, and the MCP server may not import `harborrag_runtime.chat`,
@@ -158,7 +159,8 @@ active version + RetrievalResult
 `harborrag-core` groups its contracts by folder:
 
 - `domain/`: document, source, parser, retrieval, provenance, element, job, member, project,
-  provider, connection and settings values. `domain/__init__.py` still re-exports
+  provider, connection and settings values, and `MemoryIdentity`, the tenant, user and
+  session identity of a conversation. `domain/__init__.py` still re-exports
   `ChunkRecord` from `chunking/` as a compatibility path.
 - `chunking/`: immutable chunk, hierarchy, security, relation, source-attribute and table
   schemas. Deterministic chunk identity and chunk planning stay in engine.
@@ -170,7 +172,10 @@ active version + RetrievalResult
 - `indexing/` and `storage/`: public facades for vector and graph projection records,
   capabilities, `StorageOperationContext` and the per-tenant storage namespace. Modules under
   `schemas/` are internal organization, not cross-package import paths.
-- `ingestion/`: artifact, projection, lifecycle and source-catalog contracts.
+- `ingestion/`: artifact, projection, lifecycle and source-catalog contracts; the
+  connector contracts (`ConnectorQuery`, `ConnectorSkip`, `ConnectorMetadata`,
+  `ConnectorCapabilities`); run contracts, the source query, limits and policies; and the
+  stage contracts, including `DOCUMENT_STAGE_ORDER`.
 - `security/`: the required `AccessContext`, secret redaction, URL policy and
   `URLPolicyError`.
 - `contracts/`: the shared `HarborError` hierarchy, `HarborEvent`, the chunking protocols
@@ -252,10 +257,11 @@ and document release keep consuming services independent of adapter inheritance.
 ## Engine and runtime
 
 `harborrag-engine` owns the policy for publication, projection verification, document
-versions, cleanup, retrieval candidates, ranking, graph expansion, failure classification,
-semantic topology, chat prompts, and the reader tools that the MCP server and the app expose.
-It calls external models and storage only through core ports, and it never imports adapters
-or a provider SDK.
+versions, cleanup, retrieval candidates, ranking, graph expansion, semantic topology, chat
+prompts, and the reader tools that the MCP server and the app expose. Failure handling runs
+through a classifier that the caller injects; the classifier itself lives in
+`harborrag-runtime`. The engine calls external models and storage only through core ports,
+and it never imports adapters or a provider SDK.
 
 `harborrag-runtime` owns:
 
@@ -268,6 +274,8 @@ or a provider SDK.
 - the async `HarborRAG` facade used by the SDK and the app;
 - `harborrag_runtime.chat`, which composes the asynchronous chat client lazily, owns its
   lifecycle, and resolves the typed prompts that engine packages;
+- `harborrag_runtime.application`, the application services that the HTTP API and the CLI
+  call: chat turns, conversation memory, ingestion commands and the control-plane use cases;
 - explicit, opt-in discovery of Python entry-point plugins.
 
 Runtime schedules publication and cleanup and chooses retry, timeout and concurrency
@@ -275,13 +283,16 @@ behaviour. It does not decide whether a version is publishable or a projection i
 those rules stay in engine so that direct execution, Temporal, tests and reindex all behave
 the same way.
 
-Framework-independent lifecycle and observer interfaces and the job and repository ports live
-in `harborrag-core`. Provider-specific assembly belongs in runtime or in application bootstrap
+The job and repository ports, `StorageLifecyclePort` and the event bus port live in
+`harborrag-core`. Provider-specific assembly belongs in runtime or in application bootstrap
 code, not in provider adapters.
 
 ## App and MCP boundaries
 
 The CLI and the HTTP API both call one application service, `BaseAppService`, never adapters.
+The service lives in `harborrag_runtime.application`; `harborrag_app` holds only the transports
+(`api/`, `cli/`) and the `operations/` layer both call.
+
 Ingestion commands and HTTP ingestion routes resolve a secret-free source contract, persist a
 pending task in PostgreSQL, and hand it to runtime's neutral `IngestionGateway`. The default
 `TemporalIngestionGateway` translates submission, retry, status and result values into

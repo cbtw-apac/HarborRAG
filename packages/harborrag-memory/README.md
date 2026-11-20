@@ -3,8 +3,9 @@
 Scope-aware conversation memory for chat in
 [HarborRAG](https://github.com/cbtw-apac/HarborRAG): recent turns, a rolling session
 summary, long-term memories recalled into each turn, and facts extracted from finished
-turns. This package owns the memory facade and policies; storage lives in
-`harborrag-adapters` and the contracts live in `harborrag-core`.
+turns. This package owns the memory facade, the policies and the memory use cases (history
+records, titles, introspection and erasure); the contracts live in `harborrag-core` and the
+durable storage adapters in `harborrag-adapters`.
 
 ## Install
 
@@ -12,7 +13,7 @@ turns. This package owns the memory facade and policies; storage lives in
 pip install harborrag-memory
 ```
 
-`harborrag-app` depends on this package, so every install of the
+`harborrag-runtime` and `harborrag-app` depend on this package, so every install of the
 [`harborrag`](https://pypi.org/project/harborrag/) facade already includes it.
 
 Model-driven policies take a `MemoryModel`: asynchronous `generate_text` and
@@ -22,8 +23,8 @@ conversion and window trimming; LangGraph is not required.
 
 ## Quick start
 
-The in-memory conversation store comes from `harborrag-runtime`, so install that package
-(or `harborrag`) to run this example; any `ConversationRepository` works in its place.
+This example needs only this package: the bounded in-memory conversation store ships in
+`harborrag_memory.tiers.in_memory`. Any `ConversationRepository` works in its place.
 
 ```python
 import asyncio
@@ -35,7 +36,7 @@ from harborrag_memory import (
     MemoryOwner,
     ShortTermMemory,
 )
-from harborrag_runtime.memory import InMemoryConversationMemory
+from harborrag_memory.tiers.in_memory import InMemoryConversationMemory
 
 
 async def main() -> None:
@@ -190,8 +191,9 @@ settings, described in
    `summary_trigger_fraction * recent_max_tokens` and both a model and a repository are
    configured:
    - Summarize everything older than the last `summary_keep_messages`, fold in the prior
-     summary, and save it under the deterministic ID `summary:<session_id>`, so a session
-     never accumulates duplicates.
+     summary, and save it under a deterministic ID, `summary:` plus the SHA-256 of the tenant, user and
+     session IDs, so a session never accumulates duplicates and two tenants that reuse a
+     session ID do not share one.
    - `source_message_ids` lists only the messages that refresh folded in, so the row never
      grows without bound; `metadata["last_covered_message_id"]` is the frontier.
      Previously covered messages are left out of later refreshes, so unchanged history
@@ -413,6 +415,17 @@ Where the code lives:
 - `manager.py`: `MemoryManager`, the single facade chat imports.
 - `tiers/short_term.py`: the conversation history facade.
 - `tiers/long_term.py`: the canonical repository facade for durable memory.
+- `tiers/in_memory.py`: a bounded process-local conversation store for tests and local
+  checks.
+- `access.py`: the authenticated caller's own memory isolation key.
+- `administration.py` and `erasure.py`: introspection and right-to-erasure over one
+  caller's remembered data, and the durable deletion intents behind it.
+- `messages.py`, `projects.py` and `titles.py`: per-turn message records, project
+  validation and conversation titles.
+- `directory.py`: listing, reading and renaming the conversations one user owns.
+- `usage.py`: per-turn model-usage records, written best effort.
+- `locks.py`: per-session turn serialization and the session-busy errors.
+- `presenters.py`: public projections of stored memories and conversation rows.
 - `schemas.py`: stable re-exports of the core-owned memory contracts.
 - `identity.py`: the one derivation of the conversation identity an owner maps to.
 - `config.py`: `MemoryManagerConfig`, including the default recent-turn limit.

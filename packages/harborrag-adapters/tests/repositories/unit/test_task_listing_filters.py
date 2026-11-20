@@ -40,15 +40,15 @@ async def _seed(
 @pytest.mark.asyncio
 async def test_listing_keeps_only_the_runs_of_the_given_connections(tmp_path: Path) -> None:
     async with make_control_plane(tmp_path) as control_plane:
-        await _seed(control_plane, "run-a", "cpm/tickets")
-        await _seed(control_plane, "run-b", "cpm/wiki")
+        await _seed(control_plane, "run-a", "demo/tickets")
+        await _seed(control_plane, "run-b", "demo/wiki")
 
         page = await control_plane.tasks.list_tasks(
-            tenant_ids=frozenset({"acme"}), scope_connection_ids=frozenset({"cpm/tickets"})
+            tenant_ids=frozenset({"acme"}), scope_connection_ids=frozenset({"demo/tickets"})
         )
         both = await control_plane.tasks.list_tasks(
             tenant_ids=frozenset({"acme"}),
-            scope_connection_ids=frozenset({"cpm/tickets", "cpm/wiki"}),
+            scope_connection_ids=frozenset({"demo/tickets", "demo/wiki"}),
         )
 
         assert [task.task_id for task in page.items] == ["run-a"]
@@ -58,7 +58,7 @@ async def test_listing_keeps_only_the_runs_of_the_given_connections(tmp_path: Pa
 @pytest.mark.asyncio
 async def test_an_empty_connection_set_matches_no_run(tmp_path: Path) -> None:
     async with make_control_plane(tmp_path) as control_plane:
-        await _seed(control_plane, "run-a", "cpm/tickets")
+        await _seed(control_plane, "run-a", "demo/tickets")
 
         page = await control_plane.tasks.list_tasks(
             tenant_ids=frozenset({"acme"}), scope_connection_ids=frozenset()
@@ -71,9 +71,9 @@ async def test_an_empty_connection_set_matches_no_run(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_created_after_cuts_older_runs(tmp_path: Path) -> None:
     async with make_control_plane(tmp_path) as control_plane:
-        await _seed(control_plane, "run-old", "cpm/tickets")
+        await _seed(control_plane, "run-old", "demo/tickets")
         await asyncio.sleep(0.01)
-        await _seed(control_plane, "run-new", "cpm/tickets")
+        await _seed(control_plane, "run-new", "demo/tickets")
         old = await control_plane.tasks.get("run-old")
         assert old is not None
         assert old.submitted_at is not None

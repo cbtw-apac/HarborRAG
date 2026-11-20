@@ -64,7 +64,7 @@ class JiraConfig(StrictModel):
     jql: str | None = Field(
         default=None,
         description="Extra JQL that narrows the issues to sync",
-        examples=["project = CPM"],
+        examples=["project = DEMO"],
         json_schema_extra=widget("textarea"),
     )
     project_keys: list[str] = Field(

@@ -15,7 +15,7 @@ from harborrag_core.ingestion import (
     DocumentVersionState,
     SourceAdmissionDecision,
 )
-from harborrag_runtime.ingestion import DocumentReleaseService
+from harborrag_engine.ingestion.release.service import DocumentReleaseService
 from harborrag_runtime.ingestion.failure_classification import ingestion_failure_classifier
 from harborrag_runtime.ingestion.maintenance.retention import RetiredVersionPurgeBatch
 

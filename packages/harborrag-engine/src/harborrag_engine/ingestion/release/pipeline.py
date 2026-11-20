@@ -1,0 +1,231 @@
+"""Ordered document release pipeline."""
+
+from __future__ import annotations
+
+import logging
+from collections.abc import Awaitable, Callable
+from time import perf_counter
+
+from harborrag_core.ingestion.stages import DOCUMENT_STAGE_ORDER
+from harborrag_engine.ingestion.release.dependencies import (
+    DocumentReleaseDependencies,
+    RawDocumentLoader,
+)
+from harborrag_engine.ingestion.release.models import DocumentReleaseOutcome, DocumentReleaseRequest
+from harborrag_engine.ingestion.release.projection import DocumentProjectionStages
+from harborrag_engine.ingestion.release.stage_models import PreparedDocumentStage
+
+from .preparation import DocumentPreparationStages
+
+logger = logging.getLogger("harborrag.engine.ingestion.release.pipeline")
+
+
+def tag_failure_stage(error: BaseException, stage: str) -> None:
+    """Record the failing stage on the original exception without ever raising."""
+    try:
+        error.harborrag_stage = stage  # type: ignore[attr-defined]
+    except Exception:  # noqa: BLE001 - exceptions with __slots__ reject attributes
+        pass
+
+
+class DocumentStagePipeline:
+    """Compose named, independently retryable document ingestion stages.
+
+    Args:
+        dependencies: Ports and stores the stages read and write.
+    """
+
+    def __init__(self, dependencies: DocumentReleaseDependencies) -> None:
+        self.preparation = DocumentPreparationStages(dependencies)
+        self.projections = DocumentProjectionStages(dependencies)
+
+    async def release(
+        self,
+        request: DocumentReleaseRequest,
+        connector: RawDocumentLoader,
+    ) -> DocumentReleaseOutcome:
+        """Run capture, normalization and every later stage for one source item.
+
+        Tags the failing stage on any exception it re-raises.
+        """
+        started_at = perf_counter()
+        connector_type = request.source_identity.connector_type.value
+        logger.debug(
+            "Document preparation started connector_type=%s binding_kind=%s",
+            connector_type,
+            request.source_identity.binding.kind.value,
+        )
+        try:
+            capture = await self.preparation.fetch_and_capture(
+                request,
+                connector,
+            )
+        except Exception as error:
+            tag_failure_stage(error, "FetchAndCaptureRaw")
+            logger.error(
+                "Document stage failed stage=FetchAndCaptureRaw connector_type=%s "
+                "error_type=%s duration_ms=%.1f",
+                connector_type,
+                type(error).__name__,
+                (perf_counter() - started_at) * 1000,
+            )
+            raise
+        logger.debug(
+            "Document stage completed stage=FetchAndCaptureRaw document_id=%s "
+            "decision=%s duration_ms=%.1f",
+            capture.document_id,
+            capture.decision.value,
+            (perf_counter() - started_at) * 1000,
+        )
+
+        parse_started_at = perf_counter()
+        try:
+            prepared = await self.preparation.parse_and_normalize(
+                request,
+                capture,
+            )
+        except Exception as error:
+            tag_failure_stage(error, "ParseAndNormalize")
+            logger.error(
+                "Document stage failed stage=ParseAndNormalize document_id=%s "
+                "error_type=%s duration_ms=%.1f",
+                capture.document_id,
+                type(error).__name__,
+                (perf_counter() - parse_started_at) * 1000,
+            )
+            raise
+        logger.debug(
+            "Document stage completed stage=ParseAndNormalize document_id=%s "
+            "document_version_id=%s duration_ms=%.1f",
+            prepared.document_id,
+            prepared.document_version_id,
+            (perf_counter() - parse_started_at) * 1000,
+        )
+        return await self.release_prepared(request, prepared)
+
+    async def replay(
+        self,
+        request: DocumentReleaseRequest,
+        document_version_id: str,
+    ) -> DocumentReleaseOutcome:
+        """Resume from the earliest durable artifact; never fetch the connector."""
+        prepared = await self.preparation.replay_from_artifacts(
+            request,
+            document_version_id,
+        )
+        logger.info(
+            "Document replay prepared document_id=%s document_version_id=%s",
+            prepared.document_id,
+            prepared.document_version_id,
+        )
+        return await self.release_prepared(request, prepared)
+
+    def stage_functions(
+        self,
+    ) -> dict[
+        str,
+        Callable[[DocumentReleaseRequest, PreparedDocumentStage], Awaitable[object]],
+    ]:
+        """Map every stage name in the core stage order to the function that runs it."""
+        return {
+            "SyncContentUnits": self.preparation.sync_content_units,
+            "PersistCanonical": self.preparation.persist_canonical,
+            "ChunkAndValidate": self.preparation.chunk_and_validate,
+            "EncodeChunks": self.preparation.encode_chunks,
+            "BuildRelations": self.projections.build_relations,
+            "BuildProjections": self.projections.build_projections,
+            "WriteVectorProjection": self.projections.write_vector_projection,
+            "WriteGraphProjection": self.projections.write_graph_projection,
+            "VerifyProjections": self.projections.verify_projections,
+        }
+
+    async def release_prepared(
+        self,
+        request: DocumentReleaseRequest,
+        prepared: PreparedDocumentStage,
+    ) -> DocumentReleaseOutcome:
+        """Resume the shared pipeline from a canonical candidate reference."""
+        if not prepared.requires_processing:
+            outcome = await self.projections.publish_version(prepared)
+            self._log_outcome(outcome)
+            return outcome
+        stage_functions = self.stage_functions()
+        stages = tuple((name, stage_functions[name]) for name in DOCUMENT_STAGE_ORDER)
+        for stage_name, stage in stages:
+            started_at = perf_counter()
+            logger.debug(
+                "Document stage started document_id=%s document_version_id=%s stage=%s",
+                prepared.document_id,
+                prepared.document_version_id,
+                stage_name,
+            )
+            try:
+                await stage(request, prepared)
+            except Exception as error:
+                tag_failure_stage(error, stage_name)
+                logger.error(
+                    "Document stage failed document_id=%s document_version_id=%s "
+                    "stage=%s error_type=%s duration_ms=%.1f",
+                    prepared.document_id,
+                    prepared.document_version_id,
+                    stage_name,
+                    type(error).__name__,
+                    (perf_counter() - started_at) * 1000,
+                )
+                await self.preparation.record_failure(
+                    prepared,
+                    stage=stage_name,
+                    error=error,
+                )
+                raise
+            logger.debug(
+                "Document stage completed document_id=%s document_version_id=%s "
+                "stage=%s duration_ms=%.1f",
+                prepared.document_id,
+                prepared.document_version_id,
+                stage_name,
+                (perf_counter() - started_at) * 1000,
+            )
+        publish_started_at = perf_counter()
+        try:
+            outcome = await self.projections.publish_version(prepared)
+        except Exception as error:
+            tag_failure_stage(error, "PublishVersion")
+            logger.error(
+                "Document stage failed document_id=%s document_version_id=%s "
+                "stage=PublishVersion error_type=%s duration_ms=%.1f",
+                prepared.document_id,
+                prepared.document_version_id,
+                type(error).__name__,
+                (perf_counter() - publish_started_at) * 1000,
+            )
+            await self.preparation.record_failure(
+                prepared,
+                stage="PublishVersion",
+                error=error,
+            )
+            raise
+        logger.debug(
+            "Document stage completed document_id=%s document_version_id=%s "
+            "stage=PublishVersion duration_ms=%.1f",
+            prepared.document_id,
+            prepared.document_version_id,
+            (perf_counter() - publish_started_at) * 1000,
+        )
+        self._log_outcome(outcome)
+        return outcome
+
+    @staticmethod
+    def _log_outcome(outcome: DocumentReleaseOutcome) -> None:
+        logger.info(
+            "Document pipeline completed document_id=%s document_version_id=%s "
+            "decision=%s published=%s evidence_chunks=%d "
+            "graph_nodes=%d graph_relations=%d",
+            outcome.document_id,
+            outcome.document_version_id,
+            outcome.decision.value,
+            outcome.published,
+            outcome.evidence_chunks,
+            outcome.graph_nodes,
+            outcome.graph_relations,
+        )

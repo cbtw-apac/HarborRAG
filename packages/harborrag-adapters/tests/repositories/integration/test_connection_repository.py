@@ -40,7 +40,7 @@ async def _projects(sessions: SessionFactory, *pairs: tuple[str, str]) -> None:
 
 
 def _connection(
-    connection_id: str, *, project_id: str = "cpm", tenant_id: str = "acme"
+    connection_id: str, *, project_id: str = "demo", tenant_id: str = "acme"
 ) -> Connection:
     return (
         ConnectionBuilder.for_new(
@@ -53,10 +53,10 @@ def _connection(
                 "api_token": {"secret_ref": "secret://db/a"},
             }
         )
-        .config({"jql": "project = CPM"})
+        .config({"jql": "project = DEMO"})
         .tuning({"requests_per_minute": 600})
         .secret_refs(["secret://db/a"])
-        .actor("u_huy")
+        .actor("u_alex")
         .build()
     )
 
@@ -65,38 +65,40 @@ def _connection(
 async def test_put_creates_then_overwrites_and_reads_back_every_field(
     sessions: SessionFactory,
 ) -> None:
-    await _projects(sessions, ("acme", "cpm"))
+    await _projects(sessions, ("acme", "demo"))
     repository = SqlConnectionRepository(sessions)
 
-    created, outcome = await repository.put(_connection("cpm-tickets"))
+    created, outcome = await repository.put(_connection("demo-tickets"))
     assert (outcome, created.version) == ("created", 1)
-    fetched = await repository.get(tenant_id="acme", project_id="cpm", connection_id="cpm-tickets")
+    fetched = await repository.get(
+        tenant_id="acme", project_id="demo", connection_id="demo-tickets"
+    )
     assert fetched == created
-    assert await repository.get_by_source_key(tenant_id="acme", source_key="cpm/cpm-tickets") == (
+    assert await repository.get_by_source_key(tenant_id="acme", source_key="demo/demo-tickets") == (
         created
     )
     assert await repository.get_by_id(created.id, tenant_ids=frozenset({"acme"})) == created
 
     changed = (
         ConnectionBuilder.from_existing(created)
-        .name("CPM tickets")
+        .name("DEMO tickets")
         .config({"jql": "project = HR"})
         .actor("u_ops")
         .build()
     )
     stored, outcome = await repository.put(changed, expected_version=1)
 
-    assert (outcome, stored.version, stored.name) == ("overwritten", 2, "CPM tickets")
-    assert (stored.created_by, stored.updated_by) == ("u_huy", "u_ops")
+    assert (outcome, stored.version, stored.name) == ("overwritten", 2, "DEMO tickets")
+    assert (stored.created_by, stored.updated_by) == ("u_alex", "u_ops")
     assert stored.config == {"jql": "project = HR"}
     assert stored.tuning == {"requests_per_minute": 600}
 
 
 @pytest.mark.asyncio
 async def test_put_preconditions_map_to_precondition_failed(sessions: SessionFactory) -> None:
-    await _projects(sessions, ("acme", "cpm"))
+    await _projects(sessions, ("acme", "demo"))
     repository = SqlConnectionRepository(sessions)
-    created, _ = await repository.put(_connection("cpm-tickets"))
+    created, _ = await repository.put(_connection("demo-tickets"))
 
     with pytest.raises(HarborPreconditionFailedError, match="version does not match"):
         await repository.put(created, expected_version=7)
@@ -110,9 +112,9 @@ async def test_put_preconditions_map_to_precondition_failed(sessions: SessionFac
 async def test_concurrent_overwrites_at_one_version_let_exactly_one_win(
     sessions: SessionFactory,
 ) -> None:
-    await _projects(sessions, ("acme", "cpm"))
+    await _projects(sessions, ("acme", "demo"))
     repository = SqlConnectionRepository(sessions)
-    created, _ = await repository.put(_connection("cpm-tickets"))
+    created, _ = await repository.put(_connection("demo-tickets"))
     writers = [
         ConnectionBuilder.from_existing(created).name(f"writer {index}").build()
         for index in range(2)
@@ -124,19 +126,19 @@ async def test_concurrent_overwrites_at_one_version_let_exactly_one_win(
     )
 
     assert sum(isinstance(result, HarborPreconditionFailedError) for result in results) == 1
-    final = await repository.get(tenant_id="acme", project_id="cpm", connection_id="cpm-tickets")
+    final = await repository.get(tenant_id="acme", project_id="demo", connection_id="demo-tickets")
     assert final is not None and final.version == 2
 
 
 @pytest.mark.asyncio
 async def test_source_key_is_unique_per_tenant(sessions: SessionFactory) -> None:
-    await _projects(sessions, ("acme", "cpm"), ("acme", "hr"))
+    await _projects(sessions, ("acme", "demo"), ("acme", "hr"))
     repository = SqlConnectionRepository(sessions)
     await repository.put(_connection("tickets"))
     clash = (
         ConnectionBuilder.for_new(tenant_id="acme", project_id="hr", connection_id="other")
         .source_type("jira")
-        .source_key("cpm/tickets")
+        .source_key("demo/tickets")
         .build()
     )
 
@@ -175,7 +177,7 @@ async def test_list_pages_attention_first_and_filters(sessions: SessionFactory) 
 async def test_scoped_reads_hide_other_tenants_and_delete_is_idempotent(
     sessions: SessionFactory,
 ) -> None:
-    await _projects(sessions, ("acme", "cpm"), ("other", "z"))
+    await _projects(sessions, ("acme", "demo"), ("other", "z"))
     repository = SqlConnectionRepository(sessions)
     theirs, _ = await repository.put(_connection("theirs", project_id="z", tenant_id="other"))
 
@@ -188,10 +190,10 @@ async def test_scoped_reads_hide_other_tenants_and_delete_is_idempotent(
 
 @pytest.mark.asyncio
 async def test_set_status_honours_its_from_status_guard(sessions: SessionFactory) -> None:
-    await _projects(sessions, ("acme", "cpm"))
+    await _projects(sessions, ("acme", "demo"))
     repository = SqlConnectionRepository(sessions)
     await repository.put(_connection("tickets"))
-    key = {"tenant_id": "acme", "source_key": "cpm/tickets"}
+    key = {"tenant_id": "acme", "source_key": "demo/tickets"}
 
     assert await repository.set_status(**key, status="error") is True
     assert (
@@ -210,13 +212,13 @@ async def test_revisions_are_saved_once_per_fingerprint_and_listed_per_connectio
     revisions = SqlConnectionRevisionRepository(sessions)
     first = ConnectionSnapshot(
         tenant_id="acme",
-        source_key="cpm/tickets",
+        source_key="demo/tickets",
         source_type="jira",
         credentials={"api_token": {"secret_ref": "secret://db/a", "last4": "9f2c"}},
-        config={"jql": "project = CPM"},
+        config={"jql": "project = DEMO"},
     )
     second = ConnectionSnapshot(
-        tenant_id="acme", source_key="cpm/tickets", source_type="jira", config={"jql": "x"}
+        tenant_id="acme", source_key="demo/tickets", source_type="jira", config={"jql": "x"}
     )
 
     await revisions.save(first)
@@ -225,23 +227,23 @@ async def test_revisions_are_saved_once_per_fingerprint_and_listed_per_connectio
 
     assert await revisions.get(tenant_id="acme", fingerprint=first.fingerprint) == first
     assert await revisions.get(tenant_id="other", fingerprint=first.fingerprint) is None
-    listed = await revisions.list_for_source(tenant_id="acme", source_key="cpm/tickets")
+    listed = await revisions.list_for_source(tenant_id="acme", source_key="demo/tickets")
     assert [snapshot.fingerprint for snapshot in listed] == [first.fingerprint, second.fingerprint]
     assert listed[0].secret_refs == ["secret://db/a"]
 
 
 _LEGACY_ROWS = [
-    ("s1", "acme", "cpm", "jira_cloud", "CPM Tickets", "active"),
-    ("s2", "acme", "cpm", "jira", "CPM tickets", "paused"),
-    ("s3", "acme", "hr", "local", "CPM Tickets", "active"),
-    ("s4", "acme", "cpm", "notion", "Wiki", "active"),
+    ("s1", "acme", "demo", "jira_cloud", "DEMO Tickets", "active"),
+    ("s2", "acme", "demo", "jira", "DEMO tickets", "paused"),
+    ("s3", "acme", "hr", "local", "DEMO Tickets", "active"),
+    ("s4", "acme", "demo", "notion", "Wiki", "active"),
 ]
 
 
 def _seed_legacy_sources(database: Path) -> None:
     engine = sa.create_engine(f"sqlite:///{database}")
     with engine.begin() as connection:
-        for project_id in ("cpm", "hr"):
+        for project_id in ("demo", "hr"):
             connection.execute(
                 sa.text(
                     "INSERT INTO projects (id, tenant_id, name, description, collection, status,"
@@ -268,7 +270,7 @@ def _seed_legacy_sources(database: Path) -> None:
                     "status": status,
                     "config": (
                         '{"base_url": "https://acme.atlassian.net", "token": {"secret_ref":'
-                        ' "secret://db/t"}, "project_keys": ["CPM"], "page_size": 50}'
+                        ' "secret://db/t"}, "project_keys": ["DEMO"], "page_size": 50}'
                     ),
                 },
             )
@@ -296,17 +298,17 @@ def test_0041_backfills_unique_connection_ids_and_splits_legacy_config(tmp_path:
     rows = _rows(database)
 
     assert [rows[key]["connection_id"] for key in ("s1", "s2", "s3")] == [
-        "cpm-tickets",
-        "cpm-tickets-2",
-        "cpm-tickets",
+        "demo-tickets",
+        "demo-tickets-2",
+        "demo-tickets",
     ]
-    assert rows["s1"]["source_key"] == "cpm/cpm-tickets"
-    assert rows["s3"]["source_key"] == "hr/cpm-tickets"
+    assert rows["s1"]["source_key"] == "demo/demo-tickets"
+    assert rows["s3"]["source_key"] == "hr/demo-tickets"
     assert rows["s1"]["source_type"] == "jira" and rows["s3"]["source_type"] == "local_file"
     assert rows["s2"]["status"] == "active" and rows["s2"]["version"] == 1
     assert '"api_token": {"secret_ref": "secret://db/t"}' in str(rows["s1"]["credentials"])
     assert '"method": "pat"' in str(rows["s1"]["credentials"])
-    assert '"project_keys": ["CPM"]' in str(rows["s1"]["config_json"])
+    assert '"project_keys": ["DEMO"]' in str(rows["s1"]["config_json"])
     assert '"page_size": 50' in str(rows["s1"]["tuning"])
     assert rows["s4"]["status"] == "error" and "unknown source type" in str(
         rows["s4"]["status_detail"]

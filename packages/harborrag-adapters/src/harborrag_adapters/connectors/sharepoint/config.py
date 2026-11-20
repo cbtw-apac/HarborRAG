@@ -38,7 +38,7 @@ from .config_validation import (
     validate_site_location,
     validate_site_url,
 )
-from .delegated import default_token_cache_path
+from .delegated import default_token_cache_path, require_plain_id
 from .drive_paths import parse_sharepoint_site_url
 
 
@@ -95,7 +95,7 @@ class SharePointSiteConfig:
         max_file_size_bytes: Largest file to download, or ``None`` for no limit.
         fail_on_error: Re-raise a ``process_file_callback`` error instead of skipping.
         requests_per_minute: Graph request rate, from 1 to 6000.
-        page_size: Items per Graph page, from 1 to 999.
+        page_size: Items per Graph page, from 1 to 100.
         request_timeout_seconds: Timeout of one Graph request, in seconds.
         max_retries: Retries of one failed Graph request.
         backoff_factor: Base retry delay in seconds, doubled per attempt.
@@ -130,7 +130,7 @@ class SharePointSiteConfig:
     max_file_size_bytes: int | None = DEFAULT_MAX_FILE_SIZE_BYTES
     fail_on_error: bool = False
     requests_per_minute: int = 120
-    page_size: int = 200
+    page_size: int = 100
     request_timeout_seconds: float = 60.0
     max_retries: int = 3
     backoff_factor: float = 0.5
@@ -162,14 +162,15 @@ class SharePointSiteConfig:
             drive_id=self.drive_id,
         )
         self._resolve_auth_mode()
+        self._require_plain_tenant_id()
         validate_http_tuning(
             requests_per_minute=self.requests_per_minute,
             request_timeout_seconds=self.request_timeout_seconds,
             max_retries=self.max_retries,
             backoff_factor=self.backoff_factor,
         )
-        if not 1 <= self.page_size <= 999:
-            raise ValueError("page_size must be between 1 and 999")
+        if not 1 <= self.page_size <= 100:
+            raise ValueError("page_size must be between 1 and 100")
         validate_non_negative_limit("max_file_size_bytes", self.max_file_size_bytes)
         validate_positive_limit("max_file_size_bytes", self.max_file_size_bytes)
         self.root_path = validate_drive_path("root_path", self.root_path)
@@ -180,6 +181,11 @@ class SharePointSiteConfig:
         }
         validate_extensions(self.allowed_extensions)
         self._normalize_scope_and_allowlists()
+
+    def _require_plain_tenant_id(self) -> None:
+        """Refuse a ``tenant_id`` that is not a GUID or a domain name, before any URL uses it."""
+        if self.tenant_id:
+            require_plain_id("tenant_id", str(self.tenant_id))
 
     def _resolve_auth_mode(self) -> None:
         """Infer or parse ``auth_mode`` and require the credentials it needs."""

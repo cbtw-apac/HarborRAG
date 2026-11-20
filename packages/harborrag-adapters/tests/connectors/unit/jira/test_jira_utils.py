@@ -15,7 +15,7 @@ from harborrag_adapters.connectors.jira.query import (
     narrow_jql,
     search_body,
 )
-from harborrag_adapters.connectors.schemas import ConnectorQuery
+from harborrag_core.ingestion.connector_contracts import ConnectorQuery
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 
@@ -81,22 +81,22 @@ def test_jql_from_query_without_configured_projects_accepts_any_project() -> Non
 
 
 def test_narrow_jql_ands_the_run_condition_onto_the_connection_condition() -> None:
-    assert narrow_jql("project = CPM", "status = Done") == "(project = CPM) and (status = Done)"
+    assert narrow_jql("project = DEMO", "status = Done") == "(project = DEMO) and (status = Done)"
 
 
 @pytest.mark.parametrize(
     ("connection_jql", "run_jql", "expected"),
     [
         pytest.param(
-            "project = CPM ORDER BY created",
+            "project = DEMO ORDER BY created",
             "status = Done",
-            "(project = CPM) and (status = Done) ORDER BY created",
+            "(project = DEMO) and (status = Done) ORDER BY created",
             id="connection-ordering",
         ),
         pytest.param(
-            "project = CPM ORDER BY created",
+            "project = DEMO ORDER BY created",
             "status = Done order by key",
-            "(project = CPM) and (status = Done) order by key",
+            "(project = DEMO) and (status = Done) order by key",
             id="run-ordering-wins",
         ),
     ],
@@ -110,8 +110,8 @@ def test_narrow_jql_keeps_the_run_ordering_else_the_connection_ordering(
 @pytest.mark.parametrize(
     ("connection_jql", "run_jql"),
     [
-        pytest.param("project = CPM", "x = 1) or (project = HR", id="run-closes-its-group"),
-        pytest.param("project = CPM) or (project = HR", "x = 1", id="connection-closes-its-group"),
+        pytest.param("project = DEMO", "x = 1) or (project = HR", id="run-closes-its-group"),
+        pytest.param("project = DEMO) or (project = HR", "x = 1", id="connection-closes-its-group"),
     ],
 )
 def test_narrow_jql_with_either_side_reaching_outside_its_group_raises(

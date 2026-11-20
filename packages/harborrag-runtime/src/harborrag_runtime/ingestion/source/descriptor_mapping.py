@@ -18,14 +18,15 @@ from harborrag_core.ingestion import (
     SourceIdentity,
     SourceRelationDescriptor,
 )
+from harborrag_engine.ingestion.release.models import DocumentReleaseRequest
+from harborrag_engine.ingestion.source.models import PlannedDocumentRelease, SourceIngestionRequest
 from harborrag_runtime.serialization import to_json_value
-
-from ..document.models import DocumentReleaseRequest
-from .models import PlannedDocumentRelease, SourceIngestionRequest
 
 
 @dataclass(frozen=True, slots=True)
 class PendingSourceRelease:
+    """A discovered item paired with the release planned for it."""
+
     item: DiscoveredSourceItem
     release: PlannedDocumentRelease
 
@@ -42,6 +43,7 @@ class SourceDescriptorMapper:
         request: SourceIngestionRequest,
         descriptor: ConnectorDocumentDescriptor,
     ) -> tuple[PendingSourceRelease, ...]:
+        """Map a connector descriptor to the releases it contributes."""
         sources = (
             (descriptor.source, descriptor.admission),
             *((bound, self._bound_admission(bound)) for bound in descriptor.bound_records),

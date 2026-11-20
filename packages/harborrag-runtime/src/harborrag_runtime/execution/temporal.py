@@ -1,3 +1,9 @@
+"""Ingestion executor for the SDK's ``temporal`` execution mode.
+
+Runs execute as durable Temporal workflows. This process only submits, waits
+for and controls them, so it never holds an ingestion runtime.
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -29,7 +35,11 @@ from harborrag_runtime.temporal.schemas import SourceIngestionInput
 
 
 class TemporalIngestionExecutor:
-    """Execute ingestion through durable Temporal workflows."""
+    """Execute ingestion through durable Temporal workflows.
+
+    Args:
+        settings: Runtime settings with the Temporal target and the control database.
+    """
 
     def __init__(self, settings: RuntimeSettings) -> None:
         self._settings = settings
@@ -39,6 +49,7 @@ class TemporalIngestionExecutor:
         self._config_lock = asyncio.Lock()
 
     async def start(self) -> None:
+        """Connect the Temporal client unless it is already connected."""
         if self._client is None:
             self._client = await IngestionTemporalClient.connect(
                 TemporalRuntimeConfig.from_settings(self._settings)
@@ -71,11 +82,30 @@ class TemporalIngestionExecutor:
         )
 
     async def submit(self, request: IngestionRequest) -> IngestionTaskReference:
+        """Start a durable run without waiting for it.
+
+        A ``ConnectionNotFoundError`` passes through when the request names no
+        stored connection in its tenant.
+
+        Args:
+            request: The run to start.
+
+        Returns:
+            The run ID and the workflow that executes it.
+        """
         client = await self._connected_client()
         reference = await client.start_ingestion(await self._input(request))
         return IngestionTaskReference(reference.run_id, reference.workflow_id)
 
     async def run(self, request: IngestionRequest) -> IngestionResult:
+        """Start a durable run and wait for its result.
+
+        Args:
+            request: The run to start.
+
+        Returns:
+            The run's final counts, including the items it skipped.
+        """
         await self.submit(request)
         client = await self._connected_client()
         result = await client.result(request.task_id)
@@ -86,9 +116,18 @@ class TemporalIngestionExecutor:
             published=result.published,
             unchanged=result.unchanged,
             failed=result.failed,
+            skipped=result.skipped,
         )
 
     async def status(self, task_id: str) -> IngestionStatus:
+        """Return a run's workflow state, which carries no progress counts.
+
+        Args:
+            task_id: Run to read.
+
+        Returns:
+            The workflow's state and whether it is paused or being cancelled.
+        """
         client = await self._connected_client()
         status = await client.get_status(task_id)
         return IngestionStatus(
@@ -99,18 +138,22 @@ class TemporalIngestionExecutor:
         )
 
     async def pause(self, task_id: str) -> None:
+        """Ask a run to stop before its next batch, letting started work finish."""
         client = await self._connected_client()
         await client.pause(task_id)
 
     async def resume(self, task_id: str) -> None:
+        """Let a paused run start new batches again."""
         client = await self._connected_client()
         await client.resume(task_id)
 
     async def cancel(self, task_id: str) -> None:
+        """Ask a run to stop at its next safe boundary, even while it is paused."""
         client = await self._connected_client()
         await client.cancel(task_id)
 
     async def aclose(self) -> None:
+        """Drop the client, then close the config provider and connection stores."""
         self._client = None
         try:
             if self._config is not None:

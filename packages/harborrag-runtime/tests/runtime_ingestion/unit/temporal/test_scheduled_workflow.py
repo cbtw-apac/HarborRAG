@@ -18,10 +18,10 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from harborrag_core.ingestion.run_contracts import PreparedSourceSubmission, SourceSubmission
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.config.temporal import TemporalRuntimeConfig
 from harborrag_runtime.ingestion.connections import ConnectionNotFoundError
-from harborrag_runtime.ingestion_contracts import PreparedSourceSubmission, SourceSubmission
 from harborrag_runtime.temporal import ingestion_activities as activity_module
 from harborrag_runtime.temporal.schemas import (
     ScheduledRunMetricInput,
@@ -88,6 +88,11 @@ async def environment() -> AsyncIterator[WorkflowEnvironment]:
 async def _run(
     environment: WorkflowEnvironment, connection_id: str, *, cancel: bool = False
 ) -> tuple[_Activities, ScheduledSourceIngestionResult | BaseException]:
+    """Time skipping does not drop the cancelled outcome on a slow runner.
+
+    Time skipping would jump past the 10s metric-activity timeout while a slow runner is still
+    executing it, losing the "cancelled" outcome.
+    """
     activities = _Activities()
     async with Worker(
         environment.client,
@@ -109,8 +114,6 @@ async def _run(
                 await asyncio.sleep(0.05)
             await asyncio.sleep(0.2)
             await handle.cancel()
-            # Time skipping would jump past the 10s metric-activity timeout while a
-            # slow runner is still executing it, losing the "cancelled" outcome.
             with environment.auto_time_skipping_disabled():
                 return await _outcome(activities, handle)
         return await _outcome(activities, handle)

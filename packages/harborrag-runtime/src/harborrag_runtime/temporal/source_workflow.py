@@ -1,3 +1,5 @@
+"""Temporal workflows that run a source ingestion."""
+
 from __future__ import annotations
 
 import asyncio
@@ -17,7 +19,7 @@ from temporalio.exceptions import (
 )
 from temporalio.workflow import ParentClosePolicy
 
-from harborrag_runtime.ingestion_contracts import RunKind
+from harborrag_core.ingestion.run_contracts import RunKind
 from harborrag_runtime.temporal.failure_handling import durable_failure
 
 from .maintenance_schemas import ProjectionCleanupResult
@@ -54,11 +56,21 @@ _SIGNAL_ONLY_BATCH_PAUSE_PATCH = "harborrag-source-signal-only-batch-pause"
 
 @workflow.defn(name="harborrag.scheduled_source_ingestion")
 class ScheduledSourceIngestionWorkflow:
+    """Workflow that prepares and runs one scheduled source ingestion."""
+
     @workflow.run
     async def run(
         self,
         request: ScheduledSourceIngestionInput,
     ) -> ScheduledSourceIngestionResult:
+        """Run the scheduled ingestion.
+
+        Backfills reuse a past firing's workflow ID; the run ID keeps each execution its own task
+        and scan instead of replaying the old plan.
+
+        Another ingestion holds the scope; its scan covers this firing. Warn: repeated skips mean a
+        long-running or stranded scan.
+        """
         info = workflow.info()
         scheduled_at = info.typed_search_attributes.get(
             SearchAttributeKey.for_datetime("TemporalScheduledStartTime")
@@ -79,8 +91,6 @@ class ScheduledSourceIngestionWorkflow:
             "started",
             schedule_to_start_seconds=schedule_to_start_seconds,
         )
-        # Backfills reuse a past firing's workflow ID; the run ID keeps each
-        # execution its own task and scan instead of replaying the old plan.
         task_id = _scheduled_task_id(request.schedule_id, info.workflow_id, info.run_id)
         try:
             preparation = await workflow.execute_activity(
@@ -97,8 +107,6 @@ class ScheduledSourceIngestionWorkflow:
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
             if preparation.source is None:
-                # Another ingestion holds the scope; its scan covers this firing.
-                # Warn: repeated skips mean a long-running or stranded scan.
                 workflow.logger.warning(
                     "Scheduled ingestion skipped; source scope busy schedule_id=%s "
                     "workflow_id=%s source_scope_id=%s",
@@ -156,14 +164,15 @@ class ScheduledSourceIngestionWorkflow:
         )
 
 
-# Termination and execution timeouts end the run without running workflow code,
-# so they are never recorded here.
 _RESULT_OUTCOMES = {
     "COMPLETED": "completed",
     "PARTIAL": "partial",
     "CANCELLED": "cancelled",
     "FAILED": "failed",
 }
+"""Termination and execution timeouts end the run without running workflow code, so they are never
+recorded here.
+"""
 
 
 async def _record_scheduled_run_metric(
@@ -199,9 +208,12 @@ def _scheduled_task_id(schedule_id: str, workflow_id: str, run_id: str) -> str:
 
 @workflow.defn(name="harborrag.source_ingestion")
 class SourceIngestionWorkflow:
+    """Workflow that discovers a source's documents and ingests them in batches."""
+
     def __init__(self) -> None:
         self._summary = DocumentDispatchSummary()
         self._discovered = 0
+        self._skipped_by_reason: dict[str, int] = {}
         self._batch_number = 0
         self._task_id = "pending"
         self._status = "PENDING"
@@ -217,10 +229,12 @@ class SourceIngestionWorkflow:
         self,
         request: SourceIngestionInput,
     ) -> SourceIngestionResult:
+        """Run the source ingestion."""
         self._task_id = request.task_id
         self._status = "RUNNING"
         discovery, start_index = await self._initial_state(request)
         self._discovered = discovery.document_count
+        self._skipped_by_reason = dict(discovery.skipped_by_reason)
         if await self._stop_requested(request):
             return await self._cancelled_result(request, discovery)
         completed_in_run = 0
@@ -260,6 +274,7 @@ class SourceIngestionWorkflow:
                                 next_document_index=end,
                                 batch_number=self._batch_number,
                                 summary=self._summary,
+                                skipped_by_reason=self._skipped_by_reason,
                             ),
                         )
                     )
@@ -302,10 +317,10 @@ class SourceIngestionWorkflow:
         hard. Without this, the failure propagated straight out of the workflow
         with no `record_source_failure` call, so the control-plane task row stayed
         RUNNING forever even though Temporal itself considered the run failed.
-        """
 
+        Like discovery: the closed workflow's get_status must say FAILED.
+        """
         if workflow.patched(_RUN_FAILURE_STATUS_PATCH):
-            # Like discovery: the closed workflow's get_status must say FAILED.
             self._status = "FAILED"
         error_code, _ = durable_failure(error)
         await workflow.execute_activity(
@@ -331,6 +346,7 @@ class SourceIngestionWorkflow:
                     scan_id=continuation.scan_id,
                     plan_reference=continuation.plan_reference,
                     document_count=continuation.document_count,
+                    skipped_by_reason=continuation.skipped_by_reason,
                 ),
                 continuation.next_document_index,
             )
@@ -393,7 +409,6 @@ class SourceIngestionWorkflow:
         resume. A busy relay now finishes its step, skipping the closed child, and
         returns. An idle one has nothing in flight and is still cancelled.
         """
-
         if self._relay_busy and workflow.patched(_PAUSE_RELAY_TEARDOWN_PATCH):
             self._relay_stopping = True
         else:
@@ -411,6 +426,8 @@ class SourceIngestionWorkflow:
         Without this, a pause requested while a batch's document waves are
         dispatching would sit unenforced until that batch drained on its own,
         since the child has no way to observe the parent's `_paused` state.
+
+        Woken only to stop: the batch closed with nothing left to relay.
         """
         relayed = False
         while True:
@@ -420,7 +437,6 @@ class SourceIngestionWorkflow:
 
             await workflow.wait_condition(_relay_wakes)
             if self._paused == relayed:
-                # Woken only to stop: the batch closed with nothing left to relay.
                 return
             relayed = self._paused
             self._relay_busy = True
@@ -434,10 +450,13 @@ class SourceIngestionWorkflow:
         *,
         paused: bool,
     ) -> None:
+        """Persisted even while stopping, so the task row matches `_paused`.
+
+        A stopped relay leaves this to the batch boundary's own pause.
+        """
         if not workflow.patched(_PAUSE_PERSISTENCE_PATCH):
             await self._signal_batch(handle, "pause" if paused else "resume")
             return
-        # Persisted even while stopping, so the task row matches `_paused`.
         await workflow.execute_activity(
             "harborrag.pause_source_ingestion" if paused else "harborrag.resume_source_ingestion",
             SourcePauseInput(task_id=self._task_id)
@@ -452,7 +471,6 @@ class SourceIngestionWorkflow:
             # TODO: pause natively again on Temporal server >= 1.32 with temporalio >= 1.35.
             if not workflow.patched(_SIGNAL_ONLY_BATCH_PAUSE_PATCH):
                 await self._control_batch(handle, request, "harborrag.pause_workflow_execution")
-            # A stopped relay leaves this to the batch boundary's own pause.
             if not self._relay_stopping:
                 self._pause_relay_applied = True
         else:
@@ -465,13 +483,16 @@ class SourceIngestionWorkflow:
         handle: workflow.ChildWorkflowHandle[Any, DocumentDispatchSummary],
         name: str,
     ) -> None:
+        """Send a signal to the batch child workflow.
+
+        Only a closed child rejects a signal: it closed before this workflow saw it finish, and
+        there is nothing left to pause or resume.
+        """
         if self._relay_stopping:
             return
         try:
             await handle.signal(name)
         except FailureError as error:
-            # Only a closed child rejects a signal: it closed before this workflow
-            # saw it finish, and there is nothing left to pause or resume.
             if is_cancelled_exception(error) or not workflow.patched(_PAUSE_RELAY_TEARDOWN_PATCH):
                 raise
             workflow.logger.info(
@@ -511,6 +532,11 @@ class SourceIngestionWorkflow:
         self,
         request: SourceIngestionInput,
     ) -> SourceDiscoveryResult:
+        """Run source discovery as an activity.
+
+        Each retry resumes from the last persisted page, so the retry bound covers one attempt, not
+        the discovery.
+        """
         try:
             return cast(
                 SourceDiscoveryResult,
@@ -518,8 +544,6 @@ class SourceIngestionWorkflow:
                     "harborrag.discover_source_items",
                     request,
                     task_queue=request.workflow_options.task_queues.discovery,
-                    # Each retry resumes from the last persisted page, so this
-                    # bounds one attempt, not the discovery.
                     start_to_close_timeout=timedelta(
                         seconds=request.workflow_options.timeouts.discovery_seconds
                     ),
@@ -610,10 +634,13 @@ class SourceIngestionWorkflow:
             removal_candidates=(),
             unresolved_relations=0,
             status="CANCELLED",
+            skipped=sum(self._skipped_by_reason.values()),
+            skipped_by_reason=dict(self._skipped_by_reason),
         )
 
     @workflow.signal
     def pause(self) -> None:
+        """Pause dispatch of further documents."""
         if not self._cancel_requested and not self._paused:
             self._paused = True
             self._pause_persisted = False
@@ -622,6 +649,7 @@ class SourceIngestionWorkflow:
 
     @workflow.signal
     def resume(self) -> None:
+        """Resume dispatch of documents."""
         was_paused = self._paused
         self._paused = False
         if was_paused and not self._cancel_requested:
@@ -631,12 +659,14 @@ class SourceIngestionWorkflow:
 
     @workflow.signal
     def request_graceful_cancel(self) -> None:
+        """Stop dispatching and finish the documents in flight."""
         self._cancel_requested = True
         self._paused = False
         self._status = "CANCELLING"
 
     @workflow.query
     def get_status(self) -> SourceIngestionStatus:
+        """Return the workflow's status."""
         return SourceIngestionStatus(
             task_id=self._task_id,
             status=self._status,
@@ -647,10 +677,12 @@ class SourceIngestionWorkflow:
 
     @workflow.query
     def get_progress(self) -> dict[str, int]:
+        """Return document counts so far."""
         return {
             "discovered": self._discovered,
             "published": self._summary.published,
             "unchanged": self._summary.unchanged,
             "failed": self._summary.failed,
+            "skipped": sum(self._skipped_by_reason.values()),
             "completed_batches": self._batch_number,
         }

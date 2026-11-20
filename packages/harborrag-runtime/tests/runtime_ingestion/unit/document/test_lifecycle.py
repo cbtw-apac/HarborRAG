@@ -12,10 +12,8 @@ from harborrag_core.ingestion import (
     SourceAdmissionDecision,
 )
 from harborrag_core.storage import StorageOperationContext
-from harborrag_runtime.ingestion import (
-    DocumentReleaseService,
-    ProjectionCleanupService,
-)
+from harborrag_engine.ingestion.maintenance.cleanup import ProjectionCleanupService
+from harborrag_engine.ingestion.release.service import DocumentReleaseService
 
 from ...fixtures.connectors import SourceConnector
 from ...fixtures.release import (
@@ -97,7 +95,7 @@ async def test_cleanup_removes_retired_vector_and_graph_projections(
             ),
             connector,
         )
-        with caplog.at_level(logging.INFO, logger="harborrag.runtime.ingestion.cleanup"):
+        with caplog.at_level(logging.INFO, logger="harborrag.engine.ingestion.maintenance.cleanup"):
             result = await ProjectionCleanupService(
                 control=control,
                 vector_store=dependencies.vector_store,

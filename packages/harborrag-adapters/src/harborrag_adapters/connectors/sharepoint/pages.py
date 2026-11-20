@@ -16,8 +16,8 @@ from html import escape
 from typing import Any
 
 from harborrag_adapters.connectors.exceptions import FetchError
-from harborrag_adapters.connectors.schemas import ConnectorQuery
 from harborrag_core.domain.source import SourceRecord
+from harborrag_core.ingestion.connector_contracts import ConnectorQuery
 
 from .client import SharePointClient
 from .config import SharePointSiteConfig
@@ -51,6 +51,10 @@ class SharePointPagesAPI:
     Args:
         client: Graph client that sends the requests.
         config: Validated connector config; ``page_size`` sets the listing page size.
+
+    Attributes:
+        client: Graph client.
+        config: Validated site configuration.
     """
 
     def __init__(self, client: SharePointClient, config: SharePointSiteConfig) -> None:

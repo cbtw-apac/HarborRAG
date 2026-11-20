@@ -3,15 +3,15 @@
 from __future__ import annotations
 
 import pytest
-from topology_retrieval_support import (
+
+from harborrag_core.contracts.errors import HarborCapabilityError
+from harborrag_core.security import AccessContext
+from harborrag_engine.testing.retrieval_fakes import (
     ActiveVersions,
     CanonicalTopology,
     TopologyVectors,
     service,
 )
-
-from harborrag_core.contracts.errors import HarborCapabilityError
-from harborrag_core.security import AccessContext
 from harborrag_runtime.contracts import SemanticPathRequest
 
 ACCESS = AccessContext.system("tenant-1")

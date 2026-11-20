@@ -25,6 +25,7 @@ _SITE_ID = re.compile(r"[A-Za-z0-9.,_-]+")
 _DOT_SEGMENTS = frozenset({".", ".."})
 _SITE_PATH_RESERVED = frozenset("?#%:")
 _DRIVE_ID_LABEL = "drive_id"
+_WHITESPACE = re.compile(r"\s")
 
 
 def validate_site_url(site_url: str) -> None:
@@ -238,6 +239,16 @@ def normalize_identifier(value: str) -> str:
     return value.strip().rstrip("/").casefold()
 
 
+def path_match_key(path: str) -> str:
+    """Return the form a drive path is compared in for the path allowlist.
+
+    Surrounding slashes are dropped, every whitespace character becomes a plain
+    space, and the text is casefolded. A folder named with a no-break space then
+    matches a prefix typed with a normal space, as upper and lower case already do.
+    """
+    return _WHITESPACE.sub(" ", path.strip("/")).casefold()
+
+
 def normalize_path_prefixes(values: Iterable[str]) -> list[str]:
     """Normalize drive path prefixes for case-insensitive matching.
 
@@ -254,7 +265,7 @@ def normalize_path_prefixes(values: Iterable[str]) -> list[str]:
     prefixes = []
     for value in values:
         normalized = validate_drive_path("allowed_path_prefixes", str(value))
-        prefixes.append((normalized or "").casefold())
+        prefixes.append(path_match_key(normalized or ""))
     if not prefixes:
         raise ValueError("allowed_path_prefixes must list at least one prefix when set")
     return prefixes

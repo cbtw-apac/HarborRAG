@@ -1,3 +1,5 @@
+"""Connector facade that adapts registry-built connectors to the HarborRAG connector contract."""
+
 from __future__ import annotations
 
 from collections.abc import Iterator
@@ -5,17 +7,30 @@ from typing import Any
 
 from harborrag_core.domain.raw_document import RawDocument
 from harborrag_core.domain.source import SourceRecord
+from harborrag_core.ingestion.connector_contracts import (
+    ConnectorCapabilities,
+    ConnectorPage,
+    ConnectorQuery,
+    ConnectorSkip,
+)
 
 from .descriptors import ConnectorDocumentDescriptor
 from .registry import connector_registry
-from .schemas import ConnectorCapabilities, ConnectorPage, ConnectorQuery, ConnectorSkip
 
 
 class HarborConnector:
-    """Factory facade that hides provider-class lookup from callers."""
+    """Factory facade that hides provider-class lookup from callers.
+
+    Args:
+        provider: Registered provider name, such as ``jira``.
+        **kwargs: Settings passed to the provider's connector.
+
+    Attributes:
+        provider_name: Registered provider name.
+        provider: The concrete connector the registry created.
+    """
 
     def __init__(self, provider: str, **kwargs: Any) -> None:
-        """Create a concrete connector from the provider registry."""
         self.provider_name = provider
         self.provider = connector_registry.create(provider, **kwargs)
 
@@ -70,7 +85,6 @@ class HarborConnector:
         record: SourceRecord,
     ) -> ConnectorDocumentDescriptor:
         """Proxy compact admission discovery to the selected provider."""
-
         return self.provider.describe(record)
 
     def load_raw_documents(

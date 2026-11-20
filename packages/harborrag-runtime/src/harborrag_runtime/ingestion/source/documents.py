@@ -15,11 +15,11 @@ from harborrag_core.ingestion import (
     is_retryable_failure_code,
 )
 from harborrag_core.schemas.ids import DocumentId, DocumentVersionId
+from harborrag_engine.ingestion.release.models import DocumentReleaseOutcome
+from harborrag_engine.ingestion.release.service import DocumentReleaseService
+from harborrag_engine.ingestion.source.models import PlannedDocumentRelease
 
-from ..document.models import DocumentReleaseOutcome
-from ..document.service import DocumentReleaseService
 from ..failure_classification import ingestion_failure_classifier
-from .models import PlannedDocumentRelease
 
 logger = logging.getLogger("harborrag.runtime.ingestion.source_documents")
 
@@ -42,6 +42,7 @@ class SourceDocumentService:
         planned: PlannedDocumentRelease,
         connector: BaseConnector | HarborConnector,
     ) -> DocumentIngestionOutcome:
+        """Release one planned document and record its outcome."""
         try:
             return await self.publish_one(task_id, planned, connector)
         except Exception as error:
@@ -72,6 +73,7 @@ class SourceDocumentService:
         planned: PlannedDocumentRelease,
         connector: BaseConnector | HarborConnector,
     ) -> DocumentIngestionOutcome:
+        """Publish one planned document and record its outcome."""
         outcome = await self._documents.release(planned.request, connector)
         return await self.record_published_document(task_id, planned, outcome)
 
@@ -81,6 +83,7 @@ class SourceDocumentService:
         planned: PlannedDocumentRelease,
         outcome: DocumentReleaseOutcome,
     ) -> DocumentIngestionOutcome:
+        """Record the outcome of a document that was released."""
         status = (
             DocumentIngestionOutcome.PUBLISHED
             if outcome.published
@@ -123,6 +126,7 @@ class SourceDocumentService:
         failed_stage: str = "FetchAndCaptureRaw",
         skip_reason: str | None = None,
     ) -> None:
+        """Record a document whose release failed."""
         normalized = error_type.strip().lower()
         if not normalized:
             raise ValueError("document failure error type must be non-empty")

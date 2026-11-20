@@ -21,6 +21,9 @@ OWNER_USER = "POSTGRES_USER"
 OWNER_PASSWORD = "POSTGRES_PASSWORD"  # noqa: S105 - a variable name, not a value
 CONTROL_DB_URL = "HARBORRAG_CONTROL_DB_URL"
 SECRETS_ENCRYPTION_KEY = "HARBORRAG_SECRETS_ENCRYPTION_KEY"  # noqa: S105 - a variable name
+LOCAL_SOURCE_ROOT = "HARBORRAG_LOCAL_SOURCE_ROOT"
+TENANT_ID = "HARBORRAG_TENANT_ID"
+CORPUS_MODE_KEYS = ("HARBORRAG_CORPUS_ACCESS_MODE", "HARBORRAG_CORPUS_SHARED_TENANT_ID")
 
 # ``${NAME}`` and ``${NAME:-default}``: the two forms the env-example files use.
 _REFERENCE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}")
@@ -159,6 +162,44 @@ def checkout_secrets_encryption_key(path: Path) -> str | None:
         return None
     key = read_compose_env_file(path).get(SECRETS_ENCRYPTION_KEY, "")
     return key if key.strip() else None
+
+
+def checkout_local_source_root(path: Path) -> str | None:
+    """The stack's ``HARBORRAG_LOCAL_SOURCE_ROOT`` from ``path``; None when blank.
+
+    The API and workers see local sources under this container path, so a host CLI
+    validates stored ``local_file`` connections against the same root.
+    """
+
+    if not path.is_file():
+        return None
+    root = read_compose_env_file(path).get(LOCAL_SOURCE_ROOT, "").strip()
+    return root or None
+
+
+def checkout_corpus_mode(path: Path) -> dict[str, str]:
+    """Only the corpus-mode lines of ``path``, the API's env file; blank values are left out.
+
+    The API reads chat from the corpus in the mode these two variables name, so a host CLI
+    must agree with it. Nothing else in that file (its hostnames, tokens and DSNs) is read.
+    """
+
+    if not path.is_file():
+        return {}
+    values = read_compose_env_file(path)
+    return {name: values[name].strip() for name in CORPUS_MODE_KEYS if values.get(name, "").strip()}
+
+
+def checkout_tenant_id(path: Path) -> str | None:
+    """The stack's ``HARBORRAG_TENANT_ID`` from ``path``, the API's env file; None when blank.
+
+    The stack's workers and API act in this tenant, so it is the tenant a host CLI falls
+    back to when nothing more specific names one.
+    """
+
+    if not path.is_file():
+        return None
+    return read_compose_env_file(path).get(TENANT_ID, "").strip() or None
 
 
 def checkout_environment_name(root: Path) -> str | None:

@@ -22,6 +22,7 @@ from harborrag_core.ports.model_clients import (
     AsyncHarborChatClientProtocol,
     StructuredUsageResult,
 )
+from harborrag_core.topology.evidence import EvidenceCanonicalizer
 from harborrag_core.topology.extraction import (
     ChunkExtractionInput,
     ExtractionOutput,
@@ -29,12 +30,11 @@ from harborrag_core.topology.extraction import (
     digest,
 )
 from harborrag_core.topology.ontology import OntologyRegistry, builtin_ontology
+from harborrag_core.topology.output_policy import ExtractionOutputPolicy, OutputPolicyViolation
 from harborrag_core.topology.windowing import input_character_count
 
-from .evidence import EvidenceCanonicalizer
 from .extraction_budget import SEMANTIC_ATTEMPTS, evidence_json, request_budget
 from .extraction_schema import response_schema
-from .output_policy import ExtractionOutputPolicy, OutputPolicyViolation
 
 EXTRACTION_PROMPT = """In one fused extraction, write a useful title, short description,
 grounded entities, and qualified assertions from supplied
@@ -153,6 +153,7 @@ def pinned_configuration(
 def extraction_request_budget(
     value: ChunkExtractionInput, profile: ExtractionProfile
 ) -> tuple[int, int]:
+    """Compute the request and completion token budgets for one chunk."""
     return request_budget(
         value,
         profile,
@@ -253,6 +254,7 @@ class LLMEntityExtractor:
             Awaitable[StructuredUsageResult[BaseModel]],
         ],
     ) -> ExtractionRun:
+        """Revalidate even when an injected client bypasses schema checks."""
         if profile.prompt_digest != digest(EXTRACTION_PROMPT):
             raise ValueError("unsupported extraction prompt revision")
         if profile.schema_version != "4":
@@ -292,7 +294,6 @@ class LLMEntityExtractor:
                 usage = _sum_usage(usage, dispatched.usage)
                 calls += dispatched.provider_calls
                 result = dispatched.value
-                # Revalidate even when an injected client bypasses schema checks.
                 try:
                     result = ExtractionOutput.model_validate(result.model_dump())
                     result = ExtractionOutputPolicy().apply(result, value)

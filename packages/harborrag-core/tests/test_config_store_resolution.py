@@ -26,8 +26,8 @@ SNAPSHOT = SettingsSnapshot(
     revision=3,
     overrides={
         "tenant": {KEY: 512},
-        "project:cpm": {KEY: 384},
-        "connection:cpm/cpm-tickets": {KEY: 256},
+        "project:demo": {KEY: 384},
+        "connection:demo/demo-tickets": {KEY: 256},
     },
 )
 
@@ -36,9 +36,9 @@ def test_effective_precedence() -> None:
     def effective(text: str) -> EffectiveValue:
         return resolve_effective(REGISTRY, SNAPSHOT, SettingsLevel.parse(text)).values[KEY]
 
-    assert effective("connection:cpm/cpm-tickets") == EffectiveValue(256, "connection")
-    assert effective("connection:cpm/cpm-wiki") == EffectiveValue(384, "project")
-    assert effective("connection:hr/hr-cvs") == EffectiveValue(512, "tenant")
+    assert effective("connection:demo/demo-tickets") == EffectiveValue(256, "connection")
+    assert effective("connection:demo/demo-wiki") == EffectiveValue(384, "project")
+    assert effective("connection:hr/hr-docs") == EffectiveValue(512, "tenant")
     resolved = resolve_effective(REGISTRY, SNAPSHOT, SettingsLevel("tenant"))
     assert resolved.values["retrieval.top_k"] == EffectiveValue(5, "default")
     assert resolved.revision == 3
@@ -49,9 +49,9 @@ def test_effective_precedence() -> None:
 
 
 def test_override_at_a_level_the_key_does_not_list_is_ignored() -> None:
-    snapshot = SettingsSnapshot("acme", 1, {"project:cpm": {"ingestion.concurrency": 2}})
+    snapshot = SettingsSnapshot("acme", 1, {"project:demo": {"ingestion.concurrency": 2}})
 
-    resolved = resolve_effective(REGISTRY, snapshot, SettingsLevel.parse("project:cpm"))
+    resolved = resolve_effective(REGISTRY, snapshot, SettingsLevel.parse("project:demo"))
 
     assert resolved.values["ingestion.concurrency"] == EffectiveValue(8, "default")
 
@@ -63,19 +63,19 @@ def plan(
 
 
 def test_plan_changes_values() -> None:
-    (change,) = plan("project:cpm", {KEY: 300})
+    (change,) = plan("project:demo", {KEY: 300})
     assert (change.from_value, change.to_value, change.applies) == (384, 300, "next_ingestion")
-    assert change.level == "project:cpm"
+    assert change.level == "project:demo"
     assert change.as_dict() == {"key": KEY, "from": 384, "to": 300, "applies": "next_ingestion"}
 
-    (removal,) = plan("project:cpm", {KEY: None})
+    (removal,) = plan("project:demo", {KEY: None})
     assert removal.to_value is None
 
     without_project = SettingsSnapshot("acme", 3, {"tenant": {KEY: 512}})
-    (inherited,) = plan("project:cpm", {KEY: 384}, without_project)
+    (inherited,) = plan("project:demo", {KEY: 384}, without_project)
     assert inherited.from_value == 512
 
-    assert plan("project:cpm", {KEY: 384}) == ()
+    assert plan("project:demo", {KEY: 384}) == ()
     assert plan("project:hr", {KEY: None}) == ()
 
 
@@ -84,7 +84,7 @@ def test_plan_changes_values() -> None:
     [
         ("tenant", {"chunking.max_tokenz": 1}, "chunking.max_tokenz"),
         ("tenant", {KEY: 99999}, KEY),
-        ("connection:cpm/cpm-tickets", {"retrieval.top_k": 5}, "retrieval.top_k"),
+        ("connection:demo/demo-tickets", {"retrieval.top_k": 5}, "retrieval.top_k"),
         ("tenant", {"database.url": "x"}, "database.url"),
         ("tenant", {"retrieval.rerank": True}, "retrieval.rerank"),
         ("tenant", {KEY: True}, KEY),

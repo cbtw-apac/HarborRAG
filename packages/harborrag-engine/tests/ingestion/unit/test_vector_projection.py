@@ -287,8 +287,8 @@ def test_every_evidence_point_of_an_issue_carries_its_typed_fields() -> None:
                     ),
                 ],
                 source="jira",
-                record_id="CPM-1",
-                extra={"issue_key": "CPM-1", "fields": fields},
+                record_id="DEMO-1",
+                extra={"issue_key": "DEMO-1", "fields": fields},
             )
         )
     )
@@ -391,7 +391,7 @@ def _minimal_payload() -> dict[str, object]:
 
 
 def test_an_attachment_chunk_names_the_item_it_is_attached_to() -> None:
-    """A CV is its own document, chunked by a strategy that copies no provenance.
+    """A runbook is its own document, chunked by a strategy that copies no provenance.
 
     Its parent's item id is what lets a filter on the issue's fields reach it,
     so every one of its evidence points carries that id.
@@ -403,7 +403,7 @@ def test_an_attachment_chunk_names_the_item_it_is_attached_to() -> None:
                 [DocumentElement("p1", "paragraph", "Data Engineer with five years of Spark.")],
                 extra={
                     "binding_kind": "ATTACHMENT",
-                    "parent_source_item_id": "jira://CPM/CPM-116680",
+                    "parent_source_item_id": "jira://DEMO/DEMO-116680",
                 },
             )
         )
@@ -422,7 +422,9 @@ def test_an_attachment_chunk_names_the_item_it_is_attached_to() -> None:
     )
 
     assert records
-    assert {record.payload.parent_source_item_id for record in records} == {"jira://CPM/CPM-116680"}
+    assert {record.payload.parent_source_item_id for record in records} == {
+        "jira://DEMO/DEMO-116680"
+    }
 
 
 def test_each_point_carries_its_graph_node_keys_from_the_same_version() -> None:

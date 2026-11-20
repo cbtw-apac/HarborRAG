@@ -21,7 +21,7 @@ from harborrag_adapters.connectors.policies.http import (
     retry_delay_seconds,
     safe_response_error_detail,
 )
-from harborrag_adapters.connectors.policies.network import guarded_session
+from harborrag_adapters.connectors.policies.network import DestinationPolicy, guarded_session
 
 from .config import GitHubRepositoryConfig
 
@@ -50,9 +50,14 @@ class GitHubClient(Protocol):
 class _RequestsGitHubClient:
     """Authenticated, rate-limited GitHub REST client."""
 
-    def __init__(self, config: GitHubRepositoryConfig) -> None:
+    def __init__(
+        self,
+        config: GitHubRepositoryConfig,
+        *,
+        destination_policy: DestinationPolicy | None = None,
+    ) -> None:
         self.config = config
-        self.session = guarded_session()
+        self.session = guarded_session(destination_policy or DestinationPolicy())
         self.session.headers.update(
             {
                 "Accept": "application/vnd.github+json",

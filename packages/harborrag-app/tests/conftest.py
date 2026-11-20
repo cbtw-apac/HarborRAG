@@ -7,8 +7,16 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+from typer import rich_utils
 
+from harborrag_app.cli import environment as environment_module
 from harborrag_app.cli import project as project_module
+
+SHELL_VARIABLES = (
+    "HARBORRAG_LOCAL_SOURCE_ROOT",
+    "HARBORRAG_TENANT_ID",
+    "HARBORRAG_INGESTION_TENANT_ID",
+)
 
 
 @pytest.fixture(autouse=True)
@@ -19,6 +27,10 @@ def _isolated_application_environment(
 ) -> None:
     """Use loopback auth and a durable database isolated to each test.
 
+    Drops the variables a developer's shell may export (``SHELL_VARIABLES``), and pins
+    ``COLUMNS`` so Rich does not wrap usage boxes at a narrow terminal's width; a test
+    that needs one of them sets it.
+
     Depends on ``_restore_process_environment`` so that fixture snapshots the
     environment *before* these variables are set. Without the ordering its
     snapshot included this test's own tmp-path database URL, and because its
@@ -27,6 +39,9 @@ def _isolated_application_environment(
     every suite that ran afterwards.
     """
 
+    for name in SHELL_VARIABLES:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("COLUMNS", "200")
     monkeypatch.setenv("HARBORRAG_HOST", "127.0.0.1")
     monkeypatch.setenv("HARBORRAG_ENV", "dev")
     # Every no-auth test client calls as one principal; tests that need limits set them.
@@ -89,12 +104,26 @@ def cli_project(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
 def _reset_active_project(monkeypatch: pytest.MonkeyPatch) -> None:
     """Each test starts without a project activated by a previous `cli.main` call.
 
-    `monkeypatch.setattr` rather than a plain assignment: if `_ACTIVE` is ever renamed,
+    Resets the activated project, the directory it was activated from and the stack tenant
+    the environment load recorded.
+    `monkeypatch.setattr` rather than a plain assignment: if any is ever renamed,
     this raises instead of quietly creating a new attribute and letting every test share
     process-level activation state again.
     """
 
     monkeypatch.setattr(project_module, "_ACTIVE", None)
+    monkeypatch.setattr(project_module, "_INVOCATION", None)
+    monkeypatch.setattr(environment_module, "_stack_tenant_id", None)
+
+
+@pytest.fixture(autouse=True)
+def _plain_cli_output(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Help and usage errors print without colour codes, on CI as on a laptop.
+
+    Typer forces a colour terminal when ``GITHUB_ACTIONS`` is set, and the escape
+    codes then split the option names the tests look for.
+    """
+    monkeypatch.setattr(rich_utils, "FORCE_TERMINAL", False)
 
 
 @pytest.fixture

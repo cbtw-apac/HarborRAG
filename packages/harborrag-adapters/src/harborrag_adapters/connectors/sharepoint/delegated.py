@@ -1,10 +1,11 @@
-"""Delegated (signed-in user) Microsoft Graph auth via device code flow.
+"""Delegated (signed-in user) Microsoft Graph auth through the device code flow.
 
 An operator signs in once with ``python -m
-harborrag_adapters.connectors.sharepoint.login``; the refresh token is stored
-in a local cache file. Connector runs then redeem that refresh token for
-short-lived access tokens without further interaction, and write back the
-rotated refresh token Microsoft identity returns.
+harborrag_adapters.connectors.sharepoint.login``, which stores a refresh token
+in an owner-only cache file. Connector runs redeem it for short-lived access
+tokens and write back the rotated one. The delegated scope asks for exactly the
+permissions an admin consented for the app, plus ``offline_access`` for the
+refresh token. Error messages never contain a token or device code.
 """
 
 from __future__ import annotations
@@ -15,20 +16,24 @@ import os
 import re
 import tempfile
 import time
-from collections.abc import Callable
-from dataclasses import dataclass
+from collections.abc import Callable, Iterable, Mapping
+from dataclasses import dataclass, field
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
 import requests
 
 from harborrag_adapters.connectors.exceptions import AuthenticationError
+from harborrag_adapters.connectors.policies.http import (
+    ResponseTooLargeError,
+    read_capped_json,
+    safe_error_detail,
+)
+from harborrag_adapters.connectors.policies.network import DestinationPolicy, guarded_session
 
 from .permissions import token_claims
 
-# ``.default`` requests exactly the delegated permissions an admin consented
-# for the app (e.g. ``Sites.Selected``); ``offline_access`` adds the refresh
-# token so connector runs do not need a fresh sign-in.
 DELEGATED_SCOPE = "https://graph.microsoft.com/.default offline_access"
 DEVICE_CODE_GRANT = "urn:ietf:params:oauth:grant-type:device_code"
 LOGIN_HINT = (
@@ -37,12 +42,27 @@ LOGIN_HINT = (
 )
 
 
-def identity_url(tenant_id: str, endpoint: str) -> str:
-    """Return a Microsoft identity platform v2.0 OAuth endpoint for a tenant."""
-    return f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/{endpoint}"
-
-
 _PATH_SEGMENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
+
+
+def require_plain_id(label: str, value: str) -> None:
+    """Refuse an id that is not a plain name, so it cannot change a path.
+
+    Raises:
+        ValueError: ``value`` is not a GUID or a domain-like name.
+    """
+    if not _PATH_SEGMENT.fullmatch(value) or ".." in value:
+        raise ValueError(f"{label} must be a plain id of letters, digits, '.', '_' or '-'")
+
+
+def identity_url(tenant_id: str, endpoint: str) -> str:
+    """Return a Microsoft identity platform v2.0 OAuth endpoint for a tenant.
+
+    Raises:
+        ValueError: ``tenant_id`` is not a GUID or a domain-like name.
+    """
+    require_plain_id("tenant_id", tenant_id)
+    return f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/{endpoint}"
 
 
 def default_token_cache_path(harborrag_tenant_id: str, tenant_id: str, client_id: str) -> Path:
@@ -50,6 +70,14 @@ def default_token_cache_path(harborrag_tenant_id: str, tenant_id: str, client_id
 
     Each HarborRAG tenant gets its own folder, so two tenants that enter the
     same Entra tenant and app never share a signed-in refresh token.
+
+    Args:
+        harborrag_tenant_id: HarborRAG tenant that owns the sign-in.
+        tenant_id: Entra tenant of the app registration.
+        client_id: Client ID of the app registration.
+
+    Returns:
+        Path of the token cache file under the user's home folder.
 
     Raises:
         ValueError: An id is not a plain name, so it could leave the cache folder.
@@ -59,22 +87,35 @@ def default_token_cache_path(harborrag_tenant_id: str, tenant_id: str, client_id
         ("tenant_id", tenant_id),
         ("client_id", client_id),
     ):
-        if not _PATH_SEGMENT.fullmatch(value) or ".." in value:
-            raise ValueError(f"{label} must be a plain id of letters, digits, '.', '_' or '-'")
+        require_plain_id(label, value)
     folder = Path.home() / ".harborrag" / "sharepoint" / harborrag_tenant_id
     return folder / f"token-{tenant_id}-{client_id}.json"
 
 
 @dataclass(slots=True)
 class DelegatedTokenCache:
-    """Refresh token storage for one tenant/app pair, readable only by its owner."""
+    """Refresh token storage for one tenant/app pair, readable only by its owner.
+
+    Attributes:
+        path: Cache file that holds the refresh token.
+        tenant_id: Entra tenant the stored sign-in belongs to.
+        client_id: App registration the stored sign-in belongs to.
+    """
 
     path: Path
     tenant_id: str
     client_id: str
 
     def load_refresh_token(self) -> str:
-        """Return the stored refresh token or explain how to obtain one."""
+        """Return the stored refresh token.
+
+        Returns:
+            The refresh token saved by the last sign-in or token rotation.
+
+        Raises:
+            AuthenticationError: No usable sign-in is cached for this tenant and
+                app. The message says how to sign in.
+        """
         try:
             payload = json.loads(self.path.read_text(encoding="utf-8"))
         except FileNotFoundError as exc:
@@ -100,6 +141,10 @@ class DelegatedTokenCache:
         Each write gets its own exclusively created, owner-only temporary file,
         so concurrent saves never share or truncate one, and a file another
         user pre-created in the cache directory is never written through.
+
+        Args:
+            refresh_token: Refresh token to store.
+            account: Signed-in account name stored with the token, when known.
         """
         self.path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
@@ -126,23 +171,59 @@ class DelegatedTokenCache:
         self.path.unlink(missing_ok=True)
 
 
+class _ErrorPayload(StrEnum):
+    """What `DeviceCodeLogin._post` does with an OAuth error answer."""
+
+    RAISE = "raise"
+    RETURN = "return"
+
+
 @dataclass(slots=True)
 class DeviceCodeLogin:
-    """Interactive device code sign-in that seeds a ``DelegatedTokenCache``."""
+    """Interactive device code sign-in that seeds a ``DelegatedTokenCache``.
+
+    Args:
+        cache: Where the refresh token is stored; its tenant ID names the sign-in endpoint.
+        session: HTTP session to use; by default one that obeys ``destination_policy``.
+        destination_policy: Which non-public hosts the default session may reach; the
+            default reaches public addresses only.
+        timeout_seconds: Timeout of each request to Microsoft identity.
+        sleep: Waits between polls for the user's sign-in.
+
+    Attributes:
+        cache: Where the refresh token is stored.
+        session: HTTP session used for Microsoft identity requests.
+        destination_policy: Which non-public hosts the default session may reach.
+        timeout_seconds: Timeout of each request to Microsoft identity.
+        sleep: Waits between polls for the user's sign-in.
+    """
 
     cache: DelegatedTokenCache
     session: Any = None
+    destination_policy: DestinationPolicy = field(default_factory=DestinationPolicy)
     timeout_seconds: float = 60.0
     sleep: Callable[[float], None] = time.sleep
 
     def __post_init__(self) -> None:
         if self.session is None:
-            self.session = requests.Session()
+            self.session = guarded_session(self.destination_policy)
 
     def run(self, prompt: Callable[[str], None] = print) -> str | None:
         """Show the sign-in instructions, wait for the user, and store the token.
 
-        Returns the signed-in account name when Microsoft identity reports one.
+        Args:
+            prompt: Function that shows the sign-in instructions to the operator.
+
+        Returns:
+            The signed-in account name, or ``None`` when Microsoft identity
+            reports none.
+
+        Raises:
+            AuthenticationError: Sign-in failed, timed out or returned no
+                refresh token.
+            BlockedDestinationError: The identity host resolves to an address the
+                destination policy refuses.
+            ValueError: The cache's tenant ID is not a GUID or a domain-like name.
         """
         flow = self._post(
             "devicecode",
@@ -165,7 +246,7 @@ class DeviceCodeLogin:
                     "client_id": self.cache.client_id,
                     "device_code": device_code,
                 },
-                allow_pending=True,
+                error_payload=_ErrorPayload.RETURN,
             )
             error = payload.get("error")
             if error == "authorization_pending":
@@ -174,7 +255,9 @@ class DeviceCodeLogin:
                 interval += 5
                 continue
             if error:
-                raise AuthenticationError(_identity_error(payload))
+                raise AuthenticationError(
+                    _identity_error(payload, known_secrets=(str(device_code),))
+                )
             refresh_token = payload.get("refresh_token")
             if not refresh_token:
                 raise AuthenticationError(
@@ -186,35 +269,64 @@ class DeviceCodeLogin:
         raise AuthenticationError("Device code sign-in timed out")
 
     def _post(
-        self, endpoint: str, data: dict[str, str], *, allow_pending: bool = False
+        self,
+        endpoint: str,
+        data: dict[str, str],
+        *,
+        error_payload: _ErrorPayload = _ErrorPayload.RAISE,
     ) -> dict[str, Any]:
+        """POST a form to a Microsoft identity endpoint and return its JSON object.
+
+        The body is streamed under the connector JSON size cap, and an error
+        message never contains the ``device_code`` posted in ``data``.
+
+        Args:
+            endpoint: Identity endpoint name, such as ``devicecode`` or ``token``.
+            data: Form fields to post.
+            error_payload: Whether an OAuth error answer is raised or returned,
+                so the caller can keep polling while sign-in is pending.
+
+        Returns:
+            The decoded JSON object.
+
+        Raises:
+            AuthenticationError: The request failed, the body is too large or
+                not a JSON object, or the endpoint answered with an error.
+        """
         try:
             response = self.session.post(
                 identity_url(self.cache.tenant_id, endpoint),
                 data=data,
                 timeout=self.timeout_seconds,
+                stream=True,
             )
         except requests.RequestException as exc:
             raise AuthenticationError("Microsoft identity request failed") from exc
         try:
-            payload = response.json()
+            payload = read_capped_json(response)
+        except ResponseTooLargeError as exc:
+            raise AuthenticationError("Microsoft identity response is too large") from exc
         except ValueError as exc:
             raise AuthenticationError("Microsoft identity returned non-JSON response") from exc
         if not isinstance(payload, dict):
             raise AuthenticationError("Microsoft identity returned invalid JSON response")
-        if response.status_code >= 400 and not (allow_pending and "error" in payload):
-            raise AuthenticationError(_identity_error(payload))
+        returns_errors = error_payload is _ErrorPayload.RETURN
+        if response.status_code >= 400 and not (returns_errors and "error" in payload):
+            raise AuthenticationError(
+                _identity_error(payload, known_secrets=(data.get("device_code"),))
+            )
         return payload
 
 
-def _identity_error(payload: dict[str, Any]) -> str:
-    """Return the OAuth error code and first line of its description."""
+def _identity_error(payload: Mapping[str, object], *, known_secrets: Iterable[str | None]) -> str:
+    """Return the redacted OAuth error code and first line of its description."""
     description = str(payload.get("error_description") or "").splitlines()
     detail = f": {description[0]}" if description else ""
-    return f"Microsoft identity sign-in failed ({payload.get('error', 'unknown_error')}){detail}"
+    message = f"Microsoft identity sign-in failed ({payload.get('error', 'unknown_error')}){detail}"
+    return safe_error_detail(message, known_secrets=known_secrets)
 
 
-def _account_name(token: Any) -> str | None:
+def _account_name(token: object) -> str | None:
     claims = token_claims(str(token)) if token else None
     if not claims:
         return None

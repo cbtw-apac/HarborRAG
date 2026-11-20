@@ -74,3 +74,49 @@ def test_expected_provider_rejects_wrong_connection(
 
     with pytest.raises(ConnectorConfigurationError, match="expected 'confluence'"):
         catalogs.connector_definition("jira-main", expected_provider="confluence")
+
+
+def test_provider_shorthand_resolves_a_sole_disabled_connection_and_build_refuses_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    definition = ConnectorDefinition(
+        name="local-docs", provider="local", enabled=False, settings={"source_path": "."}
+    )
+    monkeypatch.setattr(catalogs, "connector_catalog", lambda: _catalog(definition))
+
+    assert catalogs.connector_definition("local") is definition
+    with pytest.raises(ConnectorConfigurationError, match="'local-docs' is disabled"):
+        catalogs.build_connector("local", include_attachments=False)
+
+
+def _sharepoint_definition() -> ConnectorDefinition:
+    return ConnectorDefinition(
+        name="sharepoint-main",
+        provider="sharepoint",
+        settings={"auth_mode": "device_code"},
+        setting_environment={"site_url": "SHAREPOINT_SITE_URL"},
+        secret_environment={
+            "tenant_id": "MICROSOFT_TENANT_ID",
+            "client_id": "MICROSOFT_CLIENT_ID",
+        },
+    )
+
+
+@pytest.mark.parametrize(
+    ("exported", "expected"), [(None, "DEFAULT"), ("engineering", "engineering")]
+)
+def test_sharepoint_smoke_connector_gets_the_harborrag_tenant(
+    monkeypatch: pytest.MonkeyPatch, exported: str | None, expected: str
+) -> None:
+    monkeypatch.setattr(catalogs, "connector_catalog", lambda: _catalog(_sharepoint_definition()))
+    monkeypatch.setenv("SHAREPOINT_SITE_URL", "https://example.sharepoint.com/sites/demo")
+    monkeypatch.setenv("MICROSOFT_TENANT_ID", "00000000-0000-0000-0000-000000000000")
+    monkeypatch.setenv("MICROSOFT_CLIENT_ID", "00000000-0000-0000-0000-000000000001")
+    if exported is None:
+        monkeypatch.delenv("HARBORRAG_TENANT_ID", raising=False)
+    else:
+        monkeypatch.setenv("HARBORRAG_TENANT_ID", exported)
+
+    connector = catalogs.build_connector("sharepoint-main", include_attachments=False)
+
+    assert connector.provider.config.harborrag_tenant_id == expected

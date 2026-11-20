@@ -10,14 +10,14 @@ from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
 from harborrag_app.api.app import create_fastapi_app
-from harborrag_app.api.readiness import (
+from harborrag_app.api.settings import ApiSettings
+from harborrag_app.operations.readiness import (
     ReadinessChecks,
     build_readiness_checks,
     http_ready,
     postgres_answers,
     redis_answers,
 )
-from harborrag_app.api.settings import ApiSettings
 from harborrag_runtime.config.settings import RuntimeSettings
 
 _SECRET = SecretStr("s" * 32)
@@ -194,15 +194,25 @@ def test_checks_cover_the_configured_dependencies() -> None:
         redis_allow_insecure_remote=True,
     )
 
-    checks = build_readiness_checks(runtime, ApiSettings(), temporal=lambda: _true())
+    checks = build_readiness_checks(runtime, capacity_redis_url=None, temporal=lambda: _true())
 
     assert set(checks) == set(_DEPENDENCIES)
+
+
+def test_the_capacity_redis_alone_adds_the_redis_check() -> None:
+    runtime = RuntimeSettings(control_db_url=SecretStr("sqlite+aiosqlite:///./control.db"))
+
+    checks = build_readiness_checks(
+        runtime, capacity_redis_url=SecretStr("redis://cache:6379/0"), temporal=lambda: _true()
+    )
+
+    assert set(checks) == {"redis", "temporal", "qdrant", "graph"}
 
 
 def test_checks_leave_out_postgres_and_redis_when_not_configured() -> None:
     runtime = RuntimeSettings(control_db_url=SecretStr("sqlite+aiosqlite:///./control.db"))
 
-    checks = build_readiness_checks(runtime, ApiSettings(), temporal=lambda: _true())
+    checks = build_readiness_checks(runtime, capacity_redis_url=None, temporal=lambda: _true())
 
     assert set(checks) == {"temporal", "qdrant", "graph"}
 
@@ -218,7 +228,7 @@ def test_checks_leave_out_stores_served_by_other_providers() -> None:
         graph_provider="memory",
     )
 
-    checks = build_readiness_checks(runtime, ApiSettings(), temporal=lambda: _true())
+    checks = build_readiness_checks(runtime, capacity_redis_url=None, temporal=lambda: _true())
 
     assert set(checks) == {"temporal"}
 

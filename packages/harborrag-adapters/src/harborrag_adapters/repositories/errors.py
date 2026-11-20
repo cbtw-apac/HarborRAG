@@ -1,8 +1,11 @@
+"""Storage error types that carry sanitized diagnostic context."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any
 
+from harborrag_core.contracts.errors import StorageNotFoundError
 from harborrag_core.storage import StorageFamily
 
 
@@ -113,7 +116,7 @@ class HarborStorageConflictError(HarborStorageError):
     pass
 
 
-class HarborStorageNotFoundError(HarborStorageError):
+class HarborStorageNotFoundError(HarborStorageError, StorageNotFoundError):
     """Raised when a storage operation fails because of not found."""
 
     pass

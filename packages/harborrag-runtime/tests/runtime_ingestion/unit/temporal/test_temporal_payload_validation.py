@@ -7,7 +7,7 @@ from dataclasses import replace
 
 import pytest
 
-from harborrag_runtime.ingestion.limits import MAX_RETRY_DOCUMENT_IDS
+from harborrag_core.ingestion.limits import MAX_RETRY_DOCUMENT_IDS
 from harborrag_runtime.temporal.dispatch import DocumentDispatchSummary
 from harborrag_runtime.temporal.schemas import (
     DocumentFailureInput,

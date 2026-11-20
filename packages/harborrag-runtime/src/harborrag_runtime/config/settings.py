@@ -18,6 +18,8 @@ from typing import Literal
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from harborrag_core.domain.identity import DEFAULT_TENANT_ID
+from harborrag_core.ingestion.limits import MAX_BATCH_SIZE, MAX_DOCUMENT_CONCURRENCY
 from harborrag_core.invariants import HarborInvariantError
 from harborrag_core.security import RemoteTransportPolicy
 from harborrag_core.storage import (
@@ -70,8 +72,8 @@ class RuntimeSettings(MemorySettingsMixin, BaseSettings):
 
     # staging is held to every prod guard: each check below tests env != "dev".
     env: Literal["dev", "staging", "prod"] = "dev"
-    ingestion_tenant_id: str = Field(
-        default="DEFAULT",
+    tenant_id: str = Field(
+        default=DEFAULT_TENANT_ID,
         min_length=1,
         max_length=128,
         pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$",
@@ -102,8 +104,10 @@ class RuntimeSettings(MemorySettingsMixin, BaseSettings):
     temporal_max_concurrent_activity_polls: int = Field(default=2, ge=1, le=100)
     temporal_max_concurrent_workflow_polls: int = Field(default=2, ge=1, le=100)
     temporal_graceful_shutdown_seconds: int = Field(default=30, ge=1, le=3600)
-    temporal_ingestion_batch_size: int = Field(default=200, ge=1, le=300)
-    temporal_ingestion_document_concurrency: int = Field(default=8, ge=1, le=100)
+    temporal_ingestion_batch_size: int = Field(default=200, ge=1, le=MAX_BATCH_SIZE)
+    temporal_ingestion_document_concurrency: int = Field(
+        default=8, ge=1, le=MAX_DOCUMENT_CONCURRENCY
+    )
     temporal_config_path: Path = Path("config/temporal.yaml")
     schedule_config_path: Path = Path("config/sources/schedules.yaml")
     # How often a worker exports schedule pause/overlap gauges by describing every
@@ -254,6 +258,14 @@ class RuntimeSettings(MemorySettingsMixin, BaseSettings):
             )
         return self
 
+    @model_validator(mode="before")
+    @classmethod
+    def reject_renamed_tenant_variable(cls, data: object) -> object:
+        """Refuse a process that still sets the removed ``HARBORRAG_INGESTION_TENANT_ID`` to a value."""
+        if os.environ.get("HARBORRAG_INGESTION_TENANT_ID"):
+            raise ValueError("HARBORRAG_INGESTION_TENANT_ID was renamed to HARBORRAG_TENANT_ID")
+        return data
+
     @model_validator(mode="after")
     def validate_secret_urls(self) -> RuntimeSettings:
         if self.corpus_access_mode == "tenant_shared" and not self.corpus_shared_tenant_id:
@@ -264,10 +276,7 @@ class RuntimeSettings(MemorySettingsMixin, BaseSettings):
             raise ValueError(
                 "shared summary processing requires HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared"
             )
-        if (
-            self.summary_processing_allowed
-            and self.corpus_shared_tenant_id != self.ingestion_tenant_id
-        ):
+        if self.summary_processing_allowed and self.corpus_shared_tenant_id != self.tenant_id:
             raise ValueError("shared summary processing tenant must match the configured corpus")
         control_db_url = self.control_db_url.get_secret_value().lower()
         is_sqlite_control_db = control_db_url.startswith("sqlite")

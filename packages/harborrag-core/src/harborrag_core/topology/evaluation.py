@@ -10,6 +10,8 @@ from .extraction import ChunkExtractionInput, ExtractionOutput
 
 
 class TopologyEvaluationUnit(StrictModel):
+    """One labeled chunk with its expected and predicted extraction."""
+
     document_id: str = Field(min_length=1, max_length=128)
     split: Literal["train", "dev", "test"] = "test"
     input: ChunkExtractionInput
@@ -18,6 +20,8 @@ class TopologyEvaluationUnit(StrictModel):
 
 
 class ExtractionMetrics(StrictModel):
+    """Exact-match counts with precision, recall and F1."""
+
     true_positives: int = Field(ge=0)
     predicted: int = Field(ge=0)
     expected: int = Field(ge=0)
@@ -27,6 +31,8 @@ class ExtractionMetrics(StrictModel):
 
 
 class SplitEvaluation(StrictModel):
+    """Entity and assertion metrics over the units of one split."""
+
     units: int = Field(ge=0)
     documents: int = Field(ge=0)
     entities: ExtractionMetrics
@@ -35,4 +41,6 @@ class SplitEvaluation(StrictModel):
 
 
 class TopologyEvaluationReport(SplitEvaluation):
+    """Metrics over all supplied units plus one evaluation per split."""
+
     by_split: dict[str, SplitEvaluation]

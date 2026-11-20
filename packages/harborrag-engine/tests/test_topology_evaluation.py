@@ -10,6 +10,8 @@ from harborrag_core.topology import (
 from harborrag_core.topology.evaluation import TopologyEvaluationUnit
 from harborrag_engine.topology.evaluation import evaluate_extractions
 
+pytestmark = pytest.mark.unit
+
 
 def unit() -> TopologyEvaluationUnit:
     entities = (

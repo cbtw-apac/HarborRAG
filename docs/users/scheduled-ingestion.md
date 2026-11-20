@@ -18,8 +18,8 @@ until someone unpauses it.
   [Quick Start](../getting-started/quick-start.md).
 - The connection to schedule and its `source_key`. A connection imported from
   `config/sources/connectors.yaml` uses its YAML key, such as `harborrag-workspace`; a
-  connection created through the API or `harborrag source add`, or one that existed
-  before database migration 0041, uses `PROJECT/CONNECTION`, such as
+  connection created through the API or `harborrag connections create`, or one that
+  existed before database migration 0041, uses `PROJECT_ID/CONNECTION_ID`, such as
   `default/harborrag-workspace`.
 
 ## Declare a schedule

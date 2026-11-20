@@ -55,4 +55,5 @@ variants cannot be used. uv ships in the base image, so nothing installs it with
 `tests/test_release_images_use_lock.py` checks that the API, CLI, MCP and worker images share
 this base and install their dependencies from the frozen lock. The tag floats, so uv and
 Python patch versions can change between builds, while application dependencies stay
-reproducible through `uv export --frozen` against `uv.lock`. CI does not build these images.
+reproducible through `uv export --frozen` against `uv.lock`. CI builds the MCP image and runs
+its handshake (`.github/workflows/images.yml`); it does not build the other images.

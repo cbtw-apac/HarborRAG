@@ -45,7 +45,7 @@ def _record(key_id: str, **overrides: object) -> ApiKeyRecord:
     record = ApiKeyRecord(
         key_id=key_id,
         tenant_id="engineering",
-        owner="user-huy",
+        owner="user-demo",
         name="laptop",
         secret_hash="a" * 64,
         environment="dev",
@@ -110,7 +110,7 @@ async def test_revoke_by_owner_returns_only_the_keys_it_changed(sessions: Sessio
     )
 
     revoked = await manager.revoke_by_owner(
-        "engineering", "user-huy", at=NOW, by="op", reason="left team"
+        "engineering", "user-demo", at=NOW, by="op", reason="left team"
     )
 
     assert revoked == ["a" * 24, "b" * 24]
@@ -126,7 +126,7 @@ async def test_constraints_reject_bad_rows(sessions: SessionFactory) -> None:
         base: dict[str, object] = {
             "key_id": "0123456789abcdef01234567",
             "tenant_id": "engineering",
-            "owner": "user-huy",
+            "owner": "user-demo",
             "name": "k",
             "secret_hash": "a" * 64,
             "environment": "dev",
@@ -198,7 +198,7 @@ async def test_manager_reports_an_unreachable_store_as_unavailable(tmp_path: Pat
                 await manager.revoke("0123456789abcdef01234567", at=NOW, by="op", reason="r")
             with pytest.raises(AuthStoreUnavailable):
                 await manager.revoke_by_owner(
-                    "engineering", "user-huy", at=NOW, by="op", reason="r"
+                    "engineering", "user-demo", at=NOW, by="op", reason="r"
                 )
             with pytest.raises(AuthStoreUnavailable):
                 await manager.list_for_tenant("engineering")
@@ -226,7 +226,7 @@ async def test_a_wildcard_tenant_row_is_rejected_by_the_database(sessions: Sessi
             McpApiKeyRow(
                 key_id="0123456789abcdef01234567",
                 tenant_id="*",
-                owner="user-huy",
+                owner="user-demo",
                 name="k",
                 secret_hash="a" * 64,
                 environment="dev",

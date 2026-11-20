@@ -18,9 +18,10 @@ from typing import Any
 
 from harborrag_adapters.connectors.base import BaseConnector
 from harborrag_adapters.connectors.exceptions import DocumentProcessingError
-from harborrag_adapters.connectors.schemas import ConnectorCapabilities, ConnectorQuery
+from harborrag_adapters.connectors.policies.network import DestinationPolicy
 from harborrag_core.domain.raw_document import RawDocument
 from harborrag_core.domain.source import SourceRecord
+from harborrag_core.ingestion.connector_contracts import ConnectorCapabilities, ConnectorQuery
 
 from .client import GitHubClient, _RequestsGitHubClient
 from .config import GitHubRepositoryConfig
@@ -55,6 +56,8 @@ class GitHubConnector(BaseConnector):
     Args:
         config: Repository, ref, root path, filters and HTTP limits.
         client: GitHub HTTP client. Defaults to one built from ``config``.
+        destination_policy: Host policy for the default client. ``None`` allows
+            public addresses only.
 
     Attributes:
         provider_name: Name of the source provider.
@@ -75,11 +78,12 @@ class GitHubConnector(BaseConnector):
         config: GitHubRepositoryConfig,
         *,
         client: GitHubClient | None = None,
+        destination_policy: DestinationPolicy | None = None,
     ) -> None:
         self.config = config
         self.owner = str(config.owner)
         self.repo = str(config.repo)
-        self.client = client or _RequestsGitHubClient(config)
+        self.client = client or _RequestsGitHubClient(config, destination_policy=destination_policy)
         self._github = GitHubRepositoryAPI(config, self.client)
 
     def connect(self) -> None:
