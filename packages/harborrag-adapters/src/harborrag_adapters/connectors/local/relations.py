@@ -1,10 +1,18 @@
+"""Links between local documents, resolved to the source item IDs of their targets.
+
+A link resolves only to an existing file beneath the configured root, so document
+content can never point the connector at a file it does not index.
+"""
+
 from __future__ import annotations
 
 import re
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
-_MARKDOWN_LINK = re.compile(r"!?\[[^\]]*]\(([^)\s]+)(?:\s+['\"][^'\"]*['\"])?\)")
+from .filesystem_paths import file_extension
+
+_MARKDOWN_LINK = re.compile(r"!?\[[^\]]*]\((<[^<>\n]+>|[^)\s]+)(?:\s+['\"][^'\"]*['\"])?\)")
 _HTML_LINK = re.compile(
     r"""(?:href|src)\s*=\s*["']([^"']+)["']""",
     flags=re.IGNORECASE,
@@ -13,7 +21,11 @@ _IGNORED_SCHEMES = frozenset({"data", "http", "https", "mailto", "tel", "javascr
 
 
 class LocalDocumentRelationResolver:
-    """Resolve document links beneath one configured filesystem trust root."""
+    """Resolve document links beneath one configured filesystem trust root.
+
+    Args:
+        root_path: Root of the local source. Its resolved form bounds every link.
+    """
 
     def __init__(self, root_path: Path) -> None:
         self._root_path = root_path.resolve()
@@ -25,6 +37,21 @@ class LocalDocumentRelationResolver:
         content: bytes,
         media_type: str,
     ) -> list[dict[str, object]]:
+        """Return one ``links_to`` relation per local file a text document links to.
+
+        Markdown links, angle-bracket destinations included, and HTML ``href`` and
+        ``src`` values are read. Web, mail and data links, anchors, and links to
+        missing files or files outside the root are left out.
+
+        Args:
+            source_path: Path of the document whose links are read.
+            content: Document bytes, decoded as UTF-8.
+            media_type: Media type of the document. Only text documents have links.
+
+        Returns:
+            Relations sorted by target ID, the target's path relative to the root,
+            each keeping the link as written under ``source_link``.
+        """
         if not self._is_text(media_type, source_path):
             return []
         text = content.decode("utf-8", errors="replace")
@@ -48,13 +75,21 @@ class LocalDocumentRelationResolver:
         source_path: Path,
         raw_target: str,
     ) -> Path | None:
-        target = unquote(raw_target.strip().strip("<>"))
-        if not target or target.startswith("#"):
+        """Return the existing file a link points to beneath the root, or None.
+
+        The link is split before it is percent-decoded, and its literal spaces are
+        encoded first, so a target name may start with a space or hold ``#``.
+        A document may link to a file outside the indexed tree. That link is not
+        a local relation, and it never turns document content into an ingestion
+        failure.
+        """
+        written = raw_target.strip().strip("<>")
+        if not written or written.startswith("#"):
             return None
-        parsed = urlsplit(target)
+        parsed = urlsplit(written.replace(" ", "%20"))
         if parsed.scheme.casefold() in _IGNORED_SCHEMES or parsed.netloc:
             return None
-        path_value = parsed.path
+        path_value = unquote(parsed.path)
         if not path_value:
             return None
         candidate = Path(path_value)
@@ -62,15 +97,12 @@ class LocalDocumentRelationResolver:
             candidate = source_path.parent / candidate
         resolved = candidate.resolve(strict=False)
         if not resolved.is_relative_to(self._root_path):
-            # A document may legitimately link to a file outside the indexed
-            # source tree. It is not a local relation, and resolving it must
-            # never turn ordinary document content into an ingestion failure.
             return None
         return resolved if resolved.is_file() else None
 
     @staticmethod
     def _is_text(media_type: str, path: Path) -> bool:
-        return media_type.startswith("text/") or path.suffix.casefold() in {
+        return media_type.startswith("text/") or file_extension(path) in {
             ".html",
             ".htm",
             ".md",

@@ -16,27 +16,57 @@ from harborrag_core.domain.retrieval import RetrievalQuery, RetrievalResult
 from harborrag_core.security.redaction import redact_mapping, redact_secrets
 from harborrag_core.security.url_policy import URLPolicy, URLPolicyError
 
+pytestmark = pytest.mark.unit
 
-def test_error_hierarchy():
+PUBLIC_ADDRESS = "93.184.216.34"
+
+
+def _document(document_id: str) -> Document:
+    return Document(
+        id=document_id,
+        title="Doc",
+        content=[],
+        content_type="page",
+        provenance=DocumentProvenance(source="confluence"),
+    )
+
+
+def _policy_with_public_resolver() -> URLPolicy:
+    """Return a policy that resolves every host name to one public address."""
+    return URLPolicy(resolver=lambda host, _port: (host if host[0].isdigit() else PUBLIC_ADDRESS,))
+
+
+def test_url_policy_error_is_a_harbor_error() -> None:
+    """URL policy failures can be caught as HarborError."""
     assert issubclass(URLPolicyError, HarborError)
     with pytest.raises(HarborError):
         raise URLPolicyError("boom")
 
 
-@pytest.mark.parametrize("bad_id", ["", "   ", "has space"])
-def test_document_rejects_blank_or_whitespace_id(bad_id: str) -> None:
+@pytest.mark.parametrize("bad_id", ["", "   ", "docs/line\nbreak.md", "docs/tab\tname.md"])
+def test_document_blank_or_control_character_id_is_rejected(bad_id: str) -> None:
+    """A document ID that is blank or holds a control character is rejected."""
     with pytest.raises(ValueError, match="id must be non-empty"):
-        Document(
-            id=bad_id,
-            title="Doc",
-            content=[],
-            content_type="page",
-            provenance=DocumentProvenance(source="confluence"),
-        )
+        _document(bad_id)
+
+
+@pytest.mark.parametrize(
+    "document_id",
+    [
+        "docs/Q3 design review.md",
+        "github://acme/handbook/docs/Q3 notes.md",
+        "docs/Screenshot 2026-11-20 at 10.00.00\u202fAM.png",
+        " leading and trailing .md ",
+    ],
+)
+def test_document_id_from_a_file_name_with_spaces_is_accepted(document_id: str) -> None:
+    """File paths become document IDs, so spaces in file and folder names are kept."""
+    assert _document(document_id).id == document_id
 
 
 @pytest.mark.parametrize("bad_id", ["", "   ", "has space"])
 def test_job_rejects_blank_or_whitespace_id(bad_id: str) -> None:
+    """A job ID that is blank or holds whitespace is rejected."""
     with pytest.raises(ValueError, match="id must be non-empty"):
         Job(
             id=bad_id,
@@ -49,24 +79,28 @@ def test_job_rejects_blank_or_whitespace_id(bad_id: str) -> None:
 
 @pytest.mark.parametrize("bad_id", ["", "   ", "has space"])
 def test_member_rejects_blank_or_whitespace_id(bad_id: str) -> None:
+    """A member ID that is blank or holds whitespace is rejected."""
     with pytest.raises(ValueError, match="id must be non-empty"):
         Member(id=bad_id, tenant_id="DEFAULT", subject="user@example.com")
 
 
 @pytest.mark.parametrize("bad_id", ["", "   ", "has space"])
 def test_project_rejects_blank_or_whitespace_id(bad_id: str) -> None:
+    """A project ID that is blank or holds whitespace is rejected."""
     with pytest.raises(ValueError, match="id must be non-empty"):
         Project(id=bad_id, tenant_id="DEFAULT", name="Docs", collection="docs_main")
 
 
 @pytest.mark.parametrize("bad_id", ["", "   ", "has space"])
 def test_provider_rejects_blank_or_whitespace_id(bad_id: str) -> None:
+    """A provider ID that is blank or holds whitespace is rejected."""
     with pytest.raises(ValueError, match="id must be non-empty"):
         Provider(id=bad_id, tenant_id="DEFAULT", name="OpenAI", family="chat")
 
 
 @pytest.mark.parametrize("bad_id", ["", "   ", "has space"])
 def test_source_config_rejects_blank_or_whitespace_id(bad_id: str) -> None:
+    """A connection ID that is blank or holds whitespace is rejected."""
     with pytest.raises(ValueError, match="id must be non-empty"):
         Connection(
             connection_id="docs",
@@ -79,7 +113,8 @@ def test_source_config_rejects_blank_or_whitespace_id(bad_id: str) -> None:
         )
 
 
-def test_domain_dataclasses():
+def test_document_keeps_its_elements_relations_and_defaults() -> None:
+    """A document keeps the elements and relations it is built with."""
     provenance = DocumentProvenance(
         source="confluence",
         author="alice",
@@ -110,6 +145,9 @@ def test_domain_dataclasses():
     assert RetrievalQuery("q", top_k=2).top_k == 2
     assert RetrievalResult("id", "text", 1.0).score == 1.0
 
+
+def test_raw_document_text_decodes_bytes_with_the_given_encoding() -> None:
+    """Raw text comes back as is, and raw bytes decode with replacement characters."""
     text_raw = RawDocument(id="r1", source="s", content="hello", content_type="text/plain")
     assert text_raw.text() == "hello"
     bytes_raw = RawDocument(
@@ -119,7 +157,8 @@ def test_domain_dataclasses():
     assert bytes_raw.text(encoding="ascii") == "h��llo"
 
 
-def test_security_helpers():
+def test_redact_secrets_masks_labelled_and_vendor_token_values() -> None:
+    """Labelled secrets, bearer tokens and vendor-shaped keys are masked."""
     redacted = redact_secrets("api_key=abc token:xyz password=hunter2")
     assert "abc" not in redacted
     assert "xyz" not in redacted
@@ -148,7 +187,8 @@ def test_security_helpers():
     assert "xoxb-1234567890" not in redacted
 
 
-def test_redact_secrets_masks_multi_word_unquoted_values():
+def test_redact_secrets_masks_multi_word_unquoted_values() -> None:
+    """Every word of an unquoted multi-word secret is masked."""
     redacted = redact_secrets("password: My Secret Passphrase 123")
     assert "My" not in redacted
     assert "Secret" not in redacted
@@ -156,13 +196,15 @@ def test_redact_secrets_masks_multi_word_unquoted_values():
     assert "123" not in redacted
 
 
-def test_redact_secrets_does_not_swallow_the_next_field():
+def test_redact_secrets_does_not_swallow_the_next_field() -> None:
+    """Masking stops at the field separator and keeps the next field."""
     redacted = redact_secrets("api_key=abc123&user=alice")
     assert "abc123" not in redacted
     assert "user=alice" in redacted
 
 
-def test_redact_secrets_masks_suffixed_label_names():
+def test_redact_secrets_masks_suffixed_label_names() -> None:
+    """Labels with a suffix after the secret word are still masked."""
     redacted = redact_secrets("db_password_confirm: hunter2")
     assert "hunter2" not in redacted
 
@@ -170,57 +212,71 @@ def test_redact_secrets_masks_suffixed_label_names():
     assert "sk_live_abcdefghij" not in redacted
 
 
-def test_redact_secrets_masks_quoted_multi_word_values():
+def test_redact_secrets_masks_quoted_multi_word_values() -> None:
+    """A quoted secret is masked whole and the next field is kept."""
     redacted = redact_secrets('password="quoted secret value" next_field=ok')
     assert "quoted secret value" not in redacted
     assert "next_field=ok" in redacted
 
 
-def test_redact_secrets_masks_newer_token_formats():
+def test_redact_secrets_masks_newer_token_formats() -> None:
+    """Fine-grained GitHub tokens and live Stripe keys are masked."""
     redacted = redact_secrets("token=" + "github_pat_" + "a" * 40)
     assert "github_pat_" not in redacted
     redacted = redact_secrets("key=" + "sk_live_" + "a" * 20)
     assert "sk_live_" not in redacted
 
-    policy = URLPolicy(
-        resolver=lambda host, _port: (host if host[0].isdigit() else "93.184.216.34",)
-    )
-    policy.validate("https://example.com")
+
+def test_url_policy_public_https_url_is_accepted() -> None:
+    """An HTTPS URL on a public host passes the policy."""
+    _policy_with_public_resolver().validate("https://example.com")
+
+
+@pytest.mark.parametrize("url", ["ftp://example.com", "file:///etc/passwd", "javascript:alert(1)"])
+def test_url_policy_non_https_scheme_is_rejected(url: str) -> None:
+    """Only HTTPS URLs pass the policy."""
     with pytest.raises(URLPolicyError):
-        policy.validate("ftp://example.com")
+        _policy_with_public_resolver().validate(url)
+
+
+@pytest.mark.parametrize("host", ["blocked.local", "localhost"])
+def test_url_policy_denied_host_is_rejected(host: str) -> None:
+    """A host listed in denied_hosts is rejected."""
     with pytest.raises(URLPolicyError):
-        policy.validate("file:///etc/passwd")
+        URLPolicy(denied_hosts={host}).validate(f"https://{host}/admin")
+
+
+@pytest.mark.parametrize(
+    "url", ["https://169.254.169.254/latest/meta-data/", "https://10.0.0.5/internal"]
+)
+def test_url_policy_metadata_or_private_address_is_rejected_by_default(url: str) -> None:
+    """Cloud-metadata and RFC 1918 addresses are blocked without a denied_hosts entry."""
     with pytest.raises(URLPolicyError):
-        policy.validate("javascript:alert(1)")
+        _policy_with_public_resolver().validate(url)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://127.0.0.1/admin",
+        "https://localhost/admin",
+        "https://LOCALHOST/admin",
+        "https://localhost.localdomain/admin",
+        "https://localhost./admin",
+    ],
+)
+def test_url_policy_loopback_host_is_rejected_by_default(url: str) -> None:
+    """Loopback addresses and localhost names are blocked without a denied_hosts entry.
+
+    Localhost names are matched by name, not by a resolved address. A trailing
+    root-zone dot names the same host, so it gets no exemption.
+    """
     with pytest.raises(URLPolicyError):
-        URLPolicy(denied_hosts={"blocked.local"}).validate("https://blocked.local/a")
-    # Cloud-metadata and RFC1918 addresses are blocked by default, without
-    # needing to be added to denied_hosts.
-    with pytest.raises(URLPolicyError):
-        policy.validate("https://169.254.169.254/latest/meta-data/")
-    with pytest.raises(URLPolicyError):
-        policy.validate("https://10.0.0.5/internal")
-    with pytest.raises(URLPolicyError):
-        URLPolicy().validate("https://127.0.0.1/admin")
-    with pytest.raises(URLPolicyError):
-        URLPolicy(denied_hosts={"localhost"}).validate("https://localhost/admin")
-    # "localhost" and its common aliases resolve to loopback and are blocked
-    # by default too, without needing to be added to denied_hosts -- unlike
-    # 127.0.0.1 this is a symbolic name, not a literal IP the ipaddress check
-    # below would catch.
-    with pytest.raises(URLPolicyError):
-        URLPolicy().validate("https://localhost/admin")
-    with pytest.raises(URLPolicyError):
-        URLPolicy().validate("https://LOCALHOST/admin")
-    with pytest.raises(URLPolicyError):
-        URLPolicy().validate("https://localhost.localdomain/admin")
-    # A trailing root-zone dot is DNS/HTTP-client equivalent to the bare
-    # name and must not bypass the check on that technicality.
-    with pytest.raises(URLPolicyError):
-        URLPolicy().validate("https://localhost./admin")
+        URLPolicy().validate(url)
 
 
 def test_redact_mapping_masks_nested_and_cloud_credentials() -> None:
+    """Credential fields are masked at any depth and other fields are kept."""
     redacted_config = redact_mapping(
         {"headers": [{"Authorization": "Bearer bearer-secret-123", "Accept": "json"}]}
     )

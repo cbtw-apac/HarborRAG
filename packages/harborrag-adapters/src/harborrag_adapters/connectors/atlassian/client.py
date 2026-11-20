@@ -1,12 +1,17 @@
-"""Shared HTTP behavior for Jira and Confluence REST clients."""
+"""Shared HTTP behavior for Jira and Confluence REST clients.
+
+Credentials are sent only to the configured origin. The single redirect hop a
+download may follow is fetched without them.
+"""
 
 from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
 from threading import Lock, get_ident, local
-from typing import Any, Protocol
+from typing import Any, Protocol, TypedDict, Unpack
 from urllib.parse import urlparse
 
 import requests
@@ -35,16 +40,27 @@ from harborrag_adapters.connectors.rate_limiting import (
 )
 
 _RETRYABLE_STATUS = {429, 500, 502, 503, 504}
-
-# Confluence/Jira Cloud attachment downloads redirect once to Atlassian's
-# media platform with a short-lived, file-scoped signed URL baked into the
-# query string. That single hop is safe to follow without our own Atlassian
-# credentials; every other cross-origin redirect target stays refused.
 _TRUSTED_MEDIA_REDIRECT_HOSTS = frozenset({"api.media.atlassian.com"})
 
 
+class _RequestOptions(TypedDict, total=False):
+    """Keyword arguments the Atlassian clients pass through to ``requests``."""
+
+    params: Mapping[str, Any] | None
+    json: Mapping[str, Any]
+    headers: Mapping[str, str]
+    stream: bool
+    allow_redirects: bool
+
+
 def _is_trusted_redirect(location: str, base_url: str) -> bool:
-    """Return whether a redirect target is safe to follow."""
+    """Return whether a redirect target is safe to follow.
+
+    Cloud attachment downloads redirect once to Atlassian's media platform with a
+    short-lived, file-scoped signed URL in the query string. That hop is safe to
+    follow without our credentials. Any other HTTPS target must share the base
+    URL's origin.
+    """
     parsed = urlparse(location)
     if parsed.scheme.lower() != "https":
         return False
@@ -53,8 +69,31 @@ def _is_trusted_redirect(location: str, base_url: str) -> bool:
     return same_origin(location, base_url)
 
 
+def _redirect_location(response: requests.Response) -> str:
+    """Return a response's Location header as the text the server sent.
+
+    http.client decodes header bytes as latin-1, which turns a raw UTF-8 Location
+    into mojibake. Re-encoding as latin-1 and decoding as UTF-8 undoes that, the
+    same repair requests applies to the redirects it follows itself. A value that
+    does not survive the round trip is returned unchanged.
+    """
+    location = response.headers.get("Location") or ""
+    try:
+        return location.encode("latin-1").decode("utf-8")
+    except UnicodeError:
+        return location
+
+
 class AtlassianHttpConfig(Protocol):
-    """Configuration fields shared by the two Atlassian HTTP clients."""
+    """Configuration fields shared by the two Atlassian HTTP clients.
+
+    Attributes:
+        requests_per_minute: Request budget of each API lane, REST or attachment.
+        request_timeout_seconds: Timeout for each HTTP request.
+        max_retries: Retries after the first attempt for retryable responses.
+        backoff_factor: Base delay in seconds for exponential retry backoff.
+        max_attachment_size_bytes: Download size cap, or None for no cap.
+    """
 
     requests_per_minute: int
     request_timeout_seconds: float
@@ -65,7 +104,14 @@ class AtlassianHttpConfig(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class AtlassianClientContext:
-    """Stable HTTP and rate-limit identity for one Atlassian client."""
+    """Stable HTTP and rate-limit identity for one Atlassian client.
+
+    Attributes:
+        base_url: Configured site URL. Requests and redirects stay on its origin.
+        provider_label: Product name used in error and log messages.
+        logger: Logger for retry warnings.
+        rate_limit_identity: Identity whose lanes the rate limiter throttles.
+    """
 
     base_url: str
     provider_label: str
@@ -74,7 +120,13 @@ class AtlassianClientContext:
 
 
 class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
-    """Rate-limited requests client with shared errors and download safety."""
+    """Rate-limited requests client with shared errors and download safety.
+
+    Args:
+        config: HTTP limits, retries and download cap of the connection.
+        context: Base URL, labels, logger and rate-limit identity.
+        rate_limiter: Shared rate limiter, else a local interval limiter.
+    """
 
     def __init__(
         self,
@@ -102,7 +154,7 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
         method: str,
         url: str,
         endpoint: str,
-        **kwargs: Any,
+        **kwargs: Unpack[_RequestOptions],
     ) -> dict[str, Any]:
         """Send a request and require a JSON object response."""
         kwargs.setdefault("stream", True)
@@ -156,13 +208,12 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
     ) -> requests.Response:
         """Follow a single validated redirect hop without forwarding our credentials.
 
-        The initial request already proved the origin trustworthy; the redirect
-        Location is server-issued, not attacker-supplied. Untrusted targets
-        (anything but the same origin or Atlassian's media platform) are still
-        refused, and the fetch to the trusted target is anonymous so our
-        session's Confluence/Jira credentials never reach a different origin.
+        The Location comes from the configured origin, not from page content.
+        Targets other than the same origin or Atlassian's media platform are
+        refused. The trusted target is fetched anonymously, so the Confluence or
+        Jira credentials never reach another origin.
         """
-        location = response.headers.get("Location") or ""
+        location = _redirect_location(response)
         response.close()
         if not location or not _is_trusted_redirect(location, self.base_url):
             raise FetchError(f"{label} refused HTTP redirect {response.status_code}")
@@ -185,7 +236,12 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
             raise FetchError(f"{label} refused chained HTTP redirect {follow_up.status_code}")
         return follow_up
 
-    def _request(self, method: str, url: str, **kwargs: Any) -> requests.Response:
+    def _request(
+        self,
+        method: str,
+        url: str,
+        **kwargs: Unpack[_RequestOptions],
+    ) -> requests.Response:
         """Send one HTTP request with rate limiting and retry handling."""
         last_error: Exception | None = None
         for attempt in range(self.config.max_retries + 1):
@@ -239,7 +295,6 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
 
     def close(self) -> None:
         """Close the connector-owned HTTP connection pool."""
-
         with self._sessions_lock:
             sessions = tuple(self._sessions)
             self._sessions.clear()
@@ -248,7 +303,6 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
 
     def _session_for_thread(self) -> requests.Session:
         """Return an independently pooled session for concurrent descriptors."""
-
         if get_ident() == self._owner_thread:
             return self.session
         session: requests.Session | None = getattr(self._thread_sessions, "session", None)
@@ -268,7 +322,6 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
 
     def _acquire(self, url: str) -> None:
         """Throttle requests in the source API-family lane."""
-
         path = urlparse(url).path.lower()
         api_family = "rest" if "/rest/api/" in path else "attachment"
         self._rate_limiter.acquire(
@@ -276,7 +329,12 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
             requests_per_minute=self.config.requests_per_minute,
         )
 
-    def _sleep(self, attempt: int, error: Exception, headers: Any = None) -> None:
+    def _sleep(
+        self,
+        attempt: int,
+        error: Exception,
+        headers: Mapping[str, str] | None = None,
+    ) -> None:
         """Sleep before retrying, honoring provider retry headers."""
         fallback_delay = self.config.backoff_factor * (2**attempt)
         delay = retry_delay_seconds(headers, fallback_delay)

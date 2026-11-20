@@ -8,6 +8,7 @@ from pathlib import Path
 from harborrag_core.domain.source import SourceRecord
 
 from .filesystem_paths import (
+    file_extension,
     guess_mime_type,
     relative_path,
     stat_datetime,
@@ -65,7 +66,7 @@ def build_source_record(
             "relative_path": relative,
             "name": path.name,
             "parent_relative_path": Path(relative).parent.as_posix(),
-            "suffix": path.suffix.lower(),
+            "suffix": file_extension(path),
             "size": stat.st_size,
             "created_at": created_at,
             "updated_at": updated_at,
@@ -99,7 +100,7 @@ def build_document_metadata(
         relative_path=relative,
         name=path.name,
         parent_relative_path=Path(relative).parent.as_posix(),
-        suffix=path.suffix.lower(),
+        suffix=file_extension(path),
         size=stat.st_size,
         accessed_at=stat_datetime(stat.st_atime),
         is_symlink=is_symlink,
