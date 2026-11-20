@@ -34,6 +34,13 @@ class LocalFileConnector(BaseConnector):
     The configured source path is the trust boundary. Discovery and direct loads
     resolve candidate paths and reject anything outside that scope, including
     symlink escapes.
+
+    Args:
+        config: The connector's settings, including the source path and filters.
+
+    Attributes:
+        provider_name: Connector type name used in the registry.
+        capabilities: What this connector supports, such as incremental sync.
     """
 
     provider_name = "local"
@@ -46,7 +53,6 @@ class LocalFileConnector(BaseConnector):
     )
 
     def __init__(self, config: LocalFileConfig) -> None:
-        """Initialize safe filesystem operations for the configured scope."""
         self.config = config
         self._files = LocalFileSystem(config)
         self.source_path = self._files.source_path
@@ -63,10 +69,13 @@ class LocalFileConnector(BaseConnector):
             if query.limit is not None and yielded >= query.limit:
                 return
 
+    def bind_run_id(self, run_id: str) -> None:
+        """Tag this connector's skip warnings with the caller's run ID."""
+        self._files.skips.run_id = run_id
+
     @property
     def skipped(self) -> tuple[ConnectorSkip, ...]:
         """Report files traversal dropped instead of discovering."""
-
         return self._files.skips.entries
 
     def load(self, record: SourceRecord) -> RawDocument:
@@ -110,7 +119,6 @@ class LocalFileConnector(BaseConnector):
 
     def close(self) -> None:
         """Release the root descriptor held by the filesystem boundary."""
-
         self._files.close()
 
     def load_by_paths(self, paths: list[str | Path]) -> Iterator[RawDocument]:

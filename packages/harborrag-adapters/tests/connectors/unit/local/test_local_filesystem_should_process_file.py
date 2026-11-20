@@ -12,6 +12,7 @@ from local_test_helpers import config, write_file
 from harborrag_adapters.connectors import LocalFileConnector
 from harborrag_adapters.connectors.exceptions import DocumentProcessingError, FetchError
 from harborrag_adapters.connectors.local.filesystem import LocalFileSystem
+from harborrag_adapters.connectors.local.skips import path_digest
 from harborrag_adapters.connectors.schemas import ConnectorQuery
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
@@ -157,6 +158,7 @@ def test_should_process_file_no_size_limit_configured(tmp_path: Path):
 
 
 def test_should_process_file_rejects_oversized_file(tmp_path: Path, caplog):
+    """An oversized file is logged by a digest of its path and named in the skip report."""
     write_file(tmp_path / "big.txt", b"way too large")
     connector = LocalFileConnector(config(tmp_path, max_file_size_bytes=3))
 
@@ -164,10 +166,9 @@ def test_should_process_file_rejects_oversized_file(tmp_path: Path, caplog):
         records = list(connector.discover())
 
     assert records == []
-    # Rejecting the file is only half the contract: it must be *reported*, both
-    # in the run log and in the structured skip report, never silently omitted.
-    assert "big.txt" in caplog.text
-    assert "max_file_size_bytes 3" in caplog.text
+    assert "big.txt" not in caplog.text
+    digest = path_digest(connector.skipped[0].path)
+    assert f"reason=size_limit_exceeded path_digest={digest}" in caplog.text
     assert [(Path(s.path).name, s.reason) for s in connector.skipped] == [
         ("big.txt", "size_limit_exceeded")
     ]
@@ -224,8 +225,8 @@ def test_discover_page_reports_oversized_file_past_the_page_cutoff(tmp_path: Pat
     ]
 
 
-def test_discover_does_not_report_intended_filter_misses(tmp_path: Path):
-    """Extension/glob exclusions are intended filtering, not reportable skips."""
+def test_discover_reports_extension_exclusion_with_reason(tmp_path: Path):
+    """An extension dropped by excluded_extensions is a named skip, like SharePoint's."""
     write_file(tmp_path / "keep.txt", b"ok")
     write_file(tmp_path / "drop.md", b"ok")
     connector = LocalFileConnector(config(tmp_path, excluded_extensions={".md"}))
@@ -233,7 +234,105 @@ def test_discover_does_not_report_intended_filter_misses(tmp_path: Path):
     records = list(connector.discover())
 
     assert [r.metadata["relative_path"] for r in records] == ["keep.txt"]
+    assert [(Path(s.path).name, s.reason, s.detail) for s in connector.skipped] == [
+        ("drop.md", "unsupported_extension", "extension '.md' is excluded")
+    ]
+
+
+def test_discover_reports_extension_not_in_allowed_list(tmp_path: Path):
+    write_file(tmp_path / "keep.txt", b"ok")
+    write_file(tmp_path / "legacy.doc", b"ok")
+    write_file(tmp_path / "README", b"ok")
+    connector = LocalFileConnector(config(tmp_path, allowed_extensions={".txt"}))
+
+    records = list(connector.discover())
+
+    assert [r.metadata["relative_path"] for r in records] == ["keep.txt"]
+    assert sorted((Path(s.path).name, s.detail) for s in connector.skipped) == [
+        ("README", "extension '<none>' is not allowed"),
+        ("legacy.doc", "extension '.doc' is not allowed"),
+    ]
+
+
+def test_discover_does_not_report_glob_filter_misses(tmp_path: Path):
+    """Glob exclusions stay intended filtering, not reportable skips."""
+    write_file(tmp_path / "keep.txt", b"ok")
+    write_file(tmp_path / "drop.txt", b"ok")
+    connector = LocalFileConnector(config(tmp_path, exclude_globs=["drop*"]))
+
+    records = list(connector.discover())
+
+    assert [r.metadata["relative_path"] for r in records] == ["keep.txt"]
     assert connector.skipped == ()
+
+
+@pytest.mark.parametrize(
+    "scope",
+    [
+        {"include_paths": ["docs"]},
+        {"exclude_paths": ["build"]},
+        {"include_globs": ["docs/**"]},
+        {"exclude_globs": ["build/**"]},
+    ],
+)
+def test_discover_reports_extension_skips_only_inside_the_path_scope(
+    tmp_path: Path, scope: dict[str, list[str]]
+) -> None:
+    """A file the path or glob filters drop is never reported as an extension skip."""
+    write_file(tmp_path / "docs" / "guide.md", b"ok")
+    write_file(tmp_path / "docs" / "notes.txt", b"ok")
+    write_file(tmp_path / "build" / "app.js", b"ok")
+    connector = LocalFileConnector(config(tmp_path, allowed_extensions={".md"}, **scope))
+
+    records = list(connector.discover())
+
+    assert [r.metadata["relative_path"] for r in records] == ["docs/guide.md"]
+    assert [(Path(s.path).name, s.reason) for s in connector.skipped] == [
+        ("notes.txt", "unsupported_extension")
+    ]
+
+
+def test_skip_warning_names_the_file_by_digest_and_run_id(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A skip warning carries the reason, a path digest and the run ID, never the name."""
+    write_file(tmp_path / "Alex Example CV.doc", b"ok")
+    connector = LocalFileConnector(config(tmp_path, allowed_extensions={".txt"}))
+    connector.bind_run_id("run-1")
+
+    with caplog.at_level(logging.WARNING, logger="harborrag.adapters.connectors.local"):
+        list(connector.discover())
+
+    digest = path_digest(connector.skipped[0].path)
+    assert "Alex Example" not in caplog.text
+    assert (
+        f"local.file_skipped reason=unsupported_extension path_digest={digest} run_id=run-1"
+        in caplog.text
+    )
+
+
+def test_callback_failure_warning_names_the_error_class_only(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A callback's error message can carry the path, so the warning names its class."""
+    write_file(tmp_path / "Alex Example CV.txt", b"ok")
+
+    def classify(path: str, size: int, mime_type: str) -> tuple[bool, str]:
+        raise ValueError(f"cannot classify {path}")
+
+    connector = LocalFileConnector(config(tmp_path, process_file_callback=classify))
+
+    with caplog.at_level(logging.WARNING, logger="harborrag.adapters.connectors.local"):
+        records = list(connector.discover())
+
+    assert records == []
+    assert "Alex Example" not in caplog.text
+    assert "local.file_callback_failed error_type=ValueError" in caplog.text
+    assert connector.skipped[0].reason == "callback_rejected"
+
+
+def test_path_digest_matches_a_pinned_value() -> None:
+    assert path_digest("/data/docs/report.pdf") == "e14389f8828b"
 
 
 def test_discover_reports_callback_rejection_with_its_reason(tmp_path: Path):

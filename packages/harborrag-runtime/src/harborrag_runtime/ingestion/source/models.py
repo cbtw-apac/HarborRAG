@@ -71,6 +71,8 @@ class SourceIngestionOutcome:
     status: IngestionTaskState
     removal_candidates: tuple[str, ...] = ()
     unresolved_relations: int = 0
+    skipped: int = 0
+    skipped_by_reason: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)

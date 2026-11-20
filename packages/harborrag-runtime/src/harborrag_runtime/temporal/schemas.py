@@ -62,6 +62,7 @@ class SourceContinuation:
     next_document_index: int
     batch_number: int
     summary: DocumentDispatchSummary
+    skipped_by_reason: dict[str, int] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.scan_id.strip():
@@ -136,6 +137,7 @@ class SourceDiscoveryResult:
     scan_id: str
     plan_reference: WorkflowArtifactReference
     document_count: int
+    skipped_by_reason: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -288,6 +290,10 @@ class SourceIngestionResult:
     # Every removed document, including those not named above. Results recorded
     # before this field existed carry no value and are read as the named ones.
     removal_count: int | None = None
+    # Skips the run reported at discovery or in its document results. Results
+    # recorded before this field existed read as no skips.
+    skipped: int = 0
+    skipped_by_reason: dict[str, int] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.status not in {"COMPLETED", "PARTIAL", "FAILED", "CANCELLED"}:

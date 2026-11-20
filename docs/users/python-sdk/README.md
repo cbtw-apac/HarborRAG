@@ -100,9 +100,11 @@ result = await harbor.ingestion.run(request)
 ```
 
 `run` waits for the result, an `IngestionResult` with `task_id`, `status`, `discovered`,
-`published`, `unchanged` and `failed`. Under `execution_mode: direct` it runs inline,
-without Temporal; under `execution_mode: temporal` it submits the run to Temporal and
-waits for it.
+`published`, `unchanged`, `failed` and `skipped`. Items left out at discovery, such as
+files outside the connection's `allowed_extensions`, count in `skipped` but not in
+`discovered`. A document skipped later, for example because it failed to parse, counts
+in both `failed` and `skipped`. Under `execution_mode: direct` it runs inline, without
+Temporal; under `execution_mode: temporal` it submits the run to Temporal and waits for it.
 
 For long runs, submit durably and control the workflow:
 
