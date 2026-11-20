@@ -1,12 +1,21 @@
 from __future__ import annotations
 
+import logging
+import os
+import re
+from pathlib import Path
+
 import httpx
 import pytest
 from catalog_support import EXPECTED_READER_TOOLS
 
+from harborrag_core.contracts.errors import HarborUnavailableError
+from harborrag_core.schemas.ids import TenantId
+from harborrag_engine.tools.base import BaseTool, ToolSpec
 from harborrag_mcp_server.audit import McpAuditLog
 from harborrag_mcp_server.configuration import McpConfiguration, McpConfigurationStore
 from harborrag_mcp_server.server import McpServer, create_mcp_server
+from harborrag_mcp_server.server import http as http_module
 from harborrag_mcp_server.server.http import (
     create_local_token_verifier,
     register_http_routes,
@@ -14,6 +23,40 @@ from harborrag_mcp_server.server.http import (
 )
 
 TOKEN = "local-test-token-that-is-at-least-32-bytes"
+
+
+class _TenantDirectory:
+    """TenantDirectory stub that lists fixed tenants, or fails with ``failure``."""
+
+    def __init__(self, tenants: list[str], failure: Exception | None = None) -> None:
+        self.tenants = tenants
+        self.failure = failure
+        self.lookups = 0
+
+    async def tenant_ids(self) -> list[TenantId]:
+        self.lookups += 1
+        if self.failure is not None:
+            raise self.failure
+        return [TenantId(tenant) for tenant in self.tenants]
+
+
+_STATUS_PAGE = Path(http_module.__file__).parent / "static" / "status.html"
+
+
+@pytest.mark.unit
+def test_status_page_markup_has_every_element_its_script_selects() -> None:
+    markup, _, script = _STATUS_PAGE.read_text(encoding="utf-8").partition("<script")
+
+    selected = set(re.findall(r"querySelector\('#([\w-]+)'\)", script))
+
+    assert len(selected) >= 10
+    assert [name for name in sorted(selected) if f'id="{name}"' not in markup] == []
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("placeholder", ["__MCP_ENDPOINT__", "__MCP_TOOLS__", "__MCP_NONCE__"])
+def test_status_page_keeps_each_server_filled_placeholder(placeholder: str) -> None:
+    assert _STATUS_PAGE.read_text(encoding="utf-8").count(placeholder) == 1
 
 
 @pytest.mark.parametrize(
@@ -226,6 +269,123 @@ async def test_owner_configuration_api_persists_and_audits_updates(tmp_path) -> 
     assert audit.entries[-1]["principal_id"] == "harborrag-local"
 
 
+@pytest.mark.unit
+@pytest.mark.asyncio
+@pytest.mark.skipif(
+    os.geteuid() == 0, reason="root can write into a directory without write permission"
+)
+async def test_configuration_api_answers_409_when_the_file_is_read_only(tmp_path) -> None:
+    mounted = tmp_path / "mounted"
+    mounted.mkdir()
+    audit = McpAuditLog(path=tmp_path / "audit.jsonl")
+    registry = McpServer(audit=audit)
+    configuration = McpConfigurationStore(
+        path=mounted / "mcp.yaml",
+        configuration=McpConfiguration(),
+        specs=registry.list_tools(),
+        audit=audit,
+        environment={},
+    )
+    registry.configuration = configuration
+    verifier = create_local_token_verifier(TOKEN)
+    server = create_mcp_server(registry=registry, auth=verifier)
+    register_http_routes(
+        server,
+        mcp_path="/mcp",
+        registry=registry,
+        configuration=configuration,
+        token_verifier=verifier,
+    )
+    app = server.http_app(path="/mcp")
+    mounted.chmod(0o555)
+
+    try:
+        async with app.router.lifespan_context(app):
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app),
+                base_url="http://testserver",
+            ) as client:
+                current = (await client.get("/api/config", headers=_owner_headers())).json()
+                saved = await client.put(
+                    "/api/config",
+                    headers=_owner_headers(),
+                    json={
+                        "configuration": current["configuration"],
+                        "expected_revision": current["revision"],
+                    },
+                )
+    finally:
+        mounted.chmod(0o755)
+
+    assert current["writable"] is False
+    assert saved.status_code == 409
+    assert "read-only" in saved.json()["error"]
+    assert audit.entries == []
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_tool_playground_offers_the_tenants_the_server_was_started_with(tmp_path) -> None:
+    audit = McpAuditLog(path=tmp_path / "audit.jsonl")
+    registry = McpServer(
+        audit=audit,
+        known_tenants=("DEFAULT",),
+        corpus_mode="tenant_shared",
+        shared_tenant_id="shared",
+        tenant_directory=_TenantDirectory(["DEFAULT", "tenant-1"]),
+    )
+    configuration = McpConfigurationStore(
+        path=tmp_path / "mcp.yaml",
+        configuration=McpConfiguration.model_validate(
+            {"tenants": {"override": {"tools": {"vector_search": {"enabled": False}}}}}
+        ),
+        specs=registry.list_tools(),
+        audit=audit,
+        environment={},
+    )
+    registry.configuration = configuration
+    verifier = create_local_token_verifier(TOKEN)
+    server = create_mcp_server(registry=registry, auth=verifier)
+    register_http_routes(
+        server,
+        mcp_path="/mcp",
+        registry=registry,
+        configuration=configuration,
+        token_verifier=verifier,
+    )
+    app = server.http_app(path="/mcp")
+
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://testserver"
+        ) as client:
+            catalog = await client.get("/api/tools", headers=_owner_headers())
+            lookups_on_connect = registry.tenant_directory.lookups
+            for_one_tenant = await client.get(
+                "/api/tools?tenant_id=DEFAULT", headers=_owner_headers()
+            )
+
+    assert catalog.json()["tenants"] == ["DEFAULT", "override", "shared", "tenant-1"]
+    assert catalog.json()["any_tenant"] is True
+    assert "tenants" not in for_one_tenant.json()
+    assert registry.tenant_directory.lookups == lookups_on_connect == 1
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", [HarborUnavailableError("database is down"), TimeoutError()])
+async def test_tenant_choices_fall_back_to_the_configured_tenants(
+    tmp_path, failure: Exception
+) -> None:
+    registry = McpServer(
+        audit=McpAuditLog(path=tmp_path / "audit.jsonl"),
+        known_tenants=("DEFAULT",),
+        tenant_directory=_TenantDirectory([], failure=failure),
+    )
+
+    assert await registry.tenant_choices() == ["DEFAULT"]
+
+
 @pytest.mark.asyncio
 async def test_tool_playground_api_applies_effective_tenant_configuration(tmp_path) -> None:
     audit = McpAuditLog(path=tmp_path / "audit.jsonl")
@@ -323,7 +483,13 @@ async def test_a_tenant_bound_owner_token_still_administers_and_binds_its_tenant
     """
 
     audit = McpAuditLog(path=tmp_path / "audit.jsonl")
-    registry = McpServer(audit=audit, corpus_mode="tenant_shared", shared_tenant_id="demo")
+    other_tenants = _TenantDirectory(["finance"])
+    registry = McpServer(
+        audit=audit,
+        corpus_mode="tenant_shared",
+        shared_tenant_id="demo",
+        tenant_directory=other_tenants,
+    )
     configuration = McpConfigurationStore(
         path=tmp_path / "mcp.yaml",
         configuration=McpConfiguration(),
@@ -371,6 +537,9 @@ async def test_a_tenant_bound_owner_token_still_administers_and_binds_its_tenant
     assert reload_response.status_code != 403
     assert catalog.status_code == 200
     assert catalog.json()["tenant_id"] == "demo"
+    assert catalog.json()["tenants"] == ["demo"]
+    assert catalog.json()["any_tenant"] is False
+    assert other_tenants.lookups == 0
     assert [tool["name"] for tool in catalog.json()["tools"]] == EXPECTED_READER_TOOLS
     assert call_response.status_code == 200
     # The call was bound to the token's tenant instead of falling through to the
@@ -412,7 +581,8 @@ async def test_reader_keys_use_the_playground_but_not_the_configuration(tmp_path
     from fastmcp.server.auth.providers.jwt import StaticTokenVerifier
 
     audit = McpAuditLog(path=tmp_path / "audit.jsonl")
-    registry = McpServer(audit=audit)
+    other_tenants = _TenantDirectory(["finance"])
+    registry = McpServer(audit=audit, tenant_directory=other_tenants)
     configuration = McpConfigurationStore(
         path=tmp_path / "mcp.yaml",
         configuration=McpConfiguration(),
@@ -475,6 +645,9 @@ async def test_reader_keys_use_the_playground_but_not_the_configuration(tmp_path
     assert own_tools.status_code == 200
     assert own_tools.json()["tenant_id"] == "demo"
     assert own_tools.json()["role"] == "reader"
+    assert own_tools.json()["tenants"] == ["demo"]
+    assert own_tools.json()["any_tenant"] is False
+    assert other_tenants.lookups == 0
     assert [tool["name"] for tool in own_tools.json()["tools"]] == EXPECTED_READER_TOOLS
     assert other_tools.status_code == 403
     # Bound to the key's tenant (a runtime-less registry answers with a tool error, not 403).
@@ -483,3 +656,164 @@ async def test_reader_keys_use_the_playground_but_not_the_configuration(tmp_path
     assert config.status_code == 403 and "reader key" in config.json()["error"]
     assert reload.status_code == 403
     assert owner_config.status_code == 200
+
+
+_TOOL_FAILURES: dict[str, type[Exception]] = {
+    "runtime": RuntimeError,
+    "value": ValueError,
+    "permission": PermissionError,
+}
+
+
+class _FailingTool(BaseTool):
+    """Tool whose own execution fails with a message that names internals."""
+
+    spec = ToolSpec(
+        "failing_probe",
+        "Raise an unexpected internal error in a test.",
+        {
+            "type": "object",
+            "properties": {
+                "tenant_id": {"type": "string"},
+                "failure": {"type": "string", "enum": sorted(_TOOL_FAILURES)},
+            },
+            "required": ["tenant_id", "failure"],
+            "additionalProperties": False,
+        },
+        output_schema={"type": "object"},
+    )
+
+    async def call(self, arguments, *, principal_id):
+        raise _TOOL_FAILURES[arguments["failure"]]("postgresql://user:secret@db is unreachable")
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", sorted(_TOOL_FAILURES))
+async def test_tool_playground_masks_and_logs_a_failure_inside_the_tool(
+    tmp_path, caplog, failure
+) -> None:
+    audit = McpAuditLog(path=tmp_path / "audit.jsonl")
+    registry = McpServer(tools=[_FailingTool()], audit=audit)
+    configuration = McpConfigurationStore(
+        path=tmp_path / "mcp.yaml",
+        configuration=McpConfiguration(),
+        specs=registry.list_tools(),
+        audit=audit,
+        environment={},
+    )
+    registry.configuration = configuration
+    verifier = create_local_token_verifier(TOKEN)
+    server = create_mcp_server(registry=registry, auth=verifier)
+    register_http_routes(
+        server,
+        mcp_path="/mcp",
+        registry=registry,
+        configuration=configuration,
+        token_verifier=verifier,
+    )
+    app = server.http_app(path="/mcp")
+
+    with caplog.at_level(logging.ERROR, logger="harborrag.mcp.server.http"):
+        async with app.router.lifespan_context(app):
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app), base_url="http://testserver"
+            ) as client:
+                response = await client.post(
+                    "/api/tools/call",
+                    headers=_owner_headers(),
+                    json={
+                        "name": "failing_probe",
+                        "arguments": {"tenant_id": "demo", "failure": failure},
+                    },
+                )
+
+    raised = _TOOL_FAILURES[failure]
+    assert response.status_code == 500
+    assert response.json()["error"] == f"tool execution failed ({raised.__name__})"
+    assert "secret" not in response.text
+    logged = [record.exc_info for record in caplog.records if record.exc_info]
+    assert [exc_info[0] for exc_info in logged] == [raised]
+
+
+class _TokenEchoingVerifier:
+    """Verifier that fails with the presented token in its message."""
+
+    async def verify_token(self, token: str) -> None:
+        raise RuntimeError(f"key store rejected {token}")
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_a_failing_verifier_denies_the_request_and_keeps_the_token_out_of_the_log(
+    tmp_path, caplog
+) -> None:
+    audit = McpAuditLog(path=tmp_path / "audit.jsonl")
+    registry = McpServer(audit=audit)
+    configuration = McpConfigurationStore(
+        path=tmp_path / "mcp.yaml",
+        configuration=McpConfiguration(),
+        specs=registry.list_tools(),
+        audit=audit,
+        environment={},
+    )
+    server = create_mcp_server(registry=registry, auth=create_local_token_verifier(TOKEN))
+    register_http_routes(
+        server,
+        mcp_path="/mcp",
+        registry=registry,
+        configuration=configuration,
+        token_verifier=_TokenEchoingVerifier(),
+    )
+    app = server.http_app(path="/mcp")
+
+    with caplog.at_level(logging.DEBUG, logger="harborrag.mcp.server.http"):
+        async with app.router.lifespan_context(app):
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app), base_url="http://testserver"
+            ) as client:
+                response = await client.get("/api/tools", headers=_owner_headers())
+
+    assert response.status_code == 401
+    assert response.json()["error"] == "invalid bearer token"
+    assert "RuntimeError" in caplog.text
+    assert TOKEN not in caplog.text
+    assert [record for record in caplog.records if record.exc_info] == []
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_tool_playground_refuses_a_body_nested_too_deep_to_parse(tmp_path) -> None:
+    audit = McpAuditLog(path=tmp_path / "audit.jsonl")
+    registry = McpServer(audit=audit)
+    configuration = McpConfigurationStore(
+        path=tmp_path / "mcp.yaml",
+        configuration=McpConfiguration(),
+        specs=registry.list_tools(),
+        audit=audit,
+        environment={},
+    )
+    verifier = create_local_token_verifier(TOKEN)
+    server = create_mcp_server(registry=registry, auth=verifier)
+    register_http_routes(
+        server,
+        mcp_path="/mcp",
+        registry=registry,
+        configuration=configuration,
+        token_verifier=verifier,
+    )
+    app = server.http_app(path="/mcp")
+    depth = 50_000
+
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://testserver"
+        ) as client:
+            response = await client.post(
+                "/api/tools/call",
+                headers={**_owner_headers(), "Content-Type": "application/json"},
+                content="[" * depth + "]" * depth,
+            )
+
+    assert response.status_code == 422
+    assert audit.entries == []

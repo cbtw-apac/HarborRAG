@@ -7,8 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Documents are re-chunked and re-embedded on their next ingestion, and the shipped
-embedding model changes, so re-ingest every source with `--force-reprocess`. Follow the
+Documents are re-chunked and re-embedded on their next ingestion, so re-ingest every
+source with `--force-reprocess`. Follow the
 [upgrade guide](docs/users/upgrading.md) before upgrading; entries marked **Breaking** need
 action.
 
@@ -37,6 +37,7 @@ action.
 #### harborrag-mcp-server
 
 - `vector_search` reads `retrieval.top_k` at tenant level as its default `top_k`; chat reads it at the level of the session's project
+- `harborrag-mcp --preflight` connects every backend once and reports a start-up failure in one line
 
 #### harborrag-runtime
 
@@ -46,6 +47,12 @@ action.
 - Chunk sizes, per-source profiles and the splitting strategy are configurable in `config/ingestion/chunking.yaml`
 - **Breaking:** ingestion requires the code grammars; the worker images and the `local` and `production` installs include them
 - Retrieval can rerank with the model catalog's `rerank` model: it fetches four times `top_k` passages (at most 100), keeps the first `top_k` in rerank order, and adds `rerank_score` to each result's metadata while `relevance` keeps the lane's similarity; a rerank provider error fails the retrieval
+
+#### Deployment
+
+- `mcp.sh --http` checks the configuration before it starts the server and names model variables that no env file sets
+- The MCP launchers say when the image is older than the source
+- CI builds the MCP image and runs its handshake
 
 ### Changed
 
@@ -90,12 +97,14 @@ action.
 #### harborrag-mcp-server
 
 - The MCP server reads `config/mcp/server.yaml` and, with the file key store, `config/mcp/keys.yaml`
+- **Breaking:** the MCP HTTP server refuses a request addressed to a host name other than loopback, or sent from another origin
+- The MCP HTTP server answers extra host names, such as a reverse proxy's, when they are listed; a development container may listen beyond loopback when it acknowledges that
+- The MCP status page walks through connecting, choosing a tenant that holds content, picking a tool and running it, in one window
 
 #### harborrag-runtime
 
 - **Breaking:** `config/` is organised by domain (`sources/`, `ingestion/`, `graph/`, `models/`, `mcp/`) and every default path follows; a deployment that sets each `HARBORRAG_*_CONFIG_PATH` keeps working
-- **Breaking:** `config/models/models.yaml` sends chat, embedding and reranking through one LiteLLM proxy gateway and reads `HARBORRAG_URL`, `HARBORRAG_API_KEY`, `HARBORRAG_CHAT_MODEL`, `HARBORRAG_EMBED_MODEL` and `HARBORRAG_RERANKER_MODEL` instead of a provider, model and API key per family
-- **Breaking:** the shipped embedding model is the gateway's, in the embedding space `harbor-cohere-embed-v4`; its vectors have the same 1536 dimensions as before, so re-ingest every source with `--force-reprocess`
+- **Breaking:** one `config/models/models.yaml` serves OpenAI and an OpenAI-compatible gateway, with a key per family, an optional Cohere embedding mode and an optional reranker; the per-family provider variables and the shared gateway key are no longer read
 - **Breaking:** model variables with the `HARBOR_CHAT_`, `HARBOR_EMBED_` and `HARBOR_MEMORY_` prefixes, such as those the model smoke tests read, are renamed `HARBORRAG_CHAT_`, `HARBORRAG_EMBED_` and `HARBORRAG_MEMORY_`
 - Config YAML files hold values only; their explanations moved to the configuration pages. `config/ingestion/parsers.yaml` keeps its comments because its bytes are the parser identity
 
@@ -105,7 +114,9 @@ action.
 - `config/sources/schedules.yaml` and `config/mcp/keys.yaml` are git-ignored; each ships as an `.example.yaml` beside it
 - The `qdrant` extra of `harborrag-adapters` requires `qdrant-client>=1.17,<1.20` (was `>=1.10,<2`); the lock stays on 1.18.0
 - `config/temporal.example.yaml`, `config/models.example.yaml` and `config/harborrag.example.yaml` are removed
-- `env-example/.env.models.example` sets the five model gateway variables and keeps the direct-provider and other-proxy examples commented out
+- `env-example/.env.models.example` sets a model name and a key for chat and for embedding, and keeps the direct-provider and other-proxy examples commented out
+- `env-example/.env.mcp.example` sets the shared corpus for `DEFAULT`, so MCP tools find sources on a new deployment as chat does
+- **Breaking:** the MCP containers join the data network and publish their port on loopback; Docker Desktop host networking is no longer needed, and the data services must be started first
 
 ### Removed
 
@@ -136,6 +147,12 @@ action.
 - `harborrag retrieve` reads on the shared basis for the shared tenant (`HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared`), as chat does, instead of returning no candidates
 - **Breaking:** the API refuses to start on an invalid `parsers.yaml`, as the worker does, and warns when the file is missing
 
+#### harborrag-mcp-server
+
+- Saving from the status page answers a clear error when the configuration file is read-only, and the page disables Save
+- The status page's tool runner logs a failure inside a tool and answers with the error type only, as the MCP endpoint does
+- A server that listens on every interface no longer prints an address that cannot be opened
+
 #### harborrag-runtime
 
 - A `parsers.yaml` definition for one format, such as `docx` or `csv`, replaces only that format's engine, so the other formats of its family, such as DOC, ODT, EPUB or Excel, still parse
@@ -151,6 +168,7 @@ action.
 
 - The development API receives `JIRA_EMAIL`, `CONFLUENCE_EMAIL`, `MICROSOFT_TENANT_ID`, `MICROSOFT_CLIENT_ID` and `GITHUB_REPOSITORY_URL` from `env/.env.connector`, so the first-start import no longer stores the Jira, Confluence and SharePoint connections without them and with status `error`
 - The SharePoint entry of `config/sources/connectors.yaml` crawls the drive with the shared file type list instead of a test folder of Markdown files
+- `mcp.sh --http` stops and removes a server that never becomes healthy
 
 ## [2.0.0a2] - 2026-10-26
 

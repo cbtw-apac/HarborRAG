@@ -5,184 +5,642 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>HarborRAG MCP</title>
   <style>
-    :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
-    body { margin: 0; min-height: 100vh; display: grid; place-items: center;
-      background: #07111f; color: #dbeafe; }
-    main { width: min(980px, calc(100% - 40px)); padding: 36px; border: 1px solid #1e3a5f;
-      border-radius: 18px; background: #0b1728; box-shadow: 0 24px 70px #0008; }
-    .status { display: inline-flex; gap: 8px; align-items: center; color: #86efac; }
-    .dot { width: 9px; height: 9px; border-radius: 50%; background: #22c55e; }
-    h1 { margin: 12px 0 8px; color: #f8fafc; font-size: clamp(2rem, 7vw, 3.6rem); }
-    p { color: #9fb3ca; line-height: 1.65; }
-    .endpoint { margin: 24px 0; padding: 16px; border-radius: 10px; background: #07111f; }
-    code { color: #7dd3fc; }
-    ul { columns: 2; padding-left: 22px; line-height: 1.9; }
-    label { display: block; margin: 18px 0 6px; color: #bfd3e7; }
-    input, textarea, select { box-sizing: border-box; width: 100%; border: 1px solid #274867;
-      border-radius: 8px; padding: 11px; background: #07111f; color: #dbeafe; }
-    textarea { min-height: 320px; resize: vertical; font: 13px/1.5 ui-monospace, monospace; }
+    :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+      --bg: #111111; --panel: #1a1a1a; --well: #121212; --line: #2f2f2f; --line-strong: #3f3f3f;
+      --text: #f3f3f3; --muted: #a8a8a8; --faint: #8d8d8d; --accent: #ee4823; --accent-ink: #1c0d08;
+      --accent-soft: rgba(238, 72, 35, .14); --accent-text: #ff8f70; --code: #ffc7b3;
+      --good: #48bb78; --bad: #f56565; --warn: #ed8936; --sea: #4299e1;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    body { display: flex; flex-direction: column; min-height: 100vh; margin: 0; color: var(--text);
+      font-size: 15px; line-height: 1.5;
+      background: radial-gradient(900px 480px at 0 0, rgba(238, 72, 35, .11), transparent 62%),
+        radial-gradient(760px 420px at 100% 100%, rgba(66, 153, 225, .08), transparent 62%), var(--bg); }
+
+    header { display: flex; flex: none; flex-wrap: wrap; gap: 10px 28px; align-items: center;
+      justify-content: space-between; padding: 12px 18px; border-bottom: 1px solid var(--line); }
+    .brand { display: flex; gap: 12px; align-items: center; }
+    .brand svg { width: 34px; height: 34px; color: var(--accent); }
+    h1 { margin: 0; font-size: 1.15rem; line-height: 1.2; }
+    .brand p { display: flex; gap: 7px; align-items: center; color: var(--good); font-size: .8rem; }
+    .sep { color: var(--faint); }
+    .sep::before { content: "\00B7"; margin-right: 7px; }
+    h2 { display: flex; gap: 10px; align-items: center; margin: 0; font-size: 1rem; line-height: 1.3; }
+    h3 { margin: 18px 0 0; font-size: .9rem; }
+    p { margin: 0; color: var(--muted); }
+    code { color: var(--code); font-family: var(--mono); font-size: .9em; overflow-wrap: anywhere; }
+    small { display: block; margin-top: 6px; color: var(--faint); font-size: .8rem; }
+
+    .progress { display: flex; margin: 0; padding: 0; color: var(--faint); font-size: .8rem;
+      list-style: none; counter-reset: step; }
+    .progress li { display: flex; gap: 8px; align-items: center; counter-increment: step; }
+    .progress li::before { content: counter(step); display: grid; place-items: center; width: 22px;
+      height: 22px; border: 1px solid var(--line-strong); border-radius: 50%; font-size: .75rem;
+      transition: background .3s, border-color .3s, color .3s; }
+    .progress li:not(:last-child)::after { content: ""; width: 18px; height: 2px; margin-right: 8px;
+      background: var(--line-strong); transition: background .3s; }
+    .progress li[data-state="done"], .progress li[data-state="current"] { color: var(--text); }
+    .progress li[data-state="done"]::before { content: "\2713"; border-color: var(--accent);
+      background: var(--accent); color: var(--accent-ink); font-weight: 700; }
+    .progress li[data-state="done"]::after { background: var(--accent); }
+    .progress li[data-state="current"]::before { border-color: var(--accent); color: var(--accent-text);
+      animation: pulse 1.8s ease-in-out infinite; }
+
+    .facts { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .chip { display: inline-flex; gap: 8px; align-items: center; padding: 6px 12px;
+      border: 1px solid var(--line); border-radius: 999px; background: var(--panel);
+      color: var(--muted); font-size: .8rem; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--good);
+      animation: beacon 2.4s ease-out infinite; }
+    .tabs { display: inline-flex; padding: 3px; border: 1px solid var(--line); border-radius: 999px;
+      background: var(--panel); }
+    .tabs button { padding: 5px 14px; border-radius: 999px; background: none; color: var(--muted);
+      font-size: .8rem; }
+    .tabs button[aria-selected="true"] { background: var(--accent); color: var(--accent-ink); }
+
+    main { flex: 1; min-height: 0; padding: 14px 18px 18px; }
+    .view { display: grid; gap: 14px; min-height: 0; }
+    .rail { display: grid; gap: 14px; align-content: start; min-width: 0; }
+    .card { min-width: 0; padding: 16px; border: 1px solid var(--line); border-radius: 14px;
+      background: var(--panel); }
+    .card:not([hidden]), #tool-panel:not([hidden]) { animation: rise .35s ease-out; }
+    .step { display: inline-grid; flex: none; place-items: center; width: 24px; height: 24px;
+      border-radius: 50%; background: var(--accent); color: var(--accent-ink); font-size: .8rem;
+      font-weight: 700; }
+
+    label { display: block; margin: 14px 0 6px; color: var(--muted); font-size: .85rem; }
+    input, textarea, select { width: 100%; border: 1px solid var(--line-strong); border-radius: 8px;
+      padding: 9px 11px; background: var(--well); color: var(--text); font: inherit; }
+    textarea { resize: vertical; font: 13px/1.5 var(--mono); }
     textarea.compact { min-height: 96px; }
-    button { margin: 12px 8px 0 0; border: 0; border-radius: 8px; padding: 10px 15px;
-      background: #0284c7; color: white; cursor: pointer; }
-    button:disabled { cursor: wait; opacity: .6; }
-    button.secondary { background: #334155; }
-    section { margin-top: 30px; padding-top: 22px; border-top: 1px solid #1e3a5f; }
-    .field { margin-top: 14px; }
+    button { border: 0; border-radius: 8px; padding: 9px 16px; background: var(--accent);
+      color: var(--accent-ink); font: inherit; font-weight: 700; white-space: nowrap; cursor: pointer;
+      transition: filter .15s, transform .15s; }
+    button:hover:not(:disabled) { filter: brightness(1.08); }
+    button:active:not(:disabled) { transform: translateY(1px); }
+    button:disabled { cursor: not-allowed; opacity: .5; }
+    button.secondary { background: #333333; color: var(--text); }
+    button.link { padding: 0; background: none; color: var(--accent-text); font-weight: 500; }
+    :focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
+    #connect { width: 100%; margin-top: 14px; }
+    .inline { display: flex; gap: 8px; margin-top: 8px; }
+    .inline input { flex: 1; min-width: 0; }
+    .done-row { display: flex; gap: 10px; align-items: baseline; justify-content: space-between;
+      margin-top: 10px; color: var(--good); font-size: .9rem; }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin-top: 16px; }
+    [role="status"] { color: var(--good); font-size: .9rem; overflow-wrap: anywhere; }
+    [role="status"][data-state="bad"] { color: var(--bad); }
+    [role="status"]:not(:empty) { margin-top: 8px; }
+    .actions [role="status"] { margin-top: 0; }
+
+    .tools { display: grid; gap: 2px; margin: 10px 0 0; padding: 0; list-style: none; }
+    .tools button { width: 100%; padding: 5px 10px; border-left: 3px solid transparent;
+      border-radius: 6px; background: none; color: var(--text); font: 500 13px var(--mono);
+      text-align: left; white-space: normal; overflow-wrap: anywhere; }
+    .tools button:hover { background: var(--well); }
+    .tools button[aria-current="true"] { border-left-color: var(--accent);
+      background: var(--accent-soft); color: var(--accent-text); }
+
+    .flow { margin: 12px 0 0; padding-left: 20px; color: var(--muted); }
+    .flow b { color: var(--text); }
+    .offered { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 0; padding: 0; list-style: none; }
+    .offered li { padding: 2px 10px; border: 1px solid var(--line); border-radius: 999px;
+      background: var(--well); font-size: .8rem; }
+    .tip { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); font-size: .85rem; }
+    #tool-name { margin: 14px 0 0; font: 600 1rem var(--mono); color: var(--accent-text); }
+    #tool-description { margin-top: 6px; font-size: .9rem; }
+    #tool-tenant { margin-top: 8px; color: var(--faint); font-size: .85rem; }
+    .fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px;
+      margin-top: 14px; }
+    .fields > p, .fields > details, .field.wide, .field:has(textarea),
+    .field:has(input:not([type="number"])) { grid-column: 1 / -1; }
+    .field { min-width: 0; }
     .field label { margin: 0 0 6px; }
-    .required { color: #fca5a5; }
-    pre { max-height: 440px; overflow: auto; padding: 16px; border-radius: 10px;
-      background: #07111f; color: #bfdbfe; white-space: pre-wrap; overflow-wrap: anywhere; }
-    #message, #tool-message { min-height: 24px; color: #86efac; }
-    small { color: #6f879f; }
+    .required { color: var(--accent-text); }
+    summary { color: var(--muted); font-size: .9rem; cursor: pointer; }
+
+    .terminal { display: flex; flex-direction: column; min-width: 0; min-height: 320px; overflow: hidden;
+      border: 1px solid var(--line); border-radius: 14px; background: #0b0b0b; }
+    .terminal.fresh { animation: flash .9s ease-out; }
+    .terminal-bar { display: flex; gap: 12px; align-items: center; padding: 10px 14px;
+      border-bottom: 1px solid var(--line); background: #161616; color: var(--muted);
+      font: 12px var(--mono); }
+    .lights { display: flex; gap: 6px; }
+    .lights i { width: 10px; height: 10px; border-radius: 50%; background: var(--bad); }
+    .lights i:nth-child(2) { background: var(--warn); }
+    .lights i:nth-child(3) { background: var(--good); }
+    #tool-output { flex: 1; min-height: 0; max-height: 70vh; margin: 0; padding: 14px; overflow: auto;
+      color: #e8e8e8; font: 13px/1.55 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+    .idle { display: grid; flex: 1; place-content: center; justify-items: center; padding: 20px;
+      text-align: center; }
+    .boat { margin: 0; color: var(--accent-text); font: 13px/1.15 var(--mono); text-align: left;
+      animation: bob 3.4s ease-in-out infinite; }
+    .sea { width: 250px; margin: -5px 0 14px; overflow: hidden; }
+    .sea pre { display: inline-block; margin: 0; color: var(--sea); font: 13px/1.15 var(--mono);
+      white-space: pre; animation: drift 10s linear infinite; }
+    .sea pre + pre { opacity: .55; animation-duration: 16s; animation-direction: reverse; }
+
+    #configuration-view { grid-template-rows: auto auto minmax(240px, 1fr) auto; }
+    #configuration { min-height: 240px; }
+    .visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden;
+      clip-path: inset(50%); white-space: nowrap; }
+
+    @keyframes pulse { 50% { box-shadow: 0 0 0 6px rgba(238, 72, 35, 0); }
+      0%, 100% { box-shadow: 0 0 0 0 rgba(238, 72, 35, .5); } }
+    @keyframes beacon { 0% { box-shadow: 0 0 0 0 rgba(72, 187, 120, .6); }
+      100% { box-shadow: 0 0 0 8px rgba(72, 187, 120, 0); } }
+    @keyframes rise { from { opacity: 0; transform: translateY(8px); } }
+    @keyframes flash { from { box-shadow: 0 0 0 2px var(--accent); } }
+    @keyframes bob { 0%, 100% { transform: translateY(0) rotate(-1.5deg); }
+      50% { transform: translateY(5px) rotate(1.5deg); } }
+    @keyframes drift { to { transform: translateX(-50%); } }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation: none !important; transition: none !important; }
+    }
+
+    @media (min-width: 1000px) and (min-height: 600px) {
+      body { height: 100vh; overflow: hidden; }
+      .view { height: 100%; }
+      #playground { grid-template-columns: 300px minmax(0, 1fr) minmax(0, 1.15fr); }
+      .rail, .stage { overflow: auto; }
+      .terminal { min-height: 0; }
+      #tool-output { max-height: none; }
+    }
+    @media (max-width: 1439px) {
+      .progress li:not([data-state="current"]) span { display: none; }
+    }
+    @media (max-width: 640px) {
+      .fields { grid-template-columns: minmax(0, 1fr); }
+    }
   </style>
 </head>
 <body>
+  <header>
+    <div class="brand">
+      <svg viewBox="0 0 34 34" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true">
+        <path d="M4 12c4-4 7-4 10 0s6 4 9 0 5-4 7-2"/><path d="M4 20c4-4 7-4 10 0s6 4 9 0 5-4 7-2"/><path d="M4 28c4-4 7-4 10 0s6 4 9 0 5-4 7-2" opacity=".45"/>
+      </svg>
+      <div>
+        <h1>HarborRAG MCP</h1>
+        <p><span class="dot"></span>Server running<span class="sep">Tool Playground</span></p>
+      </div>
+    </div>
+    <ol id="progress" class="progress" aria-label="Steps">
+      <li data-state="current"><span>Connect</span></li>
+      <li data-state="todo"><span>Tenant</span></li>
+      <li data-state="todo"><span>Tool</span></li>
+      <li data-state="todo"><span>Run</span></li>
+    </ol>
+    <div class="facts">
+      <span class="chip">MCP endpoint <code id="endpoint">__MCP_ENDPOINT__</code></span>
+      <span class="tabs" role="tablist">
+        <button id="tab-playground" type="button" role="tab" aria-selected="true">Playground</button>
+        <button id="tab-configuration" type="button" role="tab" aria-selected="false">Configuration</button>
+      </span>
+    </div>
+  </header>
   <main>
-    <div class="status"><span class="dot"></span>HTTP transport ready</div>
-    <h1>HarborRAG MCP</h1>
-    <p>An authenticated Streamable HTTP endpoint for tenant-scoped vector and graph retrieval.</p>
-    <div class="endpoint">MCP endpoint: <code>__MCP_ENDPOINT__</code><br>Health: <code>/healthz</code></div>
-    <h2>Available tools</h2>
-    <ul>__MCP_TOOLS__</ul>
-    <section>
-    <h2>Access</h2>
-    <label for="token">Bearer token</label>
-    <input id="token" type="password" autocomplete="off" placeholder="owner token or reader key (hrk_...)">
-    <small>The owner token (HARBORRAG_MCP_BEARER_TOKEN) unlocks everything; a reader key issued by <code>harborrag auth keys create</code> unlocks the playground for its own tenant. Kept only in this page's memory, never persisted by the browser.</small>
-    </section>
-    <section>
-    <h2>Tool Playground</h2>
-    <p>Load the effective tool catalog for a tenant, complete the generated arguments, and execute through the same policy and audit path used by MCP clients.</p>
-    <label for="tenant">Tenant ID</label>
-    <input id="tenant" autocomplete="off" placeholder="DEFAULT">
-    <button id="load-tools">Load tools</button>
-    <label for="tool">Tool</label>
-    <select id="tool" disabled><option value="">Load tools first</option></select>
-    <p id="tool-description"></p>
-    <div id="tool-form"></div>
-    <button id="run-tool" disabled>Run tool</button>
-    <p id="tool-message" role="status"></p>
-    <label for="tool-output">Result</label>
-    <pre id="tool-output">No tool has been run.</pre>
-    </section>
-    <section>
-    <h2>Owner configuration</h2>
-    <p>Load and edit the validated JSON representation. Successful saves are persisted atomically to YAML.</p>
-    <label for="configuration">Configuration</label>
-    <textarea id="configuration" spellcheck="false" placeholder="Load configuration first"></textarea>
-    <button id="load">Load</button><button id="save">Save</button>
-    <button id="reload" class="secondary">Reload YAML</button>
-    <p id="message" role="status"></p>
-    </section>
-    <small>Clients and this UI must send <code>Authorization: Bearer &lt;token&gt;</code>.</small>
+    <div id="playground" class="view">
+      <div class="rail">
+        <section class="card">
+          <h2><span class="step">1</span>Connect</h2>
+          <div id="connect-form">
+            <label for="token">Access token</label>
+            <input id="token" type="password" autocomplete="off" placeholder="Owner token or reader key (hrk_...)">
+            <small>The server's <code>HARBORRAG_MCP_BEARER_TOKEN</code>, or a reader key from <code>harborrag auth keys create</code>. Kept only in this page's memory, never persisted by the browser.</small>
+            <button id="connect" type="button">Connect</button>
+            <p id="connection" role="status"></p>
+          </div>
+          <div id="connected-row" class="done-row" hidden>
+            <span id="connected-as"></span>
+            <button id="disconnect" type="button" class="link">Change</button>
+          </div>
+        </section>
+        <section id="step-tenant" class="card" hidden>
+          <h2><span class="step">2</span>Choose a tenant</h2>
+          <label for="tenant" class="visually-hidden">Tenant</label>
+          <select id="tenant"></select>
+          <div id="tenant-other-row" class="inline" hidden>
+            <label for="tenant-other" class="visually-hidden">Other tenant ID</label>
+            <input id="tenant-other" autocomplete="off" placeholder="Tenant ID">
+            <button id="tenant-other-use" type="button" class="secondary">Use</button>
+          </div>
+          <small id="tenant-hint"></small>
+          <p id="tenant-message" role="status"></p>
+        </section>
+        <section id="step-tool" class="card" hidden>
+          <h2><span class="step">3</span>Pick a tool</h2>
+          <ul id="tool-list" class="tools"></ul>
+        </section>
+      </div>
+      <section class="card stage">
+        <div id="welcome">
+          <h2>Try this server's tools</h2>
+          <p>Four short steps. Each one unlocks the next.</p>
+          <ol class="flow">
+            <li><b>Connect</b> with your access token.</li>
+            <li><b>Choose a tenant</b> that holds your content.</li>
+            <li><b>Pick a tool.</b></li>
+            <li><b>Fill in and run.</b> The answer docks on the right.</li>
+          </ol>
+          <h3>Tools on this server</h3>
+          <ul class="offered">__MCP_TOOLS__</ul>
+          <p class="tip">MCP clients connect to the endpoint above and send <code>Authorization: Bearer &lt;token&gt;</code>. Health check: <code>/healthz</code>.</p>
+        </div>
+        <div id="tool-panel" hidden>
+          <h2><span class="step">4</span>Fill in and run</h2>
+          <p id="tool-name"></p>
+          <p id="tool-description"></p>
+          <p id="tool-tenant" hidden>Runs for tenant <code id="tool-tenant-name"></code>, chosen in step 2.</p>
+          <div id="tool-form" class="fields"></div>
+          <div class="actions">
+            <button id="run-tool" type="button" disabled>Run tool</button>
+            <p id="tool-message" role="status"></p>
+          </div>
+        </div>
+      </section>
+      <section id="terminal" class="terminal">
+        <div class="terminal-bar"><span class="lights"><i></i><i></i><i></i></span><span id="terminal-title">result</span></div>
+        <div id="terminal-idle" class="idle">
+          <pre class="boat" aria-hidden="true">       |\
+       | \
+       |  \
+       |___\
+  _____|_______
+  \           /
+   \_________/</pre>
+          <div class="sea" aria-hidden="true"><pre>~~~~ ~~~ ~~~~~ ~~ ~~~~ ~~~ ~~~~ ~~~ ~~~~~ ~~ ~~~~ ~~~ ~~~~ ~~~ ~~~~~ ~~ ~~~~ ~~~ ~~~~ ~~~ ~~~~~ ~~ ~~~~ ~~~ </pre><br><pre>~~ ~~~~ ~~~ ~~~~~ ~~ ~~~ ~~ ~~~~ ~~~ ~~~~~ ~~ ~~~ ~~ ~~~~ ~~~ ~~~~~ ~~ ~~~ ~~ ~~~~ ~~~ ~~~~~ ~~ ~~~ </pre></div>
+          <p>Nothing docked yet. Run a tool and its answer lands here.</p>
+        </div>
+        <pre id="tool-output" tabindex="0" aria-label="Tool result" hidden></pre>
+      </section>
+    </div>
+    <div id="configuration-view" class="view card" hidden>
+      <div>
+        <h2>Owner configuration</h2>
+        <p>Tool defaults, limits and which tools are on. Load shows the current settings as JSON. Save checks them and writes the YAML file. Reload YAML reads the file again after you edit it by hand.</p>
+      </div>
+      <div class="actions">
+        <button id="load" type="button">Load</button><button id="save" type="button">Save</button>
+        <button id="reload" type="button" class="secondary">Reload YAML</button>
+        <p id="message" role="status"></p>
+      </div>
+      <label for="configuration" class="visually-hidden">Configuration</label>
+      <textarea id="configuration" spellcheck="false" placeholder="Connect with the owner token, then load the configuration to edit it"></textarea>
+    </div>
   </main>
   <script nonce="__MCP_NONCE__">
     const token = document.querySelector('#token');
-    const editor = document.querySelector('#configuration');
-    const message = document.querySelector('#message');
-    const tenant = document.querySelector('#tenant');
-    const toolSelect = document.querySelector('#tool');
+    const connectForm = document.querySelector('#connect-form');
+    const connectButton = document.querySelector('#connect');
+    const connection = document.querySelector('#connection');
+    const connectedRow = document.querySelector('#connected-row');
+    const connectedAs = document.querySelector('#connected-as');
+    const disconnectButton = document.querySelector('#disconnect');
+    const stepTenant = document.querySelector('#step-tenant');
+    const tenantSelect = document.querySelector('#tenant');
+    const tenantOtherRow = document.querySelector('#tenant-other-row');
+    const tenantOther = document.querySelector('#tenant-other');
+    const tenantOtherUse = document.querySelector('#tenant-other-use');
+    const tenantHint = document.querySelector('#tenant-hint');
+    const tenantMessage = document.querySelector('#tenant-message');
+    const stepTool = document.querySelector('#step-tool');
+    const toolList = document.querySelector('#tool-list');
+    const welcome = document.querySelector('#welcome');
+    const toolPanel = document.querySelector('#tool-panel');
+    const toolName = document.querySelector('#tool-name');
     const toolDescription = document.querySelector('#tool-description');
+    const toolTenant = document.querySelector('#tool-tenant');
+    const toolTenantName = document.querySelector('#tool-tenant-name');
     const toolForm = document.querySelector('#tool-form');
     const toolMessage = document.querySelector('#tool-message');
-    const toolOutput = document.querySelector('#tool-output');
     const runTool = document.querySelector('#run-tool');
+    const terminal = document.querySelector('#terminal');
+    const terminalTitle = document.querySelector('#terminal-title');
+    const terminalIdle = document.querySelector('#terminal-idle');
+    const toolOutput = document.querySelector('#tool-output');
+    const editor = document.querySelector('#configuration');
+    const message = document.querySelector('#message');
+    const loadButton = document.querySelector('#load');
+    const saveButton = document.querySelector('#save');
+    const reloadButton = document.querySelector('#reload');
+    const endpoint = document.querySelector('#endpoint');
+    const progressSteps = [...document.querySelector('#progress').children];
+    const views = {playground: document.querySelector('#playground'), configuration: document.querySelector('#configuration-view')};
+    const tabs = {playground: document.querySelector('#tab-playground'), configuration: document.querySelector('#tab-configuration')};
+    const configControls = [loadButton, saveButton, reloadButton, editor];
+    const OTHER_TENANT = '*other';
+    const TENANT_ARGUMENT = 'tenant_id';
+    const SPINNER = ['[=   ]', '[==  ]', '[ == ]', '[  ==]', '[   =]', '[    ]'];
+    const stillMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const friendlyErrors = {
+      'missing bearer token': 'Enter your access token in step 1 first.',
+      'invalid bearer token': 'That token was not accepted. Check it and try again.',
+      'owner role required': 'This needs the owner token. A reader key cannot change the server.',
+      'token is not authorized for the requested tenant': 'Your token cannot read that tenant.',
+    };
+    let connected = false;
+    let tenantId = null;
+    let hasRun = false;
     let revision = null;
+    let configurationWritable = true;
     let toolCatalog = [];
-    const headers = () => ({'Authorization': `Bearer ${token.value}`, 'Content-Type': 'application/json'});
-    const show = (value, failed = false) => { message.textContent = value; message.style.color = failed ? '#fca5a5' : '#86efac'; };
-    const showTool = (value, failed = false) => { toolMessage.textContent = value; toolMessage.style.color = failed ? '#fca5a5' : '#86efac'; };
-    async function responseJson(response) {
+    let selectedTool = null;
+    let spinnerTimer = null;
+    let tenantRequest = 0;
+    let running = false;
+    endpoint.textContent = `${location.origin}${endpoint.textContent}`;
+
+    const paint = (element, value, failed = false) => { element.textContent = value; element.dataset.state = failed ? 'bad' : 'good'; };
+    const show = (value, failed = false) => paint(message, value, failed);
+    async function api(path, options = {}) {
+      const headers = {'Authorization': `Bearer ${token.value.trim()}`, 'Content-Type': 'application/json'};
+      let response;
+      try { response = await fetch(path, {...options, headers}); }
+      catch (error) { throw new Error('Could not reach the server. Check that it is still running.'); }
       let body;
       try { body = await response.json(); } catch (error) { throw new Error(`Invalid server response (${response.status})`); }
-      if (!response.ok) throw new Error(body.error || `Request failed (${response.status})`);
+      if (!response.ok) throw new Error(friendlyErrors[body.error] || body.error || `Request failed (${response.status})`);
       return body;
     }
-    async function readResponse(response) {
-      const body = await responseJson(response);
-      revision = body.revision;
-      editor.value = JSON.stringify(body.configuration, null, 2);
-      show(body.restart_required ? 'Saved. Restart required to refresh advertised schemas.' : 'Configuration is active.');
+    function updateProgress() {
+      const reached = !connected ? 0 : !tenantId ? 1 : !selectedTool ? 2 : hasRun ? 4 : 3;
+      progressSteps.forEach((step, index) => {
+        step.dataset.state = index < reached ? 'done' : (index === reached ? 'current' : 'todo');
+      });
     }
+    function showView(name) {
+      for (const key of Object.keys(views)) {
+        views[key].hidden = key !== name;
+        tabs[key].setAttribute('aria-selected', String(key === name));
+      }
+      if (name === 'configuration' && !editor.value && connected && !loadButton.disabled) loadConfiguration();
+    }
+
     function appendOption(select, value, label) {
       const option = document.createElement('option');
       option.value = value;
       option.textContent = label;
       select.append(option);
     }
+    function applyRole(role) {
+      // A reader key cannot administer the server: say why the editor is unavailable.
+      const reader = role === 'reader';
+      for (const control of configControls) control.disabled = reader || (control === saveButton && !configurationWritable);
+      show(reader ? 'A reader key cannot change the configuration. Use the owner token for that.' : '', reader);
+    }
+    function clearTenant() {
+      tenantRequest += 1;
+      tenantId = null;
+      toolCatalog = [];
+      stepTool.hidden = true;
+      selectTool(null);
+    }
+    async function connect() {
+      if (!token.value.trim()) { paint(connection, 'Enter your access token first.', true); token.focus(); return; }
+      connectButton.disabled = true;
+      paint(connection, 'Connecting...');
+      try {
+        const body = await api('/api/tools');
+        connected = true;
+        applyRole(body.role);
+        connectedAs.textContent = body.role === 'reader' ? 'Connected with a reader key' : 'Connected as owner';
+        connectForm.hidden = true;
+        connectedRow.hidden = false;
+        stepTenant.hidden = false;
+        renderTenants(body);
+      } catch (error) {
+        paint(connection, error.message, true);
+      } finally {
+        connectButton.disabled = false;
+        updateProgress();
+      }
+    }
+    function disconnect() {
+      connected = false;
+      hasRun = false;
+      clearTenant();
+      stepTenant.hidden = true;
+      connectedRow.hidden = true;
+      connectForm.hidden = false;
+      paint(connection, '');
+      token.value = '';
+      token.focus();
+      updateProgress();
+    }
+    function renderTenants(body) {
+      const choices = body.tenants || [];
+      const preset = body.tenant_id || (choices.length === 1 ? choices[0] : '');
+      tenantSelect.replaceChildren();
+      if (!preset) appendOption(tenantSelect, '', 'Choose a tenant...');
+      for (const name of choices) appendOption(tenantSelect, name, name);
+      if (body.any_tenant) appendOption(tenantSelect, OTHER_TENANT, 'Other tenant...');
+      tenantSelect.value = preset;
+      tenantSelect.disabled = !body.any_tenant && choices.length <= 1;
+      tenantOtherRow.hidden = true;
+      tenantHint.textContent = body.any_tenant
+        ? 'Tenants that hold content, plus the ones in the server settings.'
+        : 'Your token is bound to this tenant.';
+      paint(tenantMessage, '');
+      if (preset) loadTenant(preset, body.tenant_id === preset ? body : null);
+    }
+    async function loadTenant(name, loaded = null) {
+      // A slow answer for an earlier choice must not replace the tenant chosen since.
+      const request = ++tenantRequest;
+      paint(tenantMessage, 'Loading its tools...');
+      try {
+        const body = loaded || await api(`/api/tools?${new URLSearchParams({tenant_id: name})}`);
+        if (request !== tenantRequest) return;
+        tenantId = name;
+        toolCatalog = body.tools;
+        renderToolList();
+        stepTool.hidden = false;
+        const kept = toolCatalog.some(tool => tool.name === selectedTool);
+        selectTool(kept ? selectedTool : (toolCatalog.length ? toolCatalog[0].name : null));
+        paint(tenantMessage, toolCatalog.length ? '' : 'No tools are enabled for this tenant.', !toolCatalog.length);
+      } catch (error) {
+        if (request !== tenantRequest) return;
+        clearTenant();
+        paint(tenantMessage, error.message, true);
+      }
+      updateProgress();
+    }
+    function chooseTenant() {
+      const other = tenantSelect.value === OTHER_TENANT;
+      tenantOtherRow.hidden = !other;
+      if (other || !tenantSelect.value) {
+        clearTenant();
+        paint(tenantMessage, '');
+        updateProgress();
+        if (other) tenantOther.focus();
+        return;
+      }
+      loadTenant(tenantSelect.value);
+    }
+    function useOtherTenant() {
+      const name = tenantOther.value.trim();
+      if (!name) { paint(tenantMessage, 'Type a tenant ID first.', true); tenantOther.focus(); return; }
+      loadTenant(name);
+    }
+    function renderToolList() {
+      toolList.replaceChildren();
+      for (const tool of toolCatalog) {
+        const item = document.createElement('li');
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.dataset.tool = tool.name;
+        button.textContent = tool.name;
+        button.title = tool.description;
+        item.append(button);
+        toolList.append(item);
+      }
+    }
+    function selectTool(name) {
+      selectedTool = name;
+      renderToolForm();
+      paint(toolMessage, '');
+      updateProgress();
+    }
+
+    // Rules a tool schema states beyond "required": a group that needs at least one
+    // member, and groups whose members exclude each other.
+    function atLeastOneOf(schema) {
+      const names = (schema.anyOf || []).map(rule => ((rule.required || []).length === 1 ? rule.required[0] : null));
+      return names.length > 1 && names.every(Boolean) ? names : [];
+    }
+    function exclusiveGroups(schema) {
+      return (schema.allOf || []).map(rule => (rule.not && rule.not.required) || []).filter(group => group.length > 1);
+    }
+    function exampleFor(schema) {
+      if (Array.isArray(schema.enum)) return schema.enum[0];
+      if (schema.type === 'object') {
+        return Object.fromEntries((schema.required || []).map(name => [name, exampleFor((schema.properties || {})[name] || {})]));
+      }
+      if (schema.type === 'array') return [exampleFor(schema.items || {})];
+      if (schema.type === 'integer' || schema.type === 'number') return schema.minimum === undefined ? 0 : schema.minimum;
+      if (schema.type === 'boolean') return false;
+      return '';
+    }
+    function argumentControl(name, property, isRequired) {
+      let control;
+      if (Array.isArray(property.enum)) {
+        control = document.createElement('select');
+        if (!isRequired && property.default === undefined) appendOption(control, '', 'Not set');
+        for (const value of property.enum) appendOption(control, String(value), String(value));
+      } else if (property.type === 'boolean') {
+        control = document.createElement('select');
+        if (!isRequired && property.default === undefined) appendOption(control, '', 'Not set');
+        appendOption(control, 'true', 'true');
+        appendOption(control, 'false', 'false');
+      } else if (property.type === 'object' || property.type === 'array') {
+        control = document.createElement('textarea');
+        control.className = 'compact';
+        control.spellcheck = false;
+        control.placeholder = JSON.stringify(exampleFor(property));
+      } else {
+        control = document.createElement('input');
+        control.type = property.type === 'integer' || property.type === 'number' ? 'number' : 'text';
+        if (property.type === 'integer') control.step = '1';
+        if (property.type === 'number') control.step = 'any';
+        if (property.minimum !== undefined) control.min = String(property.minimum);
+        if (property.maximum !== undefined) control.max = String(property.maximum);
+        if (property.minLength !== undefined) control.minLength = property.minLength;
+      }
+      control.id = `argument-${name}`;
+      control.dataset.name = name;
+      control.dataset.type = property.type || 'string';
+      control.dataset.required = isRequired ? 'true' : 'false';
+      const defaultValue = property.default;
+      if (defaultValue !== undefined) {
+        control.value = property.type === 'object' || property.type === 'array'
+          ? JSON.stringify(defaultValue, null, 2) : String(defaultValue);
+      }
+      return control;
+    }
+    function argumentField(name, property, isRequired) {
+      const wrapper = document.createElement('div');
+      wrapper.className = (property.description || '').length > 120 ? 'field wide' : 'field';
+      const label = document.createElement('label');
+      label.htmlFor = `argument-${name}`;
+      label.textContent = name;
+      if (isRequired) {
+        const marker = document.createElement('span');
+        marker.className = 'required';
+        marker.textContent = ' *';
+        marker.title = 'required';
+        label.append(marker);
+      }
+      wrapper.append(label, argumentControl(name, property, isRequired));
+      const limits = [];
+      if (property.type === 'object') limits.push('JSON object');
+      if (property.type === 'array') limits.push('JSON list');
+      if (property.minimum !== undefined) limits.push(`min ${property.minimum}`);
+      if (property.maximum !== undefined) limits.push(`max ${property.maximum}`);
+      for (const text of [property.description, limits.join(', ')]) {
+        if (!text) continue;
+        const help = document.createElement('small');
+        help.textContent = text;
+        wrapper.append(help);
+      }
+      return wrapper;
+    }
     function renderToolForm() {
       toolForm.replaceChildren();
-      const tool = toolCatalog.find(item => item.name === toolSelect.value);
-      toolDescription.textContent = tool ? tool.description : '';
+      const tool = toolCatalog.find(item => item.name === selectedTool);
+      toolPanel.hidden = !tool;
+      welcome.hidden = Boolean(tool);
       runTool.disabled = !tool;
+      for (const button of toolList.querySelectorAll('button')) {
+        button.setAttribute('aria-current', String(button.dataset.tool === selectedTool));
+      }
       if (!tool) return;
+      toolName.textContent = tool.name;
+      toolDescription.textContent = tool.description;
       const schema = tool.input_schema || {};
       const required = new Set(schema.required || []);
-      for (const [name, property] of Object.entries(schema.properties || {})) {
-        const wrapper = document.createElement('div');
-        wrapper.className = 'field';
-        const label = document.createElement('label');
-        label.htmlFor = `argument-${name}`;
-        label.textContent = name;
-        if (required.has(name)) {
-          const marker = document.createElement('span');
-          marker.className = 'required';
-          marker.textContent = ' *';
-          label.append(marker);
-        }
-        let control;
-        if (Array.isArray(property.enum)) {
-          control = document.createElement('select');
-          if (!required.has(name) && property.default === undefined) appendOption(control, '', 'Not set');
-          for (const value of property.enum) appendOption(control, String(value), String(value));
-        } else if (property.type === 'boolean') {
-          control = document.createElement('select');
-          if (!required.has(name) && property.default === undefined) appendOption(control, '', 'Not set');
-          appendOption(control, 'true', 'true');
-          appendOption(control, 'false', 'false');
-        } else if (property.type === 'object' || property.type === 'array') {
-          control = document.createElement('textarea');
-          control.className = 'compact';
-          control.spellcheck = false;
-        } else {
-          control = document.createElement('input');
-          control.type = property.type === 'integer' || property.type === 'number' ? 'number' : 'text';
-          if (property.type === 'integer') control.step = '1';
-          if (property.type === 'number') control.step = 'any';
-          if (property.minimum !== undefined) control.min = String(property.minimum);
-          if (property.maximum !== undefined) control.max = String(property.maximum);
-          if (property.minLength !== undefined) control.minLength = property.minLength;
-        }
-        control.id = `argument-${name}`;
-        control.dataset.name = name;
-        control.dataset.type = property.type || 'string';
-        control.dataset.required = required.has(name) ? 'true' : 'false';
-        let defaultValue = property.default;
-        if (name === 'tenant_id' && tenant.value.trim()) defaultValue = tenant.value.trim();
-        if (defaultValue !== undefined) {
-          control.value = property.type === 'object' || property.type === 'array'
-            ? JSON.stringify(defaultValue, null, 2) : String(defaultValue);
-        }
-        wrapper.append(label, control);
-        const constraints = [];
-        if (property.minimum !== undefined) constraints.push(`min ${property.minimum}`);
-        if (property.maximum !== undefined) constraints.push(`max ${property.maximum}`);
-        if (constraints.length) {
-          const help = document.createElement('small');
-          help.textContent = constraints.join(', ');
-          wrapper.append(help);
-        }
-        toolForm.append(wrapper);
+      const properties = Object.entries(schema.properties || {})
+        .filter(([name]) => name !== TENANT_ARGUMENT);
+      toolTenant.hidden = !(TENANT_ARGUMENT in (schema.properties || {}));
+      toolTenantName.textContent = tenantId || '';
+      const oneOf = atLeastOneOf(schema);
+      const optional = document.createElement('div');
+      optional.className = 'fields';
+      if (oneOf.length) {
+        const rule = document.createElement('p');
+        rule.textContent = `Fill in at least one of ${oneOf.join(', ')}.`;
+        toolForm.append(rule);
+      }
+      for (const [name, property] of properties) {
+        const upFront = required.has(name) || oneOf.includes(name);
+        (upFront ? toolForm : optional).append(argumentField(name, property, required.has(name)));
+      }
+      if (!toolForm.children.length) {
+        const note = document.createElement('p');
+        note.textContent = properties.length
+          ? 'Nothing to fill in. Run it as is, or adjust the options.'
+          : 'This tool needs no arguments. Just run it.';
+        toolForm.append(note);
+      }
+      if (optional.children.length) {
+        const more = document.createElement('details');
+        const summary = document.createElement('summary');
+        summary.textContent = `More options (${optional.children.length})`;
+        more.append(summary, optional);
+        toolForm.append(more);
       }
     }
     function collectArguments() {
       const argumentsValue = {};
+      const tool = toolCatalog.find(item => item.name === selectedTool);
+      const accepted = (tool && tool.input_schema && tool.input_schema.properties) || {};
+      if (TENANT_ARGUMENT in accepted) argumentsValue[TENANT_ARGUMENT] = tenantId;
       for (const control of toolForm.querySelectorAll('[data-name]')) {
         const name = control.dataset.name;
         const type = control.dataset.type;
         const raw = control.value.trim();
         if (!raw && control.dataset.required !== 'true') continue;
-        if (!raw) throw new Error(`${name} is required`);
+        if (!raw) { control.focus(); throw new Error(`Fill in ${name} first.`); }
         if (type === 'integer' || type === 'number') {
           const value = Number(raw);
           if (!Number.isFinite(value) || (type === 'integer' && !Number.isInteger(value)))
@@ -191,7 +649,8 @@
         } else if (type === 'boolean') {
           argumentsValue[name] = raw === 'true';
         } else if (type === 'object' || type === 'array') {
-          const value = JSON.parse(raw);
+          let value;
+          try { value = JSON.parse(raw); } catch (error) { throw new Error(`${name} must be valid JSON`); }
           if (type === 'array' && !Array.isArray(value)) throw new Error(`${name} must be a JSON array`);
           if (type === 'object' && (value === null || Array.isArray(value) || typeof value !== 'object'))
             throw new Error(`${name} must be a JSON object`);
@@ -200,63 +659,121 @@
           argumentsValue[name] = raw;
         }
       }
+      const schema = (tool && tool.input_schema) || {};
+      const oneOf = atLeastOneOf(schema);
+      if (oneOf.length && !oneOf.some(name => name in argumentsValue)) {
+        throw new Error(`Fill in at least one of ${oneOf.join(', ')}.`);
+      }
+      for (const group of exclusiveGroups(schema)) {
+        if (group.every(name => name in argumentsValue)) throw new Error(`Fill in only one of ${group.join(', ')}.`);
+      }
       return argumentsValue;
     }
-    const configControls = ['#load', '#save', '#reload', '#configuration'].map((id) => document.querySelector(id));
-    function applyRole(role, boundTenant) {
-      // A reader key is bound to one tenant and cannot administer the server:
-      // lock the tenant field to it and say why the editor is unavailable.
-      const reader = role === 'reader';
-      if (reader && boundTenant) tenant.value = boundTenant;
-      tenant.disabled = reader;
-      for (const control of configControls) control.disabled = reader;
-      show(reader ? 'Reader key: configuration requires the owner token.' : '', reader);
+    function print(text) {
+      terminalIdle.hidden = true;
+      toolOutput.hidden = false;
+      toolOutput.textContent = text;
     }
-    document.querySelector('#load-tools').addEventListener('click', async () => {
-      try {
-        const query = tenant.value.trim() ? `?${new URLSearchParams({tenant_id: tenant.value.trim()})}` : '';
-        const body = await responseJson(await fetch(`/api/tools${query}`, {headers: headers()}));
-        toolCatalog = body.tools;
-        applyRole(body.role, body.tenant_id);
-        toolSelect.replaceChildren();
-        if (!toolCatalog.length) appendOption(toolSelect, '', 'No tools enabled');
-        for (const tool of toolCatalog) appendOption(toolSelect, tool.name, tool.name);
-        toolSelect.disabled = !toolCatalog.length;
-        renderToolForm();
-        showTool(`Loaded ${toolCatalog.length} tool(s).`);
-      } catch (error) { showTool(error.message, true); }
-    });
-    toolSelect.addEventListener('change', renderToolForm);
-    runTool.addEventListener('click', async () => {
+    function spin(label) {
+      let frame = 0;
+      const tick = () => { terminalTitle.textContent = `${SPINNER[frame++ % SPINNER.length]} ${label}`; };
+      tick();
+      clearInterval(spinnerTimer);
+      if (!stillMotion) spinnerTimer = setInterval(tick, 110);
+    }
+    function settle(label) {
+      clearInterval(spinnerTimer);
+      terminalTitle.textContent = label;
+      terminal.classList.remove('fresh');
+      void terminal.offsetWidth;
+      terminal.classList.add('fresh');
+    }
+    async function run() {
+      if (running || !selectedTool) return;
+      let argumentsValue;
+      try { argumentsValue = collectArguments(); } catch (error) { paint(toolMessage, error.message, true); return; }
+      const name = selectedTool;
+      running = true;
       runTool.disabled = true;
-      toolOutput.textContent = 'Running...';
+      paint(toolMessage, 'Running...');
+      print(`> ${name} ${JSON.stringify(argumentsValue)}`);
+      spin(`running ${name}`);
+      const started = performance.now();
       try {
-        const body = await responseJson(await fetch('/api/tools/call', {
-          method: 'POST', headers: headers(),
-          body: JSON.stringify({name: toolSelect.value, arguments: collectArguments()})
-        }));
-        toolOutput.textContent = JSON.stringify(body.result, null, 2);
+        const body = await api('/api/tools/call', {
+          method: 'POST', body: JSON.stringify({name, arguments: argumentsValue})
+        });
+        const seconds = ((performance.now() - started) / 1000).toFixed(1);
         const failed = body.result && body.result.ok === false;
-        showTool(failed ? (body.result.error || 'Tool returned an error.') : 'Tool completed.', failed);
+        print(JSON.stringify(body.result, null, 2));
+        paint(toolMessage, failed ? (body.result.error || 'The tool reported an error.') : `Done in ${seconds} s.`, failed);
+        settle(`${name} - ${failed ? 'error' : `${seconds} s`}`);
       } catch (error) {
-        toolOutput.textContent = error.message;
-        showTool(error.message, true);
+        print(error.message);
+        paint(toolMessage, error.message, true);
+        settle(`${name} - failed`);
       } finally {
-        runTool.disabled = !toolSelect.value;
+        running = false;
+        hasRun = true;
+        runTool.disabled = !selectedTool;
+        updateProgress();
       }
-    });
-    document.querySelector('#load').addEventListener('click', async () => {
-      try { await readResponse(await fetch('/api/config', {headers: headers()})); } catch (error) { show(error.message, true); }
-    });
-    document.querySelector('#save').addEventListener('click', async () => {
+    }
+
+    function showConfiguration(body, done) {
+      revision = body.revision;
+      editor.value = JSON.stringify(body.configuration, null, 2);
+      configurationWritable = body.writable !== false;
+      saveButton.disabled = !configurationWritable;
+      const state = body.restart_required
+        ? 'Restart the server so MCP clients see the changed tool schemas.'
+        : 'These settings are active.';
+      const readOnly = configurationWritable
+        ? ''
+        : ' Read-only in this deployment: edit the configuration file where it is stored, then select Reload YAML.';
+      show(`${done}. ${state}${readOnly}`);
+    }
+    async function loadConfiguration() {
+      try { showConfiguration(await api('/api/config'), 'Loaded'); } catch (error) { show(error.message, true); }
+    }
+    async function saveConfiguration() {
+      if (!editor.value.trim()) { show('Load the configuration first.', true); return; }
+      let configuration;
+      try { configuration = JSON.parse(editor.value); }
+      catch (error) { show('This is not valid JSON yet. Look for a missing comma or bracket.', true); return; }
       try {
-        const configuration = JSON.parse(editor.value);
-        await readResponse(await fetch('/api/config', {method: 'PUT', headers: headers(), body: JSON.stringify({configuration, expected_revision: revision})}));
+        const body = await api('/api/config', {method: 'PUT', body: JSON.stringify({configuration, expected_revision: revision})});
+        showConfiguration(body, 'Saved');
       } catch (error) { show(error.message, true); }
+    }
+    async function reloadConfiguration() {
+      try { showConfiguration(await api('/api/config/reload', {method: 'POST'}), 'Reloaded'); } catch (error) { show(error.message, true); }
+    }
+
+    const onEnter = (action) => (event) => {
+      if (event.key !== 'Enter' || event.target.tagName !== 'INPUT') return;
+      event.preventDefault();
+      action();
+    };
+    connectButton.addEventListener('click', connect);
+    token.addEventListener('keydown', onEnter(connect));
+    disconnectButton.addEventListener('click', disconnect);
+    tenantSelect.addEventListener('change', chooseTenant);
+    tenantOtherUse.addEventListener('click', useOtherTenant);
+    tenantOther.addEventListener('keydown', onEnter(useOtherTenant));
+    toolList.addEventListener('click', (event) => {
+      const button = event.target.closest('button[data-tool]');
+      if (!button) return;
+      selectTool(button.dataset.tool);
+      if (window.matchMedia('(max-width: 999px)').matches) toolPanel.scrollIntoView({block: 'start'});
     });
-    document.querySelector('#reload').addEventListener('click', async () => {
-      try { await readResponse(await fetch('/api/config/reload', {method: 'POST', headers: headers()})); } catch (error) { show(error.message, true); }
-    });
+    toolForm.addEventListener('keydown', onEnter(run));
+    runTool.addEventListener('click', run);
+    tabs.playground.addEventListener('click', () => showView('playground'));
+    tabs.configuration.addEventListener('click', () => showView('configuration'));
+    loadButton.addEventListener('click', loadConfiguration);
+    saveButton.addEventListener('click', saveConfiguration);
+    reloadButton.addEventListener('click', reloadConfiguration);
   </script>
 </body>
 </html>

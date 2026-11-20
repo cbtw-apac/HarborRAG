@@ -12,21 +12,20 @@ For the request and response contract, see [Chat](README.md).
 
 Every chat turn answers from the `chat` family of the model catalog,
 `config/models/models.yaml` (`HARBORRAG_MODEL_CONFIG_PATH` selects another
-file). The shipped catalog has one logical chat model, `primary`, which calls a
-[LiteLLM proxy](https://docs.litellm.ai/docs/simple_proxy) gateway as an
-OpenAI-compatible endpoint. For chat it reads three values from
-`env/.env.models`:
+file). The shipped catalog has one logical chat model, `primary`, which calls an
+OpenAI-compatible endpoint: OpenAI's by default, or the one `HARBORRAG_URL` names,
+such as a [LiteLLM proxy](https://docs.litellm.ai/docs/simple_proxy) gateway. For chat it reads
+these values from `env/.env.models`:
 
-- `HARBORRAG_URL`: the gateway's base URL, without `/v1`.
-- `HARBORRAG_API_KEY`: the gateway key.
-- `HARBORRAG_CHAT_MODEL`: the gateway's name for the chat model.
+- `HARBORRAG_CHAT_MODEL`: the endpoint's name for the chat model.
+- `HARBORRAG_CHAT_API_KEY`: the endpoint's key.
+- `HARBORRAG_URL`: optional, the base URL of another endpoint for every model family.
 
-The catalog also needs the embedding and reranker values, and every reference
-must be set for it to load. The catalog layout, the other families and all five
-variables are described in
-[The shipped gateway catalog](../configuration/model-config.md#the-shipped-gateway-catalog)
-and [Model gateway environment](../configuration/config-file-reference.md#model-gateway-environment).
-To run a gateway, follow the LiteLLM proxy documentation linked above.
+The catalog also needs the embedding model and key, and every reference without a
+default must be set for it to load. The catalog layout, the embedding family and
+all the variables are described in
+[The shipped catalog](../configuration/model-config.md#the-shipped-catalog)
+and [Model endpoint environment](../configuration/config-file-reference.md#model-endpoint-environment).
 
 What a caller may set on a turn:
 

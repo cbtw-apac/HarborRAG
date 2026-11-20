@@ -93,9 +93,10 @@ def _run(script: Path, env: dict[str, str], *arguments: str) -> subprocess.Compl
             (
                 "docker-compose.mcp.yml build mcp",
                 "docker-compose.mcp-ui.yml build mcp-ui",
+                "run --rm --no-deps -T mcp-ui --http --preflight",
                 "up --no-build --detach --wait --wait-timeout 120 mcp-ui",
             ),
-            (" run ",),
+            ("--transport stdio",),
         ),
         (("down",), "1", ("docker-compose.mcp-ui.yml down",), (" build ", " run ")),
     ),
@@ -168,6 +169,9 @@ def test_the_ui_image_layers_the_optional_extra_over_the_reader_image() -> None:
     assert "service: mcp" in compose
     assert "harborrag_mcp_ui_audit:/var/lib/harborrag/.harborrag" in compose
     assert "HARBORRAG_MCP_UI_PORT','8011'" in compose
+    assert "ports: !override" in compose
+    assert '- "127.0.0.1:${HARBORRAG_MCP_UI_PORT:-8011}:8011"' in compose
+    assert "name: harborrag-data-network" in compose
 
 
 _WITHOUT_UI_EXTRA = """

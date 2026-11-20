@@ -66,5 +66,10 @@ COPY config ./config
 WORKDIR /var/lib/harborrag
 USER harborrag
 
+# Recorded last so a new commit does not invalidate the layers above. The MCP
+# launcher compares it with the checkout and says when the image is out of date.
+ARG HARBORRAG_GIT_REVISION=unknown
+LABEL org.opencontainers.image.revision="${HARBORRAG_GIT_REVISION}"
+
 STOPSIGNAL SIGTERM
 ENTRYPOINT ["python", "-m", "harborrag_mcp_server"]

@@ -37,22 +37,18 @@ You should see the eleven tool names:
 ["vector_search", "fetch_evidence", "get_document_context", "list_sources", "describe_graph", "graph_triplet_search", "graph_subgraph_search", "graph_path_search", "resolve_graph_nodes", "list_documents", "find_entities"]
 ```
 
-`scripts/deployment/mcp.sh --check` runs the same check in the container. To connect a
-client, follow
+`scripts/deployment/mcp.sh --check` runs the same check in the container.
+`harborrag-mcp --preflight` goes one step further: it connects the configured backends once
+and reports a start-up failure in one line. To connect a client, follow
 [MCP Setup and Integration](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/detailed-guides/mcp-server/setup-and-integration.md#connect-an-mcp-client).
 
-### Docker Desktop on Windows
+### How the wrapper's container reaches the data services
 
-The wrapper's container reaches the data services on the host through `127.0.0.1`, so it
-uses the host network. On Docker Desktop, turn on host networking as described in
-Docker's [host network driver](https://docs.docker.com/engine/network/drivers/host/#docker-desktop)
-documentation; without it the container cannot reach Qdrant or the other data services,
-and the client reports the HarborRAG server as disconnected.
-
-Keep `HARBORRAG_QDRANT_PREFER_GRPC=false` in `env/.env.mcp`, as the template
-`env-example/.env.mcp.example` sets it: Docker Desktop's host networking on Windows does
-not carry Qdrant's gRPC port, so the client must use HTTP. Restart your MCP client after
-changing its MCP configuration or `env/.env.mcp`.
+The container joins `harborrag-data-network`, the Docker network of the data services,
+so start them first with `scripts/deployment/dev.sh data`. With `--http`, Docker
+publishes the server's port on `127.0.0.1` only. Docker Desktop needs no host
+networking for this. Restart your MCP client after changing its MCP configuration or
+`env/.env.mcp`.
 
 ## What it provides
 
@@ -60,7 +56,7 @@ changing its MCP configuration or `env/.env.mcp`.
   client starting it as a child process, or over loopback HTTP with `--http`, which adds a
   status page, a Tool Playground and a configuration editor. The HTTP endpoint is
   `http://127.0.0.1:8010/mcp` by default; `--host`, `--port` and `--path` change it, and a
-  host that is not loopback is refused. Both transports are covered in
+  host that is not loopback is refused outside a development container. Both transports are covered in
   [MCP Setup and Integration](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/detailed-guides/mcp-server/setup-and-integration.md).
 - **`harborrag-mcp-ui`**: the optional HarborRAG Explorer, an MCP App with a search UI,
   served as a second server. It needs the `ui` extra; see

@@ -32,9 +32,10 @@ provider SDK failures and normalizes them into core exception types.
 ## Load a configuration
 
 The clients need the `llm` extra (`harborrag-adapters[llm]`). The repository's
-`config/models/models.yaml` defines all three families, each behind one LiteLLM proxy
-gateway, and `config/models/models.production.example.yaml` calls providers directly
-with fallbacks and profiles.
+`config/models/models.yaml` defines chat, embedding and an optional reranker at one
+OpenAI-compatible endpoint, OpenAI or a gateway, and
+`config/models/models.production.example.yaml` calls providers directly with fallbacks
+and profiles.
 
 ```python
 from harborrag_adapters.models.chat import HarborChatClientConfig
@@ -49,10 +50,11 @@ rerank_config = HarborRerankClientConfig.from_file("config/models/models.yaml")
 Each family loads only its own section, so loading `chat` from Python needs only the
 variables the `chat` section references. A variable that a loaded section references
 and that is not set fails the load, for example
-`environment variable HARBORRAG_RERANKER_MODEL is not set`. The runtime builds the
-rerank client whenever the catalog has a `rerank` section
-(`harborrag_runtime/retrieval/composition.py`), so an application running the shipped
-catalog still needs all five gateway variables. YAML and JSON files,
+`environment variable HARBORRAG_EMBED_API_KEY is not set`. The runtime builds the
+rerank client only when the catalog names a rerank model
+(`harborrag_runtime/retrieval/composition.py`). The shipped catalog names one when
+`HARBORRAG_RERANKER_MODEL` is set, so an application that leaves it unset needs no
+variable for reranking. YAML and JSON files,
 Python mappings and validated configuration objects all go through the same Pydantic
 schemas, and a configuration object is immutable once validated.
 

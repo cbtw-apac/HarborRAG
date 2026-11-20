@@ -19,6 +19,7 @@ from harborrag_mcp_server.audit import McpAuditLog
 from harborrag_mcp_server.configuration import McpConfiguration, McpConfigurationStore
 from harborrag_mcp_server.server import McpServer, create_mcp_server
 from harborrag_mcp_server.server.http import ADMIN_SCOPE, register_http_routes
+from harborrag_runtime.config.settings import RuntimeSettings
 
 TOKEN = "local-test-token-that-is-at-least-32-bytes"
 
@@ -40,8 +41,8 @@ def api_key_mode(monkeypatch):
 
 
 def _auth():
-    arguments = argparse.Namespace(host="127.0.0.1", port=8010, path="/mcp")
-    return _http_auth(argparse.ArgumentParser(), arguments, None)  # type: ignore[arg-type]
+    arguments = argparse.Namespace(host="127.0.0.1", port=8010, path="/mcp", allowed_hosts=())
+    return _http_auth(argparse.ArgumentParser(), arguments, RuntimeSettings())
 
 
 @pytest.mark.asyncio

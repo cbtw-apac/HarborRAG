@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+_VARIABLE_REFERENCE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)")
 
 
 @dataclass(frozen=True, slots=True)
 class ModelCatalogSummary:
     """Default logical models and deployment names of the chat and embed sections.
 
-    Args:
+    Attributes:
         chat_default: Default logical chat model.
         chat_deployments: Every chat deployment name, in catalog order.
         embed_default: Default logical embedding model.
@@ -41,21 +44,66 @@ def describe_model_catalog(path: str | Path) -> ModelCatalogSummary:
 
 
 def has_rerank_model(path: str | Path) -> bool:
-    """Return whether the catalog at ``path`` has a ``rerank`` section.
+    """Return whether the catalog at ``path`` names a rerank model.
+
+    A ``rerank`` section whose deployments all expand to an empty ``model`` is an
+    optional reranker left off, such as ``model: ${HARBORRAG_RERANKER_MODEL:-}``
+    with the variable unset. Any other ``rerank`` section counts, whatever it
+    holds, so the loader reports what is wrong with it.
 
     The loader's errors propagate: ``OSError`` for an unreadable file,
     ``yaml.YAMLError`` for malformed YAML, ``ValueError`` for a document that is
-    not a mapping.
+    not a mapping or a ``model`` that reads an unset variable with no default.
 
     Args:
         path: YAML or JSON model catalog.
 
     Returns:
-        Whether a ``rerank`` section is present, whatever it holds.
-    """
-    from harborrag_adapters.models.runtime import load_config_document
+        Whether a ``rerank`` section is present and names at least one model.
 
-    return "rerank" in load_config_document(path)
+    Raises:
+        ValueError: A named rerank model reads its ``api_key`` from a variable
+            that is empty, so the first rerank call would be refused.
+    """
+    from harborrag_adapters.models.runtime import expand_environment, load_config_document
+
+    document = load_config_document(path)
+    if "rerank" not in document:
+        return False
+    deployments = _rerank_deployments(document["rerank"])
+    if deployments is None:
+        return True
+    named = [item for item in deployments if str(expand_environment(item["model"])).strip()]
+    for deployment in named:
+        _require_rerank_key(deployment)
+    return bool(named)
+
+
+def _rerank_deployments(section: object) -> list[Mapping[str, Any]] | None:
+    """Return the rerank deployments that name a ``model``, or None for another shape."""
+    definitions = section.get("models") if isinstance(section, Mapping) else None
+    if not isinstance(definitions, Mapping) or not definitions:
+        return None
+    found: list[Mapping[str, Any]] = []
+    for definition in definitions.values():
+        deployments = definition.get("deployments") if isinstance(definition, Mapping) else None
+        if not isinstance(deployments, list) or not deployments:
+            return None
+        for deployment in deployments:
+            if not isinstance(deployment, Mapping) or "model" not in deployment:
+                return None
+            found.append(deployment)
+    return found
+
+
+def _require_rerank_key(deployment: Mapping[str, Any]) -> None:
+    """Refuse a rerank deployment whose key variable is set to nothing."""
+    from harborrag_adapters.models.runtime import expand_environment
+
+    key = deployment.get("api_key")
+    variables = _VARIABLE_REFERENCE.findall(key) if isinstance(key, str) else []
+    if variables and not str(expand_environment(key)).strip():
+        raise ValueError(f"{', '.join(variables)} is empty, and the rerank model needs it")
 
 
 def _deployment_names(models: Mapping[str, Any]) -> tuple[str, ...]:
