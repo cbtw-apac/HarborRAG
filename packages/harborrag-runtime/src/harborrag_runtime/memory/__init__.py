@@ -58,7 +58,6 @@ if TYPE_CHECKING:
     from .embedder import build_memory_embedder, close_memory_embedder
     from .entities import GraphMemoryEntityResolver, build_memory_entity_resolver
     from .facade import MemoryFacade
-    from .in_memory import InMemoryConversationMemory
     from .index import build_memory_index
     from .model import build_memory_chat_model, close_memory_chat_model
     from .policy import memory_policy_from_settings
@@ -88,7 +87,6 @@ _RUNTIME_EXPORTS = {
     "GraphMemoryEntityResolver": ".entities",
     "build_memory_entity_resolver": ".entities",
     "MemoryFacade": ".facade",
-    "InMemoryConversationMemory": ".in_memory",
     "build_memory_index": ".index",
     "build_memory_chat_model": ".model",
     "close_memory_chat_model": ".model",
@@ -113,7 +111,6 @@ __all__ = [
     "ConversationTurn",
     "DatabaseConversationMemory",
     "GraphMemoryEntityResolver",
-    "InMemoryConversationMemory",
     "Memory",
     "MemoryContext",
     "MemoryContextBuilder",
@@ -151,7 +148,7 @@ __all__ = [
 
 
 def __getattr__(name: str) -> Any:
-    """Load optional memory behavior only when a caller requests it."""
+    """Load memory behavior only when a caller requests it."""
     if name in _MEMORY_EXPORTS:
         return getattr(import_module("harborrag_memory"), name)
     module_name = _RUNTIME_EXPORTS.get(name)

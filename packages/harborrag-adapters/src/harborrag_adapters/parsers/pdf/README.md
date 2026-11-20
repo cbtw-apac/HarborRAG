@@ -49,6 +49,7 @@ The limits themselves, such as 200 pages per PDF, are listed in
 | `normalization.py` | Conversion of the accepted output into the common `ParseResult` |
 | `models.py` | `PDFParseResult`, the result every engine returns |
 | `resources.py` | `materialized_pdf_path()`, which gives a path-based engine a file on disk |
+| `utils.py` | `merge_dataclass_options`, which merges an options object with keyword overrides for backend setup |
 | `engines/<engine>/` | One external integration each |
 
 ## Engine contract
@@ -101,7 +102,9 @@ config = PDFParserConfig(
 
 Passing `profiles` replaces the built-in set, so `default_profile` must name one of the
 profiles you pass. `PDFParserConfig` also sets `min_content_chars` (default `20`) and
-`max_pages` (default `200`).
+`max_pages` (default `200`). `min_content_chars` is an integer of 0 or more; `max_pages`
+is an integer of 1 or more, or `null` to turn the limit off. Other values raise
+`ValueError`.
 
 A request whose `ParseRequest.engine` names a registered engine skips the profile order
 and uses that engine.
@@ -116,7 +119,9 @@ and uses that engine.
 | MinerU | `engines/mineru/` | CLI pipelines with generated Markdown and JSON | `pdf-mineru` |
 | PaddleOCR | `engines/paddleocr/` | OCR-heavy documents | `pdf-ocr` |
 
-Each engine keeps its settings in its own `config.py`. Optional imports and model
+Each engine keeps its settings in its own `config.py`. An engine's config rejects values
+it would misread, using `parsers/common/option_rules.py`; LiteParse and MinerU do so
+today. Optional imports and model
 loading stay inside the engine, so importing the PDF family needs none of these
 dependencies.
 

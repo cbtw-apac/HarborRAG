@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from harborrag_app.api.auth.principal import Principal
+from harborrag_app.operations.principal import Principal
 
 
 class BaseTokenVerifier(ABC):

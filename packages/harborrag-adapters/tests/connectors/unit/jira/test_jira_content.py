@@ -28,12 +28,12 @@ def test_field_text_keeps_html_table_rows_and_columns():
         "<p>Pipeline</p>"
         "<table>"
         "<tr><th>Stage</th><th>Owner</th></tr>"
-        "<tr><td>Interview 1</td><td>Ashley</td></tr>"
+        "<tr><td>Deploy step</td><td>Sam Sample</td></tr>"
         "</table>"
     )
 
     assert field_text(html) == (
-        "Pipeline\n\n| Stage | Owner |\n| --- | --- |\n| Interview 1 | Ashley |"
+        "Pipeline\n\n| Stage | Owner |\n| --- | --- |\n| Deploy step | Sam Sample |"
     )
 
 
@@ -42,12 +42,12 @@ def test_field_text_keeps_adf_table_rows_and_columns():
         {"type": "paragraph", "content": [{"type": "text", "text": "Pipeline"}]},
         _adf_table(
             [_adf_cell("Stage", header=True), _adf_cell("Owner", header=True)],
-            [_adf_cell("Interview 1"), _adf_cell("Ashley")],
+            [_adf_cell("Deploy step"), _adf_cell("Sam Sample")],
         ),
     )
 
     assert field_text(body) == (
-        "Pipeline\n\n| Stage | Owner |\n| --- | --- |\n| Interview 1 | Ashley |"
+        "Pipeline\n\n| Stage | Owner |\n| --- | --- |\n| Deploy step | Sam Sample |"
     )
 
 
@@ -71,11 +71,11 @@ def test_field_text_labels_adf_table_spans():
 def test_build_raw_content_keeps_a_comment_table_in_the_rendered_issue():
     issue = {"key": "ENG-1", "fields": {"summary": "Title"}}
     comment = {
-        "author": {"displayName": "Recruiter"},
+        "author": {"displayName": "Alex Example"},
         "body": _adf_document(
             _adf_table(
                 [_adf_cell("Stage", header=True), _adf_cell("Result", header=True)],
-                [_adf_cell("Interview 1"), _adf_cell("accepted")],
+                [_adf_cell("Deploy step"), _adf_cell("accepted")],
             )
         ),
     }
@@ -84,7 +84,7 @@ def test_build_raw_content_keeps_a_comment_table_in_the_rendered_issue():
 
     assert "| Stage | Result |" in content
     assert "| --- | --- |" in content
-    assert "| Interview 1 | accepted |" in content
+    assert "| Deploy step | accepted |" in content
 
 
 def test_walk_adf_handles_string_list_hardbreak_and_other_scalars():
@@ -115,20 +115,22 @@ def test_build_raw_content_skips_custom_fields_section_when_absent():
 def test_comment_author_never_lands_on_a_table_header_row():
     issue = {"key": "ENG-1", "fields": {"summary": "Title"}}
     table_comment = {
-        "author": {"displayName": "Recruiter"},
+        "author": {"displayName": "Alex Example"},
         "body": _adf_document(
             _adf_table(
                 [_adf_cell("Stage", header=True), _adf_cell("Result", header=True)],
-                [_adf_cell("Interview 1"), _adf_cell("accepted")],
+                [_adf_cell("Deploy step"), _adf_cell("accepted")],
             )
         ),
     }
-    prose_comment = {"author": {"displayName": "Reviewer"}, "body": "looks good"}
+    prose_comment = {"author": {"displayName": "Sam Sample"}, "body": "looks good"}
 
     content = build_raw_content(issue, comments=[table_comment, prose_comment])
 
-    assert "Recruiter:\n| Stage | Result |" in content
-    assert "Reviewer: looks good" in content
+    assert "Alex Example:\n| Stage | Result |" in content
+    assert "Sam Sample: looks good" in content
+    assert "Sam Sample:\n|" not in content
+    assert "Alex Example: looks good" not in content
 
 
 def _adf_document(*content: dict) -> dict:

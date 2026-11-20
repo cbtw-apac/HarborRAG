@@ -38,7 +38,7 @@ def test_document_ids_differ_when_source_item_ids_differ_only_in_spacing() -> No
 
 @pytest.mark.parametrize(
     "source_item_id",
-    ["docs/notes.md", "docs/Q3 notes.md", "jira://CPM/CPM-1", "sharepoint://site/drive/item"],
+    ["docs/notes.md", "docs/Q3 notes.md", "jira://DEMO/DEMO-1", "sharepoint://site/drive/item"],
 )
 def test_document_id_without_lossy_spacing_keeps_its_stored_value(source_item_id: str) -> None:
     """An ID whose spacing text normalization leaves alone keeps the identity it always had."""

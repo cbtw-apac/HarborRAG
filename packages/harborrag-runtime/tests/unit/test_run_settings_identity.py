@@ -6,12 +6,12 @@ from textwrap import dedent
 import pytest
 
 from harborrag_core.config_store import SettingsLevel, SettingsSnapshot, resolve_effective
+from harborrag_core.ingestion.run_contracts import RunSettings
 from harborrag_runtime.config import load_parser_catalog
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.config_store.defaults import registry_for
 from harborrag_runtime.config_store.run_settings import RunSettingsResolver
 from harborrag_runtime.ingestion.profiles import build_processing_profile
-from harborrag_runtime.ingestion_contracts import RunSettings
 
 pytestmark = pytest.mark.unit
 

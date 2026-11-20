@@ -313,13 +313,13 @@ def test_mcp_images_record_the_commit_they_were_built_from() -> None:
         assert 'org.opencontainers.image.revision="${HARBORRAG_GIT_REVISION}"' in dockerfile
 
 
-def test_mcp_template_shares_the_default_tenant_corpus_like_the_worker_template() -> None:
+def test_shipped_templates_share_the_corpus_mode_of_the_default_tenant() -> None:
     expected = {
         "HARBORRAG_CORPUS_ACCESS_MODE": "tenant_shared",
         "HARBORRAG_CORPUS_SHARED_TENANT_ID": "DEFAULT",
     }
 
-    for name in (".env.temporal.example", ".env.mcp.example"):
+    for name in (".env.api.example", ".env.temporal.example", ".env.mcp.example"):
         lines = (ROOT / "env-example" / name).read_text(encoding="utf-8").splitlines()
         active = dict(line.split("=", 1) for line in lines if line.startswith("HARBORRAG_CORPUS_"))
         assert active == expected, name

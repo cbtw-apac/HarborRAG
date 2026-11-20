@@ -1,13 +1,8 @@
 """Write and resolve the secret fields of connection credentials.
 
-Handles:
-- ``CredentialSecretWriter``: keep, rotate, reference or clear each secret field
-  of a PUT, storing new values through ``SecretsPort``
-- ``SecretResolver``: one strategy per reference scheme, used by the activity
-  that talks to the source; values never leave that call
-
-Does NOT delete replaced secrets; the caller retires ``SecretWriteResult.retired``
-only after the connection row commits.
+Resolved values never leave the activity that talks to the source. Replaced secrets are
+not deleted here: the caller retires ``SecretWriteResult.retired`` only after the
+connection row commits.
 """
 
 from __future__ import annotations

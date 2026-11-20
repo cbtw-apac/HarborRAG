@@ -6,8 +6,11 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
+from pathlib import Path
 from typing import Any
 
+from harborrag_mcp_server.audit import DEFAULT_AUDIT_PATH, McpAuditLog
 from harborrag_mcp_server.server import McpServer
 from harborrag_runtime.composition.readers import open_reader_application
 from harborrag_runtime.config.settings import RuntimeSettings
@@ -26,9 +29,14 @@ def _arguments() -> argparse.Namespace:
 
 async def _run(arguments: argparse.Namespace) -> dict[str, object]:
     settings = RuntimeSettings()
-    tenant = arguments.tenant or settings.ingestion_tenant_id
+    tenant = arguments.tenant or settings.tenant_id
     runtime = open_reader_application(settings)
-    server = McpServer(invoker=runtime.invoker, references=runtime.references)
+    audit_path = Path(os.environ.get("HARBORRAG_MCP_AUDIT_PATH", DEFAULT_AUDIT_PATH))
+    server = McpServer(
+        invoker=runtime.invoker,
+        references=runtime.references,
+        audit=McpAuditLog(path=audit_path),
+    )
     identity = {"tenant_id": tenant}
     output: dict[str, object] = {}
     try:

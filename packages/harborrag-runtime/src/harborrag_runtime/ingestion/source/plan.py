@@ -23,24 +23,24 @@ from harborrag_core.ingestion import (
     SourceIdentity,
     reject_runtime_fields,
 )
+from harborrag_core.ingestion.run_contracts import RunSettings
 from harborrag_core.storage import StorageOperationContext
-from harborrag_runtime.ingestion_contracts import RunSettings
-from harborrag_runtime.serialization import to_json_value
-
-from ..document.models import DocumentReleaseRequest
-from .models import (
+from harborrag_engine.ingestion.release.models import DocumentReleaseRequest
+from harborrag_engine.ingestion.source.models import (
     PlannedDocumentRelease,
     PlannedDocuments,
     SourcePlanCheckpoint,
     SourcePlanIndex,
     SourcePlanPageRange,
 )
+from harborrag_runtime.serialization import to_json_value
 
 _PLAN_KEY = re.compile(r"^source-plans/(?P<task_id>[^/]+)/(?P<scan_id>[^/]+)\.json$")
 _INDEX_KEY = re.compile(r"^source-plans/(?P<task_id>[^/]+)/(?P<scan_id>[^/]+)/index\.json$")
-# Legacy (non-paginated) discoveries hand over the whole plan at once; it is
-# paged after the fact so document lookups stay bounded there too.
 DEFAULT_PLAN_PAGE_SIZE = 500
+"""Legacy (non-paginated) discoveries hand over the whole plan at once; it is paged after the fact
+so document lookups stay bounded there too.
+"""
 
 
 class SourcePlanRepository:
@@ -62,6 +62,7 @@ class SourcePlanRepository:
         planned: tuple[PlannedDocumentRelease, ...],
         context: StorageOperationContext,
     ) -> ArtifactReference:
+        """Store the planned releases of one scan and return their artifact reference."""
         payload = [self._dump(item) for item in planned]
         reject_runtime_fields(payload)
         return await self._writer.put(
@@ -85,6 +86,7 @@ class SourcePlanRepository:
         *,
         context: StorageOperationContext,
     ) -> tuple[PlannedDocumentRelease, ...]:
+        """Load the planned releases stored at ``reference``."""
         values = json.loads(await self._reader.get(reference, context=context))
         if not isinstance(values, list):
             raise ValueError("source dispatch plan must contain a JSON list")
@@ -103,7 +105,6 @@ class SourcePlanRepository:
         names is, so finding it means the plan is complete. A run from before
         plans were paged has only the whole-plan artifact.
         """
-
         index = await self._reader.find(
             bucket=ARTIFACT_BUCKET,
             key=IngestionArtifactLayout.source_plan_index(task_id, scan_id),
@@ -122,7 +123,6 @@ class SourcePlanRepository:
     @staticmethod
     def plan_identity(reference: ArtifactReference) -> tuple[str, str] | None:
         """``(task_id, scan_id)`` of a plan or plan-index reference, or None for any other key."""
-
         match = _PLAN_KEY.match(reference.key) or _INDEX_KEY.match(reference.key)
         if match is None:
             return None
@@ -135,7 +135,6 @@ class SourcePlanRepository:
         context: StorageOperationContext,
     ) -> PlannedDocuments:
         """The plan behind ``reference``, read one persisted page at a time."""
-
         match = _INDEX_KEY.match(reference.key)
         if match is None:
             return PlannedDocuments.of(await self.get(reference, context=context))
@@ -164,6 +163,7 @@ class SourcePlanRepository:
         index: SourcePlanIndex,
         context: StorageOperationContext,
     ) -> ArtifactReference:
+        """Store the plan index of one scan."""
         payload = {
             "document_count": index.document_count,
             "pages": [
@@ -185,6 +185,7 @@ class SourcePlanRepository:
     async def find_index(
         self, *, task_id: str, scan_id: str, context: StorageOperationContext
     ) -> SourcePlanIndex | None:
+        """Find the stored plan index of one scan, or None."""
         reference = await self._reader.find(
             bucket=ARTIFACT_BUCKET,
             key=IngestionArtifactLayout.source_plan_index(task_id, scan_id),
@@ -221,6 +222,7 @@ class SourcePlanRepository:
         page_number: int,
         context: StorageOperationContext,
     ) -> tuple[PlannedDocumentRelease, ...] | None:
+        """Load the documents of one plan page."""
         reference = await self.find_page(
             task_id=task_id, scan_id=scan_id, page_number=page_number, context=context
         )
@@ -238,7 +240,6 @@ class SourcePlanRepository:
         page_size: int = DEFAULT_PLAN_PAGE_SIZE,
     ) -> ArtifactReference:
         """Page an already complete plan and write its index; returns the index."""
-
         if page_size < 1:
             raise ValueError("plan page size must be positive")
         counts: list[int] = []
@@ -271,7 +272,6 @@ class SourcePlanRepository:
         context: StorageOperationContext,
     ) -> ArtifactReference:
         """Persist one immutable provider-page checkpoint for activity retries."""
-
         payload = {
             "next_cursor": checkpoint.next_cursor,
             "planned": [self._dump(item) for item in checkpoint.planned],
@@ -299,6 +299,7 @@ class SourcePlanRepository:
         *,
         context: StorageOperationContext,
     ) -> SourcePlanCheckpoint:
+        """Load the plan page stored at ``reference``."""
         value = json.loads(await self._reader.get(reference, context=context))
         if not isinstance(value, dict) or not isinstance(value.get("planned"), list):
             raise ValueError("source discovery page checkpoint is invalid")
@@ -322,6 +323,7 @@ class SourcePlanRepository:
         page_number: int,
         context: StorageOperationContext,
     ) -> ArtifactReference | None:
+        """Find one stored plan page, or None."""
         return await self._reader.find(
             bucket=ARTIFACT_BUCKET,
             key=IngestionArtifactLayout.source_plan_page(task_id, scan_id, page_number),

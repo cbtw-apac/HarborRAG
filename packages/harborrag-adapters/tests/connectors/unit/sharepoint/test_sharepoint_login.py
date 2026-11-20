@@ -6,6 +6,10 @@ from pathlib import Path
 
 import pytest
 
+from harborrag_adapters.connectors.policies.network import (
+    BlockedDestinationError,
+    DestinationPolicy,
+)
 from harborrag_adapters.connectors.sharepoint import login
 from harborrag_adapters.connectors.sharepoint.config import SharePointSiteConfig
 
@@ -20,7 +24,7 @@ def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         *_IDS,
         "MICROSOFT_CLIENT_SECRET",
         "CONNECTOR_ENV_FILE",
-        "HARBORRAG_INGESTION_TENANT_ID",
+        "HARBORRAG_TENANT_ID",
     ):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
@@ -64,6 +68,19 @@ def test_exported_ids_and_flags_outrank_the_file(
     assert login.main(["--logout", "--client-id", "flag-client"]) == 0
 
     assert str(_token_path(workspace, "shell-tenant", "flag-client")) in capsys.readouterr().out
+
+
+def test_token_file_sits_in_the_folder_of_harborrag_tenant_id(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    monkeypatch.setenv("HARBORRAG_TENANT_ID", "acme")
+    monkeypatch.setenv("MICROSOFT_TENANT_ID", "t")
+    monkeypatch.setenv("MICROSOFT_CLIENT_ID", "c")
+
+    assert login.main(["--logout"]) == 0
+
+    expected = workspace / "home" / ".harborrag" / "sharepoint" / "acme" / "token-t-c.json"
+    assert str(expected) in capsys.readouterr().out
 
 
 def test_connector_env_file_override_is_honoured(
@@ -129,3 +146,41 @@ def test_sign_in_refuses_an_id_that_would_leave_the_cache_folder(workspace: Path
 
     assert code == 2
     assert "tenant_id must be a plain id" in capsys.readouterr().out
+
+
+def test_sign_in_builds_the_destination_policy_from_the_environment(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    built: dict[str, DestinationPolicy] = {}
+
+    class _Login:
+        def __init__(self, cache: object, *, destination_policy: DestinationPolicy) -> None:
+            built["policy"] = destination_policy
+
+        def run(self, prompt: object) -> str:
+            return "user@example.com"
+
+    monkeypatch.setattr(login, "DeviceCodeLogin", _Login)
+    monkeypatch.setenv("HARBORRAG_CONNECTOR_USE_PROXY", "true")
+
+    assert login.main(["--tenant-id", "tid", "--client-id", "cid"]) == 0
+
+    assert built["policy"] == DestinationPolicy.from_environ()
+    assert built["policy"].use_proxy is True
+
+
+def test_sign_in_reports_a_blocked_identity_host(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    class _Login:
+        def __init__(self, cache: object, *, destination_policy: DestinationPolicy) -> None:
+            pass
+
+        def run(self, prompt: object) -> str:
+            raise BlockedDestinationError("login.microsoftonline.com resolves to a private address")
+
+    monkeypatch.setattr(login, "DeviceCodeLogin", _Login)
+
+    assert login.main(["--tenant-id", "tid", "--client-id", "cid"]) == 1
+
+    assert "private address" in capsys.readouterr().out

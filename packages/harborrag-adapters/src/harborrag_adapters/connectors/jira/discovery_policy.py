@@ -20,8 +20,8 @@ from harborrag_adapters.connectors.exceptions import (
     FetchError,
 )
 from harborrag_adapters.connectors.query_values import normalized_string_list
-from harborrag_adapters.connectors.schemas import ConnectorQuery
 from harborrag_core.domain.source import SourceRecord
+from harborrag_core.ingestion.connector_contracts import ConnectorQuery
 
 from .config import JiraProjectConfig
 from .issues import JiraIssueAPI

@@ -17,6 +17,7 @@ from harborrag_adapters.topology.descriptions import (
 )
 from harborrag_core.base import utc_now
 from harborrag_core.chunking import ChunkRecord
+from harborrag_core.chunking.tokenization import ApproximateTokenCounter
 from harborrag_core.contracts import HarborConflictError
 from harborrag_core.ingestion import (
     DocumentIdentityBuilder,
@@ -50,6 +51,7 @@ from harborrag_core.topology.derived import (
 )
 from harborrag_core.topology.extraction import digest
 from harborrag_core.topology.text_policy import PARENT_DESCRIPTION_MAX_WORDS
+from harborrag_engine.topology.reservation_deadline import reservation_seconds
 from harborrag_engine.topology.summary_planner import SummaryPlanNode
 from harborrag_engine.topology.summary_reducer import (
     SummaryBudgetDeferred,
@@ -57,11 +59,9 @@ from harborrag_engine.topology.summary_reducer import (
     input_digest,
 )
 from harborrag_runtime.config.settings import RuntimeSettings
-from harborrag_runtime.tokenization import ApproximateTokenCounter
 
 from .budgeted_extractor import EnrichmentDeferredError
 from .entity_summary_index import EntitySummaryIndex
-from .reservation_deadline import reservation_seconds
 
 logger = logging.getLogger("harborrag.runtime.topology")
 type SummaryPlanLoader = Callable[
@@ -71,6 +71,8 @@ type SummaryPlanLoader = Callable[
 
 @dataclass
 class BudgetedSummaryGenerator:
+    """Description generator that checks each call against the topology budget."""
+
     delegate: UsageAwareDescriptionPort
     repository: SummaryExecutionRepositoryPort
     budget: TopologyBudgetRepositoryPort
@@ -84,6 +86,11 @@ class BudgetedSummaryGenerator:
         *,
         max_words: int = PARENT_DESCRIPTION_MAX_WORDS,
     ) -> DescriptionOutput:
+        """Generate a description for the packets within the budget.
+
+        A dossier is allowed more words than a navigation card, so the reservation has to cover them
+        or a wide budget would be admitted against a narrow one's estimate.
+        """
         ceiling = self.settings.topology_llm_operation_cost_usd
         if ceiling is None:
             raise SummaryBudgetDeferred("provider_cost_ceiling_unconfigured")
@@ -96,9 +103,6 @@ class BudgetedSummaryGenerator:
             purpose="parent_description",
             input_tokens=calls
             * (ApproximateTokenCounter().count(description_prompt_json(packets)) + 2048),
-            # A dossier is allowed more words than a navigation card, so the
-            # reservation has to cover them or a wide budget would be admitted
-            # against a narrow one's estimate.
             output_tokens=calls * self._output_tokens(max_words),
             cost_usd=ceiling,
             operation_key=digest(
@@ -131,20 +135,22 @@ class BudgetedSummaryGenerator:
 
     def _output_tokens(self, max_words: int) -> int:
         """Reserve exactly what the request will be allowed to spend."""
-
         return description_output_tokens(max_words, self.settings.topology_parent_max_output_tokens)
 
 
 @dataclass(frozen=True)
 class SummaryProjectionService:
+    """Generate and store summaries for one tenant's pending topology nodes."""
+
     repository: SummaryExecutionRepositoryPort
     budget: TopologyBudgetRepositoryPort
     settings: RuntimeSettings
     generator_factory: Callable[[SummaryLease], UsageAwareDescriptionPort]
     load_inputs: SummaryPlanLoader
-    # Absent when the deployment has no vector backend wired into the summary
-    # worker; cards are still written and still readable, only not searchable.
     entity_index: EntitySummaryIndex | None = None
+    """Absent when the deployment has no vector backend wired into the summary worker; cards are
+    still written and still readable, only not searchable.
+    """
 
     async def run_once(
         self,
@@ -153,6 +159,10 @@ class SummaryProjectionService:
         source_scope_id: str | None = None,
         heartbeat: Callable[[], None] | None = None,
     ) -> str:
+        """Run one summary pass and return its status.
+
+        Lease expiry allows another worker to reuse completed reductions.
+        """
         lease = await self.repository.claim(
             tenant_id,
             lease_seconds=self.settings.topology_lease_seconds,
@@ -171,7 +181,6 @@ class SummaryProjectionService:
             current = await self.repository.finish(lease)
             return "current" if current else "superseded"
         except asyncio.CancelledError:
-            # Lease expiry allows another worker to reuse completed reductions.
             raise
         except Exception as error:
             blocked, code = _summary_failure(error)
@@ -196,6 +205,15 @@ class SummaryProjectionService:
             await self.repository.renew(lease, lease_seconds=self.settings.topology_lease_seconds)
 
     async def _complete(self, lease: SummaryLease) -> None:
+        """``max_calls`` is configured per document; a scope run covers them all.
+
+        Spend is still bounded by the tenant's daily token/cost caps. Cards are generated in
+        dependency waves: every section, then every document, then the entities. Within a wave
+        nothing depends on anything else, so the tenant's card concurrency applies -- the old
+        one-at-a-time walk spent hours on a scope that needs minutes. Entity cards compose every
+        document under the entity. While the scope is still being ingested each one would be
+        superseded by the next publish, so leaves are built now and entities wait.
+        """
         if lease.source_scope_id == "@tenant":
             await self._complete_tenant(lease)
             return
@@ -217,21 +235,12 @@ class SummaryProjectionService:
                 BudgetedSummaryGenerator(
                     self.generator_factory(lease), repository, self.budget, lease, self.settings
                 ),
-                # ``max_calls`` is configured per document; a scope run covers them
-                # all. Spend is still bounded by the tenant's daily token/cost caps.
                 max_calls=lease.policy.max_calls * max(1, len(snapshot.document_versions)),
             ),
             semaphore=asyncio.Semaphore(lease.policy.max_concurrency),
         )
-        # Cards are generated in dependency waves: every section, then every
-        # document, then the entities. Within a wave nothing depends on anything
-        # else, so the tenant's card concurrency applies -- the old one-at-a-time
-        # walk spent hours on a scope that needs minutes.
         for wave in _waves(plan):
             if any(item.kind not in LEAF_SUMMARY_KINDS for item in wave):
-                # Entity cards compose every document under the entity. While the
-                # scope is still being ingested each one would be superseded by the
-                # next publish, so leaves are built now and entities wait.
                 if await repository.ingestion_active(lease.tenant_id, lease.source_scope_id):
                     raise HarborConflictError("SUMMARY_INGESTION_ACTIVE")
                 if not await repository.scope_current(lease):
@@ -250,13 +259,15 @@ class SummaryProjectionService:
         a database session each for ``accept`` at once and exhaust the control-plane
         pool. The limit is on cards in flight, which is also what the budget means.
         """
-
         async with run.semaphore:
             await self._card(run, item)
 
     async def _card(self, run: _Run, item: SummaryPlanNode) -> None:
-        """Produce and accept one node's card."""
+        """Produce and accept one node's card.
 
+        The entity's own document is the one its direct chunks belong to; attachments hang beneath
+        it as their own entities.
+        """
         lease, policy = run.lease, run.lease.policy
         direct = tuple(chunk for chunk in item.direct_chunks if chunk.content.strip())
         metadata: dict[str, object] = {
@@ -287,8 +298,6 @@ class SummaryProjectionService:
         else:
             card, key = await run.reducer.reduce(item.kind, metadata, inputs)
         if item.kind == "SourceEntity":
-            # The entity's own document is the one its direct chunks belong to;
-            # attachments hang beneath it as their own entities.
             own = tuple(dict.fromkeys(str(chunk.document_id) for chunk in direct))
             card = _with_facets(card, item.node, policy, own or item.document_ids)
         versions = {
@@ -341,7 +350,6 @@ class SummaryProjectionService:
         ``facet.*`` filters answer nothing for the scope, and a failure that repeats
         every run must be alertable rather than a warning nobody reads.
         """
-
         if self.entity_index is None or not await self.repository.scope_current(lease):
             return
         try:
@@ -431,10 +439,12 @@ class _Run:
 
 
 def _waves(plan: tuple[SummaryPlanNode, ...]) -> tuple[tuple[SummaryPlanNode, ...], ...]:
-    """Group the plan by dependency depth; every node's children are in an earlier wave."""
+    """Group the plan by dependency depth; every node's children are in an earlier wave.
 
+    The planner emits children before parents.
+    """
     depth: dict[str, int] = {}
-    for item in plan:  # the planner emits children before parents
+    for item in plan:
         depth[item.node.node_key] = 1 + max(
             (depth[child] for child in item.children if child in depth), default=-1
         )
@@ -457,8 +467,10 @@ def _shortcut(
     says; neither does an attachment entity whose only child is the document card
     written a moment earlier. Both were a model call each -- together well over
     half of every run -- and the model's answer was a paraphrase of the input.
-    """
 
+    A verbatim card of children that carry facets keeps their union; leaves have none today, but the
+    rule is what makes the shortcut safe to widen later.
+    """
     words = policy.card_words.for_kind(item.kind)
     if not direct and len(item.children) == 1:
         child = cards[item.children[0]]
@@ -474,8 +486,6 @@ def _shortcut(
     joined = "\n\n".join(text for text in texts if text)
     if not joined or len(joined.split()) > words or len(joined) > description_max_chars(words):
         return None
-    # A verbatim card of children that carry facets keeps their union; leaves have
-    # none today, but the rule is what makes the shortcut safe to widen later.
     return SummaryCard(description=joined), generation_key(
         tenant_id, policy, ["verbatim", texts, words], fingerprint=policy.leaf_fingerprint
     )
@@ -489,19 +499,19 @@ def _with_facets(
 ) -> SummaryCard:
     """Copy the connector's structured fields onto the card as its facets.
 
-    A Jira *Stage* field is the recruiter's own statement, so it is copied as-is
+    A Jira *Stage* field is the editor's own statement, so it is copied as-is
     rather than read back out of the content by a model. ``document_ids`` is the
     provenance to record: a source entity node carries no document id of its own,
     so the caller names the document(s) the fields came from.
-    """
 
+    One value per member, so ``skill_set == java`` matches a card whose Skill Set is Java and Python
+    -- as ``fields.skill_set`` does on evidence.
+    """
     if not policy.facets:
         return card
     fields = _node_fields(node)
     copied: dict[str, SummaryAttribute] = {}
     for facet in policy.facets:
-        # One value per member, so ``skill_set == java`` matches a card whose
-        # Skill Set is Java and Python -- as ``fields.skill_set`` does on evidence.
         values = tuple(
             dict.fromkeys(
                 value[:200]
@@ -533,7 +543,6 @@ def _node_fields(node: GraphNodeRecord) -> dict[str, tuple[str, ...]]:
     node, so a line break in a typed field's text is where the connector joined
     one option, user or value to the next.
     """
-
     fields: dict[str, tuple[str, ...]] = {}
     for key, value in node.attributes.items():
         if key == "custom_fields" or value in (None, "", [], {}):
@@ -551,9 +560,7 @@ def _node_fields(node: GraphNodeRecord) -> dict[str, tuple[str, ...]]:
 
 
 def _coverage_mode(chunks: tuple[str, ...], missing: tuple[str, ...]) -> SummaryCoverage:
-    """Say which of the three things a card is: written over everything, over
-    part of it, or over nothing."""
-
+    """Say whether a card covers everything, part of it, or nothing."""
     if missing:
         return "partial"
     return "complete" if chunks else "empty"
@@ -566,7 +573,7 @@ class _CoverageLedger:
     An attachment still in OCR, or one whose file type nothing can parse, is
     discovered long before it is parsed. Reading the gap from discovery rather
     than from what published is what lets a card say it is partial instead of
-    silently describing a candidate without their CV.
+    silently describing an issue without its attached design document.
     """
 
     by_parent: dict[str, tuple[str, ...]]
@@ -574,13 +581,16 @@ class _CoverageLedger:
 
     @classmethod
     def of(cls, missing: tuple[MissingSourceDocument, ...]) -> _CoverageLedger:
+        """Group the missing source documents by the node that should contain them.
+
+        A child of an absent parent has no node to belong to either, so it rises to the source level
+        rather than disappearing from the count.
+        """
         identifiers = {item.document_id for item in missing}
         by_parent: dict[str, tuple[str, ...]] = {}
         orphans: tuple[str, ...] = ()
         for item in missing:
             parent = item.parent_document_id
-            # A child of an absent parent has no node to belong to either, so it
-            # rises to the source level rather than disappearing from the count.
             if parent is None or parent in identifiers:
                 orphans += (item.document_id,)
                 continue
@@ -596,7 +606,6 @@ class _CoverageLedger:
 
 def _summary_failure(error: BaseException) -> tuple[bool, str]:
     """Classify every concurrent failure; infrastructure errors take precedence."""
-
     leaves = _exception_leaves(error)
     blocked_types = (SummaryBudgetDeferred, EnrichmentDeferredError, HarborConflictError)
     failures = tuple(cause for cause in leaves if not isinstance(cause, blocked_types))

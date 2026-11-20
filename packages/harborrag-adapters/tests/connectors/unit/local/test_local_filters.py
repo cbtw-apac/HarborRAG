@@ -19,8 +19,8 @@ from harborrag_adapters.connectors.local.filters import (
     path_filter,
 )
 from harborrag_adapters.connectors.local.mappers import path_from_record
-from harborrag_adapters.connectors.schemas import ConnectorQuery
 from harborrag_core.domain.source import SourceRecord
+from harborrag_core.ingestion.connector_contracts import ConnectorQuery
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 

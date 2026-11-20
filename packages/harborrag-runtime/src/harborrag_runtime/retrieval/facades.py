@@ -47,7 +47,7 @@ from harborrag_core.security import AccessContext
 from harborrag_core.topology.records import CanonicalMention
 
 if TYPE_CHECKING:
-    from harborrag_runtime.retrieval.service import RuntimeRetrievalService
+    from harborrag_engine.retrieval.service.service import RuntimeRetrievalService
 
 
 class _ReaderOwner(Protocol):
@@ -75,7 +75,7 @@ class RetrievalFacade:
         Returns:
             The passages, diagnostics and topology evidence.
         """
-        from ..retrieval import RetrievalOptions
+        from harborrag_engine.retrieval.service.contracts import RetrievalOptions
 
         service = await self._owner._retrieval_service()
         report = await service.retrieve(

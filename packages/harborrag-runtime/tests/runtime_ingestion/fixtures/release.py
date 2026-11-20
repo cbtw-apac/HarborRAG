@@ -22,6 +22,7 @@ from harborrag_adapters.repositories.object_store import (
     RawDocumentArtifactRepository,
 )
 from harborrag_core.chunking import ConnectorType
+from harborrag_core.chunking.tokenization import ApproximateTokenCounter
 from harborrag_core.domain.source import SourceRecord
 from harborrag_core.ingestion import (
     AdmissionSnapshot,
@@ -41,14 +42,12 @@ from harborrag_engine.ingestion import (
     VectorProjectionStore,
     build_chunking_service,
 )
-from harborrag_runtime.ingestion import (
-    DocumentReleaseDependencies,
-    DocumentReleaseRequest,
-    DocumentReleaseService,
-    GraphRelationRepairService,
-    SourceIngestionRequest,
-)
-from harborrag_runtime.tokenization import ApproximateTokenCounter
+from harborrag_engine.ingestion.release.dependencies import DocumentReleaseDependencies
+from harborrag_engine.ingestion.release.models import DocumentReleaseRequest
+from harborrag_engine.ingestion.release.service import DocumentReleaseService
+from harborrag_engine.ingestion.source.models import SourceIngestionRequest
+from harborrag_runtime.ingestion import GraphRelationRepairService
+from harborrag_runtime.ingestion.failure_classification import ingestion_failure_classifier
 
 from .connectors import (
     DeterministicEmbedClient,
@@ -157,6 +156,7 @@ def build_dependencies(
             VectorProjectionPolicy(dimension=3),
         ),
         graph_store=resources.graph,
+        failures=ingestion_failure_classifier(),
     )
 
 

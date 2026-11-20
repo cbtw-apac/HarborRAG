@@ -5,15 +5,17 @@ from __future__ import annotations
 from collections.abc import Iterator
 
 import pytest
-from app_test_connections import connection_world
 from app_test_fixtures import MockAppService
 from fastapi.testclient import TestClient
 
 from harborrag_app.api import app as api_app
 from harborrag_app.api.app import create_fastapi_app
 from harborrag_app.api.settings import ApiSettings
-from harborrag_app.workflow_control.control_plane.projects import ProjectService
 from harborrag_core.domain.project import Project
+from harborrag_runtime.application.control_plane.projects import ProjectService
+from harborrag_runtime.testing.connection_fakes import connection_world
+
+pytestmark = pytest.mark.unit
 
 
 class _App(MockAppService):
@@ -84,7 +86,7 @@ def test_a_garbage_chat_session_cursor_names_its_field(client: TestClient) -> No
 
 def test_an_etag_cycle_refuses_a_stale_write(client: TestClient) -> None:
     etag = client.get("/v1/admin/projects/p01").headers["etag"]
-    body = {"project_name": "CPM candidates"}
+    body = {"project_name": "DEMO runbooks"}
 
     first = client.put(
         "/v1/admin/projects/p01",

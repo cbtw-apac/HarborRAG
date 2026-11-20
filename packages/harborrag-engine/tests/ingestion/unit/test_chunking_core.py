@@ -119,7 +119,7 @@ def test_jira_chunks_leave_document_level_detail_on_the_canonical_document() -> 
         extra={
             "issue_key": "ENG-1",
             "typed_custom_attributes": [attribute],
-            "attachment_details": [{"title": "cv.pdf"}],
+            "attachment_details": [{"title": "runbook.pdf"}],
             "processing_profile": {"parser_profile": "jira-v1"},
             "fields": {"skill": "Go"},
         },
@@ -405,7 +405,7 @@ def test_oversized_table_ignores_whitespace_only_refiner_splits() -> None:
 
 
 def test_duplicate_source_links_to_one_target_become_one_chunk_relation() -> None:
-    # Two distinct Jira "relates to" links to the same issue (CPM-145481 -> RHR-2700)
+    # Two distinct Jira "relates to" links to the same issue (DEMO-145481 -> RHR-2700)
     # used to fail chunk validation permanently with duplicate relations.
     profile = make_profile(target=20, maximum=25)
     document = replace(

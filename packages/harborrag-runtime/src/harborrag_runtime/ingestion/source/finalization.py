@@ -11,20 +11,23 @@ import logging
 
 from harborrag_adapters.repositories.database import IngestionControlPlaneDatabase
 from harborrag_core.ingestion import BindingKind, IngestionTaskState
-
-from ..maintenance.relation_repair import GraphRelationRepairService, RelationRepairResult
-from .models import (
+from harborrag_engine.ingestion.source.models import (
     PlannedDocuments,
     RelationRepairProgress,
     SourceDispatchSummary,
     SourceIngestionOutcome,
     SourceIngestionRequest,
 )
+
+from ..maintenance.relation_repair import GraphRelationRepairService, RelationRepairResult
 from .skips import carried_discovery_skips, run_skip_summary
 
 logger = logging.getLogger("harborrag.runtime.ingestion.source_finalization")
 
 _MAX_CONCURRENT_RETIREMENTS = 4
+"""Comfortably under the smallest supported control-plane pool, so retirement never competes with
+the rest of the task for connections.
+"""
 
 
 class SourceFinalizationService:
@@ -136,16 +139,16 @@ class SourceFinalizationService:
         summary: SourceDispatchSummary,
         progress: RelationRepairProgress,
     ) -> RelationRepairResult | None:
-        """Repair the plan's relations page by page, then the reverse direction once.
+        """Repair relations that point at documents this run published.
 
-        Every document is already published, so no page's repair depends on
-        another's, and memory stays bounded by one page. ``progress`` is updated
-        in place after each page, and the Temporal activity heartbeats it so a
-        retry resumes there. The reverse pass repairs documents outside the plan
-        whose links point at something now published. It is idempotent, so a
-        retry runs it again instead of resuming totals it would count twice. The
-        result keeps the plan's own unresolved count, because the reverse pass
-        only reduces what is unresolved and its declarers belong to other runs.
+        Repairs page by page: every document is already published, so no repair depends on another
+        page's, and memory stays bounded by one page. ``progress`` is updated in place after each
+        page; the caller may persist it (the Temporal activity heartbeats it) to resume there. A
+        reverse pass then covers documents outside this plan whose links point at something this
+        run, or an earlier one, has now published. It is not folded into ``progress``: it is
+        idempotent, so a retried attempt re-runs it rather than resuming totals it would count
+        twice. The result keeps the plan's own unresolved count, because the reverse pass only
+        reduces it and its declarers belong to other runs' summaries.
         """
         if self._relations is None:
             return None

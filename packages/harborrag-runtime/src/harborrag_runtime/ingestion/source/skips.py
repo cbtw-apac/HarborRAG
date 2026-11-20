@@ -3,8 +3,8 @@
 Discovery skips come from the connector's ``skipped`` report and stay on the
 task under ``DISCOVERY_SKIPS_KEY``, which status views read even after the run
 ends. Per-document skips are read back from the task's document results.
-Connector and database types are imported for annotations only, so modules
-that just need the constants, such as the CLI presenters, stay light.
+Connector and database types are imported for annotations only, so importing
+this module stays light.
 """
 
 from __future__ import annotations
@@ -13,13 +13,14 @@ from collections import Counter
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, TypedDict
 
+from harborrag_engine.ingestion.source.models import DISCOVERY_SKIPS_KEY
+
 if TYPE_CHECKING:
     from harborrag_adapters.connectors.base import BaseConnector
     from harborrag_adapters.connectors.harbor_connector import HarborConnector
     from harborrag_adapters.repositories.database import IngestionControlPlaneDatabase
 
 EXTRACTION_FAILED = "EXTRACTION_FAILED"
-DISCOVERY_SKIPS_KEY = "discovery_skipped_by_reason"
 _EXTRACTION_STAGE = "ParseAndNormalize"
 _RESULT_PAGE_SIZE = 200
 

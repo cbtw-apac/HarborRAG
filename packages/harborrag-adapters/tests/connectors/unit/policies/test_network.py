@@ -42,6 +42,49 @@ def test_private_loopback_link_local_and_reserved_addresses_are_blocked(address:
         DestinationPolicy().check("jira.acme.internal", address)
 
 
+@pytest.mark.parametrize(
+    "address",
+    [
+        "64:ff9b::7f00:1",
+        "64:ff9b::a00:1",
+        "64:ff9b::ac12:1",
+        "64:ff9b::c0a8:105",
+        "64:ff9b::a9fe:a9fe",
+        "::ffff:0:7f00:1",
+        "::ffff:0:a00:1",
+        "::ffff:0:c0a8:105",
+        "::ffff:0:a9fe:a9fe",
+        "::127.0.0.1",
+        "::10.0.0.1",
+        "::192.168.1.5",
+        "::169.254.169.254",
+        "64:ff9b:1::a00:1",
+        "2002:a9fe:a9fe::1",
+        "2001:0:a9fe:a9fe::1",
+    ],
+)
+def test_private_ipv4_embedded_in_ipv6_is_blocked(address: str) -> None:
+    with pytest.raises(BlockedDestinationError, match=ALLOWED_HOSTS_VARIABLE):
+        DestinationPolicy().check("jira.acme.internal", address)
+
+
+@pytest.mark.parametrize(
+    "address", ["64:ff9b::808:808", "::8.8.8.8", "::ffff:8.8.8.8", "::ffff:0:808:808"]
+)
+def test_public_ipv4_embedded_in_ipv6_is_judged_like_the_ipv4(address: str) -> None:
+    DestinationPolicy().check("api.github.com", address)
+
+
+def test_allowed_network_covers_the_embedded_ipv4_and_the_ipv6_range_itself() -> None:
+    by_ipv4 = DestinationPolicy.from_environ({ALLOWED_HOSTS_VARIABLE: "10.0.0.0/8"})
+    by_ipv6 = DestinationPolicy.from_environ({ALLOWED_HOSTS_VARIABLE: "64:ff9b::/96"})
+
+    by_ipv4.check("h", "64:ff9b::a00:1")
+    by_ipv6.check("h", "64:ff9b::a00:1")
+    with pytest.raises(BlockedDestinationError):
+        by_ipv4.check("h", "64:ff9b::7f00:1")
+
+
 def test_public_addresses_pass_and_allowed_hosts_or_networks_open_private_ones() -> None:
     policy = DestinationPolicy.from_environ(
         {ALLOWED_HOSTS_VARIABLE: " Jira.Acme.Internal , 10.20.0.0/16 ,"}

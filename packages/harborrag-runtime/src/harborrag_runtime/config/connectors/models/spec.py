@@ -1,11 +1,6 @@
 """The per-source-type strategy: schemas, validation and the dataclass mapping.
 
-Handles:
-- validating a connection's credentials, config and tuning, collecting every field issue
-- publishing the spec's ``SourceType`` object (JSON Schemas, ``ui`` hints, capabilities)
-- mapping stored values to and from the connector config dataclass keywords
-
-Does NOT resolve secret references or build connectors; see ``builder.py``.
+Secret references are resolved and connectors built elsewhere; see ``builder.py``.
 """
 
 from __future__ import annotations

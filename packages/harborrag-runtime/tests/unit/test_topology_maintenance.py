@@ -8,6 +8,8 @@ from topology_service_support import Harness
 
 from harborrag_runtime.topology import maintenance
 
+pytestmark = pytest.mark.unit
+
 
 def connect(harness, monkeypatch):
     @asynccontextmanager

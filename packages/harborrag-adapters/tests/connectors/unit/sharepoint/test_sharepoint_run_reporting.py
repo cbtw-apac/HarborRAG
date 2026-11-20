@@ -38,8 +38,8 @@ from harborrag_core.domain.source import SourceRecord
 pytestmark = [pytest.mark.unit, pytest.mark.graybox]
 
 _LOGGER = "harborrag.adapters.connectors.sharepoint"
-_CV_NAME = "Alex-Example-CV.docx"
-_CV_URL = f"{SITE_URL}/Shared%20Documents/{_CV_NAME}"
+_RUNBOOK_NAME = "Alex-Example-Runbook.docx"
+_RUNBOOK_URL = f"{SITE_URL}/Shared%20Documents/{_RUNBOOK_NAME}"
 
 
 class _RaisingGraphClient(FakeGraphClient):
@@ -84,7 +84,7 @@ def _discover_with_one_skip(connector: SharePointConnector, client: FakeGraphCli
     add_site_and_default_drive(client)
     client.add(
         "drives/drive1/root:/Docs:/children",
-        {"value": [file_item("file1", "Guide.docx"), file_item("big", _CV_NAME, size=99)]},
+        {"value": [file_item("file1", "Guide.docx"), file_item("big", _RUNBOOK_NAME, size=99)]},
     )
     list(connector.discover())
 
@@ -127,24 +127,24 @@ def test_discover_declined_file_logs_no_file_name_or_url(
         _discover_with_one_skip(connector, client)
 
     (skip,) = connector.skipped
-    assert (skip.item_id, skip.url) == ("big", _CV_URL)
+    assert (skip.item_id, skip.url) == ("big", _RUNBOOK_URL)
     assert caplog.records
-    assert _CV_NAME not in _logged_text(caplog)
-    assert _CV_URL not in _logged_text(caplog)
+    assert _RUNBOOK_NAME not in _logged_text(caplog)
+    assert _RUNBOOK_URL not in _logged_text(caplog)
 
 
 def test_load_declined_file_logs_no_file_name_or_url(caplog: pytest.LogCaptureFixture) -> None:
     client = FakeGraphClient()
     add_site_and_default_drive(client)
-    client.add("drives/drive1/items/big", file_item("big", _CV_NAME, size=99))
+    client.add("drives/drive1/items/big", file_item("big", _RUNBOOK_NAME, size=99))
     connector = SharePointConnector(config(max_file_size_bytes=50), client=client)
 
     with caplog.at_level(logging.DEBUG), pytest.raises(SharePointItemSkippedError) as error:
         connector.load(_file_record("big"))
 
-    assert error.value.url == _CV_URL
+    assert error.value.url == _RUNBOOK_URL
     assert any(event["event"] == "sharepoint.item_skipped" for event in _events(caplog))
-    assert _CV_NAME not in _logged_text(caplog)
+    assert _RUNBOOK_NAME not in _logged_text(caplog)
 
 
 def test_load_failed_download_logs_no_file_name_or_url(caplog: pytest.LogCaptureFixture) -> None:
@@ -152,15 +152,15 @@ def test_load_failed_download_logs_no_file_name_or_url(caplog: pytest.LogCapture
         {"drives/drive1/items/file1/content": FetchError("gone", status_code=404)}
     )
     add_site_and_default_drive(client)
-    client.add("drives/drive1/items/file1", file_item("file1", _CV_NAME))
+    client.add("drives/drive1/items/file1", file_item("file1", _RUNBOOK_NAME))
     connector = SharePointConnector(config(), client=client)
 
     with caplog.at_level(logging.DEBUG), pytest.raises(SharePointItemMissingError) as error:
         connector.load(_file_record("file1"))
 
-    assert error.value.url == _CV_URL
+    assert error.value.url == _RUNBOOK_URL
     assert any(event["event"] == "sharepoint.item_skipped" for event in _events(caplog))
-    assert _CV_NAME not in _logged_text(caplog)
+    assert _RUNBOOK_NAME not in _logged_text(caplog)
 
 
 def test_connector_without_bound_run_id_gets_its_own_run_id() -> None:

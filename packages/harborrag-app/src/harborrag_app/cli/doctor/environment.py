@@ -13,10 +13,17 @@ from typing import Literal
 import yaml
 from pydantic import ValidationError
 
+from harborrag_app.cli.globals import TENANT_ENV
 from harborrag_app.cli.project import active_project
-from harborrag_app.workflow_control.errors import public_error_message, validation_error_detail
 from harborrag_core.contracts.errors import HarborConfigurationError
+from harborrag_runtime.application.errors import public_error_message, validation_error_detail
+from harborrag_runtime.application.retrieval.access import corpus_mode_for
 from harborrag_runtime.config import ConnectorCatalog, describe_model_catalog
+from harborrag_runtime.config.connectors.models.local_file import (
+    LOCAL_SOURCE_ROOT_VARIABLE,
+    local_source_root,
+)
+from harborrag_runtime.config.settings import RuntimeSettings
 
 from .checks import Check
 
@@ -31,7 +38,6 @@ def env_hint(kind: Literal["models", "connector", "database", "services", "setti
     ``env/.env.*`` and starts services with dev.sh; outside both, the hint names the
     checkout's files too.
     """
-
     if active_project() is not None:
         return "docker compose up -d" if kind == "services" else ".env"
     return {
@@ -53,8 +59,6 @@ def _models_hint() -> str:
 _ENV_REFERENCE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
 
-# Import name -> distribution name for the clients the local stack needs. A bare
-# `pip install harborrag` deliberately ships none of them.
 _LOCAL_STACK_CLIENTS: tuple[tuple[str, str], ...] = (
     ("qdrant_client", "qdrant-client"),
     ("falkordb", "falkordb"),
@@ -63,12 +67,16 @@ _LOCAL_STACK_CLIENTS: tuple[tuple[str, str], ...] = (
     ("sqlalchemy", "SQLAlchemy"),
     ("alembic", "alembic"),
 )
+"""Import name -> distribution name for the clients the local stack needs. A bare `pip install
+harborrag` deliberately ships none of them.
+"""
 
 
 _PACKAGES_HINT = 'Install the local stack clients: pip install "harborrag[local]"'
 
 
 def packages_check() -> Check:
+    """Check that the local-stack client libraries are installed."""
     missing = [
         distribution
         for module, distribution in _LOCAL_STACK_CLIENTS
@@ -86,7 +94,6 @@ def settings_error_detail(exc: Exception) -> str:
     ``str(ValidationError)`` appends a truncated ``input_value={...}`` dump of the raw
     environment, whose tail can be a credential; report locations and messages only.
     """
-
     if not isinstance(exc, ValidationError):
         return f"{type(exc).__name__}: {exc}"
     parts = []
@@ -113,7 +120,6 @@ def check_error_detail(exc: Exception) -> str:
     ValidationError is a ValueError, so it must be matched before the allowlist forwards
     ValueError verbatim.
     """
-
     if isinstance(exc, ValidationError):
         return validation_error_detail(exc)
     if isinstance(exc, HarborConfigurationError):
@@ -122,9 +128,12 @@ def check_error_detail(exc: Exception) -> str:
 
 
 def credentials_check(catalog: ConnectorCatalog) -> Check | None:
-    """Every URL/secret variable a remote connector references must be non-empty."""
+    """Warn about enabled remote connectors whose URL or secret variables are blank.
 
-    blank: list[str] = []
+    A fresh checkout ships remote connectors with blank credentials, and a local run does
+    not need them, so this reports the connectors that cannot sync yet and never fails.
+    """
+    unconfigured: dict[str, list[str]] = {}
     remote = 0
     for definition in catalog.connectors.values():
         if not definition.enabled or definition.provider == "local":
@@ -134,21 +143,21 @@ def credentials_check(catalog: ConnectorCatalog) -> Check | None:
             *definition.setting_environment.values(),
             *definition.secret_environment.values(),
         )
-        blank.extend(
-            f"{definition.name}: {variable}"
-            for variable in references
-            if not os.environ.get(variable, "").strip()
+        blank = sorted(
+            {variable for variable in references if not os.environ.get(variable, "").strip()}
         )
+        if blank:
+            unconfigured[definition.name] = blank
     if not remote:
         return None
-    if blank:
-        detail = "blank: " + ", ".join(sorted(set(blank)))
+    if unconfigured:
+        detail = f"blank credentials for: {', '.join(sorted(unconfigured))}"
+        variables = "; ".join(
+            f"{name}: {', '.join(blank)}" for name, blank in sorted(unconfigured.items())
+        )
+        hint = f"Set these in {env_hint('connector')} before syncing the connector: {variables}."
         return Check(
-            "connector credentials",
-            "environment",
-            "fail",
-            detail,
-            hint=f"Set the variables named above in {env_hint('connector')}.",
+            "connector credentials", "environment", "warn", detail, hint=hint, required=False
         )
     return Check(
         "connector credentials", "environment", "ok", f"{remote} remote connector(s) configured"
@@ -167,21 +176,24 @@ def _string_values(value: object) -> Iterator[str]:
 
 
 def models_check(path: Path) -> Check:
+    """Check that the model catalog loads.
+
+    The loader expands ``${VAR}`` eagerly but accepts an empty value, which would only surface as an
+    authentication failure mid-ingestion. Name the blank variable now. Scan the parsed values, not
+    the raw text: a `${VAR}` in a commented-out example section is never expanded, so it must not
+    fail the check. safe_load matches the model loader, which the catalog has just passed.
+
+    The file can change or vanish between the two reads.
+    """
     try:
         summary = describe_model_catalog(path)
     except Exception as exc:  # noqa: BLE001
         logger.debug("Model catalog %s could not be described", path, exc_info=True)
         detail = f"{path}: {check_error_detail(exc)}"
         return Check("models catalog", "config", "fail", detail, hint=_models_hint())
-    # The loader expands ``${VAR}`` eagerly but accepts an empty value, which would only
-    # surface as an authentication failure mid-ingestion. Name the blank variable now.
-    # Scan the parsed values, not the raw text: a `${VAR}` in a commented-out example
-    # section is never expanded, so it must not fail the check. safe_load matches the
-    # model loader, which the catalog has just passed.
     try:
         raw = yaml.safe_load(path.read_text(encoding="utf-8"))
     except Exception as exc:  # noqa: BLE001 - a check reports, it never raises
-        # The file can change or vanish between the two reads.
         logger.debug("Model catalog %s could not be re-read", path, exc_info=True)
         detail = f"{path}: {check_error_detail(exc)}"
         return Check("models catalog", "config", "fail", detail, hint=_models_hint())
@@ -200,26 +212,49 @@ def models_check(path: Path) -> Check:
     return Check("models catalog", "config", "ok", detail)
 
 
-def source_path_checks(catalog: ConnectorCatalog) -> list[Check]:
-    checks: list[Check] = []
-    for definition in catalog.connectors.values():
-        variable = dict(definition.setting_environment).get("source_path")
-        if not definition.enabled or definition.provider != "local" or variable is None:
-            continue
-        value = os.environ.get(variable, "")
-        if not value:
-            hint = f"Set {variable} in {env_hint('connector')} to the folder to ingest."
-            checks.append(
-                Check("source path", "environment", "fail", f"{variable} is not set", hint=hint)
-            )
-        elif not Path(value).expanduser().is_dir():
-            # Never echo the value: a catalog can name any variable here.
-            detail = f"{variable} does not point to an existing directory"
-            hint = f"Check {variable} in {env_hint('connector')}."
-            checks.append(Check("source path", "environment", "fail", detail, hint=hint))
-        else:
-            # Never echo the value, in this branch either: a catalog can name any
-            # variable here, and the resolved path is not the operator's question.
-            detail = f"{variable} points to an existing directory"
-            checks.append(Check("source path", "environment", "ok", detail))
-    return checks
+def source_root_check() -> Check:
+    """Report the folder ``local_file`` connections must stay inside.
+
+    Reads ``HARBORRAG_LOCAL_SOURCE_ROOT`` as the operations do. Unset is a warning: the CLI
+    and ``connectors.yaml`` then accept any path, but the API refuses every ``local_file``
+    connection. The value is never echoed. A root absent on this host is also a warning,
+    since the API and workers resolve it in their own filesystem.
+    """
+    root = local_source_root()
+    if root is None:
+        detail = (
+            f"{LOCAL_SOURCE_ROOT_VARIABLE} is unset; the CLI accepts any local_file path, "
+            "the API refuses every local_file connection"
+        )
+        hint = (
+            f"Set {LOCAL_SOURCE_ROOT_VARIABLE} in the API and worker environment, and for the "
+            f"CLI on its line in {env_hint('database')}."
+        )
+        return Check("source path", "environment", "warn", detail, hint=hint, required=False)
+    if not root.is_dir():
+        detail = f"{LOCAL_SOURCE_ROOT_VARIABLE} does not name a directory on this host"
+        hint = f"Fine when only the API and workers mount it; otherwise check {LOCAL_SOURCE_ROOT_VARIABLE}."
+        return Check("source path", "environment", "warn", detail, hint=hint, required=False)
+    detail = f"{LOCAL_SOURCE_ROOT_VARIABLE} points to an existing directory"
+    return Check("source path", "environment", "ok", detail)
+
+
+def corpus_mode_check(settings: RuntimeSettings, tenant_id: str) -> Check:
+    """Report the corpus mode chat uses for ``tenant_id``; ``source_acl`` is a warning.
+
+    Never a failure: ``source_acl`` is a valid, stricter mode, but a caller with no source
+    permissions then gets no sources.
+    """
+    mode = corpus_mode_for(settings, tenant_id)
+    detail = f"{mode} for tenant {tenant_id}"
+    if mode == "tenant_shared":
+        return Check("corpus mode", "config", "ok", detail)
+    hint = (
+        "Chat reads only sources the caller has permissions for; see workspace mode "
+        "(docs/users/configuration/workspace-mode.md)."
+    )
+    shared = settings.corpus_shared_tenant_id
+    if settings.corpus_access_mode == "tenant_shared" and shared:
+        detail = f"{detail}; the shared corpus belongs to tenant {shared}"
+        hint = f"Pass --tenant {shared} or set {TENANT_ENV}. {hint}"
+    return Check("corpus mode", "config", "warn", detail, hint=hint, required=False)

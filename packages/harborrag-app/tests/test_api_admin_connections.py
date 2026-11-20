@@ -10,29 +10,31 @@ from typing import Any
 
 import jwt
 import pytest
-from app_test_connections import ConnectionWorld, connection_world
 from app_test_fixtures import MockAppService
 from fastapi.testclient import TestClient
 
 from harborrag_app.api import app as api_app
 from harborrag_app.api.app import create_fastapi_app
 from harborrag_app.api.settings import ApiSettings
-from harborrag_app.workflow_control.control_plane.projects import ProjectService
 from harborrag_core.domain.project import Project
+from harborrag_runtime.application.control_plane.projects import ProjectService
 from harborrag_runtime.config.connectors.models import to_connector_config, validate
+from harborrag_runtime.testing.connection_fakes import ConnectionWorld, connection_world
+
+pytestmark = pytest.mark.unit
 
 _SECRET = "test-secret-at-least-32-bytes-long-for-hs256"
-_PATH = "/v1/admin/projects/cpm/connections/cpm-tickets"
+_PATH = "/v1/admin/projects/demo/connections/demo-tickets"
 _ROUTE = "/v1/admin/projects/{project_id}/connections/{connection_id}"
 _BODY = {
     "source_type": "jira",
-    "name": "CPM tickets",
+    "name": "DEMO tickets",
     "credentials": {
         "base_url": "https://acme.atlassian.net",
         "email": "bot@acme.com",
         "api_token": "ATATT3xFfGF0-sentinel-9f2c",
     },
-    "config": {"jql": "project = CPM"},
+    "config": {"jql": "project = DEMO"},
 }
 
 
@@ -55,7 +57,7 @@ def _token(role: str, tenants: list[str]) -> str:
     now = datetime.now(UTC)
     return jwt.encode(
         {
-            "sub": "u_huy",
+            "sub": "u_alex",
             "role": role,
             "tenants": tenants,
             "iat": now - timedelta(seconds=1),
@@ -71,7 +73,7 @@ def _token(role: str, tenants: list[str]) -> str:
 @pytest.fixture
 def app_service() -> _ConnectionApp:
     return _ConnectionApp(
-        connection_world([Project(id="cpm", name="CPM", collection="cpm", tenant_id="acme")])
+        connection_world([Project(id="demo", name="DEMO", collection="demo", tenant_id="acme")])
     )
 
 
@@ -105,16 +107,16 @@ def test_source_types_publish_every_v2_type(client: TestClient) -> None:
 def test_three_calls_add_a_jira_connection(client: TestClient, app_service: _ConnectionApp) -> None:
     created = client.put(_PATH, json=_BODY)
     started = client.post(
-        "/v1/admin/ingestions", json={"project_id": "cpm", "connection_id": "cpm-tickets"}
+        "/v1/admin/ingestions", json={"project_id": "demo", "connection_id": "demo-tickets"}
     )
 
     body = created.json()
     assert created.status_code == 201
     assert created.headers["ETag"] == 'W/"rev-1"'
-    assert body["connection_ref"] == "cpm/cpm-tickets"
+    assert body["connection_ref"] == "demo/demo-tickets"
     assert body["credentials"]["api_token"]["from"] == "stored"
     assert body["credentials"]["api_token"]["last4"] == "9f2c"
-    assert body["created_by"] == body["updated_by"] == "u_huy"
+    assert body["created_by"] == body["updated_by"] == "u_alex"
     assert "ingestion" not in body
     assert started.status_code == 202 and started.json()["ingestion_id"] == "ing_1"
     assert "sentinel" not in created.text
@@ -139,7 +141,9 @@ def test_the_raw_token_reaches_no_log_line(
     caplog.set_level(logging.DEBUG)
 
     client.put(_PATH, json=_BODY)
-    client.post("/v1/admin/ingestions", json={"project_id": "cpm", "connection_id": "cpm-tickets"})
+    client.post(
+        "/v1/admin/ingestions", json={"project_id": "demo", "connection_id": "demo-tickets"}
+    )
     client.put(_PATH, json={**_BODY, "name": "Renamed"})
     client.get(_PATH)
     client.get("/v1/admin/connections")
@@ -162,7 +166,7 @@ def test_put_errors_follow_the_spec(client: TestClient) -> None:
     )
     unknown_type = client.put(_PATH, json={**_BODY, "source_type": "notion"})
     no_project = client.put("/v1/admin/projects/missing/connections/x", json=_BODY)
-    bad_id = client.put("/v1/admin/projects/cpm/connections/Bad%20Id", json=_BODY)
+    bad_id = client.put("/v1/admin/projects/demo/connections/Bad%20Id", json=_BODY)
 
     assert (stale.status_code, stale.json()["error"]["code"]) == (412, "precondition_failed")
     assert (exists.status_code, exists.json()["error"]["code"]) == (412, "precondition_failed")
@@ -191,12 +195,12 @@ def test_list_test_sync_and_delete(
     monkeypatch.setenv("HARBORRAG_LOCAL_SOURCE_ROOT", str(tmp_path))
     client.put(_PATH, json=_BODY)
 
-    listed = client.get("/v1/admin/connections", params={"project_id": "cpm", "limit": 1})
+    listed = client.get("/v1/admin/connections", params={"project_id": "demo", "limit": 1})
     tested = client.post(
         f"{_PATH}/test",
         json={"source_type": "local_file", "config": {"source_path": str(tmp_path / "nope")}},
     )
-    target = {"project_id": "cpm", "connection_id": "cpm-tickets"}
+    target = {"project_id": "demo", "connection_id": "demo-tickets"}
     synced = client.post("/v1/admin/ingestions", json={**target, "mode": "force"})
     app_service.world.runs.active = app_service.world.runs.tasks["ing_1"]
     again = client.post("/v1/admin/ingestions", json=target)
@@ -205,7 +209,7 @@ def test_list_test_sync_and_delete(
     deleted = client.delete(_PATH, params={"purge": "true"})
 
     assert listed.status_code == 200 and listed.json()["next_cursor"] is None
-    assert [item["connection_ref"] for item in listed.json()["items"]] == ["cpm/cpm-tickets"]
+    assert [item["connection_ref"] for item in listed.json()["items"]] == ["demo/demo-tickets"]
     assert tested.status_code == 200 and tested.json()["ok"] is False
     assert tested.json()["error_category"] == "unreachable"
     assert synced.status_code == 202
@@ -229,17 +233,17 @@ def test_projects_and_reader_chips(
     )
     listed = client.get("/v1/admin/projects")
     client.put(_PATH, json=_BODY)
-    in_use = client.delete("/v1/admin/projects/cpm")
+    in_use = client.delete("/v1/admin/projects/demo")
     empty = client.delete("/v1/admin/projects/hr")
     reader = {"Authorization": f"Bearer {_token('reader', ['acme'])}"}
-    chips = client.get("/v1/projects/cpm/connections", headers=reader)
+    chips = client.get("/v1/projects/demo/connections", headers=reader)
     forbidden = client.get("/v1/admin/projects", headers=reader)
 
     assert created.status_code == 201 and created.headers["ETag"] == 'W/"rev-1"'
     assert updated.status_code == 200 and updated.json()["project_name"] == "HR team"
-    assert [item["project_id"] for item in listed.json()["items"]] == ["cpm", "hr"]
+    assert [item["project_id"] for item in listed.json()["items"]] == ["demo", "hr"]
     assert (in_use.status_code, in_use.json()["error"]["code"]) == (409, "in_use")
-    assert in_use.json()["error"]["details"] == {"connection_refs": ["cpm/cpm-tickets"]}
+    assert in_use.json()["error"]["details"] == {"connection_refs": ["demo/demo-tickets"]}
     assert empty.status_code == 204
     assert chips.status_code == 200 and chips.json()["items"][0]["documents"] == 7
     assert (forbidden.status_code, forbidden.json()["error"]["code"]) == (403, "forbidden")
@@ -268,7 +272,7 @@ def test_openapi_documents_the_connection_routes(client: TestClient) -> None:
     paths = schema["paths"]
 
     assert set(
-        paths[_PATH.replace("cpm-tickets", "{connection_id}").replace("cpm", "{project_id}")]
+        paths[_PATH.replace("demo-tickets", "{connection_id}").replace("demo", "{project_id}")]
     ) == {
         "get",
         "put",
@@ -287,9 +291,9 @@ def test_local_connections_stay_inside_the_source_root(
     monkeypatch.setenv("HARBORRAG_LOCAL_SOURCE_ROOT", str(tmp_path))
     body = {"source_type": "local_file", "credentials": {}, "config": {"source_path": "/proc/self"}}
 
-    refused = client.put("/v1/admin/projects/cpm/connections/files", json=body)
+    refused = client.put("/v1/admin/projects/demo/connections/files", json=body)
     accepted = client.put(
-        "/v1/admin/projects/cpm/connections/files",
+        "/v1/admin/projects/demo/connections/files",
         json={**body, "config": {"source_path": str(tmp_path)}},
     )
 
@@ -332,7 +336,7 @@ def test_every_template_creates_a_connection_that_builds_its_connector(
 
     created = {
         name: client.put(
-            f"/v1/admin/projects/cpm/connections/{name.replace('_', '-')}",
+            f"/v1/admin/projects/demo/connections/{name.replace('_', '-')}",
             json=template["value"],
         )
         for name, template in templates.items()
@@ -375,10 +379,10 @@ def test_test_route_templates_are_the_put_bodies(client: TestClient) -> None:
 
 
 def test_a_project_named_by_its_display_name_points_at_its_id(client: TestClient) -> None:
-    response = client.put("/v1/admin/projects/CPM/connections/cpm-tickets", json=_BODY)
+    response = client.put("/v1/admin/projects/DEMO/connections/demo-tickets", json=_BODY)
 
     assert response.status_code == 404
-    assert response.json()["error"]["message"] == "project 'CPM' not found; did you mean 'cpm'?"
+    assert response.json()["error"]["message"] == "project 'DEMO' not found; did you mean 'demo'?"
 
 
 def test_advanced_settings_are_kept_replaced_and_reset(client: TestClient) -> None:
@@ -403,7 +407,7 @@ def test_advanced_settings_are_kept_replaced_and_reset(client: TestClient) -> No
 
 def test_sharepoint_page_size_above_100_is_refused_without_saving(client: TestClient) -> None:
     body = _templates(client, _ROUTE, "put")["sharepoint-device_code"]["value"]
-    path = "/v1/admin/projects/cpm/connections/sharepoint-docs"
+    path = "/v1/admin/projects/demo/connections/sharepoint-docs"
 
     refused_create = client.put(path, json={**body, "advanced": {"page_size": 200}})
     missing = client.get(path)
@@ -486,7 +490,7 @@ def test_a_body_built_only_from_the_published_schema_is_accepted(
             "config": config,
         }
         response = client.put(
-            f"/v1/admin/projects/cpm/connections/{source_type}-{method['auth_method_id']}",
+            f"/v1/admin/projects/demo/connections/{source_type}-{method['auth_method_id']}",
             json=body,
         )
 
@@ -519,11 +523,11 @@ def test_local_connections_need_a_source_root_through_the_api(
     monkeypatch.delenv("LOCAL_SOURCE_PATH", raising=False)
     body = {"source_type": "local_file", "credentials": {}, "config": {"source_path": "/proc/self"}}
 
-    put = client.put("/v1/admin/projects/cpm/connections/secrets", json=body)
-    tested = client.post("/v1/admin/projects/cpm/connections/secrets/test", json=body)
+    put = client.put("/v1/admin/projects/demo/connections/secrets", json=body)
+    tested = client.post("/v1/admin/projects/demo/connections/secrets/test", json=body)
     monkeypatch.setenv("HARBORRAG_LOCAL_SOURCE_ROOT", str(tmp_path))
     inside = client.put(
-        "/v1/admin/projects/cpm/connections/docs",
+        "/v1/admin/projects/demo/connections/docs",
         json={**body, "config": {"source_path": str(tmp_path)}},
     )
 

@@ -1,12 +1,5 @@
 """Import connections from YAML and export them back.
 
-Handles:
-- ``plan``: read a legacy ``connectors.yaml`` (v1) or an export document and
-  list what would change, writing nothing
-- ``apply``: run a plan; an unchanged connection is never written again
-- ``export``: one project's connections as YAML, secrets as references or status
-- ``import_connectors_once``: the one-time import at first start
-
 A legacy entry's key becomes its ``source_key`` (and ``connection_id`` when the
 key is a valid id), so documents ingested before the upgrade keep their ids. An
 entry that fails its schema, or names an unset environment variable, is still
@@ -250,7 +243,7 @@ class ConnectionImportService:
                     exc_info=True,
                 )
 
-    # TODO: expose as `harborrag source export`; only tests call it today.
+    # TODO: expose through the CLI; the old `source export` command was removed in v2.0.0.
     async def export(self, *, tenant_id: str, project_id: str) -> str:
         """Return a project's connections as an importable YAML document.
 

@@ -7,7 +7,7 @@ import json
 import pytest
 from scripts import chat_quality_api_probe, chat_quality_model_probe
 
-from harborrag_app.workflow_control.chat.presenters import citation_marker
+from harborrag_runtime.application.chat.presenters import citation_marker
 
 
 def _validation(**changes: object) -> dict[str, object]:

@@ -10,7 +10,7 @@ from harborrag_adapters.connectors.github.repository_paths import (
     file_extension,
     guess_mime_type,
 )
-from harborrag_adapters.connectors.schemas import ConnectorQuery
+from harborrag_core.ingestion.connector_contracts import ConnectorQuery
 
 pytestmark = pytest.mark.unit
 

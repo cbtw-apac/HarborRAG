@@ -18,7 +18,7 @@ from typing import Any
 
 from harborrag_adapters.connectors.file_filters import ExtensionFilter
 from harborrag_adapters.connectors.query_values import normalized_string_list
-from harborrag_adapters.connectors.schemas import ConnectorQuery
+from harborrag_core.ingestion.connector_contracts import ConnectorQuery
 
 from .config import GitHubRepositoryConfig
 from .mappers import commit_timestamp

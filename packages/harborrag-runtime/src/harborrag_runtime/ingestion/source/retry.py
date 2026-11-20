@@ -8,10 +8,10 @@ from harborrag_adapters.connectors.base import BaseConnector
 from harborrag_adapters.connectors.harbor_connector import HarborConnector
 from harborrag_adapters.repositories.database import IngestionControlPlaneDatabase
 from harborrag_core.ingestion import DocumentIngestionOutcome, IngestionTaskState
+from harborrag_engine.ingestion.release.service import DocumentReleaseService
+from harborrag_engine.ingestion.source.models import PlannedDocumentRelease, SourceDispatchSummary
 
-from ..document.service import DocumentReleaseService
 from .documents import SourceDocumentService
-from .models import PlannedDocumentRelease, SourceDispatchSummary
 
 
 class SourceRetryService:
@@ -35,6 +35,7 @@ class SourceRetryService:
         selected: int,
         summary: SourceDispatchSummary,
     ) -> None:
+        """Close a retry task with the summary of its documents."""
         await self._control.tasks.finalize(
             task_id,
             summary.task_state(),
@@ -50,6 +51,7 @@ class SourceRetryService:
         )
 
     async def begin_retry(self, task_id: str, *, selected: int) -> None:
+        """Mark a retry task running for ``selected`` documents."""
         await self._control.tasks.transition(
             task_id,
             IngestionTaskState.RUNNING,
@@ -62,7 +64,6 @@ class SourceRetryService:
 
     async def fail_retry(self, task_id: str, *, error_code: str) -> None:
         """Persist one terminal retry-workflow failure without runtime details."""
-
         task = await self._control.tasks.get(task_id)
         if task is None or task.status in {
             IngestionTaskState.COMPLETED,
@@ -88,6 +89,7 @@ class SourceRetryService:
         planned: PlannedDocumentRelease,
         connector_factory: Callable[[], Awaitable[BaseConnector | HarborConnector]],
     ) -> DocumentIngestionOutcome:
+        """Retry one failed document under a retry task."""
         previous = await self._control.tasks.document_result(
             original_task_id,
             planned.document_id,
@@ -116,6 +118,7 @@ class SourceRetryService:
         error_type: str,
         skip_reason: str | None = None,
     ) -> None:
+        """Record a document that failed again during a retry."""
         previous = await self._control.tasks.document_result(
             original_task_id,
             planned.document_id,

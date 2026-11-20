@@ -7,6 +7,8 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from harborrag_core.ingestion import IngestionTaskState
+from harborrag_core.ingestion.run_contracts import PreparedSourceSubmission
+from harborrag_core.ingestion.source_query import ProcessingProfileInput
 from harborrag_core.security import AccessContext
 from harborrag_runtime.config.errors import ConnectorConfigurationError
 from harborrag_runtime.config.settings import RuntimeSettings
@@ -16,8 +18,6 @@ from harborrag_runtime.execution import build_ingestion_executor
 from harborrag_runtime.execution.direct import DirectIngestionExecutor
 from harborrag_runtime.execution.temporal import TemporalIngestionExecutor
 from harborrag_runtime.ingestion.connections import ConnectionNotFoundError
-from harborrag_runtime.ingestion_contracts import PreparedSourceSubmission
-from harborrag_runtime.source_query import ProcessingProfileInput
 from harborrag_runtime.temporal.gateway import to_temporal_source
 
 pytestmark = pytest.mark.unit

@@ -179,11 +179,7 @@ def _transport(  # noqa: PLR0913 - the shared options of both transport factorie
             "FastMCP transport is not installed; install harborrag-mcp-server"
         ) from exc
 
-    audit_path = Path(os.environ.get("HARBORRAG_MCP_AUDIT_PATH", ".harborrag/mcp-audit.jsonl"))
-    facade = registry or McpServer(
-        invoker=runtime.invoker if runtime is not None else None,
-        audit=McpAuditLog(path=audit_path),
-    )
+    facade = registry or McpServer(invoker=runtime.invoker if runtime is not None else None)
     lifespan = None
     if manage_runtime_lifecycle:
         if runtime is None:

@@ -13,6 +13,7 @@ import inspect
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import TYPE_CHECKING, cast
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -30,9 +31,14 @@ from harborrag_app.api.ops import OpsPortMiddleware
 from harborrag_app.api.rate_limit import build_rate_limiter
 from harborrag_app.api.router import register_routes
 from harborrag_app.api.settings import ApiSettings
-from harborrag_app.workflow_control.composition.selection import select_app_service
+from harborrag_app.operations.local import LocalOperations
 from harborrag_core.contracts.errors import HarborConfigurationError
+from harborrag_core.domain.identity import DEFAULT_TENANT_ID
 from harborrag_core.observability.process_logging import configure_logging
+from harborrag_runtime.application.composition.selection import select_app_service
+
+if TYPE_CHECKING:
+    from harborrag_runtime.application.composition.service import AppService
 
 logger = logging.getLogger("harborrag.app.api.app")
 _SUBMISSION_RECOVERY_INTERVAL_SECONDS = 5.0
@@ -50,7 +56,6 @@ def _redirect_root(request: Request) -> RedirectResponse:
 
 async def _recover_pending_submissions(app: FastAPI) -> None:
     """Continuously drain the durable workflow-submission outbox."""
-
     while True:
         try:
             recovered = await app.state.app_service.recover_pending_submissions()
@@ -65,7 +70,6 @@ async def _recover_pending_submissions(app: FastAPI) -> None:
 
 async def _sync_ingestion_progress(app: FastAPI) -> None:
     """Continuously fan active ingestion tasks' progress out via the event bus."""
-
     while True:
         try:
             await app.state.app_service.sync_ingestion_progress()
@@ -78,7 +82,6 @@ async def _sync_ingestion_progress(app: FastAPI) -> None:
 
 async def _recover_pending_control_plane_effects(app: FastAPI) -> None:
     """Continuously drain the durable secret-retirement/audit-logging outbox."""
-
     while True:
         try:
             recovered = await app.state.app_service.recover_pending_control_plane_effects()
@@ -93,7 +96,6 @@ async def _recover_pending_control_plane_effects(app: FastAPI) -> None:
 
 async def _import_connectors_once(service: object) -> None:
     """Carry an existing ``config/sources/connectors.yaml`` into the database on the first start."""
-
     importer = getattr(service, "import_connectors_once", None)
     if importer is None:
         return
@@ -110,7 +112,6 @@ async def _import_connectors_once(service: object) -> None:
 
 async def _seed_settings_once(service: object) -> None:
     """Seed ``config/settings.yaml`` into an empty settings log, else report drift."""
-
     seeder = getattr(service, "seed_settings_once", None)
     if seeder is None:
         return
@@ -122,7 +123,6 @@ async def _seed_settings_once(service: object) -> None:
 
 async def _resume_connection_removals(app: FastAPI) -> None:
     """Finish connection and project removals a crash or failure left unfinished."""
-
     while True:
         try:
             resumed = await app.state.app_service.resume_connection_removals()
@@ -142,7 +142,6 @@ async def _sync_declared_schedules(app: FastAPI) -> None:
     Invalid configuration (``ValueError``) and a missing Temporal SDK
     (``ImportError``) cannot heal without a redeploy, so they stop the loop.
     """
-
     while True:
         try:
             await app.state.app_service.sync_declared_schedules()
@@ -166,14 +165,19 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     Runs in a worker thread: production composition executes Alembic
     migrations and a DB probe, which drive their own event loops.
+
+    selection composes an AppService; tests pass a double.
+
+    Long-term memory extraction runs on a bounded in-process worker pool owned by this process, so
+    it starts with the app and is drained -- not cancelled -- on shutdown, letting queued exchanges
+    finish.
     """
     service, mode = await asyncio.to_thread(select_app_service)
     app.state.app_service = service
+    app.state.operations = LocalOperations(cast("AppService", service))
     app.state.composition_mode = mode
+    app.state.default_tenant_id = getattr(service, "default_tenant_id", DEFAULT_TENANT_ID)
     logger.info("Application service composed in %s mode", mode)
-    # Long-term memory extraction runs on a bounded in-process worker pool
-    # owned by this process, so it starts with the app and is drained -- not
-    # cancelled -- on shutdown, letting queued exchanges finish.
     if hasattr(service, "start_config_provider"):
         await service.start_config_provider()
     owns_memory_extraction = getattr(service, "has_memory_extraction", False)
@@ -212,10 +216,15 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 def create_fastapi_app(settings: ApiSettings | None = None) -> FastAPI:
-    """Build the Control Plane API app from (env-derived) settings."""
+    """Build the Control Plane API app from (env-derived) settings.
+
+    uvicorn configures the root logger, not the "harborrag" namespace; this attaches the namespace
+    handler so runtime and route logs are emitted.
+
+    A lease spans the whole response, including streamed bodies, so it must outlive the longer of
+    the two server-owned deadlines.
+    """
     settings = settings or ApiSettings()
-    # uvicorn configures the root logger, not the "harborrag" namespace; this
-    # attaches the namespace handler so runtime and route logs are emitted.
     configure_logging()
     app = FastAPI(
         title="HarborRAG Control Plane API",
@@ -224,8 +233,10 @@ def create_fastapi_app(settings: ApiSettings | None = None) -> FastAPI:
         docs_url="/docs" if settings.docs_enabled else None,
         redoc_url=None,
         lifespan=_lifespan,
+        generate_unique_id_function=lambda route: route.name,
     )
     app.state.settings = settings
+    app.state.default_tenant_id = DEFAULT_TENANT_ID
     app.state.token_verifier = build_token_verifier(settings)
     redis_url = (
         settings.api_capacity_redis_url.get_secret_value()
@@ -236,8 +247,6 @@ def create_fastapi_app(settings: ApiSettings | None = None) -> FastAPI:
         redis_url=redis_url,
         limits=settings.default_capacity_limits(),
         tenant_overrides=settings.tenant_capacity_limits(),
-        # A lease spans the whole response, including streamed bodies, so it
-        # must outlive the longer of the two server-owned deadlines.
         lease_seconds=(
             max(settings.api_request_timeout_seconds, settings.api_stream_timeout_seconds) + 5
         ),

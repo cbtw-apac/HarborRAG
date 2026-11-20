@@ -22,6 +22,7 @@ type AssertionKey = tuple[EntityKey, EntityKey, str, str, str, str | None]
 
 
 def valid_span(span: EvidenceSpan, content: str) -> bool:
+    """Return whether ``span`` matches ``content`` exactly."""
     try:
         span.validate_content(content)
     except ValueError:
@@ -30,10 +31,12 @@ def valid_span(span: EvidenceSpan, content: str) -> bool:
 
 
 def entity_key(value: ExtractedEntity) -> EntityKey:
+    """Return the offsets and type that identify an entity."""
     return value.span.start, value.span.end, value.entity_type
 
 
 def assertion_key(value: ExtractedAssertion, entities: dict[str, ExtractedEntity]) -> AssertionKey:
+    """Return the endpoint keys, predicate and qualifiers that identify an assertion."""
     return (
         entity_key(entities[value.subject_id]),
         entity_key(entities[value.object_id]),
@@ -48,6 +51,7 @@ def observation_keys(
     value: ExtractionOutput,
     content: str,
 ) -> tuple[Counter[EntityKey], Counter[AssertionKey], int]:
+    """Count valid entity and assertion keys and the observations with invalid evidence spans."""
     entities = {item.local_id: item for item in value.entities if valid_span(item.span, content)}
     valid_assertions = tuple(item for item in value.assertions if valid_span(item.span, content))
     assertions = Counter(
@@ -60,9 +64,11 @@ def observation_keys(
 
 
 def metrics(counts: tuple[int, int, int]) -> ExtractionMetrics:
+    """Compute precision, recall and F1 from true-positive, predicted and expected counts.
+
+    An empty denominator gives zero, so an empty gold set never reads as perfect quality.
+    """
     true_positives, predicted, expected = counts
-    # Empty denominators use zero, preserving a visible "no examples" count rather
-    # than reporting perfect quality for an empty gold set.
     precision = true_positives / predicted if predicted else 0.0
     recall = true_positives / expected if expected else 0.0
     f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
@@ -77,11 +83,14 @@ def metrics(counts: tuple[int, int, int]) -> ExtractionMetrics:
 
 
 def add_counts(left: tuple[int, int, int], right: tuple[int, int, int]) -> tuple[int, int, int]:
+    """Add two true-positive, predicted and expected count triples."""
     return left[0] + right[0], left[1] + right[1], left[2] + right[2]
 
 
 @dataclass
 class EvaluationCounts:
+    """Running entity and assertion counts for a set of evaluation units."""
+
     units: int = 0
     documents: set[str] = field(default_factory=set)
     entity_counts: tuple[int, int, int] = (0, 0, 0)
@@ -89,6 +98,7 @@ class EvaluationCounts:
     invalid: int = 0
 
     def add(self, unit: TopologyEvaluationUnit) -> None:
+        """Count one unit after validating its expected evidence."""
         unit.expected.validate_evidence(unit.input)
         expected_entities, expected_assertions, _ = observation_keys(
             unit.expected, unit.input.content
@@ -111,6 +121,7 @@ class EvaluationCounts:
         self.invalid += invalid
 
     def report(self) -> SplitEvaluation:
+        """Return the metrics of the units added so far."""
         return SplitEvaluation(
             units=self.units,
             documents=len(self.documents),

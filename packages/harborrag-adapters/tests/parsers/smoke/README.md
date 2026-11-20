@@ -47,8 +47,8 @@ A pass prints one line, for example:
 
 Without a PDF option, the script lets the parser registry pick a parser from the file type.
 `--pdf-profile` instead runs a built-in PDF profile: `liteparse`, `fast`, `balanced`, `ocr`,
-`ocr_first`, `quality` or `scientific`. `--pdf-profile` and `--pdf-backend` cannot be combined, and
-either one with a file that is not a PDF exits `1`.
+`ocr_first`, `quality` or `scientific`. `--pdf-profile` and `--pdf-backend` cannot be combined: giving both is a
+usage error that exits `2`. Either one with a file that is not a PDF exits `1`.
 
 ```bash
 uv run python packages/harborrag-adapters/tests/parsers/smoke/parse_file.py path/to/notes.md
@@ -56,9 +56,11 @@ uv run python packages/harborrag-adapters/tests/parsers/smoke/parse_file.py \
   path/to/report.pdf --pdf-profile fast
 ```
 
-Automatic routing uses the same registry as ingestion, and a profile builds its PDF parser the way
-ingestion does, through `HarborParserFactory`. A profile whose engines are not installed fails with
-the engine's import error.
+Automatic routing uses `HarborParserFactory`'s default registry, not the engines that
+`config/ingestion/parsers.yaml` enables, so a file can route to a different engine than in a
+deployment; use `connectors/smoke/run.py` for the configured set. A profile builds its PDF
+parser the way ingestion does, through `HarborParserFactory`. A profile whose engines are not
+installed fails with the engine's import error.
 
 ## What the output shows
 
@@ -69,8 +71,8 @@ text.
 | Code | Meaning |
 | --- | --- |
 | `0` | Parsing succeeded and returned text |
-| `1` | The selection was invalid, the parser failed, or it returned no text |
-| `2` | The input file does not exist |
+| `1` | A PDF option was given with a file that is not a PDF, the parser failed, or it returned no text |
+| `2` | The input file does not exist, or the options are a usage error, such as `--pdf-profile` with `--pdf-backend` |
 
 ## Troubleshooting
 

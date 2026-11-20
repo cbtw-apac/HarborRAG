@@ -9,8 +9,8 @@ from hashlib import sha256
 from pathlib import Path
 
 from harborrag_adapters.connectors.exceptions import DocumentProcessingError, FetchError
-from harborrag_adapters.connectors.schemas import ConnectorQuery
 from harborrag_core.domain.source import SourceRecord
+from harborrag_core.ingestion.connector_contracts import ConnectorQuery
 
 from .config import LocalFileConfig
 from .filesystem_paths import (
@@ -31,14 +31,24 @@ _READ_CHUNK_SIZE = 1024 * 1024
 
 
 class LocalFileSystem:
-    """Filesystem traversal, filtering, and scope enforcement for local files."""
+    """Filesystem traversal, filtering, and scope enforcement for local files.
+
+    Config accepts strings at the package boundary; traversal uses one concrete Path representation
+    after validation. Without dir_fd support (Windows), reads fall back to plain, per-component
+    symlink-checked opens in `secure_read.py`.
+
+    Args:
+        config: Local source configuration; its source is normalized into
+            concrete traversal paths.
+
+    Attributes:
+        config: Local source configuration.
+        skips: Paths traversal dropped, with reasons.
+    """
 
     def __init__(self, config: LocalFileConfig) -> None:
-        """Normalize the configured source into concrete traversal paths."""
         self.config = config
         self.skips = LocalSkipReport()
-        # Config accepts strings at the package boundary; traversal uses one
-        # concrete Path representation after validation.
         self.source_path = Path(config.source_path)
         self._source_is_file = self.source_path.is_file()
         self.root_path = self.source_path.parent if self._source_is_file else self.source_path
@@ -48,8 +58,6 @@ class LocalFileSystem:
             flags |= getattr(os, "O_NOFOLLOW", 0)
             self._root_fd = os.open(self.root_path, flags)
         else:
-            # No dir_fd support (Windows): reads fall back to plain,
-            # per-component symlink-checked opens in `secure_read.py`.
             self._root_fd = -1
         self._selector = LocalFileSelector(
             config,
@@ -61,7 +69,6 @@ class LocalFileSystem:
 
     def close(self) -> None:
         """Release the trusted root descriptor used for race-free reads."""
-
         if SUPPORTS_DIR_FD and self._root_fd >= 0:
             os.close(self._root_fd)
             self._root_fd = -1
@@ -203,7 +210,6 @@ class LocalFileSystem:
         `read_snapshot_beneath` falls back to per-component symlink checks
         followed by a plain open -- a narrower, best-effort guarantee.
         """
-
         return read_snapshot_beneath(
             path,
             scope=SecureReadScope(
@@ -224,7 +230,6 @@ class LocalFileSystem:
         descriptor_stat: os.stat_result,
     ) -> LocalFileSnapshot:
         """Read and hash an authorized descriptor with a hard byte cap."""
-
         limit = self.config.max_file_size_bytes
         buffer = bytearray()
         digest = sha256()

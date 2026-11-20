@@ -17,6 +17,8 @@ tests/
   models/         unit/  contract/  chaos/  performance/  smoke/
   parsers/        unit/  failure/  security/  performance/  smoke/
   repositories/   unit/  integration/  smoke/
+  topology/       entity extraction, extraction schema and artifact tests
+  test_tool_audit.py          the JSONL tool-execution audit
   conftest.py                 shared pytest hooks and fixtures
   harbor_test_builders.py     Office, EPUB and zip-bomb file builders, fake HTTP session
   cfb_writer.py               OLE2 compound-file writer for legacy Office fixtures
@@ -31,6 +33,7 @@ tests/
 | [Models](models/README.md) | Shared model runtime, chat, embedding and reranking clients, contracts and fault injection |
 | [Parsers](parsers/README.md) | Format routing, extraction, hardening, scale and real-document checks |
 | [Repositories](repositories/README.md) | Storage providers, control-plane persistence and live backend checks |
+| `topology/` | `LLMEntityExtractor`: extraction schema, usage and cost, artifacts and the rollup pin; flat test files with no README |
 
 ## Test types
 
@@ -56,8 +59,11 @@ uv run pytest packages/harborrag-adapters/tests/connectors
 uv run pytest packages/harborrag-adapters/tests/models/unit
 ```
 
-The default run deselects tests marked `integration`, so the `repositories/integration/`
-tests run only when you select them. Run a suite by its marker:
+The default run deselects tests marked `integration`, so most of the
+`repositories/integration/` tests run only when you select them. The exception is
+`test_mcp_api_keys_repository.py`: it runs on a temporary SQLite database and needs no
+service, so it carries no `integration` marker and runs by default. Run a suite by its
+marker:
 
 ```bash
 uv run pytest packages/harborrag-adapters/tests/repositories/integration -m integration

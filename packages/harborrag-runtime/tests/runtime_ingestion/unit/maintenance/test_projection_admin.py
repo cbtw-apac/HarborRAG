@@ -12,6 +12,8 @@ from harborrag_runtime.ingestion.maintenance.projection_admin import (
     ProjectionAdministrationService,
 )
 
+pytestmark = pytest.mark.unit
+
 
 class VectorRepository:
     def __init__(self) -> None:

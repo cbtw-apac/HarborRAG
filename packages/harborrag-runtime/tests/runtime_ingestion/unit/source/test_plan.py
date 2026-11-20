@@ -17,8 +17,8 @@ from harborrag_core.ingestion import (
     SourceIdentity,
 )
 from harborrag_core.schemas.storage import StorageOperationContext
-from harborrag_runtime.ingestion.document.models import DocumentReleaseRequest
-from harborrag_runtime.ingestion.source.models import (
+from harborrag_engine.ingestion.release.models import DocumentReleaseRequest
+from harborrag_engine.ingestion.source.models import (
     PlannedDocumentRelease,
     SourcePlanCheckpoint,
     SourcePlanIndex,
@@ -140,6 +140,7 @@ def _planned_named(document_id: str) -> PlannedDocumentRelease:
 
 @pytest.mark.asyncio
 async def test_a_paged_plan_is_found_by_its_index_and_read_page_by_page() -> None:
+    """A whole plan from an older run of the same scan does not shadow the index."""
     store = MemoryObjectStore()
     context = StorageOperationContext.system(tenant_id="tenant-1")
     planned = tuple(_planned_named(f"document-{n}") for n in range(5))
@@ -148,7 +149,6 @@ async def test_a_paged_plan_is_found_by_its_index_and_read_page_by_page() -> Non
             ImmutableArtifactWriter(store),
             ImmutableArtifactReader(store),
         )
-        # A whole plan from an older run of the same scan does not shadow the index.
         await repository.put(task_id="task-3", scan_id="scan-3", planned=planned, context=context)
         written = await repository.put_pages_and_index(
             task_id="task-3", scan_id="scan-3", planned=planned, context=context, page_size=2
@@ -186,6 +186,7 @@ async def test_a_whole_plan_from_an_older_run_is_still_readable_as_documents() -
 
 @pytest.mark.asyncio
 async def test_reading_a_plan_whose_page_is_missing_fails_instead_of_skipping_it() -> None:
+    """An index naming two pages when only the first was persisted."""
     store = MemoryObjectStore()
     context = StorageOperationContext.system(tenant_id="tenant-1")
     async with store:
@@ -193,7 +194,6 @@ async def test_reading_a_plan_whose_page_is_missing_fails_instead_of_skipping_it
             ImmutableArtifactWriter(store),
             ImmutableArtifactReader(store),
         )
-        # An index naming two pages when only the first was persisted.
         await repository.put_page(
             task_id="task-5",
             scan_id="scan-5",

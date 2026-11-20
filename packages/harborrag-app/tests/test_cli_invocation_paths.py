@@ -1,13 +1,14 @@
 """Path arguments resolve from where the user ran the command, not the activated root.
 
 `main()` moves into the project before Click parses argv, so without rebasing a relative
-`cases.jsonl` typed in a project subdirectory would be looked up at the project root.
+output path typed in a project subdirectory would be looked up at the project root.
 Discovery also stops at the nearest marker, so a checkout is not outranked by a stray
 `harborrag.yaml` in an ancestor.
 """
 
 from __future__ import annotations
 
+import io
 import json
 from datetime import UTC, datetime
 from pathlib import Path
@@ -16,6 +17,7 @@ from unittest.mock import AsyncMock
 import pytest
 from project_test_support import scaffold
 
+from harborrag_app.cli import bodies
 from harborrag_app.cli import main as cli
 from harborrag_app.cli import project as project_module
 from harborrag_app.cli.environment import checkout_write_refusal
@@ -31,38 +33,6 @@ def in_project_subdirectory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.chdir(sub)
     monkeypatch.delenv("HARBORRAG_PROJECT", raising=False)
     return sub.resolve()
-
-
-def test_a_relative_cases_file_is_read_from_the_invocation_directory(
-    in_project_subdirectory: Path, monkeypatch: pytest.MonkeyPatch, capsys
-) -> None:
-    from harborrag_runtime.topology import operations
-
-    (in_project_subdirectory / "cases.jsonl").write_text('{"case": 1}\n', encoding="utf-8")
-
-    async def fake_evaluate(payload: str) -> dict[str, str]:
-        return {"payload": payload}
-
-    monkeypatch.setattr(operations, "evaluate", fake_evaluate)
-
-    assert cli.main(["topology", "evaluate", "cases.jsonl"]) == 0
-
-    captured = capsys.readouterr()
-    assert "using project" in captured.err  # activation did move the process
-    assert json.loads(captured.out)["data"] == {"payload": '{"case": 1}\n'}
-
-
-def test_a_relative_permissions_file_is_checked_against_the_invocation_directory(
-    in_project_subdirectory: Path, capsys
-) -> None:
-    """`exists=True` runs inside the type, so the rebase must happen before it."""
-
-    (in_project_subdirectory.parent / "only-at-root.json").write_text("{}", encoding="utf-8")
-
-    code = cli.main(["topology", "indexing", "permissions-import", "only-at-root.json"])
-
-    assert code == 2
-    assert "does not exist" in capsys.readouterr().err
 
 
 def test_a_relative_secret_output_lands_where_the_user_stood_and_is_reported_absolute(
@@ -91,8 +61,50 @@ def test_a_relative_secret_output_lands_where_the_user_stood_and_is_reported_abs
     expected = in_project_subdirectory / "k.key"
     assert expected.is_file()
     assert not (in_project_subdirectory.parent / "k.key").exists()
-    payload = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
-    assert payload["data"]["secret_written_to"] == str(expected)
+    assert json.loads(capsys.readouterr().out)["secret_written_to"] == str(expected)
+
+
+@pytest.fixture
+def activated_from_subdirectory(
+    in_project_subdirectory: Path, monkeypatch: pytest.MonkeyPatch
+) -> Path:
+    monkeypatch.setattr(project_module, "_ACTIVE", None)
+    project = project_module.find_project()
+    assert project is not None
+    project_module.activate_project(project)
+    return in_project_subdirectory
+
+
+def test_a_relative_body_file_is_read_from_where_the_user_stood(
+    activated_from_subdirectory: Path,
+) -> None:
+    (activated_from_subdirectory / "body.yaml").write_text("name: demo\n", encoding="utf-8")
+
+    assert bodies.read_document("body.yaml") == {"name": "demo"}
+    absolute = activated_from_subdirectory / "body.yaml"
+    assert bodies.read_document(str(absolute)) == {"name": "demo"}
+
+
+def test_a_body_read_from_stdin_ignores_the_invocation_directory(
+    activated_from_subdirectory: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("sys.stdin", io.StringIO("name: demo\n"))
+
+    assert bodies.read_document("-") == {"name": "demo"}
+
+
+def test_a_relative_config_is_found_from_where_the_user_stood(
+    in_project_subdirectory: Path, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    monkeypatch.setattr(project_module, "_ACTIVE", None)
+    (in_project_subdirectory / "profiles.yaml").write_text(
+        "profiles:\n  default:\n    tenant: DEMO\n", encoding="utf-8"
+    )
+
+    code = cli.main(["me", "--config", "profiles.yaml", "-o", "json"])
+
+    assert "does not exist" not in capsys.readouterr().err
+    assert code != 2
 
 
 def test_invocation_cwd_falls_back_to_the_cwd_once_the_process_moves_on(
@@ -148,8 +160,32 @@ def test_main_keeps_the_checkout_and_its_write_guard_under_a_stray_marker(
     monkeypatch.delenv("HARBORRAG_PROJECT", raising=False)
     monkeypatch.delenv("HARBORRAG_CONTROL_DB_URL", raising=False)
 
-    cli.main(["topology", "evaluate", "nope"])
+    cli.main(["me", "-o", "json"])
 
     assert "using project" not in capsys.readouterr().err
     assert project_module.active_project() is None
     assert checkout_write_refusal() is not None
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["me", "--config", "-"],
+        ["settings", "export", "--file", "-"],
+        ["settings", "import", "-"],
+        [
+            "auth", "keys", "create", "--tenant", "t", "--owner", "user-x", "--name", "k",
+            "--expires-in", "1d", "--secret-output", "-",
+        ],
+    ],
+    ids=["config", "export-file", "import-file", "secret-output"],
+)  # fmt: skip
+def test_a_dash_is_refused_where_the_command_cannot_use_stdin_or_stdout(
+    argv: list[str], in_project_subdirectory: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    code = cli.main(argv)
+
+    assert code == 2
+    assert "'-'" in capsys.readouterr().err
+    assert not (in_project_subdirectory / "-").exists()

@@ -29,7 +29,7 @@ class DocumentVersionPublisher:
         self._client = client
         # Off when summarization is disabled: publishing then neither takes the
         # summary tenant lock nor marks summary scopes dirty. Re-enabling it
-        # needs `harborrag topology summaries backfill` to catch up.
+        # needs a summary backfill to catch up; the CLI command for it was removed in v2.0.0.
         self._summaries_enabled = summaries_enabled
 
     async def publish(

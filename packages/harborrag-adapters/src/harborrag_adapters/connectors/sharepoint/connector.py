@@ -27,14 +27,15 @@ from harborrag_adapters.connectors.exceptions import (
     DocumentProcessingError,
     FetchError,
 )
+from harborrag_adapters.connectors.policies.network import DestinationPolicy
 from harborrag_adapters.connectors.rate_limiting import ConnectorRateLimiter
-from harborrag_adapters.connectors.schemas import (
+from harborrag_core.domain.raw_document import RawDocument
+from harborrag_core.domain.source import SourceRecord
+from harborrag_core.ingestion.connector_contracts import (
     ConnectorCapabilities,
     ConnectorQuery,
     ConnectorSkip,
 )
-from harborrag_core.domain.raw_document import RawDocument
-from harborrag_core.domain.source import SourceRecord
 
 from .client import SharePointClient, _RequestsGraphClient
 from .config import SharePointSiteConfig
@@ -81,6 +82,8 @@ class SharePointConnector(BaseConnector):
         client: Graph client to use, or ``None`` for a requests-based client.
         rate_limiter: The runtime's shared limiter, so all workers throttle one
             Graph app registration together.
+        destination_policy: Host policy for the default client. ``None`` allows
+            public addresses only.
 
     Attributes:
         provider_name: Provider key of this connector.
@@ -95,6 +98,9 @@ class SharePointConnector(BaseConnector):
         full_sync=True,
         relationships=True,
     )
+    """No native discover_page: the inherited fallback re-walks the tree from the start for every
+    page, so the runtime streams discover() once instead.
+    """
 
     def __init__(
         self,
@@ -102,9 +108,12 @@ class SharePointConnector(BaseConnector):
         *,
         client: SharePointClient | None = None,
         rate_limiter: ConnectorRateLimiter | None = None,
+        destination_policy: DestinationPolicy | None = None,
     ) -> None:
         self.config = config
-        self.client = client or _RequestsGraphClient(config, rate_limiter=rate_limiter)
+        self.client = client or _RequestsGraphClient(
+            config, rate_limiter=rate_limiter, destination_policy=destination_policy
+        )
         self.run_id = uuid.uuid4().hex
         self._skips = SharePointSkipRecorder(self.run_id)
         self._drive = SharePointDriveAPI(self.client, config, skips=self._skips)

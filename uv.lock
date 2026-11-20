@@ -2281,6 +2281,7 @@ name = "harborrag-app"
 version = "2.0.0a2"
 source = { editable = "packages/harborrag-app" }
 dependencies = [
+    { name = "click" },
     { name = "harborrag-core" },
     { name = "harborrag-engine" },
     { name = "harborrag-memory" },
@@ -2313,6 +2314,7 @@ production = [
 
 [package.metadata]
 requires-dist = [
+    { name = "click", specifier = ">=8.4.0,<9" },
     { name = "fastapi", marker = "extra == 'api'", specifier = ">=0.115" },
     { name = "harborrag-adapters", extras = ["chunking-code", "control-plane", "falkordb", "llm", "postgres", "qdrant", "s3"], marker = "extra == 'production'", editable = "packages/harborrag-adapters" },
     { name = "harborrag-core", editable = "packages/harborrag-core" },
@@ -2330,7 +2332,7 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6.0,<7" },
     { name = "rich", specifier = ">=14,<16" },
     { name = "sse-starlette", marker = "extra == 'api'", specifier = ">=2.1" },
-    { name = "typer", specifier = ">=0.24,<0.27" },
+    { name = "typer", specifier = ">=0.24,<0.25" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'api'", specifier = ">=0.30" },
     { name = "websockets", marker = "extra == 'api'", specifier = ">=12" },
 ]
@@ -2425,6 +2427,7 @@ dependencies = [
     { name = "harborrag-adapters" },
     { name = "harborrag-core" },
     { name = "harborrag-engine" },
+    { name = "harborrag-memory" },
     { name = "jsonschema" },
     { name = "opentelemetry-api" },
     { name = "prometheus-client" },
@@ -2439,9 +2442,6 @@ chat = [
 ]
 dev = [
     { name = "types-pyyaml" },
-]
-memory = [
-    { name = "harborrag-memory" },
 ]
 production = [
     { name = "harborrag-adapters", extra = ["chunking", "chunking-code", "control-plane", "falkordb", "langfuse", "llm", "opentelemetry", "parsers", "pdf-liteparse", "postgres", "qdrant", "redis", "s3", "tables"] },
@@ -2463,7 +2463,7 @@ requires-dist = [
     { name = "harborrag-adapters", extras = ["llm"], marker = "extra == 'chat'", editable = "packages/harborrag-adapters" },
     { name = "harborrag-core", editable = "packages/harborrag-core" },
     { name = "harborrag-engine", editable = "packages/harborrag-engine" },
-    { name = "harborrag-memory", marker = "extra == 'memory'", editable = "packages/harborrag-memory" },
+    { name = "harborrag-memory", editable = "packages/harborrag-memory" },
     { name = "jsonschema", specifier = ">=4.26,<5" },
     { name = "opentelemetry-api", specifier = ">=1.45.2,<2" },
     { name = "prometheus-client", specifier = ">=0.19,<1" },
@@ -2473,7 +2473,7 @@ requires-dist = [
     { name = "temporalio", marker = "extra == 'temporal'", specifier = ">=1.30,<2" },
     { name = "types-pyyaml", marker = "extra == 'dev'", specifier = ">=6.0,<7" },
 ]
-provides-extras = ["reader", "chat", "memory", "temporal", "production", "dev"]
+provides-extras = ["reader", "chat", "temporal", "production", "dev"]
 
 [[package]]
 name = "harborrag-workspace"
@@ -2491,6 +2491,7 @@ dev = [
     { name = "httpx" },
     { name = "httpx2" },
     { name = "import-linter" },
+    { name = "jsonschema" },
     { name = "langchain-core" },
     { name = "litellm" },
     { name = "mypy" },
@@ -2540,13 +2541,14 @@ dev = [
 requires-dist = [
     { name = "beautifulsoup4", marker = "extra == 'dev'", specifier = ">=4.12.0" },
     { name = "cairosvg", marker = "extra == 'dev'", specifier = ">=2.7.0" },
-    { name = "click", marker = "extra == 'dev'", specifier = ">=8.1,<9" },
+    { name = "click", marker = "extra == 'dev'", specifier = ">=8.4.0,<9" },
     { name = "defusedxml", marker = "extra == 'dev'", specifier = ">=0.7.1" },
     { name = "docx2txt", marker = "extra == 'dev'", specifier = ">=0.9" },
     { name = "fastapi", marker = "extra == 'dev'", specifier = ">=0.115" },
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.28.1" },
     { name = "httpx2", marker = "extra == 'dev'", specifier = ">=2.10.0,<3" },
     { name = "import-linter", marker = "extra == 'dev'", specifier = ">=2.13,<3" },
+    { name = "jsonschema", marker = "extra == 'dev'", specifier = ">=4.26,<5" },
     { name = "langchain-core", marker = "extra == 'dev'", specifier = ">=1.5,<2" },
     { name = "litellm", marker = "extra == 'dev'", specifier = ">=1.106.0,<1.106.5" },
     { name = "markdown", marker = "extra == 'docs'", specifier = ">=3.5.0" },

@@ -27,7 +27,7 @@ HarborRAG reads its configuration from three places:
 - [Model Configuration](model-config.md) - the chat, embedding and reranking models
   and the LiteLLM gateway they go through.
 - [Runtime Settings](runtime-settings.md) - the settings you change without a restart,
-  over HTTP or with `harborrag config import`.
+  over HTTP or with `harborrag settings import`.
 - [Engine Configuration](config-file-reference.md) - every `HARBORRAG_*` environment
   variable the worker, API and MCP server read.
 - [Tenant and Workspace Status](workspace-mode.md) - tenants, projects and their
@@ -70,10 +70,10 @@ loads: copy them, or pass their paths explicitly.
 | The model endpoint's URL, key or model names | `env/.env.models` | Recreate the API and worker containers so they read the file again. A new embedding model needs a re-index ([Model Configuration](model-config.md#the-shipped-catalog)) |
 | Which models each family uses, or their provider | `config/models/models.yaml` | Restart the API and the worker |
 | A connector token or password | `env/.env.connector` | Recreate the worker container; its next run reads the new value |
-| Which sources are ingested, or a source's URL or folder | Before the first start: `config/sources/connectors.yaml` and the variables it names in `env/.env.connector`. After it: `harborrag source add` or `update`, or the API | [Connections](../connections.md). The CLI writes connections only once `HARBORRAG_CONTROL_DB_URL` points it at the stack's Postgres ([Checkout quick start](../../developers/checkout-quick-start.md)) |
+| Which sources are ingested, or a source's URL or folder | Before the first start: `config/sources/connectors.yaml` and the variables it names in `env/.env.connector`. After it: `harborrag connections create` or `update`, or the API | [Connections](../connections.md). The CLI writes connections only once `HARBORRAG_CONTROL_DB_URL` points it at the stack's Postgres ([Run from a repository checkout](../cli-reference/README.md#run-from-a-repository-checkout)) |
 | How PDFs and images are parsed, and the OCR server | `config/ingestion/parsers.yaml`, `HARBORRAG_OCR_SERVER_URL` in `env/.env.parser` | Restart the API and the worker; the next sync of each connection reprocesses its documents |
 | Chunk sizes and profiles | `config/ingestion/chunking.yaml` | Restart the API and the worker; documents re-chunk on their next ingestion |
-| Retrieval size, reranking, the PDF engine, the chunk cap or concurrency for one tenant, project or connection | A runtime setting, over HTTP or with `harborrag config import` | Nothing; see [Runtime Settings](runtime-settings.md) |
+| Retrieval size, reranking, the PDF engine, the chunk cap or concurrency for one tenant, project or connection | A runtime setting, over HTTP, with `harborrag settings set` or with `harborrag settings import` | Nothing; see [Runtime Settings](runtime-settings.md) |
 
 `harborrag doctor` validates the connector, parser, chunking and model files and names
 any blank variable the model catalog or an enabled remote connector needs.
@@ -83,7 +83,10 @@ any blank variable the model catalog or an enabled remote connector needs.
 ### Which environment files the CLI loads
 
 Run from a checkout, the CLI loads `env/.env.connector`, `env/.env.parser` and
-`env/.env.models`, plus the MinIO credentials and an uncommented
-`HARBORRAG_CONTROL_DB_URL` line from `env/.env.database`; a variable you export wins
-over every file. [Deployment](../../developers/deployment/README.md) lists the files
+`env/.env.models`, plus the MinIO credentials, `HARBORRAG_LOCAL_SOURCE_ROOT`, an uncommented
+`HARBORRAG_CONTROL_DB_URL` line and, with it, the matching
+`HARBORRAG_SECRETS_ENCRYPTION_KEY` from `env/.env.database`, and
+`HARBORRAG_CORPUS_ACCESS_MODE`, `HARBORRAG_CORPUS_SHARED_TENANT_ID` and
+`HARBORRAG_TENANT_ID` (the CLI's last default tenant) from
+`env/.env.api`; a variable you export wins over every file. [Deployment](../../developers/deployment/README.md) lists the files
 each service reads.

@@ -13,6 +13,7 @@ from harborrag_adapters.repositories.object_store import (
     ImmutableArtifactWriter,
 )
 from harborrag_adapters.topology.descriptions import DESCRIPTION_MAX_REPAIR_ATTEMPTS
+from harborrag_core.chunking.tokenization import ApproximateTokenCounter
 from harborrag_core.contracts import HarborConflictError
 from harborrag_core.models.embed import HarborEmbedRequest, HarborEmbedResponse
 from harborrag_core.ports.description_generation import UsageAwareDescriptionPort
@@ -27,11 +28,10 @@ from harborrag_core.topology.derived import (
 )
 from harborrag_core.topology.extraction import digest
 from harborrag_core.topology.text_policy import PARENT_DESCRIPTION_MAX_WORDS
-from harborrag_runtime.tokenization import ApproximateTokenCounter
+from harborrag_engine.topology.reservation_deadline import reservation_seconds
 
 from .budgeted_extractor import EnrichmentDeferredError
 from .contextual import Embedder
-from .reservation_deadline import reservation_seconds
 from .run_cost import RunCostLedger
 
 
@@ -42,17 +42,21 @@ class RequestEmbedder:
     client: AsyncHarborEmbedClientProtocol
 
     async def aembed(self, request: HarborEmbedRequest) -> HarborEmbedResponse:
+        """Embed through the wrapped client."""
         return await self.client.aembed(request=request)
 
 
 @dataclass(frozen=True)
 class DerivedBudget:
+    """Reserves and settles provider cost against a build's budget."""
+
     repository: TopologyBudgetRepositoryPort
     tenant_id: str
     build_id: str
     cost_ceiling_usd: Decimal | None
 
     async def reserve(self, request: BudgetRequest) -> float:
+        """Reserve cost for a request and return the reserved amount in USD."""
         if self.cost_ceiling_usd is None:
             raise EnrichmentDeferredError("provider_cost_ceiling_unconfigured")
         admission = await self.repository.reserve_for_build(self.tenant_id, self.build_id, request)
@@ -68,6 +72,7 @@ class DerivedBudget:
             raise
 
     async def settle(self, request: BudgetRequest, usage: UsageSettlement | None = None) -> None:
+        """Settle a reservation with the usage actually reported."""
         await asyncio.shield(
             self.repository.settle_budget(
                 self.tenant_id,
@@ -79,6 +84,8 @@ class DerivedBudget:
 
 @dataclass(frozen=True)
 class DescriptionArtifacts:
+    """Artifact store and profile fingerprint that freeze generated descriptions."""
+
     reader: ImmutableArtifactReader
     writer: ImmutableArtifactWriter
     profile_fingerprint: str
@@ -86,12 +93,14 @@ class DescriptionArtifacts:
 
 @dataclass(frozen=True)
 class FrozenDescriptionGenerator:
+    """Description generator that stores each result and replays it on rerun."""
+
     delegate: UsageAwareDescriptionPort
     budget: DerivedBudget
     artifacts: DescriptionArtifacts
     max_output_tokens: int = 500
-    # None when the operator set no per-run ceiling.
     run_costs: RunCostLedger | None = None
+    """None when the operator set no per-run ceiling."""
 
     def __post_init__(self) -> None:
         if self.max_output_tokens < 1:
@@ -103,12 +112,27 @@ class FrozenDescriptionGenerator:
         *,
         max_words: int = PARENT_DESCRIPTION_MAX_WORDS,
     ) -> DescriptionOutput:
+        """Generate a description, replaying a stored result when one exists.
+
+        Appended only for a non-default budget, so frozen work written at the navigation-card budget
+        keeps the key it already has.
+
+        Frozen work is reused and costs nothing, so the ceiling does not gate it.
+
+        Includes schema, framing and every bounded repair with its prior response.
+
+        Unknown usage retains the full reservation rather than inventing a discount.
+
+        cost_usd is None when the deployment declares no pricing, and settle_budget then keeps the
+        reserved charge rather than discounting it.
+
+        Another worker may have frozen the same nondeterministic LLM operation after our initial
+        read. Adopt that verified winner.
+        """
         identity = digest(
             [
                 self.artifacts.profile_fingerprint,
                 [packet.model_dump(mode="json") for packet in packets],
-                # Appended only for a non-default budget, so frozen work written
-                # at the navigation-card budget keeps the key it already has.
                 *([] if max_words == PARENT_DESCRIPTION_MAX_WORDS else [max_words]),
             ]
         )
@@ -116,11 +140,9 @@ class FrozenDescriptionGenerator:
         context = StorageOperationContext.system(self.budget.tenant_id)
         existing = await self._read_existing(key, context)
         if existing is not None:
-            # Frozen work is reused and costs nothing, so the ceiling does not gate it.
             return existing
         if self.run_costs is not None:
             self.run_costs.ensure_capacity()
-        # Includes schema, framing and every bounded repair with its prior response.
         input_tokens = ApproximateTokenCounter().count(description_prompt_json(packets))
         provider_calls = DESCRIPTION_MAX_REPAIR_ATTEMPTS + 1
         reservation = BudgetRequest(
@@ -133,7 +155,6 @@ class FrozenDescriptionGenerator:
             provider_calls=provider_calls,
         )
         deadline = await self.budget.reserve(reservation)
-        # Unknown usage retains the full reservation rather than inventing a discount.
         settlement: UsageSettlement | None = None
         try:
             async with asyncio.timeout(deadline):
@@ -143,8 +164,6 @@ class FrozenDescriptionGenerator:
                 self.run_costs.record(run.cost_usd)
             reported = run.usage.prompt_tokens + run.usage.completion_tokens
             if reported > 0:
-                # cost_usd is None when the deployment declares no pricing, and
-                # settle_budget then keeps the reserved charge rather than discounting it.
                 settlement = UsageSettlement(
                     input_tokens=run.usage.prompt_tokens,
                     output_tokens=run.usage.completion_tokens,
@@ -166,8 +185,6 @@ class FrozenDescriptionGenerator:
                     context=context,
                 )
             except HarborConflictError:
-                # Another worker may have frozen the same nondeterministic LLM
-                # operation after our initial read. Adopt that verified winner.
                 winner = await self._read_existing(key, context)
                 if winner is None:
                     raise
@@ -205,6 +222,7 @@ class FrozenEmbedder:
     build_id: str
 
     async def aembed(self, request: HarborEmbedRequest) -> HarborEmbedResponse:
+        """Embed a request, replaying a stored response when one exists."""
         identity = digest([self.artifacts.profile_fingerprint, request.model_dump(mode="json")])
         key = f"topology/embedding-responses/{self.build_id}/{identity}.json"
         context = StorageOperationContext.system(self.tenant_id)

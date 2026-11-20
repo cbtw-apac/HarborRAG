@@ -1,3 +1,8 @@
+"""Temporal activities for projection cleanup, relation repair and reindexing.
+
+Entry point: MaintenanceActivities.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -5,10 +10,10 @@ import logging
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from harborrag_engine.ingestion.maintenance.cleanup import ProjectionCleanupBatch
+from harborrag_engine.ingestion.maintenance.reindex import ReindexRequest
 from harborrag_runtime.ingestion.composition import IngestionRuntime
 from harborrag_runtime.ingestion.failure_classification import ingestion_failure_classifier
-from harborrag_runtime.ingestion.maintenance.cleanup import ProjectionCleanupBatch
-from harborrag_runtime.ingestion.maintenance.reindex import ReindexRequest
 from harborrag_runtime.ingestion.maintenance.retention import RetiredVersionPurgeBatch
 from harborrag_runtime.ingestion.observability import (
     IngestionStage,
@@ -31,7 +36,12 @@ logger = logging.getLogger("harborrag.runtime.temporal.maintenance")
 
 
 class MaintenanceActivities:
-    """Run retryable projection maintenance outside document stage activities."""
+    """Run retryable projection maintenance outside document stage activities.
+
+    Args:
+        runtime: Ingestion runtime whose services the activities call.
+        telemetry: Ingestion metrics sink; a default one when omitted.
+    """
 
     def __init__(
         self,
@@ -48,6 +58,11 @@ class MaintenanceActivities:
         self,
         source: SourceIngestionInput,
     ) -> ProjectionCleanupResult:
+        """Clean the pending projections of a source scope and purge its retired versions.
+
+        Raises:
+            ApplicationError: Some cleanup jobs failed.
+        """
         with self._telemetry.stage(
             IngestionStage.CLEANUP,
             attempt=_activity_attempt(),
@@ -71,7 +86,6 @@ class MaintenanceActivities:
         run resumes it once the lease lapses, so it is reported but does not
         fail the activity: a retry would only redo the cleanup for nothing.
         """
-
         retention = self._runtime.retention
         if retention is None:
             return RetiredVersionPurgeBatch()
@@ -101,6 +115,11 @@ class MaintenanceActivities:
         self,
         request: ReindexInput,
     ) -> ProjectionCleanupResult:
+        """Clean the projections a reindex left pending.
+
+        Raises:
+            ApplicationError: Some cleanup jobs failed.
+        """
         with self._telemetry.stage(
             IngestionStage.CLEANUP,
             attempt=_activity_attempt(),
@@ -124,6 +143,7 @@ class MaintenanceActivities:
         self,
         request: ReindexInput,
     ) -> RelationRepairResult:
+        """Restore active source edges after a reindex."""
         with self._telemetry.stage(
             IngestionStage.RELATION_REPAIR,
             attempt=_activity_attempt(),
@@ -162,6 +182,11 @@ class MaintenanceActivities:
         self,
         request: ReindexInput,
     ) -> ReindexResult:
+        """Run a connector-free reindex under heartbeats.
+
+        Raises:
+            ApplicationError: The reindex failed; retryable per its classification.
+        """
         with self._telemetry.stage(
             IngestionStage.REINDEX,
             attempt=_activity_attempt(),

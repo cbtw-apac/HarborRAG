@@ -8,7 +8,6 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-from app_test_connections import ConnectionWorld, connection_world
 from app_test_fixtures import MockAppService
 from fastapi.testclient import TestClient
 from test_api_admin_connections import _BODY, _PATH, _SECRET, _token
@@ -17,11 +16,7 @@ from test_api_admin_ingestion_reads import without_offset
 from harborrag_app.api import app as api_app
 from harborrag_app.api.app import create_fastapi_app
 from harborrag_app.api.settings import ApiSettings
-from harborrag_app.workflow_control.errors import (
-    IngestionNotFoundError,
-    IngestionRetryConflictError,
-)
-from harborrag_app.workflow_control.ingestion.failure_inbox import FailureInboxService
+from harborrag_core.contracts.errors import IngestionNotFoundError, IngestionRetryConflictError
 from harborrag_core.domain.project import Project
 from harborrag_core.ingestion import (
     FailurePage,
@@ -29,6 +24,8 @@ from harborrag_core.ingestion import (
     IngestionTaskState,
     StoredFailure,
 )
+from harborrag_engine.ingestion.failure_inbox import FailureInboxService
+from harborrag_runtime.testing.connection_fakes import ConnectionWorld, connection_world
 
 pytestmark = pytest.mark.unit
 
@@ -278,14 +275,14 @@ def keys() -> dict[str, str]:
 def client(
     monkeypatch: pytest.MonkeyPatch, runs: _Runs, actions: _Actions, keys: dict[str, str]
 ) -> Iterator[TestClient]:
-    world = connection_world([Project(id="cpm", name="CPM", collection="cpm", tenant_id="acme")])
+    world = connection_world([Project(id="demo", name="DEMO", collection="demo", tenant_id="acme")])
     monkeypatch.setattr(api_app, "select_app_service", lambda: (_App(world, runs, actions), "test"))
     app = create_fastapi_app(ApiSettings(auth_mode="hmac", auth_secret=_SECRET))
     with TestClient(app) as test_client:
         test_client.headers["Authorization"] = f"Bearer {_token('editor', ['acme', 'globex'])}"
         test_client.headers["X-Tenant-Id"] = "acme"
         assert test_client.put(_PATH, json=_BODY).status_code == 201
-        wiki = "/v1/admin/projects/cpm/connections/cpm-wiki"
+        wiki = "/v1/admin/projects/demo/connections/demo-wiki"
         assert test_client.put(wiki, json=_BODY).status_code == 201
         keys.update(
             {
@@ -298,7 +295,7 @@ def client(
 
 @pytest.fixture
 def seeded(runs: _Runs, keys: dict[str, str], client: TestClient) -> _Runs:
-    tickets, wiki = keys["cpm-tickets"], keys["cpm-wiki"]
+    tickets, wiki = keys["demo-tickets"], keys["demo-wiki"]
     runs.task("run-1", tenant="acme", source_key=tickets)
     runs.task("run-wiki", tenant="acme", source_key=wiki)
     for index in range(12):
@@ -324,7 +321,7 @@ def test_page_answers_the_failure_shape_with_counts_for_an_editor(
     client: TestClient, seeded: _Runs
 ) -> None:
     response = client.get(
-        _LIST, params={"connection_ref": "cpm/cpm-tickets", "limit": 3, "include_total": "true"}
+        _LIST, params={"connection_ref": "demo/demo-tickets", "limit": 3, "include_total": "true"}
     )
 
     body = response.json()
@@ -337,7 +334,7 @@ def test_page_answers_the_failure_shape_with_counts_for_an_editor(
     assert first == {
         "failure_id": _failure_id("run-1", "doc-fatal"),
         "ingestion_id": "run-1",
-        "connection_ref": "cpm/cpm-tickets",
+        "connection_ref": "demo/demo-tickets",
         "document_ref": "item-doc-fatal",
         "stage": "interpret",
         "error_category": "bad_input",
@@ -376,7 +373,7 @@ def test_resolved_flag_lists_resolved_failures(client: TestClient, seeded: _Runs
 def test_stage_capture_also_matches_missing_and_unknown_stages(
     client: TestClient, seeded: _Runs, keys: dict[str, str]
 ) -> None:
-    wiki = keys["cpm-wiki"]
+    wiki = keys["demo-wiki"]
     seeded.fail("run-wiki", "doc-bare", source_key=wiki, minutes=60, stage=None)
     seeded.fail("run-wiki", "doc-odd", source_key=wiki, minutes=61, stage="Brand New")
 
@@ -393,7 +390,7 @@ def test_stage_capture_also_matches_missing_and_unknown_stages(
 def test_error_category_unknown_matches_failures_without_a_code(
     client: TestClient, seeded: _Runs, keys: dict[str, str]
 ) -> None:
-    seeded.fail("run-wiki", "doc-bare", source_key=keys["cpm-wiki"], minutes=60, code=None)
+    seeded.fail("run-wiki", "doc-bare", source_key=keys["demo-wiki"], minutes=60, code=None)
 
     body = client.get(_LIST, params={"error_category": "unknown"}).json()
 
@@ -405,7 +402,7 @@ def test_error_category_unknown_matches_failures_without_a_code(
 def test_filters_narrow_by_project_connection_and_category(
     client: TestClient, seeded: _Runs
 ) -> None:
-    wiki = client.get(_LIST, params={"connection_ref": "cpm/cpm-wiki"}).json()
+    wiki = client.get(_LIST, params={"connection_ref": "demo/demo-wiki"}).json()
     nowhere = client.get(_LIST, params={"project_id": "nope"}).json()
     auth = client.get(_LIST, params={"error_category": "auth_expired"}).json()
     text = client.get(_LIST, params={"q": "doc-wiki"}).json()
@@ -452,7 +449,7 @@ def test_retry_by_filter_starts_one_run_of_the_root(
 ) -> None:
     response = client.post(
         _RETRY,
-        json={"filter": {"connection_ref": "cpm/cpm-tickets", "error_category": "parse_failed"}},
+        json={"filter": {"connection_ref": "demo/demo-tickets", "error_category": "parse_failed"}},
     )
 
     assert response.status_code == 202
@@ -464,7 +461,7 @@ def test_retry_by_filter_starts_one_run_of_the_root(
     assert len(actions.calls) == 1
     assert actions.calls[0]["task_id"] == "run-1"
     assert len(actions.calls[0]["document_ids"]) == 12
-    assert actions.calls[0]["actor"] == "u_huy"
+    assert actions.calls[0]["actor"] == "u_alex"
     assert seeded.tasks["retry-1"].request["retry_of"] == "run-1"
 
 
@@ -523,7 +520,7 @@ def test_an_undecodable_failure_id_is_a_422_on_ids(client: TestClient) -> None:
 def test_failures_of_a_retry_run_are_retried_through_the_root(
     client: TestClient, seeded: _Runs, actions: _Actions, keys: dict[str, str]
 ) -> None:
-    tickets = keys["cpm-tickets"]
+    tickets = keys["demo-tickets"]
     seeded.task("retry-old", tenant="acme", source_key=tickets, retry_of="run-1")
     seeded.task("retry-older", tenant="acme", source_key=tickets, retry_of="retry-old")
     seeded.fail(
@@ -566,8 +563,8 @@ def test_retry_stage_capture_filter_passes_the_known_stages(
 def test_a_root_that_fails_is_skipped_and_the_others_are_reported(
     client: TestClient, seeded: _Runs, actions: _Actions, keys: dict[str, str]
 ) -> None:
-    seeded.task("run-3", tenant="acme", source_key=keys["cpm-tickets"])
-    seeded.fail("run-3", "doc-three", source_key=keys["cpm-tickets"], minutes=80)
+    seeded.task("run-3", tenant="acme", source_key=keys["demo-tickets"])
+    seeded.fail("run-3", "doc-three", source_key=keys["demo-tickets"], minutes=80)
     actions.failing["run-wiki"] = IngestionRetryConflictError("root is still running")
 
     response = client.post(_RETRY, json={"filter": {"error_category": "parse_failed"}})

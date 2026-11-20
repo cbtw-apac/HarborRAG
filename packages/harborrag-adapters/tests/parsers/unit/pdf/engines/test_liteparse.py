@@ -113,7 +113,7 @@ class _FencedLiteParse:
 def test_liteparse_strips_spurious_code_fences_by_default() -> None:
     backend = LiteParseBackend(parser=_FencedLiteParse())
 
-    result = backend.parse_input(ParseInput(content=b"%PDF-1.4", filename="cv.pdf"))
+    result = backend.parse_input(ParseInput(content=b"%PDF-1.4", filename="runbook.pdf"))
 
     assert "```" not in result.content
     # Only the delimiters go; the fenced prose is the document's actual text.
@@ -125,7 +125,7 @@ def test_liteparse_strips_spurious_code_fences_by_default() -> None:
 def test_liteparse_strips_fences_from_page_elements_too() -> None:
     backend = LiteParseBackend(parser=_FencedLiteParse())
 
-    result = backend.parse_input(ParseInput(content=b"%PDF-1.4", filename="cv.pdf"))
+    result = backend.parse_input(ParseInput(content=b"%PDF-1.4", filename="runbook.pdf"))
 
     assert result.elements
     assert all("```" not in element.content for element in result.elements)
@@ -135,7 +135,7 @@ def test_liteparse_strips_fences_from_page_elements_too() -> None:
 def test_liteparse_keeps_code_fences_when_disabled() -> None:
     backend = LiteParseBackend(parser=_FencedLiteParse(), strip_code_fences=False)
 
-    result = backend.parse_input(ParseInput(content=b"%PDF-1.4", filename="cv.pdf"))
+    result = backend.parse_input(ParseInput(content=b"%PDF-1.4", filename="runbook.pdf"))
 
     assert "```python" in result.content
 

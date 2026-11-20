@@ -1,8 +1,4 @@
-"""Processing identity of an ingestion run, shared by clients and workers.
-
-The identity is built from configuration alone, so the same settings and files
-give the same identity in every process.
-"""
+"""Digests that identify the configuration files an ingestion ran with."""
 
 from __future__ import annotations
 
@@ -10,20 +6,21 @@ from hashlib import sha256
 from pathlib import Path
 
 from harborrag_core.ingestion import ProcessingProfile
+from harborrag_core.ingestion.run_contracts import RunSettings
 from harborrag_engine.ingestion.chunking import ChunkingConfig, ChunkStrategy
 from harborrag_engine.ingestion.chunking.config import cap_chunking_config
 from harborrag_runtime.config.chunking import chunking_settings_from
 from harborrag_runtime.config.errors import ParserConfigurationError
 from harborrag_runtime.config.parsers import load_parser_catalog
 from harborrag_runtime.config.settings import RuntimeSettings
-from harborrag_runtime.ingestion_contracts import RunSettings
 
 from .chunking_profile import chunk_strategy_fingerprint
 from .document.normalization import CANONICAL_NORMALIZER_VERSION
 
-# Source assertions and metadata observations have independent document supports.
-# Legacy scope-owned assertions are rejected on reads until rebuilt and retired.
 GRAPH_PROJECTION_VERSION = "graph-v5-unique-visible-edges"
+"""Source assertions and metadata observations have independent document supports. Legacy
+scope-owned assertions are rejected on reads until rebuilt and retired.
+"""
 VECTOR_PROJECTION_SCHEMA = "vector-v2"
 
 
@@ -79,17 +76,7 @@ def build_processing_profile(
 
 
 def configuration_file_digest(prefix: str, path: Path) -> str:
-    """Label the content digest of a configuration file with ``prefix``.
-
-    Passes on the ``OSError`` of a file that is missing or cannot be read.
-
-    Args:
-        prefix: What the file configures, such as ``parser``.
-        path: The configuration file.
-
-    Returns:
-        The prefix and the first 16 hexadecimal digits of the SHA-256 digest.
-    """
+    """Return ``prefix`` plus a short digest of the file's bytes."""
     digest = sha256(path.read_bytes()).hexdigest()[:16]
     return f"{prefix}-{digest}"
 

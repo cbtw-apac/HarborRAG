@@ -338,7 +338,7 @@ unlocks the next:
 
 For an unbound owner token, the list holds every tenant that has a source
 scope in the database. It also holds the tenants from the server settings:
-`HARBORRAG_INGESTION_TENANT_ID` (`DEFAULT` when unset),
+`HARBORRAG_TENANT_ID` (`DEFAULT` when unset),
 `HARBORRAG_CORPUS_SHARED_TENANT_ID` and the tenants that
 `config/mcp/server.yaml` overrides. If the database does not answer within two
 seconds, the list holds the settings tenants only and the server logs a
@@ -381,8 +381,9 @@ change the server.
 1. Set `HARBORRAG_MCP_AUTH_MODE=api_key` in `env/.env.mcp` and restart the
    server.
 2. Inside your repository checkout, create a key. `auth keys create` requires
-   `--tenant`, `--owner` (`user-<name>`, `svc-<name>` or `team-<name>`),
-   `--name` (the device or workload) and `--expires-in`:
+   `--tenant`, `--owner` (`user-<name>`, `svc-<name>` or `team-<name>`), `--name` (the
+   device or workload) and `--expires-in`. `--tenant` names the tenant the key may read and
+   never defaults, so a mistyped tenant cannot mint a key in the wrong one:
 
    ```bash
    uv run harborrag auth keys create \
@@ -496,7 +497,7 @@ write a card, a short dossier, for each source entity; `find_entities` and
 `facet.*` filters search those cards.
 
 Background summaries need their own approval. For a shared `DEFAULT` corpus,
-set `HARBORRAG_INGESTION_TENANT_ID=DEFAULT` and
+set `HARBORRAG_TENANT_ID=DEFAULT` and
 `HARBORRAG_SUMMARY_PROCESSING_ALLOWED=true`, and change
 `HARBORRAG_SUMMARY_PROCESSING_REVISION` whenever that approval changes. The
 summarization switch, model and budget of
@@ -560,8 +561,8 @@ regenerates that scope's source-entity cards and nothing else.
 With `HARBORRAG_SUMMARY_ENTITY_INDEX_ENABLED=true`, facets are also written to
 the entity point's payload under `facet.<name>` and indexed, so they filter:
 
-- `vector_search` and the runtime retrieval service (the SDK and
-  `harborrag retrieve --filters-json`) accept `facet.*` keys in `filters`, for
+- `vector_search` and the runtime retrieval service (the SDK) accept `facet.*`
+  keys in `filters`, for
   example `{"facet.stage": "Done", "facet.component": ["billing", "payments"]}`.
   Such a filter selects entities on the entity lane and is taken out of the
   chunk filter, so the semantic lanes stay on instead of falling back to flat
@@ -573,9 +574,8 @@ the entity point's payload under `facet.<name>` and indexed, so they filter:
 
 ## Filter search results
 
-`vector_search`, the runtime retrieval service (the SDK and
-`harborrag retrieve --filters-json`) and chat accept filters that narrow the
-search to matching chunks.
+`vector_search`, the runtime retrieval service (the SDK) and chat accept
+filters that narrow the search to matching chunks.
 
 ### Filter evidence by Jira fields
 
@@ -584,11 +584,11 @@ be filtered directly too: every chunk of a Jira issue document (its summary,
 description and comments) carries the issue's typed custom fields under
 `fields.<key>`.
 
-- An attachment, such as a design document, is a document of its own and does not copy the
-  fields. A `fields.*` filter is first resolved to the matching issues, then
-  the search covers those issues' evidence *and* the evidence of every
-  document attached to them. Editing a field in Jira therefore takes effect as
-  soon as the issue is ingested again, without reprocessing its attachments.
+- An attachment, such as a design document, is a document of its own and does not copy
+  the fields. A `fields.*` filter is first resolved to the matching issues, then the
+  search covers those issues' evidence *and* the evidence of every document attached to
+  them. Editing a field in Jira therefore takes effect as soon as the issue is ingested
+  again, without reprocessing its attachments.
 - The key is the field's display name in snake case (`Story Points` ->
   `story_points`, `Budget ($)` -> `budget`). A name that collides with
   another or with a reserved runtime key falls back to the field ID
@@ -648,9 +648,9 @@ Matching rules:
 }
 ```
 
-Keys combine with AND. HarborRAG builds only equality, any-of and range
-conditions from `filters`, so a filter cannot express "not equal" or "field
-exists". The list of indexed keys is `EVIDENCE_PAYLOAD_INDEXES` in
+Keys combine with AND. HarborRAG builds only equality, any-of and range conditions from
+`filters`, so a filter cannot express "not equal" or "field exists". The list of indexed
+keys is `EVIDENCE_PAYLOAD_INDEXES` in
 `packages/harborrag-engine/src/harborrag_engine/ingestion/projections/vector/vector_store.py`.
 
 ## Explorer MCP UI server
@@ -900,13 +900,16 @@ for tool in list_tools():
     print(tool["name"])
 ```
 
-To call tools, build the server on a reader application. It reads the same
+To call tools, build the server on a reader application and give it an audit
+log. It reads the same
 `HARBORRAG_*` settings as the server, so the database, object store, vector
 store and model variables must be set:
 
 ```python
 import asyncio
+from pathlib import Path
 
+from harborrag_mcp_server.audit import McpAuditLog
 from harborrag_mcp_server.server import McpServer
 from harborrag_runtime.composition.readers import open_reader_application
 from harborrag_runtime.config.settings import RuntimeSettings
@@ -914,7 +917,11 @@ from harborrag_runtime.config.settings import RuntimeSettings
 
 async def main() -> None:
     application = open_reader_application(RuntimeSettings())
-    server = McpServer(invoker=application.invoker, references=application.references)
+    server = McpServer(
+        invoker=application.invoker,
+        references=application.references,
+        audit=McpAuditLog(path=Path(".harborrag/mcp-audit.jsonl")),
+    )
     await application.start()
     try:
         result = await server.call_tool(
@@ -989,7 +996,9 @@ development MCP endpoint from a container.
 
 Every call passes a capability check, JSON-schema validation, argument budgets,
 result and output budgets, and an owner-only JSONL audit at
-`.harborrag/mcp-audit.jsonl` (change it with `HARBORRAG_MCP_AUDIT_PATH`). Audit
+`.harborrag/mcp-audit.jsonl`. The `harborrag-mcp` launch changes the path with
+`HARBORRAG_MCP_AUDIT_PATH`; a server you build in Python takes its path from the
+`audit=McpAuditLog(path=...)` argument and ignores the variable. Audit
 records hold a principal identifier, a digest of the arguments and the
 outcome, never the bearer token or raw arguments. See
 [Policy and audit status](README.md#policy-and-audit-status) for the full
@@ -1000,5 +1009,5 @@ sequence.
 - [MCP Tools](README.md): the eleven tools, their arguments, and what they
   return.
 - [Extending HarborRAG](../../../developers/extending/README.md#application-and-mcp-surfaces):
-  keep service tools in `harborrag-mcp-server` and call runtime or service
-  interfaces rather than provider clients.
+  keep service tools in `harborrag-mcp-server` and call runtime or service interfaces
+  rather than provider clients.

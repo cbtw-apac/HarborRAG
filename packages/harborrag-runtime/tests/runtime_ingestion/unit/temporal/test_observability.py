@@ -13,8 +13,8 @@ from temporalio.exceptions import ApplicationError
 from harborrag_core.ingestion import SourceAdmissionDecision
 from harborrag_core.invariants import HarborInvariantError
 from harborrag_engine.ingestion.chunking.schemas import ChunkingStatistics
-from harborrag_runtime.ingestion.document.models import DocumentReleaseOutcome
-from harborrag_runtime.ingestion.document.stage_models import RawCaptureStageResult
+from harborrag_engine.ingestion.release.models import DocumentReleaseOutcome
+from harborrag_engine.ingestion.release.stage_models import RawCaptureStageResult
 from harborrag_runtime.ingestion.observability import (
     ArtifactMetricKind,
     ChunkMetricKind,

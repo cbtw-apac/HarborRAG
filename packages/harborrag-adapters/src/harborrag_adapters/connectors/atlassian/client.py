@@ -32,7 +32,11 @@ from harborrag_adapters.connectors.policies.http import (
     safe_response_error_detail,
     same_origin,
 )
-from harborrag_adapters.connectors.policies.network import guarded_session, redirect_location
+from harborrag_adapters.connectors.policies.network import (
+    DestinationPolicy,
+    guarded_session,
+    redirect_location,
+)
 from harborrag_adapters.connectors.rate_limiting import (
     ConnectorRateLimiter,
     LocalIntervalRateLimiter,
@@ -119,12 +123,14 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
         *,
         context: AtlassianClientContext,
         rate_limiter: ConnectorRateLimiter | None = None,
+        destination_policy: DestinationPolicy | None = None,
     ) -> None:
         self.config = config
         self.base_url = context.base_url.rstrip("/")
-        self.session = guarded_session()
+        self._destination_policy = destination_policy or DestinationPolicy()
+        self.session = guarded_session(self._destination_policy)
         self.session.headers.update({"Accept": "application/json"})
-        self._redirect_session = guarded_session()
+        self._redirect_session = guarded_session(self._destination_policy)
         self._owner_thread = get_ident()
         self._thread_sessions = local()
         self._sessions = {self.session, self._redirect_session}
@@ -293,7 +299,7 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
         session: requests.Session | None = getattr(self._thread_sessions, "session", None)
         if session is not None:
             return session
-        session = guarded_session()
+        session = guarded_session(self._destination_policy)
         session.headers.update(self.session.headers)
         session.auth = self.session.auth
         session.cookies.update(self.session.cookies)

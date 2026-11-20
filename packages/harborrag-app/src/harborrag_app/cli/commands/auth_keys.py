@@ -2,31 +2,52 @@
 
 The secret is written once to a file the operator names, created with
 ``O_EXCL`` and mode 0600, and never printed: terminal scrollback, shell
-recordings and CI logs all outlive a key's usefulness.
+recordings and CI logs all outlive a key's usefulness. Operator notices go through
+the CLI log, which the kernel holds until the command succeeds, so a failure's stderr
+is its error report alone; only the local SQLite warning is released at once, because
+a failure on the wrong database needs that hint.
 """
 
 from __future__ import annotations
 
-import asyncio
 import getpass
-import json
+import logging
 import os
 import re
 import socket
 import stat
-from collections.abc import Coroutine
+from collections.abc import Awaitable
 from datetime import timedelta
 from pathlib import Path
-from typing import Annotated, Any, NoReturn
+from typing import Annotated, Any
 
 import typer
 
+from harborrag_app.cli.globals import (
+    GLOBAL_OPTIONS_PANEL,
+    TENANT_ENV,
+    ConfigOption,
+    OutputOption,
+    ProfileOption,
+    TenantOption,
+    YesOption,
+    current_globals,
+)
+from harborrag_app.cli.invoke import (
+    LocalSetupError,
+    ReportedError,
+    release_held_logs,
+    run_standalone,
+)
 from harborrag_app.cli.project import invocation_path
+from harborrag_app.cli.typer_app import new_typer
+from harborrag_app.operations.errors import ErrorBody
 from harborrag_core.invariants import HarborInvariantError
 
-app = typer.Typer(no_args_is_help=True, help="Hashed, tenant-bound MCP reader keys with a TTL.")
+logger = logging.getLogger("harborrag.app.cli.auth_keys")
 
-Tenant = Annotated[str, typer.Option("--tenant", help="Tenant the key may read.")]
+app = new_typer(no_args_is_help=True, help="Hashed, tenant-bound MCP reader keys with a TTL.")
+
 _DURATION_RE = re.compile(r"^(\d{1,6})([dhm])$")  # bounded: no OverflowError from timedelta
 _UNITS = {"d": timedelta(days=1), "h": timedelta(hours=1), "m": timedelta(minutes=1)}
 
@@ -84,12 +105,12 @@ def write_secret_file(path: Path, secret: str) -> None:
         handle.write(secret + "\n")
 
 
-def _fail(code: str, detail: str) -> NoReturn:
-    typer.echo(json.dumps({"ok": False, "error_code": code, "detail": detail}), err=True)
-    raise typer.Exit(1) from None
+async def _guarded[T](operation: Awaitable[T]) -> T:
+    """Await a key-store call, raising the failures an operator can fix as ``ReportedError``.
 
-
-def _run(operation: Coroutine[Any, Any, Any]) -> Any:
+    Every message here is authored in this repository and names no input or secret; any other
+    exception reaches the error boundary, which reports it without its text.
+    """
     from harborrag_core.ports.api_keys import AuthStoreUnavailable
     from harborrag_engine.security import ApiKeyPolicyError
     from harborrag_runtime.security.api_key_operations import (
@@ -100,38 +121,22 @@ def _run(operation: Coroutine[Any, Any, Any]) -> Any:
     )
 
     try:
-        return asyncio.run(operation)
+        return await operation
     except ApiKeyPolicyError as error:
-        # Authored in-repo and never echoes input, so the operator gets the rule.
-        typer.echo(
-            json.dumps({"ok": False, "error_code": "ApiKeyPolicyError", "detail": str(error)}),
-            err=True,
-        )
-        raise typer.Exit(1) from None
-    except ApiKeySchemaMissing as error:
-        # Authored in-repo, names no values: the operator needs the whole hint.
-        typer.echo(
-            json.dumps({"ok": False, "error_code": "SchemaMissing", "detail": str(error)}), err=True
-        )
-        raise typer.Exit(1) from None
-    except ApiKeySchemaBehind as error:
-        _fail("SchemaBehind", str(error))
-    except ApiKeySchemaUnstamped as error:
-        _fail("SchemaUnstamped", str(error))
+        raise ReportedError(ErrorBody(422, "validation_error", str(error))) from error
+    except (ApiKeySchemaMissing, ApiKeySchemaBehind, ApiKeySchemaUnstamped) as error:
+        raise ReportedError(ErrorBody(503, "not_ready", str(error))) from error
     except ApiKeyRejected as error:
-        _fail("ConstraintRejected", str(error))
+        raise ReportedError(ErrorBody(409, "invalid_state", str(error))) from error
     except AuthStoreUnavailable as error:
-        # The port's message is authored ("MCP key store is unavailable"); the cause is chained.
-        _fail("AuthStoreUnavailable", str(error))
+        raise ReportedError(ErrorBody(503, "dependency_unavailable", str(error))) from error
     except Exception as error:
         from sqlalchemy.exc import IntegrityError
 
         if isinstance(error, IntegrityError):
-            # str(IntegrityError) carries the bound parameters, secret_hash included.
-            _fail("ConstraintRejected", str(ApiKeyRejected()))
-        # The type alone: a message could carry a DSN or a policy detail with input.
-        typer.echo(json.dumps({"ok": False, "error_code": type(error).__name__}), err=True)
-        raise typer.Exit(1) from None
+            rejected = ErrorBody(409, "invalid_state", str(ApiKeyRejected()))
+            raise ReportedError(rejected) from None
+        raise
 
 
 def settings_overrides(root: Path | None) -> dict[str, Any]:
@@ -164,7 +169,11 @@ def settings_overrides(root: Path | None) -> dict[str, Any]:
 
 
 def _settings() -> Any:
-    """Runtime settings for the control database, under the JSON error envelope."""
+    """Runtime settings for the control database.
+
+    Raises:
+        LocalSetupError: The settings are invalid; reported as the operator's configuration error.
+    """
 
     from harborrag_app.cli.project import find_legacy_checkout
     from harborrag_runtime.config.settings import RuntimeSettings
@@ -172,40 +181,19 @@ def _settings() -> Any:
     try:
         settings = RuntimeSettings(**settings_overrides(find_legacy_checkout()))
     except Exception as error:
-        # A settings error would otherwise print the model, values included.
-        from pydantic import ValidationError
-
-        failure: dict[str, Any] = {"ok": False, "error_code": type(error).__name__}
-        if isinstance(error, ValidationError):
-            # Variable names and rules only; settings_error_detail drops the input values.
-            from harborrag_app.cli.doctor.environment import settings_error_detail
-
-            failure["detail"] = settings_error_detail(error)
-        typer.echo(json.dumps(failure), err=True)
-        raise typer.Exit(1) from None
+        raise LocalSetupError(error) from error
     if settings.control_db_url.get_secret_value().lower().startswith("sqlite"):
-        # Almost always a mistake: no MCP server reads a SQLite file from the
-        # operator's working directory. Say so, but let a deliberate local setup proceed.
-        typer.echo(
-            json.dumps(
-                {
-                    "warning": "control database is the local SQLite default; run from the "
-                    "checkout root (env/.env.database) or export HARBORRAG_CONTROL_DB_URL "
-                    "so keys land in the database the MCP server reads"
-                }
-            ),
-            err=True,
+        logger.warning(
+            "the control database is the local SQLite default; run from the "
+            "checkout root (env/.env.database) or export HARBORRAG_CONTROL_DB_URL so keys land "
+            "in the database the MCP server reads"
         )
+        release_held_logs()
     return settings
 
 
-def _emit(data: dict[str, Any]) -> None:
-    typer.echo(json.dumps({"ok": True, "data": data}, default=str))
-
-
 @app.command("create")
-def create(  # noqa: PLR0913 - one parameter per documented option
-    tenant: Tenant,
+def create(  # noqa: PLR0913 - one parameter per documented option, plus the global options
     owner: Annotated[str, typer.Option("--owner", help="user-<name>, svc-<name> or team-<name>.")],
     name: Annotated[str, typer.Option("--name", help="Device or workload, e.g. alex-laptop.")],
     expires_in: Annotated[
@@ -215,8 +203,6 @@ def create(  # noqa: PLR0913 - one parameter per documented option
         Path | None,
         typer.Option(
             "--secret-output",
-            # Relative to where the user ran the command, not the project root main()
-            # moved into; the reported path is absolute so nobody has to guess which.
             callback=invocation_path(),
             help="New file to receive the key (mode 0600); default ~/.harborrag/keys/<name>.key.",
         ),
@@ -228,56 +214,79 @@ def create(  # noqa: PLR0913 - one parameter per documented option
             help="Apply pending control-plane migrations if the key table is missing.",
         ),
     ] = False,
+    tenant: Annotated[
+        str | None,
+        typer.Option(
+            "--tenant",
+            metavar="TENANT_ID",
+            help=(
+                "Tenant that owns the key; required. Never defaults: "
+                f"{TENANT_ENV} and the profile are ignored."
+            ),
+            rich_help_panel=GLOBAL_OPTIONS_PANEL,
+        ),
+    ] = None,
+    output: OutputOption = None,
+    profile: ProfileOption = None,
+    config: ConfigOption = None,
+    yes: YesOption = False,
 ) -> None:
-    """Create a reader key; the secret goes only to the output file, never to the terminal."""
+    """Create a reader key for an explicit tenant; the secret goes only to the output file.
 
-    from harborrag_runtime.security import api_key_operations
+    Prints the key's id, tenant, owner, name, expiry and the file holding the secret.
+    """
 
+    if tenant is None:
+        raise typer.BadParameter(
+            "pass an explicit --tenant; creating never uses the default tenant "
+            "or HARBORRAG_TENANT_ID"
+        )
+    resolved = current_globals(
+        tenant=tenant, output=output, profile=profile, config=config, yes=yes
+    )
     lifetime = parse_duration(expires_in)
     if secret_output is None:
         secret_output = default_secret_output(name)
     check_secret_output(secret_output)
     operator = operator_identity()
-    settings = _settings()
-    if _run(api_key_operations.ensure_key_schema(settings, migrate=migrate)):
-        typer.echo(json.dumps({"ok": True, "data": {"migrated": True}}), err=True)
-    created = _run(
-        api_key_operations.create_key(
-            settings,
-            operator=operator,
-            tenant_id=tenant,
-            owner=owner,
-            name=name,
-            lifetime=lifetime,
-        )
-    )
-    try:
-        write_secret_file(secret_output, created.raw_key)
-    except OSError:
-        # A key nobody can collect is a liability, not an asset: withdraw it now.
-        _run(
-            api_key_operations.revoke_key(
+
+    async def call() -> object:
+        from harborrag_runtime.security import api_key_operations  # noqa: PLC0415
+
+        settings = _settings()
+        if await _guarded(api_key_operations.ensure_key_schema(settings, migrate=migrate)):
+            logger.warning("applied the pending control-plane migrations")
+        created = await _guarded(
+            api_key_operations.create_key(
                 settings,
                 operator=operator,
-                key_id=created.key_id,
-                reason="secret delivery failed",
+                tenant_id=resolved.tenant,
+                owner=owner,
+                name=name,
+                lifetime=lifetime,
             )
         )
-        typer.echo(
-            json.dumps(
-                {
-                    "ok": False,
-                    "error_code": "SecretDeliveryFailed",
-                    "key_id": created.key_id,
-                    "detail": "could not write the secret file; the key was revoked, "
+        try:
+            write_secret_file(secret_output, created.raw_key)
+        except OSError:
+            await _guarded(
+                api_key_operations.revoke_key(
+                    settings,
+                    operator=operator,
+                    key_id=created.key_id,
+                    reason="secret delivery failed",
+                )
+            )
+            raise ReportedError(
+                ErrorBody(
+                    500,
+                    "internal_error",
+                    "could not write the secret file; the key was revoked, "
                     "fix the path and create a new one",
-                }
-            ),
-            err=True,
-        )
-        raise typer.Exit(1) from None
-    _emit(
-        {
+                    {"key_id": created.key_id},
+                )
+            ) from None
+        return {
             "key_id": created.key_id,
             "tenant_id": created.tenant_id,
             "owner": created.owner,
@@ -285,61 +294,116 @@ def create(  # noqa: PLR0913 - one parameter per documented option
             "expires_at": created.expires_at.isoformat(),
             "secret_written_to": str(secret_output),
         }
-    )
+
+    run_standalone(call, globals=resolved)
 
 
 @app.command("list")
-def list_keys(tenant: Tenant) -> None:
-    """List a tenant's keys with their state; never shows hashes or secrets."""
+def list_keys(
+    tenant: TenantOption = None,
+    output: OutputOption = None,
+    profile: ProfileOption = None,
+    config: ConfigOption = None,
+    yes: YesOption = False,
+) -> None:
+    """List the tenant's keys with their state; never shows hashes or secrets."""
 
-    from harborrag_runtime.security import api_key_operations
+    resolved = current_globals(
+        tenant=tenant, output=output, profile=profile, config=config, yes=yes
+    )
 
-    settings = _settings()
-    _run(api_key_operations.ensure_key_schema(settings, migrate=False, require_head=False))
-    _emit({"keys": _run(api_key_operations.list_keys(settings, tenant))})
+    async def call() -> object:
+        from harborrag_runtime.security import api_key_operations  # noqa: PLC0415
+
+        settings = _settings()
+        await _guarded(
+            api_key_operations.ensure_key_schema(settings, migrate=False, require_head=False)
+        )
+        return {"keys": await _guarded(api_key_operations.list_keys(settings, resolved.tenant))}
+
+    run_standalone(call, globals=resolved)
 
 
 @app.command("revoke")
-def revoke(
+def revoke(  # noqa: PLR0913 - the selectors plus the global options
     reason: Annotated[str, typer.Option("--reason", help="Recorded in the audit trail.")],
-    key_id: Annotated[str | None, typer.Option("--key-id", help="One key.")] = None,
-    tenant: Annotated[str | None, typer.Option("--tenant")] = None,
-    owner: Annotated[
-        str | None, typer.Option("--owner", help="With --tenant: every active key of one owner.")
+    key_id: Annotated[
+        str | None, typer.Option("--key-id", help="One key; do not combine with --tenant.")
     ] = None,
+    owner: Annotated[
+        str | None,
+        typer.Option("--owner", help="Every active key of one owner; needs an explicit --tenant."),
+    ] = None,
+    tenant: Annotated[
+        str | None,
+        typer.Option(
+            "--tenant",
+            metavar="TENANT_ID",
+            help=(
+                "Required with --owner, and not allowed with --key-id. Never defaults: "
+                f"{TENANT_ENV} and the profile are ignored."
+            ),
+            rich_help_panel=GLOBAL_OPTIONS_PANEL,
+        ),
+    ] = None,
+    output: OutputOption = None,
+    profile: ProfileOption = None,
+    config: ConfigOption = None,
+    yes: YesOption = False,
 ) -> None:
-    """Revoke one key by id, or all active keys of an owner in a tenant (offboarding)."""
+    """Revoke one key by id, or all active keys of an owner in a tenant (offboarding).
 
-    from harborrag_runtime.security import api_key_operations
+    Pass --key-id alone, or --owner together with an explicit --tenant.
+    """
 
     by_id = key_id is not None and tenant is None and owner is None
     by_owner = key_id is None and tenant is not None and owner is not None
     if not (by_id or by_owner):
-        raise typer.BadParameter("pass either --key-id, or --tenant together with --owner")
-    operator = operator_identity()
-    settings = _settings()
-    _run(api_key_operations.ensure_key_schema(settings, migrate=False, require_head=False))
-    if key_id is not None:
-        outcome = _run(
-            api_key_operations.revoke_key(settings, operator=operator, key_id=key_id, reason=reason)
+        raise typer.BadParameter(
+            "pass either --key-id alone, or --owner together with an explicit --tenant; "
+            "revoking never uses the default tenant or HARBORRAG_TENANT_ID"
         )
-        if outcome == "not_found":
-            _fail("KeyNotFound", "no key has that id; list the tenant's keys to find it")
-        _emit(
-            {
+    resolved = current_globals(
+        tenant=tenant, output=output, profile=profile, config=config, yes=yes
+    )
+    operator = operator_identity()
+
+    async def call() -> object:
+        from harborrag_runtime.security import api_key_operations  # noqa: PLC0415
+
+        settings = _settings()
+        await _guarded(
+            api_key_operations.ensure_key_schema(settings, migrate=False, require_head=False)
+        )
+        if key_id is not None:
+            outcome = await _guarded(
+                api_key_operations.revoke_key(
+                    settings, operator=operator, key_id=key_id, reason=reason
+                )
+            )
+            if outcome == "not_found":
+                raise ReportedError(
+                    ErrorBody(
+                        404,
+                        "not_found",
+                        "no key has that id; list the tenant's keys to find it",
+                    )
+                )
+            return {
                 "revoked": [key_id] if outcome == "revoked" else [],
                 "already_revoked": outcome == "already_revoked",
             }
+        if owner is None:  # pragma: no cover - excluded by the selector check
+            raise HarborInvariantError("revoke selectors must have been validated")
+        revoked = await _guarded(
+            api_key_operations.revoke_owner(
+                settings,
+                operator=operator,
+                tenant_id=resolved.tenant,
+                owner=owner,
+                reason=reason,
+            )
         )
-        return
-    if tenant is None or owner is None:  # pragma: no cover - excluded by the selector check
-        raise HarborInvariantError("revoke selectors must have been validated")
-    revoked = _run(
-        api_key_operations.revoke_owner(
-            settings, operator=operator, tenant_id=tenant, owner=owner, reason=reason
-        )
-    )
-    # One shape whether or not anything was revoked: ``active_keys`` counts the owner's
-    # active keys this call found, all of which it revoked. Expired keys are not active
-    # and are left alone, so an empty result is not "already revoked".
-    _emit({"revoked": revoked, "active_keys": len(revoked)})
+        return {"revoked": revoked, "active_keys": len(revoked)}
+
+    run_standalone(call, globals=resolved)

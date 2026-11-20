@@ -14,12 +14,13 @@ from harborrag_adapters.connectors.exceptions import (
     DocumentProcessingError,
     FetchError,
 )
-from harborrag_adapters.connectors.schemas import ConnectorQuery
+from harborrag_core.ingestion.connector_contracts import ConnectorQuery
 
 pytestmark = [pytest.mark.unit, pytest.mark.graybox]
 
 
 def test_discover_paginates_and_filters_excluded_labels():
+    """calls[0] is the auth pre-flight (user/current), calls[1] the first search page."""
     client = FakeConfluenceClient()
     client.add(
         "content/search",
@@ -41,14 +42,15 @@ def test_discover_paginates_and_filters_excluded_labels():
 
     assert [record.metadata["content_id"] for record in records] == ["1", "3"]
     assert records[0].id == "confluence://ENG/1"
-    # calls[0] is the auth pre-flight (user/current), calls[1] the first search page.
     assert client.calls[2][1]["cursor"] == "abc"
 
 
 def test_discover_excludes_live_docs_even_when_content_types_is_page():
-    # Live docs report type: "page" -- only subtype: "live" distinguishes
-    # them, which the CQL content_types filter can't see, so discovery must
-    # reject them client-side regardless of the configured content_types.
+    """Live docs report type.
+
+    "page" -- only subtype: "live" distinguishes them, which the CQL content_types filter can't see,
+    so discovery must reject them client-side regardless of the configured content_types.
+    """
     live_doc = light_content("2", "Live Doc")
     live_doc["subtype"] = "live"
     client = FakeConfluenceClient()
@@ -144,8 +146,11 @@ def test_discover_can_expand_child_pages_for_direct_ids():
 
 
 def test_discover_includes_every_child_page_of_direct_ids():
-    # Pointing a sync at a parent page brings all of its child pages along
-    # without an extra opt-in filter; the configured space bounds the walk.
+    """Pointing a sync at a parent page includes its child pages.
+
+    Pointing a sync at a parent page brings all of its child pages along without an extra opt-in
+    filter; the configured space bounds the walk.
+    """
     client = FakeConfluenceClient()
     client.add("content/1", light_content("1", "Parent"))
     client.add("content/2", light_content("2", "First child"))
@@ -195,8 +200,10 @@ def _parent_with_filtered_children(client: FakeConfluenceClient) -> None:
 
 
 def test_discover_applies_label_and_live_doc_filters_to_direct_ids_and_children():
-    # Pages reached by ID must pass the same filters as space search, but a
-    # skipped page's own children are still walked and judged on their own.
+    """Pages reached by ID must pass the same filters as space search.
+
+    A skipped page's own children are still walked and judged on their own.
+    """
     client = FakeConfluenceClient()
     _parent_with_filtered_children(client)
     connector = ConfluenceConnector(

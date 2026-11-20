@@ -6,13 +6,10 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
 
+from harborrag_core.ingestion.run_contracts import PreparedSourceSubmission, SourceSubmission
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.config.temporal import TemporalRuntimeConfig
-from harborrag_runtime.ingestion_contracts import (
-    IngestionGateway,
-    PreparedSourceSubmission,
-    SourceSubmission,
-)
+from harborrag_runtime.ingestion_contracts import IngestionGateway
 from harborrag_runtime.scheduling import ScheduleBackend
 from harborrag_runtime.temporal.optional import load_temporal_attribute
 
@@ -28,12 +25,15 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, slots=True)
 class IngestionGatewayDescription:
+    """Provider and health settings of the ingestion gateway."""
+
     provider: str
     health_timeout_seconds: float
     details: Mapping[str, object]
 
 
 def describe_ingestion_gateway(settings: RuntimeSettings) -> IngestionGatewayDescription:
+    """Describe the ingestion gateway the settings select."""
     config = TemporalRuntimeConfig.from_settings(settings)
     return IngestionGatewayDescription(
         provider="temporal",
@@ -53,7 +53,6 @@ def prepare_configured_source_submission(
     Reads only the ingestion section: this runs on the direct path too, which
     never connects to Temporal and must not be failed by its deployment config.
     """
-
     defaults = TemporalRuntimeConfig.ingestion_from_settings(settings)
     return prepare_source_submission(
         settings,
@@ -68,7 +67,6 @@ def prepare_configured_source_submission(
 
 async def connect_temporal_client(config: TemporalRuntimeConfig) -> IngestionTemporalClient:
     """Legacy factory retained while optional SDK imports remain at the boundary."""
-
     client_type = cast(
         "type[IngestionTemporalClient]",
         load_temporal_attribute("harborrag_runtime.temporal.client", "IngestionTemporalClient"),
@@ -77,6 +75,7 @@ async def connect_temporal_client(config: TemporalRuntimeConfig) -> IngestionTem
 
 
 async def connect_ingestion_gateway(settings: RuntimeSettings) -> IngestionGateway:
+    """Connect the ingestion gateway the settings select."""
     from harborrag_runtime.temporal.gateway import TemporalIngestionGateway
 
     return TemporalIngestionGateway(
@@ -85,6 +84,7 @@ async def connect_ingestion_gateway(settings: RuntimeSettings) -> IngestionGatew
 
 
 async def connect_schedule_backend(settings: RuntimeSettings) -> ScheduleBackend:
+    """Connect the schedule backend the settings select."""
     config = TemporalRuntimeConfig.from_settings(settings)
     connect = cast(
         "Callable[[TemporalRuntimeConfig], Awaitable[Client]]",

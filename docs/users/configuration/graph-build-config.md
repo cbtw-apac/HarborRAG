@@ -13,16 +13,25 @@ not exist is an error.
 
 ## Check the file
 
-Validate the file and print its effective values, including every key this page
-leaves out:
+Load the file with the runtime's own loader, from the root of a repository checkout:
 
 ```bash
-harborrag topology config validate
+uv run python -c "
+from harborrag_runtime.config import load_graph_build_config
+config = load_graph_build_config('config/graph/build.yaml')
+print([tenant.tenant_id for tenant in config.tenants])
+"
 ```
 
-The output is one JSON envelope that starts with `{"ok": true, "data": {"runtime": {…`.
-`--path` checks another file. `harborrag topology config apply` writes the tenant and
-source policy to the control database.
+For the shipped file it prints `['DEFAULT']`. An invalid file raises
+`GraphBuildConfigurationError`, which names the file and each failing key with its
+problem, such as `runtime.bogus_key` and `Extra inputs are not permitted`. Pass another
+path to check another file.
+
+The CLI, the HTTP API and the MCP tools do not read or apply this file in 2.0.0. The
+runtime functions that write its tenant and source policy to the control database remain
+in `harborrag_runtime/topology/operations.py`, but nothing calls them yet, so the file has
+no operator entry point.
 
 ## File layout
 
@@ -67,7 +76,7 @@ are rejected at load time.
 
 Each `tenants` entry sets the graph policy of one tenant and of its sources. A source
 is named by its source scope ID, the stable ID of the content one ingestion source
-covers (`--source-scope-id` on `harborrag ingest run`).
+covers.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
@@ -126,5 +135,5 @@ an ontology changes the extraction profile fingerprint, so the affected document
 extracted again instead of mixing two vocabularies.
 
 Per-tenant graph settings live only in the `tenants:` blocks of `config/graph/build.yaml`;
-they are not runtime settings, so `harborrag config import` and `/v1/admin/settings` do not
+they are not runtime settings, so `harborrag settings import` and `/v1/admin/settings` do not
 change them.

@@ -1,4 +1,9 @@
-"""Reader MCP tools backed by publication-safe runtime use cases."""
+"""Reader MCP tools backed by publication-safe runtime use cases.
+
+From their defining module, not from the SDK facade: importing a stateless tool should not drag in
+HarborRAG, chat, memory and execution. The facade re-exports these, so going through it also made a
+cycle inevitable the moment the SDK referenced tools at runtime.
+"""
 
 from __future__ import annotations
 
@@ -12,11 +17,6 @@ from harborrag_core.contracts.errors import (
     HarborDeadlineExceeded,
     HarborValidationError,
 )
-
-# From their defining module, not from the SDK facade: importing a stateless
-# tool should not drag in HarborRAG, chat, memory and execution. The facade
-# re-exports these, so going through it also made a cycle inevitable the moment
-# the SDK referenced tools at runtime.
 from harborrag_core.contracts.reader import (
     DOCUMENT_CONTEXT_LIMIT,
     DocumentContextRequest,
@@ -46,11 +46,13 @@ from .reader_support import (
 from .retrieval_inputs import access, boolean, integer, optional_text, string_list, text
 from .source_list_tool import ListSourcesTool as ListSourcesTool
 
-logger = logging.getLogger("harborrag.runtime.tools.readers")
+logger = logging.getLogger("harborrag.engine.tools.reader_tools")
 
 
 @dataclass(slots=True)
 class FetchEvidenceTool(ReaderTool):
+    """Fetch the evidence behind cited passages."""
+
     spec = FETCH_EVIDENCE_SPEC
 
     async def call(
@@ -60,6 +62,7 @@ class FetchEvidenceTool(ReaderTool):
         principal_id: str,
         context: ToolInvocationContext | None = None,
     ) -> dict[str, object]:
+        """Return the evidence for the requested references."""
         if context is not None and principal_id != context.access.principal_id:
             raise PermissionError("tool principal does not match invocation context")
         try:
@@ -91,6 +94,8 @@ class FetchEvidenceTool(ReaderTool):
 
 @dataclass(slots=True)
 class GetDocumentContextTool(ReaderTool):
+    """Read the context around a document."""
+
     spec = GET_DOCUMENT_CONTEXT_SPEC
 
     async def call(
@@ -100,6 +105,7 @@ class GetDocumentContextTool(ReaderTool):
         principal_id: str,
         context: ToolInvocationContext | None = None,
     ) -> dict[str, object]:
+        """Return the document context for the principal."""
         if context is not None and principal_id != context.access.principal_id:
             raise PermissionError("tool principal does not match invocation context")
         try:
@@ -239,6 +245,8 @@ class GetDocumentContextTool(ReaderTool):
 
 @dataclass(slots=True)
 class ResolveGraphNodesTool(ReaderTool):
+    """Resolve graph node references to nodes."""
+
     spec = RESOLVE_GRAPH_NODES_SPEC
 
     async def call(
@@ -248,6 +256,13 @@ class ResolveGraphNodesTool(ReaderTool):
         principal_id: str,
         context: ToolInvocationContext | None = None,
     ) -> dict[str, object]:
+        """Return the nodes for the requested references.
+
+        A provider id may arrive as the source_item_id vector_search returned.
+
+        A very common exact title can match more nodes than one bounded read can order; the caller
+        can narrow it, so say how instead of failing opaquely.
+        """
         if context is not None and principal_id != context.access.principal_id:
             raise PermissionError("tool principal does not match invocation context")
         try:
@@ -258,7 +273,6 @@ class ResolveGraphNodesTool(ReaderTool):
             value = text(selector, "value")
             query = GraphNodeResolutionQuery(
                 selector_kind=selector_kind,
-                # A provider id may arrive as the source_item_id vector_search returned.
                 value=(
                     node_selector(value)
                     if selector_kind == GraphNodeSelectorKind.PROVIDER_ID
@@ -290,8 +304,6 @@ class ResolveGraphNodesTool(ReaderTool):
         except HarborCapabilityError as exc:
             return failure(str(exc))
         except HarborDeadlineExceeded:
-            # A very common exact title can match more nodes than one bounded read can
-            # order; the caller can narrow it, so say how instead of failing opaquely.
             logger.warning("resolve_graph_nodes graph query timed out")
             return failure(
                 "graph query timed out; narrow with source_ids or entity_types, "

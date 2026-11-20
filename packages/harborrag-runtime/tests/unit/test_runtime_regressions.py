@@ -37,7 +37,7 @@ def test_a_threshold_measures_relevance_not_rank_arithmetic() -> None:
 def test_a_hit_without_measured_similarity_cannot_meet_a_threshold() -> None:
     """A null relevance means nothing measured it; its score is no stand-in.
 
-    The sparse lane's score is a squashed BM25 value -- 0.95 for an off-topic CV --
+    The sparse lane's score is a squashed BM25 value -- 0.95 for an off-topic runbook --
     so letting it answer a similarity threshold passed exactly what it should not.
     """
 

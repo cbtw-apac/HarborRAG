@@ -1,11 +1,6 @@
 """Check a connection against its source: reachability, credentials, permissions, preview.
 
-Handles:
-- a chain of check steps, each recording its checks and stopping the chain on failure
-- mapping connector errors to the spec's ``error_category`` without leaking source text
-- a bounded preview of up to five items
-
-Does NOT validate the connection's schema or store anything.
+Connector errors map to the spec's ``error_category`` without leaking source text.
 """
 
 from __future__ import annotations
@@ -21,8 +16,8 @@ from typing import Any, Literal
 from harborrag_adapters.connectors.exceptions import RateLimitError
 from harborrag_adapters.connectors.harbor_connector import HarborConnector
 from harborrag_adapters.connectors.policies.network import BlockedDestinationError
-from harborrag_adapters.connectors.schemas import ConnectorQuery
 from harborrag_core.domain.source import SourceRecord
+from harborrag_core.ingestion.connector_contracts import ConnectorQuery
 from harborrag_core.ingestion.errors import (
     SourceAuthenticationError,
     SourceAuthorizationError,

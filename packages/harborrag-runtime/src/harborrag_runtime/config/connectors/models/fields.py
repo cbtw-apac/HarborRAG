@@ -1,11 +1,7 @@
 """Field types shared by the source-type models.
 
-Handles:
-- ``Secret``: a write-only credential that is a value or a secret reference
-- ``HttpUrl``, ``HttpsUrl`` and ``Email``: string fields with a published JSON Schema format
-- ``PathText``: a path or glob kept as typed, because a file or folder name may
-  start or end with a space; every other string field is trimmed
-- widget markers that turn into ``ui`` hints for the connection form
+A path or glob field (``PathText``) keeps the spaces at its start or end, because a
+file or folder name may have them; every other string field is trimmed.
 """
 
 from __future__ import annotations

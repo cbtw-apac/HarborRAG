@@ -17,7 +17,7 @@ from harborrag_core.ingestion import (
     SourceAdmissionDecision,
     SourceIdentity,
 )
-from harborrag_runtime.ingestion import DocumentReleaseRequest
+from harborrag_engine.ingestion.release.models import DocumentReleaseRequest
 
 from ...fixtures.connectors import SourceConnector
 from ...fixtures.release import (

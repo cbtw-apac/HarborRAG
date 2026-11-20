@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from harborrag_core.invariants import HarborInvariantError
+from harborrag_mcp_server.audit import DEFAULT_AUDIT_PATH, McpAuditLog
 from harborrag_mcp_server.configuration import McpConfigurationStore
 from harborrag_mcp_server.configuration.launch import load_launch_environment
 from harborrag_mcp_server.preflight import describe_startup_failure, start_and_stop
@@ -193,6 +194,7 @@ def _prepare_arguments(
     arguments.allowed_hosts = parse_allowed_hosts(os.environ.get("HARBORRAG_MCP_ALLOWED_HOSTS"))
     if arguments.config is None:
         arguments.config = _default_config_path()
+    arguments.audit_path = Path(os.environ.get("HARBORRAG_MCP_AUDIT_PATH", DEFAULT_AUDIT_PATH))
 
 
 def _register_routes(  # noqa: PLR0913 - the launched server's parts
@@ -296,8 +298,9 @@ def _compose_server(
         corpus_mode=settings.corpus_access_mode,
         shared_tenant_id=settings.corpus_shared_tenant_id,
         config_provider=runtime.config_provider,
-        known_tenants=(settings.ingestion_tenant_id,),
+        known_tenants=(settings.tenant_id,),
         tenant_directory=runtime.tenant_directory,
+        audit=McpAuditLog(path=arguments.audit_path),
     )
     configuration = _configure_registry(registry, arguments.config)
     transport = cast(
@@ -432,7 +435,7 @@ def main(argv: Sequence[str] | None = None, *, ui: bool = False) -> int:
     if not (arguments.check or arguments.preflight) and arguments.transport == "stdio":
         _reject_interactive_stdio(parser, sys.stdin)
     if arguments.check:
-        registry = McpServer()
+        registry = McpServer(audit=McpAuditLog(path=arguments.audit_path))
         _configure_registry(registry, arguments.config)
         transport = cast(
             "FastMCP[Any]",

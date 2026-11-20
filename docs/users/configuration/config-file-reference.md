@@ -19,7 +19,7 @@ service reads in a repository checkout.
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `HARBORRAG_ENV` | `dev` | `dev`, `staging` or `prod`; anything but `dev` turns on the production checks, such as refusing a SQLite control database |
-| `HARBORRAG_INGESTION_TENANT_ID` | `DEFAULT` | Default tenant of the `ingest`, `source` and `config` commands, the `connectors.yaml` import and the settings seed |
+| `HARBORRAG_TENANT_ID` | `DEFAULT` | The one default tenant of the API (for a `*` credential that sends no `X-Tenant-Id`), the workers and the CLI, the `connectors.yaml` import and the settings seed; the removed `HARBORRAG_INGESTION_TENANT_ID` stops startup |
 | `HARBORRAG_CONNECTOR_CONFIG_PATH` | `config/sources/connectors.yaml` | Connector file ([Connector Configuration](connector-config.md)) |
 | `HARBORRAG_PARSER_CONFIG_PATH` | `config/ingestion/parsers.yaml` | Parser file ([Parser Configuration](parser-config.md)) |
 | `HARBORRAG_CHUNKING_CONFIG_PATH` | `config/ingestion/chunking.yaml` | Chunking file; optional, built-in defaults apply when the default path is absent ([Chunking Configuration](chunking-config.md)) |
@@ -97,7 +97,7 @@ The MCP server keeps transport and tool policy separate from model policy:
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `HARBORRAG_MCP_CONFIG_PATH` | `config/mcp/server.yaml` | Versioned tool defaults, limits, enablement and tenant overrides |
-| `HARBORRAG_MCP_AUDIT_PATH` | `.harborrag/mcp-audit.jsonl` | Owner-only audit output |
+| `HARBORRAG_MCP_AUDIT_PATH` | `.harborrag/mcp-audit.jsonl` | Owner-only audit output of the `harborrag-mcp` launch; a server built in Python passes `audit=McpAuditLog(path=...)` |
 | `HARBORRAG_MCP_BEARER_TOKEN` | None | Local HTTP owner token; at least 32 bytes |
 | `HARBORRAG_MCP_HOST` | `127.0.0.1` | HTTP bind address. One that is not loopback is refused outside a development container; see `HARBORRAG_MCP_ALLOW_INSECURE_BIND` |
 | `HARBORRAG_MCP_ALLOWED_HOSTS` | None | Comma-separated host names the HTTP server answers besides `127.0.0.1`, `localhost` and `::1`, such as a reverse proxy's |

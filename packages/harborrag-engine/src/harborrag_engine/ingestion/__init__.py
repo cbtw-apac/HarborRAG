@@ -1,3 +1,8 @@
+"""Ingestion use cases: admission, normalization, chunking and indexing.
+
+Engine depends on core only.
+"""
+
 from harborrag_engine.ingestion.admission import (
     CanonicalVersionPlanner,
     PlannedDocumentVersion,
@@ -32,13 +37,6 @@ from harborrag_engine.ingestion.chunking import (
     produces_evidence,
 )
 from harborrag_engine.ingestion.normalizer import DocumentNormalizer
-from harborrag_engine.ingestion.policies import (
-    CleanupPolicy,
-    DocumentVersionTransitionPolicy,
-    IngestionFailureClassifier,
-    PublicationPolicy,
-    SafeFailure,
-)
 from harborrag_engine.ingestion.projections import (
     EVIDENCE_INDEX,
     GraphDocumentTarget,
@@ -87,26 +85,21 @@ __all__ = [
     "ChunkingRequest",
     "ChunkingResult",
     "ChunkingService",
-    "CleanupPolicy",
     "DocumentNormalizer",
-    "DocumentVersionTransitionPolicy",
     "GraphDocumentTarget",
     "GraphProjectionBatch",
     "GraphProjectionBuilder",
     "GraphProjectionInput",
     "GraphSourceProjector",
     "GraphSourceProjectorRegistry",
-    "IngestionFailureClassifier",
     "MatrixProjectionMode",
     "PlannedDocumentVersion",
     "ProjectionManifestBuilder",
     "ProjectionManifestInput",
     "ProjectionVerificationInput",
     "ProjectionVerifier",
-    "PublicationPolicy",
     "RepresentationEncodingPolicy",
     "RepresentationReuseService",
-    "SafeFailure",
     "SourceAdmissionPolicy",
     "TableChunkingPolicy",
     "TableChunkingRequest",

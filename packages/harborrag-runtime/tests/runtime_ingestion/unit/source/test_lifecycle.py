@@ -8,7 +8,6 @@ from pathlib import Path
 
 import pytest
 
-from harborrag_adapters.connectors.schemas import ConnectorSkip
 from harborrag_adapters.repositories.errors import (
     HarborStorageValidationError,
     StorageErrorContext,
@@ -18,14 +17,13 @@ from harborrag_core.ingestion import (
     BindingKind,
     IngestionTaskState,
 )
+from harborrag_core.ingestion.connector_contracts import ConnectorSkip
 from harborrag_core.storage import StorageFamily
+from harborrag_engine.ingestion.release.service import DocumentReleaseService
+from harborrag_engine.ingestion.source.models import DISCOVERY_SKIPS_KEY
+from harborrag_engine.ingestion.source.tasks import source_scan_id
 from harborrag_runtime.errors import RuntimeConfigurationError
-from harborrag_runtime.ingestion import (
-    DocumentReleaseService,
-    SourceIngestionService,
-)
-from harborrag_runtime.ingestion.source.skips import DISCOVERY_SKIPS_KEY
-from harborrag_runtime.ingestion.source.tasks import source_scan_id
+from harborrag_runtime.ingestion import SourceIngestionService
 
 from ...fixtures.connectors import DescriptorConnector
 from ...fixtures.release import (
@@ -278,13 +276,13 @@ async def test_direct_source_ingestion_persists_terminal_discovery_failure(
 async def test_direct_ingestion_cancelled_during_discovery_releases_task_and_scan(
     tmp_path: Path,
 ) -> None:
-    """Ctrl-C on ``harborrag ingest run`` leaves neither the task nor the scan open.
-
-    It reaches the run as ``CancelledError``, which an ``except Exception`` never
-    sees. A scan left STARTED would block every later scan of the scope.
-    """
-
     class InterruptedConnector(DescriptorConnector):
+        """Ctrl-C during an inline ingestion leaves no scan stuck in STARTED.
+
+        Ctrl-C on `harborrag ingestions start --inline` reaches the run as CancelledError, which an
+        `except Exception` never sees; the scan must not stay STARTED and block the scope.
+        """
+
         def discover(self, query):
             del query
             raise asyncio.CancelledError

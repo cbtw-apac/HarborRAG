@@ -16,7 +16,7 @@ from github_test_helpers import (
 from harborrag_adapters.connectors import GitHubConnector
 from harborrag_adapters.connectors.exceptions import DocumentProcessingError
 from harborrag_adapters.connectors.github.repository_paths import guess_mime_type
-from harborrag_adapters.connectors.schemas import ConnectorQuery
+from harborrag_core.ingestion.connector_contracts import ConnectorQuery
 
 pytestmark = [pytest.mark.unit, pytest.mark.graybox]
 

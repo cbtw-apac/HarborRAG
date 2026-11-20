@@ -5,7 +5,6 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 
 import pytest
-from app_test_connections import connection_world
 from app_test_fixtures import MockAppService
 from fastapi.testclient import TestClient
 from test_api_admin_connections import _BODY, _PATH, _SECRET, _token
@@ -18,19 +17,20 @@ from test_ingestion_documents_page import _Runs as _DocumentRuns
 from harborrag_app.api import app as api_app
 from harborrag_app.api.app import create_fastapi_app
 from harborrag_app.api.settings import ApiSettings
-from harborrag_app.api.v1.ingestion.schemas import (
+from harborrag_app.operations.schemas.ingestions import (
     FailureOut,
     FailureQuery,
     IngestionDocumentItem,
 )
 from harborrag_core.domain.project import Project
 from harborrag_core.ingestion import StoredFailure
+from harborrag_runtime.testing.connection_fakes import connection_world
 
 pytestmark = pytest.mark.unit
 
 _SOURCE_ITEM_IDS = ["docs/notes.md ", " leading.md"]
 _T0 = datetime(2026, 11, 1, 9, 0, tzinfo=UTC)
-_PROJECTS = [Project(id="cpm", name="CPM", collection="cpm", tenant_id="acme")]
+_PROJECTS = [Project(id="demo", name="DEMO", collection="demo", tenant_id="acme")]
 
 
 @contextmanager
@@ -70,7 +70,7 @@ def test_failure_out_with_edge_whitespace_keeps_document_ref(source_item_id: str
         {
             "failure_id": "fail_1",
             "ingestion_id": "run-1",
-            "connection_ref": "cpm/cpm-tickets",
+            "connection_ref": "demo/demo-tickets",
             "document_ref": source_item_id,
             "stage": "interpret",
             "error_category": "parse_failed",

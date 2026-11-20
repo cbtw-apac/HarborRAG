@@ -1,0 +1,120 @@
+"""Facade over document capture and materialization stages."""
+
+from __future__ import annotations
+
+from harborrag_core.domain.document import Document
+from harborrag_core.ingestion import (
+    DocumentVersionCandidate,
+    SourceAdmissionDecision,
+)
+from harborrag_engine.ingestion.chunking.schemas import ChunkingStatistics
+from harborrag_engine.ingestion.release.dependencies import (
+    DocumentReleaseDependencies,
+    RawDocumentLoader,
+)
+from harborrag_engine.ingestion.release.materialization import DocumentMaterializationStages
+from harborrag_engine.ingestion.release.models import DocumentReleaseRequest
+from harborrag_engine.ingestion.release.stage_models import (
+    PreparedDocumentStage,
+    RawCaptureStageResult,
+)
+
+from .capture import DocumentCaptureStages
+
+
+class DocumentPreparationStages:
+    """Stable facade for source-capture and materialization stage families.
+
+    Args:
+        dependencies: Ports and stores the stages read and write.
+    """
+
+    def __init__(self, dependencies: DocumentReleaseDependencies) -> None:
+        self._capture = DocumentCaptureStages(dependencies)
+        self._materialization = DocumentMaterializationStages(dependencies)
+
+    async def fetch_and_capture(
+        self,
+        request: DocumentReleaseRequest,
+        connector: RawDocumentLoader,
+    ) -> RawCaptureStageResult:
+        """Admit the source item and capture its raw artifact."""
+        return await self._capture.fetch_and_capture(request, connector)
+
+    async def parse_and_normalize(
+        self,
+        request: DocumentReleaseRequest,
+        capture: RawCaptureStageResult,
+    ) -> PreparedDocumentStage:
+        """Parse the captured raw document into a canonical candidate."""
+        return await self._capture.parse_and_normalize(request, capture)
+
+    async def prepare_canonical(
+        self,
+        *,
+        tenant_id: str,
+        candidate: DocumentVersionCandidate,
+        document: Document,
+        decision: SourceAdmissionDecision,
+    ) -> PreparedDocumentStage:
+        """Plan a canonical candidate from an already normalized document."""
+        return await self._capture.prepare_canonical(
+            tenant_id=tenant_id,
+            candidate=candidate,
+            document=document,
+            decision=decision,
+        )
+
+    async def replay_from_artifacts(
+        self,
+        request: DocumentReleaseRequest,
+        document_version_id: str,
+    ) -> PreparedDocumentStage:
+        """Resume from the earliest durable artifact of a version."""
+        return await self._capture.replay_from_artifacts(request, document_version_id)
+
+    async def sync_content_units(
+        self,
+        request: DocumentReleaseRequest,
+        prepared: PreparedDocumentStage,
+    ) -> None:
+        """Run the retained no-op content-sync stage."""
+        await self._materialization.sync_content_units(request, prepared)
+
+    async def persist_canonical(
+        self,
+        request: DocumentReleaseRequest,
+        prepared: PreparedDocumentStage,
+    ) -> None:
+        """Record the canonical artifact on the version."""
+        await self._materialization.persist_canonical(request, prepared)
+
+    async def chunk_and_validate(
+        self,
+        request: DocumentReleaseRequest,
+        prepared: PreparedDocumentStage,
+    ) -> ChunkingStatistics | None:
+        """Chunk the canonical document and store the chunk artifacts."""
+        return await self._materialization.chunk_and_validate(request, prepared)
+
+    async def encode_chunks(
+        self,
+        request: DocumentReleaseRequest,
+        prepared: PreparedDocumentStage,
+    ) -> None:
+        """Encode the version's chunks into representations."""
+        await self._materialization.encode_chunks(request, prepared)
+
+    async def record_failure(
+        self,
+        prepared: PreparedDocumentStage,
+        *,
+        stage: str,
+        error: Exception,
+    ) -> None:
+        """Record a stage failure on the version."""
+        await self._materialization.record_failure(
+            prepared,
+            stage=stage,
+            error=error,
+        )

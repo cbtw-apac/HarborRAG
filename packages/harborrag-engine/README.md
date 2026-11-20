@@ -22,15 +22,35 @@ pip install harborrag-engine
 harborrag_engine/
 ├── ingestion/
 │   ├── admission.py         # source change and version planning
+│   ├── base.py              # BaseDocumentNormalizer and BaseChunker
+│   ├── tables.py            # flat table artifact builder
+│   ├── title_content.py     # title fallback for documents whose body normalizes to nothing
+│   ├── recovery.py          # workflow inputs rebuilt from durable task requests
 │   ├── normalizer.py        # canonical normalization between parser output and ingestion
+│   ├── normalizers/         # source-aware normalizer routing and builder
 │   ├── chunking/            # deterministic route and evidence chunking
 │   ├── representations/     # dense and sparse representation policy
-│   └── projections/         # vector and graph projection batches and their verification
+│   ├── projections/         # vector and graph projection batches and their verification
+│   ├── release/             # document release stages, pipeline, service, lifecycle, materialization and projection
+│   ├── source/              # source ingestion request models and task records
+│   ├── maintenance/         # cleanup, reindex planning and the reindex service over core ports
+│   ├── operations.py        # ingestion runs as the API's `Ingestion` object
+│   ├── presenters.py        # public projections, request hashing and cursors
+│   ├── failure_inbox.py     # failed documents of a tenant and their retry
+│   └── models.py            # transport-neutral ingestion commands and cursors
 ├── retrieval/               # authoritative retrieval, fusion, evidence and the rerank port
+│   └── service/             # RuntimeRetrievalService, its contracts, reader services and PassageReranker
 ├── topology/                # evidence validation and deterministic semantic projection policies
 ├── tools/                   # reader tool catalog, schemas, handlers and checked invocation
+├── control_plane/           # connections, projects and runs in the HTTP API's shapes
 ├── security/                # rules for MCP reader keys
-└── chat/prompts/            # typed, packaged, provider-neutral chat prompts
+├── chat/
+│   ├── prompts/             # typed, packaged, provider-neutral chat prompts
+│   ├── scope.py             # the projects and connections a chat turn reads
+│   └── memory_block.py      # recalled memory as an untrusted prompt block
+├── testing/                 # in-memory retrieval fakes shared by engine and runtime tests
+├── config.py                # EngineConfig: tenant and environment
+└── policy.py                # EnginePolicy: concurrency and retrieval top-k limits
 ```
 
 These boundaries hold across the package:
@@ -39,7 +59,8 @@ These boundaries hold across the package:
   repositories come in through adapters.
 - Provider writes and Temporal orchestration stay outside the engine.
 - `RetrievalPipeline` has an optional `ResultReranker` stage but holds no rerank model.
-  Production reranking is the runtime's `PassageReranker`, in `harborrag-runtime`.
+  `PassageReranker`, in `harborrag_engine.retrieval.service.reranking`, orders passages
+  through a rerank client that the runtime builds and passes in.
 - Chat prompt definitions are provider- and transport-neutral; the runtime binds the
   model clients.
 - Reader tools bind only to core reader ports. The MCP server invokes them through one
@@ -98,6 +119,13 @@ repository root:
 ```bash
 uv run pytest packages/harborrag-engine/tests
 ```
+
+The retrieval tests, which need only core and engine, live in
+`packages/harborrag-engine/tests/retrieval/`. They share the in-memory fakes of
+`harborrag_engine.testing.retrieval_fakes` (embedding client, vector repository, chunk
+reader, graph repository, topology repository and a `resources()` builder), which import
+no test framework, so the runtime tests use them too. A fake that needs the runtime or an
+adapter stays in the suite that needs it.
 
 The default run skips tests marked `integration`. Select them explicitly:
 

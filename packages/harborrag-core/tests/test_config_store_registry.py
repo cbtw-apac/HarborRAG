@@ -129,16 +129,16 @@ def test_validate_returns_the_value() -> None:
 def test_level_parse() -> None:
     assert SettingsLevel.parse(None) == SettingsLevel("tenant")
     assert SettingsLevel.parse("tenant") == SettingsLevel("tenant")
-    assert SettingsLevel.parse("project:cpm") == SettingsLevel("project", project_id="cpm")
-    parsed = SettingsLevel.parse("connection:cpm/cpm-tickets")
-    assert parsed == SettingsLevel("connection", project_id="cpm", connection_id="cpm-tickets")
-    assert str(parsed) == "connection:cpm/cpm-tickets"
-    assert str(SettingsLevel.parse("project:cpm")) == "project:cpm"
+    assert SettingsLevel.parse("project:demo") == SettingsLevel("project", project_id="demo")
+    parsed = SettingsLevel.parse("connection:demo/demo-tickets")
+    assert parsed == SettingsLevel("connection", project_id="demo", connection_id="demo-tickets")
+    assert str(parsed) == "connection:demo/demo-tickets"
+    assert str(SettingsLevel.parse("project:demo")) == "project:demo"
     assert str(SettingsLevel("tenant")) == "tenant"
 
 
 @pytest.mark.parametrize(
-    "text", ["folder:x", "connection:cpm", "connection:cpm/Bad!", "project:", ""]
+    "text", ["folder:x", "connection:demo", "connection:demo/Bad!", "project:", ""]
 )
 def test_level_parse_rejects_malformed(text: str) -> None:
     with pytest.raises(HarborValidationError) as raised:
@@ -148,11 +148,11 @@ def test_level_parse_rejects_malformed(text: str) -> None:
 
 
 def test_level_chain_runs_from_tenant_to_self() -> None:
-    level = SettingsLevel.parse("connection:cpm/cpm-tickets")
+    level = SettingsLevel.parse("connection:demo/demo-tickets")
 
     assert [str(item) for item in level.chain()] == [
         "tenant",
-        "project:cpm",
-        "connection:cpm/cpm-tickets",
+        "project:demo",
+        "connection:demo/demo-tickets",
     ]
     assert SettingsLevel("tenant").chain() == (SettingsLevel("tenant"),)

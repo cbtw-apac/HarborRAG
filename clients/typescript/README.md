@@ -112,7 +112,8 @@ The server side of the stream is in
   - `invalid_content_type`: the response is not `text/event-stream`;
   - `missing_body`: the response has no body;
   - `invalid_event`: an event is not a JSON object, or the completion has no answer;
-  - `stream_incomplete`: the stream closed before `response.completed`.
+  - `stream_incomplete`: the stream closed before `response.completed`;
+  - `event_too_large`: one event exceeded the client's size limit (2 Mi characters).
 - **Breaking out of the loop** cancels that response body.
 
 Requests are independent. Each call owns its parser, body reader and request headers, so

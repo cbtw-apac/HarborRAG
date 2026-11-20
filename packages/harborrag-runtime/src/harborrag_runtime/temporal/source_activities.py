@@ -1,3 +1,5 @@
+"""Temporal activities for source-level ingestion steps."""
+
 from __future__ import annotations
 
 import logging
@@ -14,8 +16,7 @@ from temporalio.service import RPCError, RPCStatusCode
 from harborrag_adapters.connectors.base import BaseConnector
 from harborrag_adapters.connectors.harbor_connector import HarborConnector
 from harborrag_core.storage import StorageOperationContext
-from harborrag_runtime.ingestion.composition import IngestionRuntime
-from harborrag_runtime.ingestion.source.models import (
+from harborrag_engine.ingestion.source.models import (
     RelationRepairProgress,
     SourceDiscoveryRun,
     SourceDispatchSummary,
@@ -23,7 +24,8 @@ from harborrag_runtime.ingestion.source.models import (
     SourcePlanCheckpoint,
     SourcePlanIndex,
 )
-from harborrag_runtime.ingestion.source.tasks import source_scan_id
+from harborrag_engine.ingestion.source.tasks import source_scan_id
+from harborrag_runtime.ingestion.composition import IngestionRuntime
 
 from .activity_observability import ActivityObservability
 from .conversion import to_artifact_reference, to_source_request, to_workflow_artifact
@@ -53,6 +55,11 @@ class SourceActivitiesMixin:
 
     @activity.defn(name="harborrag.pause_workflow_execution")
     async def pause_workflow_execution(self, request: WorkflowExecutionControlInput) -> None:
+        """Pause the workflow execution.
+
+        A batch that already closed (or is already paused) has nothing to pause; retrying would only
+        hold up the source workflow's relay.
+        """
         if self._temporal_client is None:
             raise RuntimeError("Temporal client is required for workflow pause control")
         info = activity.info()
@@ -67,8 +74,6 @@ class SourceActivitiesMixin:
                 )
             )
         except RPCError as error:
-            # A batch that already closed (or is already paused) has nothing to
-            # pause; retrying would only hold up the source workflow's relay.
             if error.status in {
                 RPCStatusCode.FAILED_PRECONDITION,
                 RPCStatusCode.NOT_FOUND,
@@ -79,6 +84,7 @@ class SourceActivitiesMixin:
 
     @activity.defn(name="harborrag.unpause_workflow_execution")
     async def unpause_workflow_execution(self, request: WorkflowExecutionControlInput) -> None:
+        """Unpause the workflow execution."""
         if self._temporal_client is None:
             raise RuntimeError("Temporal client is required for workflow pause control")
         info = activity.info()
@@ -106,6 +112,11 @@ class SourceActivitiesMixin:
         self,
         source: SourceIngestionInput,
     ) -> SourceDiscoveryResult:
+        """Discover the source's items and store the plan.
+
+        The plan is its page index, written last: paged discovery already persisted every page, and
+        an unpaged one is paged here. Nothing writes, or holds, the whole plan at once.
+        """
         with self._observability.boundary("DiscoverSourceItems"):
             logger.info(
                 "Source discovery started task_id=%s tenant=%s connector=%s",
@@ -176,9 +187,6 @@ class SourceActivitiesMixin:
                 )
                 raise
             await health.record_success(tenant_id=source.tenant_id, source_key=source.connection_id)
-            # The plan is its page index, written last: paged discovery already
-            # persisted every page, and an unpaged one is paged here. Nothing
-            # writes, or holds, the whole plan at once.
             if discovery.page_counts:
                 index = SourcePlanIndex.from_page_counts(discovery.page_counts)
                 reference = await self._runtime.source_plans.put_index(
@@ -234,7 +242,6 @@ class SourceActivitiesMixin:
         checkpoint, and the plan index written from these counts is how every
         later reader finds them.
         """
-
         await self._runtime.sources.begin_discovery(request)
         document_count = 0
         page_counts: list[int] = []
@@ -351,21 +358,25 @@ class SourceActivitiesMixin:
 
     @activity.defn(name="harborrag.cancel_source_ingestion")
     async def cancel_source_ingestion(self, request: SourceCancellationInput) -> None:
+        """Cancel the source ingestion."""
         with self._observability.boundary("CancelSourceIngestion"):
             await self._runtime.sources.cancel(request.task_id)
 
     @activity.defn(name="harborrag.pause_source_ingestion")
     async def pause_source_ingestion(self, request: SourcePauseInput) -> None:
+        """Pause the source ingestion."""
         with self._observability.boundary("PauseSourceIngestion"):
             await self._runtime.sources.pause(request.task_id)
 
     @activity.defn(name="harborrag.resume_source_ingestion")
     async def resume_source_ingestion(self, request: SourceResumeInput) -> None:
+        """Resume the source ingestion."""
         with self._observability.boundary("ResumeSourceIngestion"):
             await self._runtime.sources.resume(request.task_id)
 
     @activity.defn(name="harborrag.record_source_failure")
     async def record_source_failure(self, request: SourceFailureInput) -> None:
+        """Record the source ingestion failure."""
         with self._observability.boundary("RecordSourceFailure"):
             await self._runtime.sources.fail(request.task_id, error_code=request.error_code)
 
@@ -374,16 +385,18 @@ class SourceActivitiesMixin:
         self,
         request: SourceFinalizationInput,
     ) -> SourceIngestionResult:
+        """Finalize the source ingestion.
+
+        Relation repair and removal reconciliation scale with the source, so a large one runs well
+        past any single fixed budget; the heartbeat is what tells a slow finalization from a dead
+        worker. It carries repair progress, so a retry resumes where this one stopped.
+        """
         with self._observability.boundary("FinalizeSourceIngestion"):
             source = to_source_request(request.source)
             planned = await self._runtime.source_plans.documents(
                 to_artifact_reference(request.plan_reference),
                 context=StorageOperationContext.system(request.source.tenant_id),
             )
-            # Relation repair and removal reconciliation scale with the source,
-            # so a large one runs well past any single fixed budget; the
-            # heartbeat is what tells a slow finalization from a dead worker.
-            # It carries repair progress, so a retry resumes where this one stopped.
             progress = RelationRepairProgress.resume(last_heartbeat_detail())
             outcome = await heartbeat_while(
                 self._runtime.sources.finish(

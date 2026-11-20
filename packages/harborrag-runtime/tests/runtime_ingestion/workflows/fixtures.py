@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-from harborrag_runtime.temporal.schemas import (
-    ProcessingProfileInput,
-    SourceIngestionInput,
-    WorkflowArtifactReference,
-)
+from harborrag_core.ingestion.source_query import ProcessingProfileInput
+from harborrag_runtime.temporal.schemas import SourceIngestionInput, WorkflowArtifactReference
 
 
 def source_input() -> SourceIngestionInput:

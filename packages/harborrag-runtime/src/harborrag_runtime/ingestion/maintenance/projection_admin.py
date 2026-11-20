@@ -22,6 +22,8 @@ _STORES = frozenset({"vector", "graph"})
 
 @dataclass(frozen=True, slots=True)
 class VectorCollectionInventory:
+    """One tenant vector collection and whether it exists."""
+
     logical_name: str
     physical_name: str
     exists: bool
@@ -29,6 +31,8 @@ class VectorCollectionInventory:
 
 @dataclass(frozen=True, slots=True)
 class TenantProjectionInventory:
+    """What one tenant holds in the vector and graph projections."""
+
     tenant: str
     vector_collections: tuple[VectorCollectionInventory, ...]
     graph_name: str
@@ -36,22 +40,33 @@ class TenantProjectionInventory:
     graph_relations: int
 
     def as_dict(self) -> dict[str, object]:
+        """Return the value as a JSON-ready mapping."""
         return asdict(self)
 
 
 @dataclass(frozen=True, slots=True)
 class TenantProjectionDeletion:
+    """The stores deleted for a tenant and what they held before."""
+
     tenant: str
     deleted_stores: tuple[str, ...]
     before: TenantProjectionInventory
     reindex_required: bool = True
 
     def as_dict(self) -> dict[str, object]:
+        """Return the value as a JSON-ready mapping."""
         return asdict(self)
 
 
 class ProjectionAdministrationService:
-    """Inspect and delete one tenant's non-authoritative retrieval projections."""
+    """Inspect and delete one tenant's non-authoritative retrieval projections.
+
+    Args:
+        settings: Runtime settings that name the storage namespace and backends.
+        vectors: Vector repository to use instead of the one built from ``settings``.
+        graph: Graph repository to use instead of the one built from ``settings``.
+
+    """
 
     def __init__(
         self,
@@ -67,6 +82,7 @@ class ProjectionAdministrationService:
         self._start_lock = asyncio.Lock()
 
     async def inspect(self, tenant: str) -> TenantProjectionInventory:
+        """Count the tenant's vector collections and graph nodes and relations."""
         await self._start()
         context = self._context(tenant, "inspect_tenant_projection")
         exists, graph_counts = await asyncio.gather(
@@ -99,6 +115,21 @@ class ProjectionAdministrationService:
         confirmation: str,
         stores: frozenset[str] = _STORES,
     ) -> TenantProjectionDeletion:
+        """Delete the tenant's vector and graph projections; canonical data stays.
+
+        Args:
+            tenant: Tenant whose projections are deleted.
+            confirmation: Must equal ``tenant`` exactly.
+            stores: Projection stores to delete, a non-empty subset of vector and graph.
+
+        Returns:
+            The deleted stores and the inventory taken before deletion.
+
+        Raises:
+            HarborValidationError: The confirmation differs from the tenant, or
+                ``stores`` is empty or names an unknown store.
+
+        """
         if confirmation != tenant:
             raise HarborValidationError(
                 "projection deletion confirmation must exactly match the tenant"
@@ -123,6 +154,7 @@ class ProjectionAdministrationService:
         )
 
     async def close(self) -> None:
+        """Close the repositories if they were started."""
         if not self._started:
             return
         await asyncio.gather(self._vectors.close(), self._graph.close())

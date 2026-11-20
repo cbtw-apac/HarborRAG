@@ -251,22 +251,19 @@ def _harbor(settings: RuntimeSettings, *, model: object = None) -> HarborRAG:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "settings",
-    [
-        RuntimeSettings(memory_enabled=False),
-        RuntimeSettings(memory_extraction_enabled=False),
-    ],
+    "switch",
+    ["memory_enabled", "memory_extraction_enabled"],
     ids=["memory-disabled", "extraction-disabled"],
 )
 async def test_extract_returns_nothing_when_switched_off(
     monkeypatch: pytest.MonkeyPatch,
-    settings: RuntimeSettings,
+    switch: str,
 ) -> None:
     def _unreachable(**kwargs: Any) -> object:
         raise AssertionError("a switched-off policy must not build an extractor")
 
     monkeypatch.setattr(harborrag_memory, "MemoryExtractor", _unreachable, raising=False)
-    harbor = _harbor(settings, model=object())
+    harbor = _harbor(RuntimeSettings(**{switch: False}), model=object())
 
     assert await harbor.memory.extract(_request(), messages=(), memories=object()) == ()  # type: ignore[arg-type]
 

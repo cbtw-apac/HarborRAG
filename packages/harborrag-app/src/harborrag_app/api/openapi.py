@@ -1,11 +1,6 @@
 """The OpenAPI document the API publishes at ``/openapi.json``.
 
-Handles:
-- ``x-min-role`` on every ``/v1`` operation, read from its route guard
-- The error responses every ``/v1`` operation can return, each referencing the shared
-  ``Error`` schema, in place of FastAPI's ``HTTPValidationError``
-
-Does NOT change any route; it annotates the document FastAPI generates once per process.
+Annotates the document FastAPI generates once per process, without changing any route.
 """
 
 from __future__ import annotations
@@ -15,8 +10,9 @@ from typing import Any
 
 from fastapi import FastAPI
 
+from harborrag_app.operations.schemas.common import Error
+
 from .auth.access import api_routes, minimum_role, scopes_tenant
-from .schemas import Error
 
 _ERROR_REF = {"$ref": "#/components/schemas/Error"}
 _STANDARD_ERRORS: dict[int, str] = {

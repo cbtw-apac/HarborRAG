@@ -12,6 +12,7 @@ from harborrag_core.contracts.errors import HarborConflictError
 from harborrag_core.domain.connection import ConnectionBuilder
 from harborrag_core.domain.project import Project
 from harborrag_core.domain.settings import WorkspaceSettings
+from harborrag_core.ingestion.run_contracts import SourceSubmission
 from harborrag_core.testing.control_plane_fakes import (
     FakeConnectionRepository,
     FakeConnectionRevisionRepository,
@@ -26,7 +27,6 @@ from harborrag_runtime.config.connectors.importing import (
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.execution.source_submission import prepare_source_submission
 from harborrag_runtime.ingestion.connections import ConnectionResolver
-from harborrag_runtime.ingestion_contracts import SourceSubmission
 
 from .conftest import REPO_ROOT
 
@@ -271,11 +271,11 @@ async def test_first_start_import_skips_an_install_with_carried_over_rows(
     path = tmp_path / "connectors.yaml"
     path.write_text(_LEGACY, encoding="utf-8")
     projects = FakeProjectRepository(
-        {"cpm": Project(id="cpm", name="CPM", collection="cpm", tenant_id="DEFAULT")}
+        {"demo": Project(id="demo", name="DEMO", collection="demo", tenant_id="DEFAULT")}
     )
     connections = FakeConnectionRepository()
     migrated = (
-        ConnectionBuilder.for_new(tenant_id="DEFAULT", project_id="cpm", connection_id="tickets")
+        ConnectionBuilder.for_new(tenant_id="DEFAULT", project_id="demo", connection_id="tickets")
         .source_type("jira")
         .build()
     )
@@ -419,8 +419,8 @@ async def test_an_entry_kept_with_errors_stores_its_collections_as_json_lists(
 async def test_first_start_import_skips_an_install_that_has_a_project(tmp_path: Path) -> None:
     path = tmp_path / "connectors.yaml"
     path.write_text(_LEGACY, encoding="utf-8")
-    made = Project(id="cpm", name="CPM", collection="cpm", tenant_id="acme")
-    projects, connections = FakeProjectRepository({"cpm": made}), FakeConnectionRepository()
+    made = Project(id="demo", name="DEMO", collection="demo", tenant_id="acme")
+    projects, connections = FakeProjectRepository({"demo": made}), FakeConnectionRepository()
     settings = FakeSettingsRepository(WorkspaceSettings(tenant_id="DEFAULT"))
 
     plan = await import_connectors_once(
@@ -433,7 +433,7 @@ async def test_first_start_import_skips_an_install_that_has_a_project(tmp_path: 
     )
 
     assert plan is None
-    assert [project.id for project in await projects.list(tenant_ids=None)] == ["cpm"]
+    assert [project.id for project in await projects.list(tenant_ids=None)] == ["demo"]
     assert await connections.list(tenant_ids=None) == ([], None)
     assert IMPORT_MARKER_KEY not in (await settings.get()).data
 

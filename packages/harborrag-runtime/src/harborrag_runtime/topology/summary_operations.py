@@ -28,7 +28,6 @@ if TYPE_CHECKING:
 
 async def connect_temporal_client(config: TemporalRuntimeConfig) -> Client:
     """Load the optional Temporal transport only when the worker needs it."""
-
     connect = cast(
         "Callable[[TemporalRuntimeConfig], Awaitable[Client]]",
         load_temporal_attribute(
@@ -41,7 +40,6 @@ async def connect_temporal_client(config: TemporalRuntimeConfig) -> Client:
 
 async def watch_summaries(client: Client, factory: SummaryRuntimeFactory, tenant_id: str) -> None:
     """Load Temporal workflow definitions only when the worker starts."""
-
     watch = cast(
         "Callable[[Client, SummaryRuntimeFactory, str], Awaitable[None]]",
         load_temporal_attribute(
@@ -56,6 +54,7 @@ async def watch_summaries(client: Client, factory: SummaryRuntimeFactory, tenant
 async def connect_summaries(
     settings: RuntimeSettings, tenant_id: str
 ) -> AsyncIterator[SummaryRuntimeFactory]:
+    """Open the control database, artifact store and optional entity index for summary work."""
     config = GraphBuildConfig.from_settings(settings)
     settings = config.effective_settings(settings)
     async with AsyncExitStack() as stack:
@@ -88,6 +87,7 @@ async def connect_summaries(
 
 
 async def status(settings: RuntimeSettings, tenant_id: str) -> dict[str, object]:
+    """Return the tenant's summary scopes and their state."""
     async with connect_topology_authority(settings, migrate=False) as control:
         return {"scopes": await control.summaries.status(tenant_id), "limit": 100}
 
@@ -95,12 +95,14 @@ async def status(settings: RuntimeSettings, tenant_id: str) -> dict[str, object]
 async def backfill(
     settings: RuntimeSettings, tenant_id: str, scope: str | None
 ) -> dict[str, object]:
+    """Enqueue summary jobs for one scope, or for every scope when ``scope`` is None."""
     async with connect_summaries(settings, tenant_id) as factory:
         await factory.synchronize(tenant_id)
         return {"enqueued": await factory.control.summaries.backfill(tenant_id, scope)}
 
 
 async def run_once(settings: RuntimeSettings, tenant_id: str) -> dict[str, object]:
+    """Reconcile summary jobs and run one."""
     async with connect_summaries(settings, tenant_id) as factory:
         await factory.synchronize(tenant_id)
         await factory.control.summaries.reconcile(tenant_id)
@@ -108,6 +110,7 @@ async def run_once(settings: RuntimeSettings, tenant_id: str) -> dict[str, objec
 
 
 async def worker(settings: RuntimeSettings, tenant_id: str) -> None:
+    """Run the Temporal summary worker for the tenant until it stops."""
     async with connect_summaries(settings, tenant_id) as factory:
         client = await connect_temporal_client(
             TemporalRuntimeConfig.from_settings(factory.settings)
@@ -118,6 +121,7 @@ async def worker(settings: RuntimeSettings, tenant_id: str) -> None:
 async def cleanup(
     settings: RuntimeSettings, tenant_id: str, *, retention_days: int, apply: bool
 ) -> dict[str, object]:
+    """Report or, when ``apply`` is true, delete summary data past ``retention_days``."""
     async with connect_topology_authority(settings, migrate=False) as control:
         return await control.summaries.cleanup(
             tenant_id, retention_days=retention_days, apply=apply

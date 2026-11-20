@@ -20,11 +20,13 @@ from .reader_catalog import LIST_SOURCES_SPEC
 from .reader_support import cursor_payload, failure, match_cursor_value, source, success
 from .retrieval_inputs import access, integer, optional_text, string_list, text
 
-logger = logging.getLogger("harborrag.runtime.tools.sources")
+logger = logging.getLogger("harborrag.engine.tools.source_list_tool")
 
 
 @dataclass(slots=True)
 class ListSourcesTool(ReaderTool):
+    """List the sources readable by the principal."""
+
     spec = LIST_SOURCES_SPEC
 
     async def call(
@@ -34,6 +36,7 @@ class ListSourcesTool(ReaderTool):
         principal_id: str,
         context: ToolInvocationContext | None = None,
     ) -> dict[str, object]:
+        """Return the readable sources."""
         if context is not None and principal_id != context.access.principal_id:
             raise PermissionError("tool principal does not match invocation context")
         try:

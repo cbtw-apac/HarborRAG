@@ -14,8 +14,8 @@ from harborrag_app.api import app as api_app
 from harborrag_app.api.app import create_fastapi_app
 from harborrag_app.api.auth.dependencies import build_token_verifier
 from harborrag_app.api.auth.hmac import HmacTokenVerifier
-from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.settings import ApiSettings
+from harborrag_app.operations.principal import Principal
 from harborrag_core.contracts.errors import HarborAuthError
 from harborrag_core.domain.identity import DEFAULT_USER
 

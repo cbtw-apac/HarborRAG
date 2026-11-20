@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from harborrag_adapters.chunking import RecursiveTextRefiner, RoutingTextRefiner, factory
+from harborrag_core.chunking.tokenization import ApproximateTokenCounter
 from harborrag_runtime.config.chunking import (
     RefinerConfig,
     chunking_settings_from,
@@ -22,7 +23,6 @@ from harborrag_runtime.ingestion.chunking_profile import (
     refiner_fingerprint,
 )
 from harborrag_runtime.ingestion.profiles import build_processing_profile
-from harborrag_runtime.tokenization import ApproximateTokenCounter
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[4]
 SHIPPED = REPOSITORY_ROOT / "config" / "ingestion" / "chunking.yaml"
@@ -149,6 +149,7 @@ def test_missing_code_grammars_stop_ingestion_unless_the_fallback_is_chosen(
 
 
 def test_refiner_choice_is_part_of_processing_identity(tmp_path: Path) -> None:
+    """Requiring grammars changes what fails at startup, not how text splits."""
     parser = tmp_path / "parsers.yaml"
     parser.write_text("version: 1\n", encoding="utf-8")
     structure = _write(tmp_path, "version: 1\n")
@@ -162,6 +163,5 @@ def test_refiner_choice_is_part_of_processing_identity(tmp_path: Path) -> None:
         return build_processing_profile(settings).chunk_strategy
 
     assert identity(structure) != identity(recursive)
-    # Requiring grammars changes what fails at startup, not how text splits.
     assert identity(structure) == identity(grammars)
     assert identity(structure) == chunk_strategy_fingerprint(default_chunking_settings().config)

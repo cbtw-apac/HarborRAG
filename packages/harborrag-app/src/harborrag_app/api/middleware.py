@@ -1,10 +1,4 @@
-"""Trace ids and the request body limit.
-
-Handles:
-- One 32-hex trace id per request, from a valid ``X-Trace-Id`` or ``traceparent`` or newly
-  minted, stored on ``request.state.trace_id`` and echoed as ``X-Trace-Id``
-- Refusing a body over the limit with ``413 payload_too_large`` before it is parsed
-"""
+"""Trace ids and the request body limit."""
 
 from __future__ import annotations
 

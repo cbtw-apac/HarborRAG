@@ -13,7 +13,7 @@ from harborrag_adapters.connectors import LocalFileConnector
 from harborrag_adapters.connectors.exceptions import DocumentProcessingError, FetchError
 from harborrag_adapters.connectors.local.filesystem import LocalFileSystem
 from harborrag_adapters.connectors.local.skips import path_digest
-from harborrag_adapters.connectors.schemas import ConnectorQuery
+from harborrag_core.ingestion.connector_contracts import ConnectorQuery
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 
@@ -296,7 +296,7 @@ def test_skip_warning_names_the_file_by_digest_and_run_id(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     """A skip warning carries the reason, a path digest and the run ID, never the name."""
-    write_file(tmp_path / "Alex Example CV.doc", b"ok")
+    write_file(tmp_path / "Alex Example runbook.doc", b"ok")
     connector = LocalFileConnector(config(tmp_path, allowed_extensions={".txt"}))
     connector.bind_run_id("run-1")
 
@@ -315,7 +315,7 @@ def test_callback_failure_warning_names_the_error_class_only(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     """A callback's error message can carry the path, so the warning names its class."""
-    write_file(tmp_path / "Alex Example CV.txt", b"ok")
+    write_file(tmp_path / "Alex Example runbook.txt", b"ok")
 
     def classify(path: str, size: int, mime_type: str) -> tuple[bool, str]:
         raise ValueError(f"cannot classify {path}")

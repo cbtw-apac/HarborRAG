@@ -294,7 +294,7 @@ class CanonicalChunkFactory:
         """Merge the document's fields with the candidate's own metadata.
 
         Most strategies copy nothing from provenance onto a chunk. An attachment
-        is its own document, and its parent's item id is what links a CV back to
+        is its own document, and its parent's item id is what links a design document back to
         the issue whose fields describe it, so every chunk carries that id. Local
         files and SharePoint documents add their document fields here too.
         """

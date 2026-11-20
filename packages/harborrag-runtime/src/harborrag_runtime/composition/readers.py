@@ -16,9 +16,9 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine
 
     from harborrag_core.ports.tenant_directory import TenantDirectory
+    from harborrag_engine.retrieval.service.service import RuntimeRetrievalService
     from harborrag_runtime.config.settings import RuntimeSettings
     from harborrag_runtime.config_store import CachedConfigProvider
-    from harborrag_runtime.retrieval.service import RuntimeRetrievalService
 
 _POSTGRES_DSN_PREFIX = "postgresql"
 _CONFIG_POOL_SIZE = 2

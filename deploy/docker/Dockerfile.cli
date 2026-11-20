@@ -61,4 +61,4 @@ USER harborrag
 
 STOPSIGNAL SIGTERM
 ENTRYPOINT ["harborrag"]
-CMD ["doctor", "--json"]
+CMD ["doctor", "-o", "json"]

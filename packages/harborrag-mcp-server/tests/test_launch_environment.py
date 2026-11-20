@@ -133,18 +133,24 @@ def test_installed_command_accepts_env_file_without_checkout(tmp_path: Path) -> 
     assert len(json.loads(result.stdout)) == 11
 
 
-def test_audit_path_from_env_file_reaches_the_shared_audit_log(
+def test_audit_path_from_env_file_reaches_the_launched_registry(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import harborrag_mcp_server.server.server as server_module
+    import harborrag_mcp_server.__main__ as cli
 
     audit_path = tmp_path / "from-env-file" / "audit.jsonl"
     env_file = tmp_path / "mcp.env"
     env_file.write_text(f"HARBORRAG_MCP_AUDIT_PATH={audit_path}\n", encoding="utf-8")
     monkeypatch.delenv("HARBORRAG_MCP_AUDIT_PATH")
-    # The CLI has already imported the server module by the time env files load.
-    monkeypatch.setattr(server_module, "_default_audit_log", None)
+    configured = []
+    original = cli._configure_registry
 
-    load_launch_environment(checkout_root=None, env_files=[env_file])
+    def spy(registry, path):
+        configured.append(registry)
+        return original(registry, path)
 
-    assert server_module.McpServer().audit.path == audit_path
+    monkeypatch.setattr(cli, "_configure_registry", spy)
+
+    assert cli.main(["--check", "--env-file", str(env_file)]) == 0
+
+    assert [registry.audit.path for registry in configured] == [audit_path]

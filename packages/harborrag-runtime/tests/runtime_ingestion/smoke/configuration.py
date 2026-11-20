@@ -11,6 +11,7 @@ from urllib.parse import quote
 from dotenv import load_dotenv
 from pydantic import SecretStr
 
+from harborrag_core.ingestion.source_query import ProcessingProfileInput
 from harborrag_runtime.config import (
     connector_fingerprint,
     load_connector_catalog,
@@ -19,10 +20,7 @@ from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.ingestion.document.normalization import (
     CANONICAL_NORMALIZER_VERSION,
 )
-from harborrag_runtime.temporal.schemas import (
-    ProcessingProfileInput,
-    SourceIngestionInput,
-)
+from harborrag_runtime.temporal.schemas import SourceIngestionInput
 
 ROOT = Path(__file__).resolve().parents[5]
 FIXTURES = Path(__file__).resolve().parent / "fixtures"

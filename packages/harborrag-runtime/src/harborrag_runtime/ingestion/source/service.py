@@ -17,14 +17,9 @@ from harborrag_adapters.repositories.database import (
 )
 from harborrag_adapters.repositories.errors import HarborStorageValidationError
 from harborrag_core.ingestion import IngestionTaskState
-
-from ...errors import VectorIndexSchemaError
-from ..document.service import DocumentReleaseService
-from ..maintenance.relation_repair import GraphRelationRepairService
-from .discovery import SourceDiscoveryPlanner
-from .documents import SourceDocumentService
-from .finalization import SourceFinalizationService
-from .models import (
+from harborrag_engine.ingestion.release.service import DocumentReleaseService
+from harborrag_engine.ingestion.source.models import (
+    DISCOVERY_SKIPS_KEY,
     PlannedDocuments,
     RelationRepairProgress,
     SourceDiscoveryPage,
@@ -33,10 +28,16 @@ from .models import (
     SourceIngestionOutcome,
     SourceIngestionRequest,
 )
+from harborrag_engine.ingestion.source.tasks import pending_source_task, source_scan_id
+
+from ...errors import VectorIndexSchemaError
+from ..maintenance.relation_repair import GraphRelationRepairService
+from .discovery import SourceDiscoveryPlanner
+from .documents import SourceDocumentService
+from .finalization import SourceFinalizationService
 from .operations import SourceDocumentOperations
 from .retry import SourceRetryService
-from .skips import DISCOVERY_SKIPS_KEY, carried_discovery_skips
-from .tasks import pending_source_task, source_scan_id
+from .skips import carried_discovery_skips
 
 logger = logging.getLogger("harborrag.runtime.ingestion.source")
 
@@ -193,7 +194,7 @@ class SourceIngestionService(SourceDocumentOperations):
         logger.info("Source ingestion cancelled task_id=%s", task_id)
 
     async def pause(self, task_id: str) -> None:
-        """Mark a running task paused, leaving a task in any other state as it is."""
+        """Pause a running ingestion task; a missing or paused task is left as is."""
         task = await self._control.tasks.get(task_id)
         if task is None or task.status == IngestionTaskState.PAUSED:
             return
@@ -201,7 +202,7 @@ class SourceIngestionService(SourceDocumentOperations):
             await self._control.tasks.transition(task_id, IngestionTaskState.PAUSED)
 
     async def resume(self, task_id: str) -> None:
-        """Mark a paused task running again, leaving a task in any other state as it is."""
+        """Resume a paused ingestion task; a missing or running task is left as is."""
         task = await self._control.tasks.get(task_id)
         if task is None or task.status == IngestionTaskState.RUNNING:
             return
@@ -310,7 +311,7 @@ class SourceIngestionService(SourceDocumentOperations):
         document_count: int,
         page_count: int,
     ) -> None:
-        """Record how far paged discovery has got on the task."""
+        """Record discovery counts on the task summary."""
         await self._control.tasks.update_summary(
             task_id,
             {
@@ -361,7 +362,7 @@ class SourceIngestionService(SourceDocumentOperations):
         summary: SourceDispatchSummary,
         repair_progress: RelationRepairProgress | None = None,
     ) -> SourceIngestionOutcome:
-        """Repair relations, reconcile removals and record the run's final outcome."""
+        """Close the source ingestion once every planned document has an outcome."""
         return await self._finalization.finish(
             request,
             scan_id=scan_id,
@@ -371,13 +372,12 @@ class SourceIngestionService(SourceDocumentOperations):
         )
 
     async def _initialize(self, request: SourceIngestionRequest) -> None:
-        """Register the scope, start the task and provision the vector index.
+        """Register the task and scan scope before discovery starts.
 
-        The task runs in this process, so it is created with an ``executor``
-        submission marker. The marker keeps the API outbox from submitting it
-        again if it stops while PENDING. A row that a durable start registered
-        already exists and keeps its summary. Provisioning comes after the task
-        runs, so a provisioning failure can be recorded on it.
+        The task executes in this process, so it is never awaiting submission: the marker keeps the
+        API outbox from re-submitting it if it stops while PENDING. A row a durable start registered
+        already exists and keeps its summary. The marker is set after the task exists and runs, so a
+        provisioning failure can be recorded.
         """
         await self._control.source_scans.register_scope(
             tenant_id=request.tenant_id,

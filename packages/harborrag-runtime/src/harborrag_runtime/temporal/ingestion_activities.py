@@ -1,3 +1,5 @@
+"""Temporal activities that run the per-document ingestion stages."""
+
 from __future__ import annotations
 
 from dataclasses import replace
@@ -8,6 +10,7 @@ from temporalio.exceptions import ApplicationError
 
 from harborrag_core.contracts.errors import HarborConflictError, HarborValidationError
 from harborrag_core.ingestion import DocumentIngestionOutcome
+from harborrag_core.ingestion.run_contracts import SourceSubmission
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.config.temporal import TemporalRuntimeConfig
 from harborrag_runtime.execution.gateway import prepare_configured_source_submission
@@ -15,7 +18,6 @@ from harborrag_runtime.ingestion.composition import IngestionRuntime
 from harborrag_runtime.ingestion.connections import require_fingerprint
 from harborrag_runtime.ingestion.document.run_tools import ParserUnavailableError
 from harborrag_runtime.ingestion.observability import IngestionTelemetry
-from harborrag_runtime.ingestion_contracts import SourceSubmission
 
 from .activity_observability import ActivityObservability
 from .conversion import (
@@ -52,9 +54,9 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
         settings: RuntimeSettings | None = None,
         temporal_config: TemporalRuntimeConfig | None = None,
     ) -> None:
+        """The config this worker polls with, so children go to queues it serves."""
         self._runtime = runtime
         self._settings = settings
-        # The config this worker polls with, so children go to queues it serves.
         self._temporal_config = temporal_config
         self._temporal_client = temporal_client
         self._observability = ActivityObservability(telemetry or IngestionTelemetry())
@@ -72,7 +74,6 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
                 connection store, or the connection is removed, being deleted or
                 invalid, since none of these heal on retry.
         """
-
         settings = self._settings
         temporal_config = self._temporal_config
         if settings is None or temporal_config is None:
@@ -112,6 +113,7 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
 
     @activity.defn(name="harborrag.record_scheduled_run_metrics")
     async def record_scheduled_run_metrics(self, request: ScheduledRunMetricInput) -> None:
+        """Record a scheduled run's outcome in telemetry."""
         self._runtime.telemetry.record_scheduled_run(
             request.schedule_id,
             request.outcome,
@@ -123,6 +125,7 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
         self,
         request: DocumentIngestionInput,
     ) -> RawCaptureResult:
+        """Fetch the document from its connector and capture the raw bytes."""
         with self._observability.boundary("FetchAndCaptureRaw"):
             planned = await self._documents.get(request)
             connector = await self._runtime.connector(
@@ -150,6 +153,13 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
         self,
         request: RawCaptureResult,
     ) -> PreparedDocument:
+        """Parse the raw document and normalize it.
+
+        Parsing runs in-process. The isolated-subprocess attempt that used to precede this could
+        never succeed -- the preparation stages hold the parser registry's local closures, the
+        database engine and the S3 client, none of which pickle -- so every parse paid for a failed
+        spawn attempt and then ran here anyway.
+        """
         with self._observability.boundary("ParseAndNormalize"):
             planned = await self._documents.get(request.document)
             capture_stage = to_capture_stage(request)
@@ -170,11 +180,6 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
                 "resumed": prior is not None,
                 "prior_attempt_count": prior_attempt_count,
             }
-            # Parsing runs in-process. The isolated-subprocess attempt that used to
-            # precede this could never succeed -- the preparation stages hold the
-            # parser registry's local closures, the database engine and the S3
-            # client, none of which pickle -- so every parse paid for a failed spawn
-            # attempt and then ran here anyway.
             try:
                 prepared_stage = await heartbeat_while(
                     self._runtime.stages.preparation.parse_and_normalize(
@@ -195,6 +200,7 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
         self,
         request: PreparedDocument,
     ) -> PreparedDocument:
+        """Sync the document's content units."""
         with self._observability.boundary("SyncContentUnits"):
             planned = await self._documents.get(request.document)
             await heartbeat_while(
@@ -211,6 +217,7 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
         self,
         request: PreparedDocument,
     ) -> PreparedDocument:
+        """Persist the canonical document."""
         with self._observability.boundary("PersistCanonical"):
             planned = await self._documents.get(request.document)
             await heartbeat_while(
@@ -227,6 +234,7 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
         self,
         request: PreparedDocument,
     ) -> PreparedDocument:
+        """Chunk the document and validate the chunks."""
         with self._observability.boundary("ChunkAndValidate"):
             planned = await self._documents.get(request.document)
             statistics = await heartbeat_while(
@@ -244,6 +252,7 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
         self,
         request: PreparedDocument,
     ) -> PreparedDocument:
+        """Encode the document's chunks."""
         with self._observability.boundary("EncodeChunks"):
             planned = await self._documents.get(request.document)
             await heartbeat_while(
@@ -260,6 +269,7 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
         self,
         request: PreparedDocument,
     ) -> PreparedDocument:
+        """Build the document's relations."""
         with self._observability.boundary("BuildRelations"):
             planned = await self._documents.get(request.document)
             await heartbeat_while(
@@ -276,6 +286,7 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
         self,
         request: PreparedDocument,
     ) -> PreparedDocument:
+        """Build the document's projections."""
         with self._observability.boundary("BuildProjections"):
             planned = await self._documents.get(request.document)
             await heartbeat_while(
@@ -292,6 +303,7 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
         self,
         request: PreparedDocument,
     ) -> PreparedDocument:
+        """Write the document's vector projection."""
         with self._observability.boundary("WriteVectorProjection"):
             planned = await self._documents.get(request.document)
             await heartbeat_while(
@@ -308,6 +320,7 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
         self,
         request: PreparedDocument,
     ) -> PreparedDocument:
+        """Write the document's graph projection."""
         with self._observability.boundary("WriteGraphProjection"):
             planned = await self._documents.get(request.document)
             await heartbeat_while(
@@ -324,6 +337,7 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
         self,
         request: PreparedDocument,
     ) -> PreparedDocument:
+        """Verify the document's projections."""
         with self._observability.boundary("VerifyProjections"):
             planned = await self._documents.get(request.document)
             await heartbeat_while(
@@ -340,6 +354,7 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
         self,
         request: PreparedDocument,
     ) -> DocumentIngestionOutcome:
+        """Publish the document version."""
         with self._observability.boundary("PublishVersion"):
             planned = await self._documents.get(request.document)
             outcome = await self._runtime.stages.projections.publish_version(
@@ -360,6 +375,7 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
         self,
         request: DocumentFailureInput,
     ) -> None:
+        """Record the document's failure."""
         with self._observability.boundary("RecordDocumentFailure"):
             planned = await self._documents.get(request.document)
             if request.prepared is not None:

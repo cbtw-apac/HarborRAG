@@ -11,11 +11,12 @@ dependencies = [
     "harborrag-runtime==2.0.0a2",
     "harborrag-engine==2.0.0a2",
     "harborrag-memory==2.0.0a2",
+    "click>=8.4.0,<9",
     "pydantic>=2.13,<3",
     "python-dotenv>=1,<2",
     "PyYAML>=6.0,<7",
     "rich>=14,<16",
-    "typer>=0.24,<0.27",
+    "typer>=0.24,<0.25",
 ]
 
 [project.scripts]
@@ -34,7 +35,7 @@ api = [
 ]
 durable = ["harborrag-runtime[temporal]==2.0.0a2"]
 production = [
-    # chunking-code: `harborrag ingest run` chunks inline and requires the code grammars.
+    # chunking-code: `harborrag ingestions start --inline` chunks inline and requires the code grammars.
     "harborrag-adapters[chunking-code,control-plane,falkordb,llm,postgres,qdrant,s3]==2.0.0a2",
     "harborrag-runtime[temporal]==2.0.0a2",
 ]

@@ -1,18 +1,17 @@
 """Keep connector HTTP traffic off private networks unless the operator allows a host.
 
-Handles:
-- ``DestinationPolicy``: which peer addresses a connector may reach; public addresses
-  always, private, loopback, link-local and reserved ones only when allowed by name
-  or network in ``HARBORRAG_CONNECTOR_ALLOWED_HOSTS``
-- ``guarded_session``: a ``requests`` session that checks every address a host
-  resolves to before connecting, then the address the socket actually reached,
-  so neither a closed port nor a DNS answer that changes in between slips through
-- ``redirect_location``: the target of a redirect, with bytes that are not UTF-8
-  kept as percent escapes so following it never fails to decode
+Public addresses are always allowed; private, loopback, link-local and reserved ones only
+when named in ``HARBORRAG_CONNECTOR_ALLOWED_HOSTS``. ``guarded_session`` checks every address
+a host resolves to before connecting, then the address the socket actually reached, so
+neither a closed port nor a DNS answer that changes in between slips through. Its redirect
+targets keep bytes that are not UTF-8 as percent escapes, so following one never fails.
 
 Proxy variables such as ``HTTPS_PROXY`` are ignored unless the operator sets
 ``HARBORRAG_CONNECTOR_USE_PROXY``. Through a proxy, only the target host's own
 addresses are checked; the proxy then decides where the request goes.
+
+Only ``DestinationPolicy.from_environ`` reads the environment, and the runtime calls
+it. A client built without a policy gets the default one, public addresses only.
 """
 
 from __future__ import annotations
@@ -22,7 +21,7 @@ import socket
 from collections.abc import Mapping
 from dataclasses import dataclass
 from functools import lru_cache
-from ipaddress import IPv4Network, IPv6Address, IPv6Network, ip_address, ip_network
+from ipaddress import IPv4Address, IPv4Network, IPv6Address, IPv6Network, ip_address, ip_network
 from typing import Any, Self
 from urllib.parse import urlparse
 
@@ -37,6 +36,11 @@ from ..exceptions import FetchError
 ALLOWED_HOSTS_VARIABLE = "HARBORRAG_CONNECTOR_ALLOWED_HOSTS"
 USE_PROXY_VARIABLE = "HARBORRAG_CONNECTOR_USE_PROXY"
 _TRUE = frozenset({"1", "true", "yes", "on"})
+_NAT64_PREFIX = IPv6Network("64:ff9b::/96")
+_IPV4_COMPATIBLE_PREFIX = IPv6Network("::/96")
+_IPV4_TRANSLATED_PREFIX = IPv6Network("::ffff:0:0:0/96")
+_UNSPECIFIED_AND_LOOPBACK = IPv6Network("::/127")
+_IPV4_MASK = 0xFFFFFFFF
 
 
 class BlockedDestinationError(FetchError):
@@ -47,7 +51,23 @@ class BlockedDestinationError(FetchError):
 
 @dataclass(frozen=True, slots=True)
 class DestinationPolicy:
-    """Host names and networks a connector may reach although they are not public."""
+    """Host names and networks a connector may reach although they are not public.
+
+    The default allows public addresses only. The runtime builds the operator's
+    policy once with ``from_environ`` and passes it to every connector.
+
+    Args:
+        hosts: Lower-case host names that are reachable although they are not public.
+        networks: Address ranges that are reachable although they are not public.
+        use_proxy: Whether requests may go through the proxies named in the process
+            environment.
+
+    Attributes:
+        hosts: Lower-case host names that are reachable although they are not public.
+        networks: Address ranges that are reachable although they are not public.
+        use_proxy: Whether requests may go through the proxies named in the process
+            environment.
+    """
 
     hosts: frozenset[str] = frozenset()
     networks: tuple[IPv4Network | IPv6Network, ...] = ()
@@ -102,6 +122,9 @@ class DestinationPolicy:
     def check(self, host: str, address: str) -> None:
         """Refuse ``address`` unless it is public, or ``host`` or ``address`` is allowed.
 
+        An IPv6 address that carries an IPv4 address (IPv4-mapped, IPv4-translated,
+        NAT64 or IPv4-compatible) is judged by the IPv4 address it carries.
+
         Args:
             host: Host name the address was resolved from.
             address: IP address to check, with an optional IPv6 zone suffix.
@@ -109,14 +132,13 @@ class DestinationPolicy:
         Raises:
             BlockedDestinationError: The address is private and not allowed.
         """
-        peer = ip_address(address.split("%", 1)[0])
-        if isinstance(peer, IPv6Address) and peer.ipv4_mapped is not None:
-            peer = peer.ipv4_mapped
+        reached = ip_address(address.split("%", 1)[0])
+        peer = _embedded_ipv4(reached) or reached
         if peer.is_global and not peer.is_multicast:
             return
         if host.casefold().rstrip(".") in self.hosts:
             return
-        if any(peer in network for network in self.networks):
+        if any(peer in network or reached in network for network in self.networks):
             return
         raise BlockedDestinationError(
             f"{host} resolves to the private address {peer}; list the host or its network "
@@ -124,10 +146,25 @@ class DestinationPolicy:
         )
 
 
-def guarded_session(policy: DestinationPolicy | None = None) -> requests.Session:
-    """Return a session whose direct connections obey ``policy``, read from the environment by default."""
+def _embedded_ipv4(address: IPv4Address | IPv6Address) -> IPv4Address | None:
+    """Return the IPv4 address an IPv6 address carries as IPv4-mapped, IPv4-translated, NAT64 or IPv4-compatible."""
+    if not isinstance(address, IPv6Address):
+        return None
+    if address.ipv4_mapped is not None:
+        return address.ipv4_mapped
+    if (
+        address in _NAT64_PREFIX
+        or address in _IPV4_TRANSLATED_PREFIX
+        or (address in _IPV4_COMPATIBLE_PREFIX and address not in _UNSPECIFIED_AND_LOOPBACK)
+    ):
+        return IPv4Address(int(address) & _IPV4_MASK)
+    return None
+
+
+def guarded_session(policy: DestinationPolicy) -> requests.Session:
+    """Return a session whose direct connections obey ``policy``."""
     session = _GuardedSession()
-    adapter = _GuardedAdapter(policy or DestinationPolicy.from_environ())
+    adapter = _GuardedAdapter(policy)
     session.mount("http://", adapter)
     session.mount("https://", adapter)
     return session

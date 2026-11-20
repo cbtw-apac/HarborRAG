@@ -29,12 +29,6 @@ from harborrag_adapters.connectors.registry import (
     ConnectorProviderDefinition,
     connector_registry,
 )
-from harborrag_adapters.connectors.schemas import (
-    ConnectorCapabilities,
-    ConnectorMetadata,
-    ConnectorQuery,
-    ConnectorSkip,
-)
 from harborrag_adapters.connectors.sharepoint import (
     SharePointConnector,
     SharePointSiteConfig,
@@ -49,6 +43,7 @@ connector_registry.register_provider(
         constructor_dependencies={
             "parser": "attachment_parser",
             "rate_limiter": "rate_limiter",
+            "destination_policy": "destination_policy",
         },
         document_kind="page",
         document_transform_factory=ConfluenceDocumentTransform,
@@ -60,6 +55,7 @@ connector_registry.register_provider(
         GitHubConnector,
         aliases=("github_repo", "github_repository"),
         config_factory=GitHubRepositoryConfig,
+        constructor_dependencies={"destination_policy": "destination_policy"},
         document_kind="file",
     )
 )
@@ -72,6 +68,7 @@ connector_registry.register_provider(
         constructor_dependencies={
             "parser": "attachment_parser",
             "rate_limiter": "rate_limiter",
+            "destination_policy": "destination_policy",
         },
         document_kind="issue",
         document_transform_factory=JiraDocumentTransform,
@@ -94,7 +91,10 @@ connector_registry.register_provider(
         SharePointConnector,
         aliases=("microsoft_sharepoint", "sharepoint_online"),
         config_factory=SharePointSiteConfig,
-        constructor_dependencies={"rate_limiter": "rate_limiter"},
+        constructor_dependencies={
+            "rate_limiter": "rate_limiter",
+            "destination_policy": "destination_policy",
+        },
         document_kind="file",
     )
 )

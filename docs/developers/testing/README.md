@@ -13,13 +13,19 @@ Each package tests its own behaviour:
 tests/                                repository-wide and website tests
 packages/harborrag-core/tests/        core contracts and schemas
 packages/harborrag-adapters/tests/    connectors, parsers, models, repositories
-packages/harborrag-engine/tests/      engine policy, tools and utilities
+packages/harborrag-engine/tests/      engine policy, tools, utilities and retrieval
 packages/harborrag-memory/tests/      conversation memory
 packages/harborrag-runtime/tests/     config loaders and runtime boundaries
 packages/harborrag-app/tests/         CLI, HTTP and app boundaries
 packages/harborrag-mcp-server/tests/  MCP boundaries
 packages/harborrag/tests/             meta-package exports
 ```
+
+A test sits in the lowest package whose code it imports. The retrieval tests that need only
+core and engine are in `packages/harborrag-engine/tests/retrieval/`, and the in-memory fakes
+they share ship in `harborrag_engine.testing.retrieval_fakes`, so the runtime tests that
+also need those fakes import them from there. A fake that needs the runtime or an adapter
+stays in that package's test support.
 
 ## Run the tests
 

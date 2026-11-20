@@ -32,18 +32,10 @@ if TYPE_CHECKING:
     from harborrag_core.contracts.reader import RetrievalResponse
     from harborrag_core.ports.reader import ReaderServices, RetrievalReader
 
-logger = logging.getLogger("harborrag.runtime.tools.vector_search")
+logger = logging.getLogger("harborrag.engine.tools.vector_search")
 
 _DEFAULT_TOP_K = 5
 _MAX_TOP_K = MAX_TOOL_RESULTS
-# Per-hit metadata no consumer of this tool reads, dropped so a 30-character
-# comment does not travel with a kilobyte of bookkeeping. ``record_kind`` and
-# ``retrieval_source`` are the same constant on every hit; ``raw_score`` is a
-# lane-internal number (cosine, BM25 or RRF) that is comparable to nothing;
-# ``quality_score`` is a chunker default (1.0 for every record chunk); and
-# ``content_hash`` and ``parent_source_item_id`` have done their job once retrieval
-# collapsed identical texts per subject.
-# In-process callers still see them on ``RetrievalResult.metadata``.
 TRIMMED_METADATA_KEYS = frozenset(
     {
         "record_kind",
@@ -54,6 +46,13 @@ TRIMMED_METADATA_KEYS = frozenset(
         "parent_source_item_id",
     }
 )
+"""Per-hit metadata no consumer of this tool reads, dropped so a 30-character comment does not
+travel with a kilobyte of bookkeeping. ``record_kind`` and ``retrieval_source`` are the same
+constant on every hit; ``raw_score`` is a lane-internal number (cosine, BM25 or RRF) that is
+comparable to nothing; ``quality_score`` is a chunker default (1.0 for every record chunk); and
+``content_hash`` and ``parent_source_item_id`` have done their job once retrieval collapsed
+identical texts per subject. In-process callers still see them on ``RetrievalResult.metadata``.
+"""
 
 
 def _meets(result: RetrievalResult, threshold: float) -> bool:
@@ -66,7 +65,6 @@ def _meets(result: RetrievalResult, threshold: float) -> bool:
     be shown to meet a bar, so a non-zero threshold drops it rather than letting
     a squashed keyword score stand in for similarity.
     """
-
     if threshold <= 0.0:
         return True
     return result.relevance is not None and result.relevance >= threshold
@@ -123,6 +121,7 @@ class VectorSearchTool(BaseTool):
         principal_id: str,
         context: ToolInvocationContext | None = None,
     ) -> dict[str, object]:
+        """Return the passages most similar to the query."""
         if context is not None and principal_id != context.access.principal_id:
             raise PermissionError("tool principal does not match invocation context")
         try:
@@ -178,18 +177,20 @@ async def _search(
     threshold: float = 0.0,
     include_content: bool = True,
 ) -> dict[str, object]:
+    """Search the vector backend and return the tool response.
+
+    A refused filter, such as an unindexed source field or a range on an exact-match key, is the
+    caller's to fix, so the error says what to fix instead of "failed". Any other failure shows the
+    caller only a generic message; the real cause, such as a misconfigured provider or an
+    unreachable store, appears in the server logs and never in the tool response.
+    """
     if reader is None:
         return {"ok": False, "error": "vector retrieval backend is not configured"}
     try:
         response = await reader.search(request)
     except HarborValidationError as exc:
-        # A refused filter (an unindexed source field, a range on an exact-match
-        # key) is the caller's to fix, so it says what to fix instead of "failed".
         return {"ok": False, "error": str(exc)}
     except Exception:
-        # The caller only ever sees the generic message below; the real cause
-        # (e.g. a misconfigured provider or an unreachable store) is only
-        # visible in the server logs, never in the tool response.
         logger.exception("vector retrieval backend raised during search")
         return {"ok": False, "error": "vector retrieval backend failed"}
     return {

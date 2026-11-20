@@ -21,8 +21,7 @@ from harborrag_core.topology import (
     digest,
 )
 from harborrag_core.topology.budget import BudgetRequest, UsageSettlement
-
-from .reservation_deadline import reservation_seconds
+from harborrag_engine.topology.reservation_deadline import reservation_seconds
 
 
 class EnrichmentDeferredError(RuntimeError):
@@ -40,7 +39,6 @@ def extraction_attempt_operation_key(
     attempt: int,
 ) -> str:
     """Deduplicate replay within an attempt while allowing bounded job retries."""
-
     if attempt < 1:
         raise ValueError("claimed topology jobs require a positive attempt")
     return digest([extraction_operation_key(value, profile), attempt])
@@ -48,6 +46,8 @@ def extraction_attempt_operation_key(
 
 @dataclass(frozen=True)
 class BudgetedExtractor:
+    """Extraction port that checks and records each call against the topology budget."""
+
     delegate: UsageAwareExtractionPort
     repository: TopologyBudgetRepositoryPort
     job: TopologyJob
@@ -61,6 +61,14 @@ class BudgetedExtractor:
         tenant_id: str,
         document_id: str,
     ) -> ExtractionOutput:
+        """Extract entities from one chunk within the topology budget.
+
+        Unknown usage retains the full reservation. Failure and cancellation never reassign it
+        downwards, because no dispatch reported what it actually cost.
+
+        A provider that omits usage must not settle to zero, which would make the call free against
+        the daily cap.
+        """
         if tenant_id != self.job.tenant_id or document_id != self.job.document_id:
             raise ValueError("budgeted extraction scope differs from claimed work")
         if self.cost_ceiling_usd is None:
@@ -83,8 +91,6 @@ class BudgetedExtractor:
                 admission.reason or "budget_unavailable",
                 retry_after=admission.retry_after,
             )
-        # Unknown usage retains the full reservation. Failure and cancellation never
-        # reassign it downwards, because no dispatch reported what it actually cost.
         settlement = UsageSettlement()
         try:
             async with asyncio.timeout(reservation_seconds(admission)):
@@ -93,8 +99,6 @@ class BudgetedExtractor:
                 )
                 reported = run.usage.prompt_tokens + run.usage.completion_tokens
                 if reported > 0:
-                    # A provider that omits usage must not settle to zero, which would
-                    # make the call free against the daily cap.
                     settlement = UsageSettlement(
                         input_tokens=run.usage.prompt_tokens,
                         output_tokens=run.usage.completion_tokens,

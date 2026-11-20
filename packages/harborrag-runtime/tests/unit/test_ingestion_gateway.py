@@ -7,15 +7,17 @@ from unittest.mock import AsyncMock
 import pytest
 from temporalio.converter import DataConverter
 
-from harborrag_runtime.ingestion_contracts import (
-    IngestionExecutionReference,
-    IngestionExecutionResult,
-    IngestionExecutionStatus,
+from harborrag_core.ingestion.run_contracts import (
     IngestionRetryRequest,
     PreparedSourceSubmission,
     RunKind,
 )
-from harborrag_runtime.source_query import ProcessingProfileInput, SourceQuery
+from harborrag_core.ingestion.source_query import ProcessingProfileInput, SourceQuery
+from harborrag_runtime.ingestion_contracts import (
+    IngestionExecutionReference,
+    IngestionExecutionResult,
+    IngestionExecutionStatus,
+)
 from harborrag_runtime.temporal.gateway import TemporalIngestionGateway, to_temporal_source
 from harborrag_runtime.temporal.identity import RuntimeWorkflowRef
 from harborrag_runtime.temporal.schemas import (

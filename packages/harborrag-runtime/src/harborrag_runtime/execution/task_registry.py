@@ -1,3 +1,5 @@
+"""Ingestion task registry backed by the control plane."""
+
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
@@ -20,11 +22,11 @@ from harborrag_core.ingestion import (
     TaskPage,
     TaskRegistration,
 )
+from harborrag_core.ingestion.run_contracts import PreparedSourceSubmission
 from harborrag_core.invariants import HarborInvariantError
+from harborrag_engine.ingestion.source.tasks import pending_source_task, source_scan_id
 from harborrag_runtime.composition.resources import build_ingestion_control
 from harborrag_runtime.config.settings import RuntimeSettings
-from harborrag_runtime.ingestion.source.tasks import pending_source_task, source_scan_id
-from harborrag_runtime.ingestion_contracts import PreparedSourceSubmission
 
 from .source_conversion import to_source_request
 
@@ -42,6 +44,7 @@ class IngestionTaskRegistry:
         cls,
         settings: RuntimeSettings,
     ) -> IngestionTaskRegistry:
+        """Connect to the control plane and return a registry."""
         control = build_ingestion_control(settings)
         await control.connect()
         if settings.env == "dev":
@@ -57,6 +60,7 @@ class IngestionTaskRegistry:
         actor: str | None = None,
         actor_type: str | None = None,
     ) -> TaskRegistration:
+        """Register a task for a prepared submission, idempotent by key."""
         request = to_source_request(source)
         await self._control.source_scans.register_scope(
             tenant_id=request.tenant_id,
@@ -84,6 +88,7 @@ class IngestionTaskRegistry:
         actor: str | None = None,
         actor_type: str | None = None,
     ) -> TaskRegistration:
+        """Register a retry task for documents of an earlier task."""
         request = original.request
         tenant_id = request.get("tenant_id")
         if not isinstance(tenant_id, str) or not tenant_id.strip():
@@ -146,15 +151,19 @@ class IngestionTaskRegistry:
         )
 
     async def get(self, task_id: str) -> IngestionTask | None:
+        """Return the task, or None."""
         return await self._control.tasks.get(task_id)
 
     async def pending_submissions(self, *, limit: int = 100) -> tuple[IngestionTask, ...]:
+        """Return tasks waiting to be submitted."""
         return await self._control.tasks.pending_submissions(limit=limit)
 
     async def claim_submission(self, task_id: str) -> str | None:
+        """Claim a task for submission; return the claim token, or None."""
         return await self._control.tasks.claim_submission(task_id)
 
     async def release_submission_claim(self, task_id: str, token: str) -> bool:
+        """Release a submission claim; return whether the token matched."""
         return await self._control.tasks.release_submission_claim(task_id, token)
 
     async def list_tasks(  # noqa: PLR0913 - the listing's filters plus keyset position
@@ -168,6 +177,7 @@ class IngestionTaskRegistry:
         created_after: datetime | None = None,
         limit: int = 50,
     ) -> TaskPage:
+        """List tasks by filter, newest first."""
         return await self._control.tasks.list_tasks(
             tenant_ids=tenant_ids,
             statuses=statuses,
@@ -185,11 +195,13 @@ class IngestionTaskRegistry:
         after_task_id: str | None = None,
         limit: int = 500,
     ) -> tuple[IngestionTask, ...]:
+        """List active tasks in submission order."""
         return await self._control.tasks.list_active(
             after_submitted_at=after_submitted_at, after_task_id=after_task_id, limit=limit
         )
 
     async def append_task_event(self, task_id: str, event: HarborEvent) -> HarborEvent:
+        """Append an event to the task and return it with its sequence."""
         seq = await self._control.task_events.append_event(task_id, event)
         return replace(event, seq=seq)
 
@@ -205,6 +217,7 @@ class IngestionTaskRegistry:
         after_seq: int | None = None,
         limit: int = 500,
     ) -> list[HarborEvent]:
+        """List the task's events after a sequence."""
         return await self._control.task_events.list_events(
             task_id, after_seq=after_seq, limit=limit
         )
@@ -214,6 +227,7 @@ class IngestionTaskRegistry:
         task_id: str,
         values: Mapping[str, object],
     ) -> None:
+        """Merge values into the task summary."""
         await self._control.tasks.update_summary(task_id, values)
 
     async def fail_if_unsubmitted(
@@ -222,6 +236,7 @@ class IngestionTaskRegistry:
         *,
         summary: Mapping[str, object],
     ) -> IngestionTaskState | None:
+        """Fail the task when it was never submitted; return its new state."""
         return await self._control.tasks.fail_if_unsubmitted(task_id, summary=summary)
 
     async def close_abandoned(
@@ -254,9 +269,11 @@ class IngestionTaskRegistry:
             return
 
     async def progress(self, task_id: str) -> dict[str, int]:
+        """Return document counts per status for a task."""
         return await self._control.tasks.progress(task_id)
 
     async def progress_for_tasks(self, task_ids: Sequence[str]) -> dict[str, dict[str, int]]:
+        """Return document counts per status for each task."""
         return await self._control.tasks.progress_for_tasks(task_ids)
 
     async def document_results_page(
@@ -268,6 +285,7 @@ class IngestionTaskRegistry:
         after_document_id: str | None = None,
         limit: int = 50,
     ) -> TaskDocumentPage:
+        """Return one page of per-document results."""
         return await self._control.tasks.document_results_page(
             task_id,
             statuses=statuses,
@@ -290,6 +308,7 @@ class IngestionTaskRegistry:
         include_total: bool,
         known_stages: frozenset[str] | None = None,
     ) -> FailurePage:
+        """Return one page of failures."""
         return await self._control.failures.page(
             tenant_id=tenant_id,
             source_keys=source_keys,
@@ -314,6 +333,7 @@ class IngestionTaskRegistry:
         limit: int = 1000,
         known_stages: frozenset[str] | None = None,
     ) -> tuple[StoredFailure, ...]:
+        """Return failures selected for retry."""
         return await self._control.failures.select(
             tenant_id=tenant_id,
             keys=keys,
@@ -325,15 +345,18 @@ class IngestionTaskRegistry:
         )
 
     async def document_results(self, task_id: str) -> tuple[TaskDocumentResult, ...]:
+        """Return every per-document result of the task."""
         return await self._control.tasks.document_results(task_id)
 
     async def active_versions(
         self,
         document_ids: Sequence[str],
     ) -> dict[str, ActiveDocumentVersion]:
+        """Return the active version of each document."""
         return await self._control.document_versions.active_versions(document_ids)
 
     async def close(self) -> None:
+        """Close the control plane connection."""
         await self._control.close()
 
 

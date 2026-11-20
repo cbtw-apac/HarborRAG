@@ -13,8 +13,8 @@ from harborrag_core.ingestion import (
     SourceAdmissionDecision,
     TaskDocumentResult,
 )
-from harborrag_runtime.ingestion.document.models import DocumentReleaseOutcome
-from harborrag_runtime.ingestion.source.models import PlannedDocumentRelease
+from harborrag_engine.ingestion.release.models import DocumentReleaseOutcome
+from harborrag_engine.ingestion.source.models import PlannedDocumentRelease
 from harborrag_runtime.ingestion.source.service import SourceIngestionService
 
 from ...fixtures.release import build_control_plane, release_request
@@ -115,6 +115,7 @@ async def test_fetch_failure_retries_from_the_configured_connector(
 
 @pytest.mark.asyncio
 async def test_fail_retry_marks_task_failed_and_stays_idempotent(tmp_path: Path) -> None:
+    """A retried recording activity must not raise on a second delivery."""
     control = build_control_plane(tmp_path)
     documents = AsyncMock()
     async with control:
@@ -126,7 +127,6 @@ async def test_fail_retry_marks_task_failed_and_stays_idempotent(tmp_path: Path)
         task = await control.tasks.get("retry")
         assert task.status == IngestionTaskState.FAILED
 
-        # A retried recording activity must not raise on a second delivery.
         await service.fail_retry("retry", error_code="ChildWorkflowError")
 
 

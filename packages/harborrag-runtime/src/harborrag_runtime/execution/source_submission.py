@@ -16,13 +16,13 @@ from collections.abc import Mapping
 from dataclasses import asdict, dataclass, replace
 from hashlib import sha256
 
+from harborrag_core.ingestion.run_contracts import PreparedSourceSubmission, SourceSubmission
+from harborrag_core.ingestion.source_query import ProcessingProfileInput, SourceQuery
 from harborrag_runtime.config.errors import ConnectorConfigurationError
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.ingestion.connections import ResolvedConnection
 from harborrag_runtime.ingestion.profiles import build_processing_profile
-from harborrag_runtime.ingestion_contracts import PreparedSourceSubmission, SourceSubmission
 from harborrag_runtime.serialization import to_json_value
-from harborrag_runtime.source_query import ProcessingProfileInput, SourceQuery
 
 _EXECUTION_FILTERS = ("include_comments", "build_graph")
 

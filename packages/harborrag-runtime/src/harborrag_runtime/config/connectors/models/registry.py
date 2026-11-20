@@ -1,10 +1,4 @@
-"""The registry of source types HarborRAG can connect to.
-
-Handles:
-- resolving canonical names, provider names and aliases to one ``SourceTypeSpec``
-- the provider config dataclass behind each source type
-- the module-level ``validate`` entry point
-"""
+"""The registry of source types HarborRAG can connect to."""
 
 from __future__ import annotations
 

@@ -112,7 +112,7 @@ def test_waves_put_every_child_in_an_earlier_wave_than_its_parent() -> None:
 
 
 def test_a_single_child_node_inherits_its_childs_card_without_a_model_call() -> None:
-    child = SummaryCard(description="The CV.", topics=("java",))
+    child = SummaryCard(description="The runbook.", topics=("java",))
     entity = plan_node(
         "e1", KnowledgeNodeKind.SOURCE_ENTITY, GraphEntityType.JIRA_ATTACHMENT, children=("d1",)
     )

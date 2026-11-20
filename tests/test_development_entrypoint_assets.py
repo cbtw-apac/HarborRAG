@@ -10,6 +10,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 API_COMPOSE = ROOT / "deploy/compose/docker-compose.yml"
@@ -822,3 +823,44 @@ esac
         assert result.returncode == 2
         assert "Local connector source directory does not exist" in result.stderr
         assert api_up == []
+
+
+@pytest.mark.parametrize(
+    ("compose_file", "service"),
+    [
+        ("deploy/compose/docker-compose.yml", "api"),
+        ("deploy/compose/docker-compose.temporal.yml", "temporal-worker"),
+    ],
+)
+def test_api_and_worker_share_the_container_local_source_root(
+    compose_file: str, service: str
+) -> None:
+    document = yaml.safe_load((ROOT / compose_file).read_text(encoding="utf-8"))
+
+    environment = document["services"][service]["environment"]
+
+    assert environment["HARBORRAG_LOCAL_SOURCE_ROOT"] == "/data/sources"
+
+
+@pytest.mark.parametrize(
+    "compose_file",
+    ["deploy/compose/docker-compose.yml", "deploy/compose/docker-compose.temporal.yml"],
+)
+def test_api_and_worker_share_one_tenant_setting(compose_file: str) -> None:
+    text = (ROOT / compose_file).read_text(encoding="utf-8")
+    document = yaml.safe_load(text)
+    service = "api" if compose_file.endswith("docker-compose.yml") else "temporal-worker"
+
+    environment = document["services"][service]["environment"]
+
+    assert environment["HARBORRAG_TENANT_ID"] == "${HARBORRAG_TENANT_ID:-DEFAULT}"
+
+
+def test_the_worker_receives_the_removed_tenant_name_so_it_refuses_to_start() -> None:
+    worker = yaml.safe_load(
+        (ROOT / "deploy/compose/docker-compose.temporal.yml").read_text(encoding="utf-8")
+    )["services"]["temporal-worker"]["environment"]
+    api = (ROOT / "deploy/compose/docker-compose.yml").read_text(encoding="utf-8")
+
+    assert worker["HARBORRAG_INGESTION_TENANT_ID"] == "${HARBORRAG_INGESTION_TENANT_ID:-}"
+    assert "INGESTION_TENANT_ID" not in api

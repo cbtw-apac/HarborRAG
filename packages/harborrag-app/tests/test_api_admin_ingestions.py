@@ -7,7 +7,6 @@ from collections.abc import Iterator
 from dataclasses import replace
 
 import pytest
-from app_test_connections import ConnectionWorld, connection_world
 from app_test_fixtures import MockAppService
 from fastapi.testclient import TestClient
 from test_api_admin_connections import _BODY, _PATH, _SECRET, _token
@@ -15,13 +14,16 @@ from test_api_admin_connections import _BODY, _PATH, _SECRET, _token
 from harborrag_app.api import app as api_app
 from harborrag_app.api.app import create_fastapi_app
 from harborrag_app.api.auth.dependencies import get_principal
-from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.settings import ApiSettings
-from harborrag_app.workflow_control.control_plane.projects import ProjectService
+from harborrag_app.operations.principal import Principal
 from harborrag_core.domain.project import Project
+from harborrag_runtime.application.control_plane.projects import ProjectService
+from harborrag_runtime.testing.connection_fakes import ConnectionWorld, connection_world
+
+pytestmark = pytest.mark.unit
 
 _START = "/v1/admin/ingestions"
-_TARGET = {"project_id": "cpm", "connection_id": "cpm-tickets"}
+_TARGET = {"project_id": "demo", "connection_id": "demo-tickets"}
 
 
 class _App(MockAppService):
@@ -40,7 +42,7 @@ class _App(MockAppService):
 @pytest.fixture
 def app_service() -> _App:
     return _App(
-        connection_world([Project(id="cpm", name="CPM", collection="cpm", tenant_id="acme")])
+        connection_world([Project(id="demo", name="DEMO", collection="demo", tenant_id="acme")])
     )
 
 
@@ -109,8 +111,8 @@ def test_a_second_start_while_one_runs_is_refused(client: TestClient, app_servic
 @pytest.mark.parametrize(
     ("target", "field"),
     [
-        ({"project_id": "missing", "connection_id": "cpm-tickets"}, "project_id"),
-        ({"project_id": "cpm", "connection_id": "missing"}, "connection_id"),
+        ({"project_id": "missing", "connection_id": "demo-tickets"}, "project_id"),
+        ({"project_id": "demo", "connection_id": "missing"}, "connection_id"),
     ],
 )
 def test_an_unknown_reference_names_its_field(
@@ -126,7 +128,7 @@ def test_an_unknown_reference_names_its_field(
 @pytest.mark.parametrize(
     ("body", "field"),
     [
-        ({"project_id": "cpm"}, "connection_id"),
+        ({"project_id": "demo"}, "connection_id"),
         ({**_TARGET, "mode": "full"}, "mode"),
         ({**_TARGET, "extra": True}, "extra"),
         ({**_TARGET, "updated_after": "2026-11-01T09:00:00"}, "updated_after"),
@@ -148,7 +150,7 @@ def test_a_connection_that_fails_its_schema_is_refused_with_its_fields(
 ) -> None:
     connections = app_service.world.control_plane.connections
     stored = asyncio.run(
-        connections.get(tenant_id="acme", project_id="cpm", connection_id="cpm-tickets")
+        connections.get(tenant_id="acme", project_id="demo", connection_id="demo-tickets")
     )
     assert stored is not None
     credentials = {k: v for k, v in stored.credentials.items() if k != "email"}
@@ -165,7 +167,7 @@ def test_a_connection_that_fails_its_schema_is_refused_with_its_fields(
 
 
 def test_a_scoped_run_is_not_supported_yet(client: TestClient) -> None:
-    response = client.post(_START, json={**_TARGET, "item_refs": ["CPM-1"]})
+    response = client.post(_START, json={**_TARGET, "item_refs": ["DEMO-1"]})
 
     assert response.status_code == 501
     assert response.json()["error"]["code"] == "not_supported"

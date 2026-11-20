@@ -23,7 +23,7 @@ from harborrag_core.testing.control_plane_fakes import FakeConnectionRepository
 _NOW = datetime(2026, 10, 29, 9, 0, tzinfo=UTC)
 
 
-def _jira(connection_id: str = "cpm-tickets", *, project_id: str = "cpm") -> Connection:
+def _jira(connection_id: str = "demo-tickets", *, project_id: str = "demo") -> Connection:
     return (
         ConnectionBuilder.for_new(
             tenant_id="acme", project_id=project_id, connection_id=connection_id
@@ -32,8 +32,8 @@ def _jira(connection_id: str = "cpm-tickets", *, project_id: str = "cpm") -> Con
         .credentials(
             {"base_url": "https://acme.atlassian.net", "api_token": {"secret_ref": "secret://db/1"}}
         )
-        .config({"jql": "project = CPM"})
-        .actor("u_huy")
+        .config({"jql": "project = DEMO"})
+        .actor("u_alex")
         .build(now=_NOW)
     )
 
@@ -41,11 +41,11 @@ def _jira(connection_id: str = "cpm-tickets", *, project_id: str = "cpm") -> Con
 def test_builder_applies_defaults_for_a_new_connection() -> None:
     connection = _jira()
 
-    assert connection.name == "cpm-tickets"
-    assert connection.source_key == "cpm/cpm-tickets"
-    assert connection.ref == "cpm/cpm-tickets"
+    assert connection.name == "demo-tickets"
+    assert connection.source_key == "demo/demo-tickets"
+    assert connection.ref == "demo/demo-tickets"
     assert connection.version == 1
-    assert (connection.created_by, connection.updated_by) == ("u_huy", "u_huy")
+    assert (connection.created_by, connection.updated_by) == ("u_alex", "u_alex")
     assert connection.created_at == connection.updated_at == _NOW
     assert connection.id.startswith("src_")
 
@@ -56,14 +56,14 @@ def test_builder_from_existing_keeps_identity_and_creation_stamps() -> None:
 
     updated = (
         ConnectionBuilder.from_existing(original)
-        .name("CPM tickets")
+        .name("DEMO tickets")
         .config({"jql": "project = HR"})
         .actor("u_ops")
         .build(now=later)
     )
 
     assert (updated.id, updated.source_key) == (original.id, original.source_key)
-    assert (updated.created_by, updated.created_at) == ("u_huy", _NOW)
+    assert (updated.created_by, updated.created_at) == ("u_alex", _NOW)
     assert (updated.updated_by, updated.updated_at) == ("u_ops", later)
     assert updated.config == {"jql": "project = HR"}
 
@@ -85,21 +85,21 @@ def test_builder_pins_an_imported_source_key_but_never_changes_a_stored_one() ->
 def test_connection_id_must_match_the_spec_pattern(bad: str) -> None:
     with pytest.raises(ValueError, match="connection_id must match"):
         ConnectionBuilder.for_new(
-            tenant_id="acme", project_id="cpm", connection_id=bad
+            tenant_id="acme", project_id="demo", connection_id=bad
         ).source_type("jira").build()
 
 
 def test_credentials_reject_raw_secret_values() -> None:
     with pytest.raises(ValueError, match="secret reference"):
         ConnectionBuilder.for_new(
-            tenant_id="acme", project_id="cpm", connection_id="x"
+            tenant_id="acme", project_id="demo", connection_id="x"
         ).source_type("jira").credentials({"api_token": "ATATT-raw"}).build()
 
 
 @pytest.mark.parametrize(
     ("name", "expected"),
     [
-        ("CPM Tickets", "cpm-tickets"),
+        ("DEMO Tickets", "demo-tickets"),
         ("  __Docs & Wiki!!  ", "docs-wiki"),
         ("***", "connection"),
         ("x" * 80, "x" * 63),
@@ -141,7 +141,7 @@ async def test_fake_put_rejects_a_source_key_already_used_in_the_tenant() -> Non
     clash = (
         ConnectionBuilder.for_new(tenant_id="acme", project_id="other", connection_id="b")
         .source_type("jira")
-        .source_key("cpm/cpm-tickets")
+        .source_key("demo/demo-tickets")
         .build()
     )
 

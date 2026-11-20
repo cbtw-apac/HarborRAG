@@ -62,7 +62,7 @@ def sparse_result(
     dense, _, _ = vectors(point.vector, spec)
     # ``score`` keeps the squashed BM25 value for ordering; it is not a similarity.
     # IDF-weighted BM25 is unbounded and query-dependent -- a long rare-term query
-    # puts an off-topic CV at 0.95 -- so the lane reports no relevance at all.
+    # puts an off-topic runbook at 0.95 -- so the lane reports no relevance at all.
     return VectorSearchResult(
         id=logical_id,
         score=raw_score / (1.0 + raw_score),
@@ -115,7 +115,7 @@ def lane_relevance(
     ``weighted_rrf`` keeps only rank, so the similarity the dense lane measured is
     otherwise lost at fusion. The sparse lane contributes rank only: its BM25 score
     is no similarity, and taking the larger of the two let a squashed keyword score
-    (0.95 for an off-topic CV) pose as one. A point only the sparse lane found is
+    (0.95 for an off-topic runbook) pose as one. A point only the sparse lane found is
     absent here; the caller measures it separately rather than guessing.
     """
 

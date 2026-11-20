@@ -30,6 +30,7 @@ from harborrag_adapters.connectors.policies.http import (
     read_capped_json,
     safe_error_detail,
 )
+from harborrag_adapters.connectors.policies.network import DestinationPolicy, guarded_session
 
 from .permissions import token_claims
 
@@ -41,12 +42,27 @@ LOGIN_HINT = (
 )
 
 
-def identity_url(tenant_id: str, endpoint: str) -> str:
-    """Return a Microsoft identity platform v2.0 OAuth endpoint for a tenant."""
-    return f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/{endpoint}"
-
-
 _PATH_SEGMENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
+
+
+def require_plain_id(label: str, value: str) -> None:
+    """Refuse an id that is not a plain name, so it cannot change a path.
+
+    Raises:
+        ValueError: ``value`` is not a GUID or a domain-like name.
+    """
+    if not _PATH_SEGMENT.fullmatch(value) or ".." in value:
+        raise ValueError(f"{label} must be a plain id of letters, digits, '.', '_' or '-'")
+
+
+def identity_url(tenant_id: str, endpoint: str) -> str:
+    """Return a Microsoft identity platform v2.0 OAuth endpoint for a tenant.
+
+    Raises:
+        ValueError: ``tenant_id`` is not a GUID or a domain-like name.
+    """
+    require_plain_id("tenant_id", tenant_id)
+    return f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/{endpoint}"
 
 
 def default_token_cache_path(harborrag_tenant_id: str, tenant_id: str, client_id: str) -> Path:
@@ -71,8 +87,7 @@ def default_token_cache_path(harborrag_tenant_id: str, tenant_id: str, client_id
         ("tenant_id", tenant_id),
         ("client_id", client_id),
     ):
-        if not _PATH_SEGMENT.fullmatch(value) or ".." in value:
-            raise ValueError(f"{label} must be a plain id of letters, digits, '.', '_' or '-'")
+        require_plain_id(label, value)
     folder = Path.home() / ".harborrag" / "sharepoint" / harborrag_tenant_id
     return folder / f"token-{tenant_id}-{client_id}.json"
 
@@ -167,17 +182,31 @@ class _ErrorPayload(StrEnum):
 class DeviceCodeLogin:
     """Interactive device code sign-in that seeds a ``DelegatedTokenCache``.
 
+    Args:
+        cache: Where the refresh token is stored; its tenant ID names the sign-in endpoint.
+        session: HTTP session to use; by default one that obeys ``destination_policy``.
+        destination_policy: Which non-public hosts the default session may reach; the
+            default reaches public addresses only.
+        timeout_seconds: Timeout of each request to Microsoft identity.
+        sleep: Waits between polls for the user's sign-in.
+
     Attributes:
-        cache: Cache that receives the refresh token.
-        session: HTTP session for Microsoft identity requests.
-        timeout_seconds: Timeout of each identity request, in seconds.
-        sleep: Function that waits between polls.
+        cache: Where the refresh token is stored.
+        session: HTTP session used for Microsoft identity requests.
+        destination_policy: Which non-public hosts the default session may reach.
+        timeout_seconds: Timeout of each request to Microsoft identity.
+        sleep: Waits between polls for the user's sign-in.
     """
 
     cache: DelegatedTokenCache
-    session: requests.Session = field(default_factory=requests.Session)
+    session: Any = None
+    destination_policy: DestinationPolicy = field(default_factory=DestinationPolicy)
     timeout_seconds: float = 60.0
     sleep: Callable[[float], None] = time.sleep
+
+    def __post_init__(self) -> None:
+        if self.session is None:
+            self.session = guarded_session(self.destination_policy)
 
     def run(self, prompt: Callable[[str], None] = print) -> str | None:
         """Show the sign-in instructions, wait for the user, and store the token.
@@ -192,6 +221,9 @@ class DeviceCodeLogin:
         Raises:
             AuthenticationError: Sign-in failed, timed out or returned no
                 refresh token.
+            BlockedDestinationError: The identity host resolves to an address the
+                destination policy refuses.
+            ValueError: The cache's tenant ID is not a GUID or a domain-like name.
         """
         flow = self._post(
             "devicecode",

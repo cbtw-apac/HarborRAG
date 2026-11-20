@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, ClassVar
 
-from harborrag_adapters.connectors.schemas import ConnectorMetadata
+from harborrag_core.ingestion.connector_contracts import ConnectorMetadata
 
 
 @dataclass(slots=True)

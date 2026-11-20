@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
+import socket
 
 import pytest
 from harbor_test_builders import FakeResponse, FakeSession
@@ -11,6 +12,7 @@ from sharepoint_http_test_helpers import sharepoint_client
 
 from harborrag_adapters.connectors.exceptions import AuthenticationError
 from harborrag_adapters.connectors.policies.http import DEFAULT_JSON_BODY_LIMIT
+from harborrag_adapters.connectors.policies.network import BlockedDestinationError
 from harborrag_adapters.connectors.sharepoint.config import SharePointSiteConfig
 from harborrag_adapters.connectors.sharepoint.delegated import (
     DELEGATED_SCOPE,
@@ -247,6 +249,54 @@ def test_device_code_login_polls_until_signed_in(tmp_path):
     assert _cache(tmp_path).load_refresh_token() == "refresh-1"
 
 
+def test_device_code_login_puts_a_guid_or_domain_tenant_in_the_url_path(tmp_path):
+    for tenant_id in ("0f9c3a52-6b1e-4d7a-8c21-5e4b7a9d1f30", "contoso.onmicrosoft.com"):
+        session = FakeSession(responses=[FakeResponse(status_code=200, _json={})])
+        login = DeviceCodeLogin(_cache(tmp_path, tenant_id=tenant_id), session=session)
+
+        with pytest.raises(AuthenticationError, match="device code"):
+            login.run(prompt=lambda _m: None)
+
+        assert session.calls[0]["url"] == (
+            f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/devicecode"
+        )
+
+
+@pytest.mark.parametrize(
+    "tenant_id", ["a/b", "tenant?x=1", "tenant#frag", "user@host", "two words", "..", ""]
+)
+def test_device_code_login_refuses_a_tenant_id_that_is_not_a_path_segment(tmp_path, tenant_id):
+    session = FakeSession()
+    login = DeviceCodeLogin(_cache(tmp_path, tenant_id=tenant_id), session=session)
+
+    with pytest.raises(ValueError, match="tenant_id must be a plain id"):
+        login.run(prompt=lambda _m: None)
+
+    assert session.calls == []
+
+
+@pytest.mark.parametrize("auth", [{"client_secret": "s"}, {"auth_mode": "device_code"}])
+def test_site_config_refuses_a_tenant_id_that_is_not_a_path_segment(auth):
+    with pytest.raises(ValueError, match="tenant_id must be a plain id"):
+        SharePointSiteConfig(
+            site_url="https://example.sharepoint.com/sites/x",
+            tenant_id="a/b",
+            client_id="cid",
+            harborrag_tenant_id="acme",
+            **auth,
+        )
+
+
+def test_device_code_login_refuses_a_private_identity_host_by_default(tmp_path, monkeypatch):
+    def resolve_to_loopback(host, port, **_kwargs):
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", port))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", resolve_to_loopback)
+
+    with pytest.raises(BlockedDestinationError, match="login.microsoftonline.com"):
+        DeviceCodeLogin(_cache(tmp_path)).run(prompt=lambda _m: None)
+
+
 def test_device_code_login_surfaces_identity_error(tmp_path):
     session = FakeSession(
         responses=[
@@ -341,7 +391,7 @@ def test_each_harborrag_tenant_gets_its_own_default_token_file() -> None:
 
 
 def test_a_delegated_config_without_a_tenant_or_path_fails_closed(monkeypatch) -> None:
-    monkeypatch.delenv("HARBORRAG_INGESTION_TENANT_ID", raising=False)
+    monkeypatch.delenv("HARBORRAG_TENANT_ID", raising=False)
 
     with pytest.raises(ValueError, match="needs token_cache_path or harborrag_tenant_id"):
         SharePointSiteConfig(**_DELEGATED_SITE)

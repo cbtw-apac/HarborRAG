@@ -5,7 +5,9 @@ Split from test_cli_project.py to keep both modules inside the file-length gate.
 
 from __future__ import annotations
 
+import json
 import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -62,7 +64,7 @@ def test_main_reports_a_malformed_marker_without_a_traceback(
     monkeypatch.chdir(root)
     monkeypatch.delenv("HARBORRAG_PROJECT", raising=False)
 
-    assert cli.main(["retrieve", "anything", "--json"]) == 1
+    assert cli.main(["me", "-o", "json"]) == 1
 
     captured = capsys.readouterr()
     assert "could not be read" in captured.err
@@ -76,8 +78,8 @@ def test_main_keeps_working_in_a_legacy_checkout_layout(
 
     from app_test_fixtures import MockAppService
 
+    from harborrag_app.cli import invoke as cli_runner
     from harborrag_app.cli import main as cli
-    from harborrag_app.cli import runner as cli_runner
 
     (tmp_path / "config" / "sources").mkdir(parents=True)
     (tmp_path / "config" / "sources" / "connectors.yaml").write_text("version: 1\nconnectors: {}\n")
@@ -85,7 +87,7 @@ def test_main_keeps_working_in_a_legacy_checkout_layout(
     monkeypatch.delenv("HARBORRAG_PROJECT", raising=False)
     monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
 
-    assert cli.main(["retrieve", "anything", "--json"]) == 0
+    assert cli.main(["me", "-o", "json"]) == 0
     # The checkout is the CWD here, so the activation notice must stay suppressed.
     assert "using repository checkout" not in capsys.readouterr().err
 
@@ -101,8 +103,8 @@ def test_main_finds_a_legacy_checkout_from_one_of_its_subdirectories(
 
     from app_test_fixtures import MockAppService
 
+    from harborrag_app.cli import invoke as cli_runner
     from harborrag_app.cli import main as cli
-    from harborrag_app.cli import runner as cli_runner
 
     (tmp_path / "config" / "sources").mkdir(parents=True)
     (tmp_path / "config" / "sources" / "connectors.yaml").write_text("version: 1\nconnectors: {}\n")
@@ -111,32 +113,52 @@ def test_main_finds_a_legacy_checkout_from_one_of_its_subdirectories(
     monkeypatch.chdir(nested)
     monkeypatch.delenv("HARBORRAG_PROJECT", raising=False)
     monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
+    monkeypatch.setattr(sys.stderr, "isatty", lambda: True)
 
-    assert cli.main(["retrieve", "anything", "--json"]) == 0
+    assert cli.main(["me", "-o", "json"]) == 0
     assert Path.cwd() == tmp_path.resolve()
     assert "using repository checkout" in capsys.readouterr().err
 
 
-def test_doctor_stays_in_its_directory_inside_a_legacy_checkout(
-    tmp_path: Path, monkeypatch, capsys
-) -> None:
-    """`doctor` reports on where the user stands, so checkout activation must skip it.
-
-    Moving it would make doctor pass catalog checks for a directory the user is not in
-    while its own JSON still says no project was found.
-    """
-
-    from harborrag_app.cli import main as cli
-
+def _nested_checkout(tmp_path: Path, monkeypatch) -> Path:
     (tmp_path / "config" / "sources").mkdir(parents=True)
     (tmp_path / "config" / "sources" / "connectors.yaml").write_text("version: 1\nconnectors: {}\n")
     nested = tmp_path / "packages" / "harborrag-app"
     nested.mkdir(parents=True)
     monkeypatch.chdir(nested)
     monkeypatch.delenv("HARBORRAG_PROJECT", raising=False)
-
     unreachable(monkeypatch)
-    cli.main(["doctor", "--json"])
+    return nested
 
-    assert Path.cwd() == nested.resolve()
-    assert "using repository checkout" not in capsys.readouterr().err
+
+def test_doctor_walks_up_to_the_checkout_from_a_subdirectory(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """The global --project help promises a walk up from the CWD, and doctor keeps it."""
+
+    from harborrag_app.cli import main as cli
+
+    _nested_checkout(tmp_path, monkeypatch)
+
+    cli.main(["doctor", "-o", "json"])
+
+    checks = {c["name"]: c for c in json.loads(capsys.readouterr().out)["checks"]}
+    assert Path.cwd() == tmp_path.resolve()
+    assert checks["project"]["status"] == "ok"
+    assert str(tmp_path.resolve()) in checks["project"]["detail"]
+    assert checks["connectors catalog"]["status"] == "ok"
+
+
+def test_doctor_does_not_warn_about_harborrag_yaml_inside_a_checkout(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    from harborrag_app.cli import main as cli
+
+    _nested_checkout(tmp_path, monkeypatch)
+    monkeypatch.chdir(tmp_path)
+
+    cli.main(["doctor", "-o", "json"])
+
+    project_check = {c["name"]: c for c in json.loads(capsys.readouterr().out)["checks"]}["project"]
+    assert project_check["status"] == "ok"
+    assert "harborrag.yaml" not in project_check["detail"]

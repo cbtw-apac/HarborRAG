@@ -38,7 +38,7 @@ from .config_validation import (
     validate_site_location,
     validate_site_url,
 )
-from .delegated import default_token_cache_path
+from .delegated import default_token_cache_path, require_plain_id
 from .drive_paths import parse_sharepoint_site_url
 
 
@@ -162,6 +162,7 @@ class SharePointSiteConfig:
             drive_id=self.drive_id,
         )
         self._resolve_auth_mode()
+        self._require_plain_tenant_id()
         validate_http_tuning(
             requests_per_minute=self.requests_per_minute,
             request_timeout_seconds=self.request_timeout_seconds,
@@ -180,6 +181,11 @@ class SharePointSiteConfig:
         }
         validate_extensions(self.allowed_extensions)
         self._normalize_scope_and_allowlists()
+
+    def _require_plain_tenant_id(self) -> None:
+        """Refuse a ``tenant_id`` that is not a GUID or a domain name, before any URL uses it."""
+        if self.tenant_id:
+            require_plain_id("tenant_id", str(self.tenant_id))
 
     def _resolve_auth_mode(self) -> None:
         """Infer or parse ``auth_mode`` and require the credentials it needs."""
