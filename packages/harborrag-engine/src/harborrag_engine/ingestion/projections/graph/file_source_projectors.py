@@ -1,8 +1,16 @@
-"""Source topology projectors for repository and filesystem providers."""
+"""Source topology projectors for repository and filesystem providers.
+
+Each file sits on two axes. CONTAINS is membership, held flat by the file's
+repository, drive or root. PARENT_OF is position, through the directories or
+folders above the file.
+"""
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import PurePosixPath
+from typing import TYPE_CHECKING, Any
+from urllib.parse import unquote
 
 from harborrag_core.chunking import RelationType
 from harborrag_core.ingestion import GraphEntityType
@@ -17,11 +25,48 @@ from .source_projector_support import (
     text_value,
 )
 
+if TYPE_CHECKING:
+    from harborrag_core.domain.document import Document
+    from harborrag_core.ingestion import GraphNodeRecord
+
+    from .graph_state import GraphProjectionState
+
+_DRIVE_ROOT_MARKER = "root:"
+
 
 class GitHubSourceProjector(BaseSourceProjector):
+    """Project GitHub files under their owner, repository, directories and ref.
+
+    Attributes:
+        entity_type: Graph entity type of the file node.
+    """
+
     entity_type = GraphEntityType.GITHUB_FILE
 
-    def project(self, state, document, data_source, document_version):  # type: ignore[no-untyped-def]
+    def project(
+        self,
+        state: GraphProjectionState,
+        document: Document,
+        data_source: GraphNodeRecord,
+        document_version: GraphNodeRecord,
+    ) -> GraphNodeRecord:
+        """Project one GitHub file with its directory chain and resolved commit.
+
+        The repository CONTAINS every file flat, so counting files is one hop.
+        Directories are not documents, so they sit on PARENT_OF only. A ref is
+        version metadata of the repository, so it hangs off the repository by
+        PARENT_OF, and its POINTS_TO commit is one edge that every file at that
+        commit shares.
+
+        Args:
+            state: Projection being built for this document version.
+            document: Canonical document of the file.
+            data_source: Node of the connection the file came from.
+            document_version: Node of the document version being projected.
+
+        Returns:
+            The file's source item node.
+        """
         extra = document.provenance.extra
         owner_id = text_value(extra, "owner") or "unknown-owner"
         repo_id = text_value(extra, "repository_id", "repo") or "unknown-repository"
@@ -56,9 +101,6 @@ class GitHubSourceProjector(BaseSourceProjector):
                     attributes={"relative_path": directory_path},
                 )
             )
-        # Membership: the repository holds every file, flat, so counting them is one hop.
-        # A directory is not a document, so it never joins that set -- it lives on the
-        # structure axis only.
         self.edge(state, RelationType.CONTAINS, repository, item)
         project_structure_chain(self, state, container=repository, item=item, ancestors=directories)
 
@@ -71,14 +113,7 @@ class GitHubSourceProjector(BaseSourceProjector):
                 commit_sha,
                 title=commit_sha[:12],
             )
-            # A ref is neither a document nor a position in the file tree; it is version
-            # metadata that belongs to the repository. Keeping it off CONTAINS is what
-            # keeps that set homogeneous, and PARENT_OF is the closest honest axis. This
-            # is the one place the two-axis split reads oddly -- see the design note.
             self.edge(state, RelationType.PARENT_OF, repository, ref)
-            # One fact about the repository, observed by every file at this commit. As an
-            # explicit, version-owned support each file document wrote its own parallel
-            # ref -> commit edge; as a source-scope view they all MERGE into one edge.
             self.edge(state, RelationType.POINTS_TO, ref, commit)
             self.edge(state, RelationType.RESOLVED_AT, document_version, commit, explicit=True)
         self.version(state, item, document_version)
@@ -86,9 +121,38 @@ class GitHubSourceProjector(BaseSourceProjector):
 
 
 class SharePointSourceProjector(BaseSourceProjector):
+    """Project SharePoint drive files and site pages under their site.
+
+    Attributes:
+        entity_type: Graph entity type of a drive file node.
+    """
+
     entity_type = GraphEntityType.SHAREPOINT_FILE
 
-    def project(self, state, document, data_source, document_version):  # type: ignore[no-untyped-def]
+    def project(
+        self,
+        state: GraphProjectionState,
+        document: Document,
+        data_source: GraphNodeRecord,
+        document_version: GraphNodeRecord,
+    ) -> GraphNodeRecord:
+        """Project one drive file under its drive and folders, or one page under its site.
+
+        The drive CONTAINS every file, and folders carry position only. Each
+        folder is keyed by its drive-relative path, so one folder is one node
+        whether a file sits in it or deeper. An item with no parent path gets one
+        placeholder folder keyed by its parent's ID, which cannot converge with
+        the same folder reached by path.
+
+        Args:
+            state: Projection being built for this document version.
+            document: Canonical document of the file or page.
+            data_source: Node of the connection the item came from.
+            document_version: Node of the document version being projected.
+
+        Returns:
+            The file's or page's source item node.
+        """
         extra = document.provenance.extra
         site_id = text_value(extra, "site_id") or "unknown-site"
         site = state.source_node(
@@ -119,29 +183,15 @@ class SharePointSourceProjector(BaseSourceProjector):
         parent_ref = mapping_value(extra.get("parent"))
         parent_id = text_value(parent_ref, "id") or text_value(extra, "parent_id")
         parent_path = text_value(parent_ref, "path") or text_value(extra, "parent_path")
-        path_suffix = (parent_path.split("root:", 1)[-1] if parent_path else "").strip("/")
-        path_parts = PurePosixPath(path_suffix).parts if path_suffix else ()
-        accumulated: list[str] = []
-        folders = []
-        # Key every folder by its drive-relative path, the way GitHub and local directory
-        # chains do. Keying only the terminal element by its provider ``parent_id`` split
-        # one folder into two nodes: the same folder is terminal for a file directly
-        # inside it and an ancestor for anything deeper, so it was reached under two
-        # different keys and its CONTAINS chain forked.
-        for part in path_parts:
-            accumulated.append(part)
-            folder_path = "/".join(accumulated)
-            folders.append(
-                state.source_node(
-                    GraphEntityType.SHAREPOINT_FOLDER,
-                    folder_path,
-                    title=part,
-                    attributes={"placeholder": True, "relative_path": folder_path},
-                )
+        folders = [
+            state.source_node(
+                GraphEntityType.SHAREPOINT_FOLDER,
+                folder_path,
+                title=PurePosixPath(folder_path).name,
+                attributes={"placeholder": True, "relative_path": folder_path},
             )
-        # No parent path to key on. The provider id is all that is left, so a folder
-        # reached this way still cannot converge with the same folder reached by path;
-        # that is a metadata gap in the item, not a choice between two keyings.
+            for folder_path in _drive_folder_paths(parent_path)
+        ]
         if not folders and parent_id:
             folders.append(
                 state.source_node(
@@ -151,15 +201,20 @@ class SharePointSourceProjector(BaseSourceProjector):
                     attributes={"placeholder": True},
                 )
             )
-        # Membership from the drive; folders carry position only.
         self.edge(state, RelationType.CONTAINS, drive, item)
         project_structure_chain(self, state, container=drive, item=item, ancestors=folders)
         self.version(state, item, document_version)
         return item
 
-    def _project_page(self, state, document, extra, site, document_version):  # type: ignore[no-untyped-def]
-        # A modern page belongs to the site itself, not to a drive: it has no library
-        # and no folder, so both axes run straight from the site to the page.
+    def _project_page(
+        self,
+        state: GraphProjectionState,
+        document: Document,
+        extra: Mapping[str, Any],
+        site: GraphNodeRecord,
+        document_version: GraphNodeRecord,
+    ) -> GraphNodeRecord:
+        """Project a modern page straight under its site, which has no drive or folder."""
         item = self.source_item(
             state,
             document,
@@ -174,9 +229,34 @@ class SharePointSourceProjector(BaseSourceProjector):
 
 
 class LocalSourceProjector(BaseSourceProjector):
+    """Project local files under their source root and directories.
+
+    Attributes:
+        entity_type: Graph entity type of the file node.
+    """
+
     entity_type = GraphEntityType.LOCAL_FILE
 
-    def project(self, state, document, data_source, document_version):  # type: ignore[no-untyped-def]
+    def project(
+        self,
+        state: GraphProjectionState,
+        document: Document,
+        data_source: GraphNodeRecord,
+        document_version: GraphNodeRecord,
+    ) -> GraphNodeRecord:
+        """Project one local file under its root and directory chain.
+
+        The root CONTAINS every file, and directories carry position only.
+
+        Args:
+            state: Projection being built for this document version.
+            document: Canonical document of the file.
+            data_source: Node of the connection the file came from.
+            document_version: Node of the document version being projected.
+
+        Returns:
+            The file's source item node.
+        """
         extra = document.provenance.extra
         root = state.source_node(
             GraphEntityType.LOCAL_ROOT,
@@ -208,8 +288,21 @@ class LocalSourceProjector(BaseSourceProjector):
                     attributes={"relative_path": directory_path},
                 )
             )
-        # Membership from the root; directories carry position only.
         self.edge(state, RelationType.CONTAINS, root, item)
         project_structure_chain(self, state, container=root, item=item, ancestors=directories)
         self.version(state, item, document_version)
         return item
+
+
+def _drive_folder_paths(parent_path: str | None) -> list[str]:
+    """Return the drive-relative path of each folder above an item, outermost first.
+
+    Graph percent-encodes ``parentReference.path``, so it is decoded exactly once
+    here, as the connector does. A folder literally named ``Budget%2026`` arrives
+    as ``Budget%252026`` and keeps its ``%``.
+    """
+    if not parent_path:
+        return []
+    drive_relative = unquote(parent_path.split(_DRIVE_ROOT_MARKER, 1)[-1]).strip("/")
+    parts = PurePosixPath(drive_relative).parts if drive_relative else ()
+    return ["/".join(parts[: depth + 1]) for depth in range(len(parts))]

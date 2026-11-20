@@ -17,6 +17,8 @@ from pathlib import PurePosixPath
 from typing import Any
 from urllib.parse import quote, unquote, urlparse
 
+from harborrag_adapters.connectors.file_filters import file_name_extension
+
 DRIVE_ITEM_SELECT = ",".join(
     (
         "id",
@@ -214,11 +216,8 @@ def item_name(item: dict[str, Any]) -> str:
 
 
 def item_extension(item: dict[str, Any]) -> str:
-    """Return the lowercased file extension for a drive item."""
-    name = item_name(item)
-    if "." not in name:
-        return ""
-    return PurePosixPath(name).suffix.lower()
+    """Return the lowercased file extension of a drive item, ignoring blanks around its name."""
+    return file_name_extension(item_name(item))
 
 
 def item_mime_type(item: dict[str, Any]) -> str:

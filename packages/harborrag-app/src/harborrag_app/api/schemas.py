@@ -1,10 +1,17 @@
-"""Schemas shared by every HTTP API feature."""
+"""Schemas shared by every HTTP API feature.
+
+``ApiModel`` trims surrounding whitespace from every string. A field whose
+value must come back exactly as stored, such as answer text or a source item
+ID that is a file path starting or ending with a space, uses ``VerbatimText``.
+"""
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+
+VerbatimText = Annotated[str, StringConstraints(strip_whitespace=False)]
 
 
 class ApiModel(BaseModel):
