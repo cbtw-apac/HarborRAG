@@ -78,20 +78,28 @@ class DocumentMaterializationStages:
         if snapshot.chunk_artifact is not None and snapshot.chunk_index_artifact is not None:
             return None
         document = await self._canonical(prepared, request=request)
+        connector_type = request.source_identity.connector_type.value
         chunker = (
             self._dependencies.chunker
             if self._dependencies.run_tools is None
             else self._dependencies.run_tools.chunker_for(request.run_settings)
         )
+        chunking_request = ChunkingRequest(
+            tenant_id=request.tenant_id,
+            document_version_id=prepared.document_version_id,
+            document=document,
+            connector_type=connector_type,
+            content_type=document.content_type,
+        )
+        plan = (
+            None
+            if request.chunking_max_tokens is None
+            else chunker.plan_for_max_tokens(chunking_request, request.chunking_max_tokens)
+        )
         chunking = await asyncio.to_thread(
             chunker.chunk,
-            ChunkingRequest(
-                tenant_id=request.tenant_id,
-                document_version_id=prepared.document_version_id,
-                document=document,
-                connector_type=request.source_identity.connector_type.value,
-                content_type=document.content_type,
-            ),
+            chunking_request,
+            plan,
         )
         artifacts = await self._dependencies.chunk_writer.put(
             document_id=prepared.document_id,

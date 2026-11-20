@@ -12,7 +12,7 @@ from harborrag_adapters.parsers import (
     ParseRequest,
 )
 from harborrag_adapters.parsers.common.config import ParserConfig
-from harborrag_adapters.parsers.errors import DuplicatePDFEngineError
+from harborrag_adapters.parsers.errors import DuplicatePDFEngineError, UnknownPDFEngineError
 from harborrag_adapters.parsers.pdf.base import HarborPDFEngine
 from harborrag_adapters.parsers.pdf.config import (
     PDFParserConfig,
@@ -22,7 +22,7 @@ from harborrag_adapters.parsers.pdf.config import (
 )
 from harborrag_adapters.parsers.pdf.models import PDFParseResult
 from harborrag_adapters.parsers.pdf.parser import HarborPDFParser
-from harborrag_adapters.parsers.pdf.router import PDFEngineRegistry
+from harborrag_adapters.parsers.pdf.router import PDFEngineRegistry, PDFEngineRouter
 from harborrag_core.domain.parser import ParseInput
 
 pytestmark = pytest.mark.unit
@@ -90,6 +90,42 @@ def test_factory_applies_custom_pdf_profile_order() -> None:
     assert isinstance(parser, HarborPDFParser)
     assert parser.profile == "research"
     assert [engine.name for engine in parser.engines] == ["docling", "pymupdf"]
+
+
+def test_create_pdf_parser_honors_an_engine_override_outside_the_active_profile() -> None:
+    """A `parsing.pdf_parser` override (e.g. forcing docling) must resolve even
+    when the worker's default profile ("liteparse") never configures docling
+    into its engine_order -- while `.engines` stays exactly that profile's own
+    set, unaffected by what overrides are merely available."""
+    parser = HarborParserFactory().create_pdf_parser()
+
+    assert [engine.name for engine in parser.engines] == ["liteparse", "pymupdf"]
+    assert "docling" not in [engine.name for engine in parser.engines]
+
+    request = ParseRequest(source_uri="doc.pdf", filename="doc.pdf", engine="docling")
+    candidates = parser._router.resolve_candidates(request)  # noqa: SLF001 - routing internals
+
+    assert [engine.name for engine in candidates] == ["docling"]
+
+
+def test_pdf_router_falls_back_to_override_engines_outside_the_main_registry() -> None:
+    """`PDFEngineRouter` resolves a forced `request.engine` from `override_engines`
+    when the main registry (the active profile's own engines) doesn't have it."""
+    registry = PDFEngineRegistry((_ResultEngine("primary"),))
+    router_config = PDFRouterConfig(
+        default_profile="only",
+        profiles={"only": PDFProfileConfig(("result",), minimum_quality_score=0.5)},
+    )
+    router = PDFEngineRouter(
+        registry, router_config, override_engines={"second": _SecondResultEngine("forced")}
+    )
+
+    candidates = router.resolve_candidates(ParseRequest(source_uri="doc.pdf", engine="second"))
+
+    assert [engine.name for engine in candidates] == ["second"]
+
+    with pytest.raises(UnknownPDFEngineError):
+        router.resolve_candidates(ParseRequest(source_uri="doc.pdf", engine="unknown"))
 
 
 def test_ocr_first_profile_keeps_its_distinct_engine_policy() -> None:

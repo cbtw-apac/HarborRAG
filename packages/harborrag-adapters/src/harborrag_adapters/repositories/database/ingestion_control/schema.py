@@ -257,6 +257,7 @@ DOCUMENT_FAILURES = Table(
     Column("first_failure_at", UTCDateTime(), nullable=False),
     Column("last_failure_at", UTCDateTime(), nullable=False),
     Column("attempt_count", Integer, nullable=False, default=1),
+    Column("resolved_at", UTCDateTime(), nullable=True),
     UniqueConstraint(
         "document_version_id",
         "failed_stage",

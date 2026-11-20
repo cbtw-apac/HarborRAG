@@ -40,6 +40,7 @@ def test_export_produces_stable_schema_with_the_v2_surface() -> None:
         "/v1/admin/projects",
         "/v1/admin/projects/{project_id}",
         "/v1/admin/projects/{project_id}/connections/{connection_id}",
+        "/v1/admin/projects/{project_id}/connections/{connection_id}/failures",
         "/v1/admin/projects/{project_id}/connections/{connection_id}/test",
         "/v1/admin/settings",
         "/v1/admin/settings/schema",

@@ -9,6 +9,7 @@ from typing import Protocol
 from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.ingestion import (
     ActiveDocumentVersion,
+    DocumentFailureRecord,
     FailurePage,
     IngestionTask,
     IngestionTaskState,
@@ -153,3 +154,11 @@ class PublicTaskStore(Protocol):
         self,
         document_ids: Sequence[str],
     ) -> dict[str, ActiveDocumentVersion]: ...
+
+    async def list_failures(
+        self,
+        *,
+        tenant_id: str,
+        connection_id: str,
+        limit: int = 100,
+    ) -> tuple[DocumentFailureRecord, ...]: ...

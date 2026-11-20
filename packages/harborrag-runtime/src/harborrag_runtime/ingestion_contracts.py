@@ -118,6 +118,11 @@ class PreparedSourceSubmission:
     missing_threshold: int = 2
     batch_size: int = 200
     continue_after_batches: int = 25
+    settings_revision: int = 0
+    pdf_engine: str | None = None
+    chunking_max_tokens: int | None = None
+    ingestion_activity_timeout_seconds: int | None = None
+    ingestion_max_attempts: int | None = None
     run_settings: RunSettings | None = None
 
     def __post_init__(self) -> None:
@@ -151,6 +156,8 @@ class IngestionRetryRequest:
     tenant_id: str
     document_ids: tuple[str, ...]
     document_concurrency: int = 8
+    ingestion_activity_timeout_seconds: int | None = None
+    ingestion_max_attempts: int | None = None
 
     def __post_init__(self) -> None:
         if any(

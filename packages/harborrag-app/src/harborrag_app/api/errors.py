@@ -109,6 +109,12 @@ class ReferenceNotFoundError(HarborValidationError):
     error_code = "reference_not_found"
 
 
+class ReindexRequiredError(HarborConflictError):
+    """The change needs chunks re-embedded or re-chunked; `reindex=true` lands in v2.1."""
+
+    error_code = "reindex_required"
+
+
 _STATUS_BY_TYPE: dict[type[HarborError], int] = {
     TenantRequiredError: 400,
     HarborPreconditionFailedError: 412,

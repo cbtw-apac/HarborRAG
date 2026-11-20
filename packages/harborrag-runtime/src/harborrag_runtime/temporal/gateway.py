@@ -59,6 +59,10 @@ class TemporalIngestionGateway:
                     tenant_id=request.tenant_id,
                     document_ids=request.document_ids,
                     document_concurrency=request.document_concurrency,
+                    ingestion_activity_timeout_seconds=(
+                        request.ingestion_activity_timeout_seconds
+                    ),
+                    ingestion_max_attempts=request.ingestion_max_attempts,
                 )
             )
         )

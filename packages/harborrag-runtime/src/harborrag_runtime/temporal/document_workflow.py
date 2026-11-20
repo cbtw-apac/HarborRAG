@@ -30,12 +30,13 @@ class DocumentIngestionWorkflow:
         queues = request.workflow_options.task_queues
         discovery_retry = temporal_retry_policy(request.workflow_options.retries.discovery)
         document_retry = temporal_retry_policy(request.workflow_options.retries.document)
+        document_timeout = timedelta(seconds=request.workflow_options.timeouts.document_seconds)
         try:
             capture = await workflow.execute_activity(
                 "harborrag.fetch_and_capture_raw",
                 request,
                 task_queue=queues.io,
-                start_to_close_timeout=timedelta(minutes=30),
+                start_to_close_timeout=document_timeout,
                 heartbeat_timeout=timedelta(minutes=2),
                 retry_policy=document_retry,
                 result_type=RawCaptureResult,
@@ -45,7 +46,7 @@ class DocumentIngestionWorkflow:
                 "harborrag.parse_and_normalize",
                 capture,
                 task_queue=queues.parser,
-                start_to_close_timeout=timedelta(minutes=30),
+                start_to_close_timeout=document_timeout,
                 heartbeat_timeout=timedelta(minutes=2),
                 retry_policy=document_retry,
                 result_type=PreparedDocument,

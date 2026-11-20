@@ -85,12 +85,22 @@ class HarborParserFactory:
                 profiles=router_config.profiles,
             )
         engines = self._configured_pdf_engines(profile_name, router_config)
+        try:
+            pool_profile = PDFParserProfile.normalize(profile_name)
+        except ValueError:
+            pool_profile = PDFParserProfile.LITEPARSE
         return HarborPDFParser(
             engines=engines,
             min_content_chars=resolved_config.min_content_chars,
             max_pages=resolved_config.max_pages,
             profile=profile_name,
             router_config=router_config,
+            # Every known engine, not just this profile's engine_order, so a
+            # request can force one specific engine (`ParseRequest.engine`,
+            # e.g. a connection's `parsing.pdf_parser` override) regardless of
+            # which profile this worker defaults to. Kept out of `engines`
+            # above: that stays the profile's own active/introspectable set.
+            override_engines=self._pdf_engine_pool(pool_profile),
         )
 
     def _default_families(self, config: ParserConfig) -> tuple[HarborParser, ...]:

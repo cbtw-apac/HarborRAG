@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Sequence
 
 from sqlalchemy import insert, select, update
@@ -8,17 +9,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from harborrag_adapters.repositories.backends.sqlalchemy import SQLAlchemyDBClient
 from harborrag_core.base import utc_now
 from harborrag_core.chunking import encoded_identifier
-from harborrag_core.contracts import HarborNotFoundError
+from harborrag_core.contracts import HarborNotFoundError, HarborValidationError
 from harborrag_core.ingestion import (
     CleanupJobState,
     DocumentFailure,
+    DocumentFailureRecord,
     DocumentVersionState,
     ProjectionCleanupJob,
     ProjectionManifest,
 )
 from harborrag_core.schemas.ids import DocumentId, DocumentVersionId
 
-from .row_mapping import cleanup_job_from_row
+from .row_mapping import cleanup_job_from_row, document_failure_record_from_row
 from .schema import (
     DOCUMENT_FAILURES,
     DOCUMENT_VERSIONS,
@@ -27,6 +29,8 @@ from .schema import (
     PROJECTION_MANIFESTS,
     SOURCE_ITEMS,
 )
+
+logger = logging.getLogger("harborrag.adapters.repositories.database.ingestion_control.reliability")
 
 
 class IngestionReliabilityRepository:
@@ -87,6 +91,55 @@ class IngestionReliabilityRepository:
                     attempt_count=row["attempt_count"] + 1,
                 )
             )
+
+    async def list_failures(
+        self,
+        *,
+        tenant_id: str,
+        connection_id: str,
+        limit: int = 100,
+    ) -> tuple[DocumentFailureRecord, ...]:
+        """Currently-failing documents of one connection, most recent first.
+
+        Joins to `documents` for the tenant/connection scope: a failure row
+        itself only knows its `document_id`, not which connection owns it.
+        Resolved rows (their document version has since published) are
+        excluded; unresolved failures for other, unpublished versions of the
+        same document still show.
+        """
+        if not tenant_id.strip():
+            raise ValueError("failures tenant_id must be non-empty")
+        if not connection_id.strip():
+            raise ValueError("failures connection_id must be non-empty")
+        if not 1 <= limit <= 1_000:
+            raise ValueError("failures limit must be between 1 and 1000")
+        async with self._client.sessions() as session:
+            result = await session.execute(
+                select(DOCUMENT_FAILURES)
+                .join(DOCUMENTS, DOCUMENTS.c.document_id == DOCUMENT_FAILURES.c.document_id)
+                .where(
+                    DOCUMENTS.c.tenant_id == tenant_id,
+                    DOCUMENTS.c.connection_id == connection_id,
+                    DOCUMENT_FAILURES.c.resolved_at.is_(None),
+                )
+                .order_by(DOCUMENT_FAILURES.c.last_failure_at.desc())
+                .limit(limit)
+            )
+            records: list[DocumentFailureRecord] = []
+            for row in result.mappings().all():
+                try:
+                    records.append(document_failure_record_from_row(row))
+                except HarborValidationError:
+                    # A row predating stricter write-time validation (or written
+                    # outside it) must not take down the whole listing -- every
+                    # other, valid failure for this connection still has to show.
+                    logger.warning(
+                        "skipping unreadable document_failures row failure_id=%s "
+                        "document_version_id=%s",
+                        row.get("failure_id"),
+                        row.get("document_version_id"),
+                    )
+            return tuple(records)
 
     async def enqueue_cleanup(
         self,

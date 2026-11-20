@@ -28,6 +28,8 @@ from harborrag_core.testing.control_plane_fakes import (
     FakePendingEffectRepository,
     FakeProjectRepository,
     FakeProviderRepository,
+    FakeSettingOverrideRepository,
+    FakeSettingScopeRevisionRepository,
     FakeSettingsRepository,
 )
 from harborrag_core.testing.fakes import FakeSecrets
@@ -82,6 +84,9 @@ class Runs:
 
     async def document_results_page(self, task_id: str, **_filters: Any) -> TaskDocumentPage:
         return TaskDocumentPage((), has_more=False)
+
+    async def list_failures(self, **_filters: Any) -> tuple[Any, ...]:
+        return ()
 
 
 @dataclass
@@ -189,6 +194,8 @@ def fake_control_plane(projects: list[Project], secrets: FakeSecrets) -> Control
         leases=FakeLeaseRepository(),
         graph_conflicts=FakeGraphConflictRepository(),
         connection_revisions=FakeConnectionRevisionRepository(),
+        setting_overrides=FakeSettingOverrideRepository(),
+        setting_scope_revisions=FakeSettingScopeRevisionRepository(),
     )
 
 

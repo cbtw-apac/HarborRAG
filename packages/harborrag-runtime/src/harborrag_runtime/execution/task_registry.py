@@ -11,6 +11,7 @@ from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.ingestion import (
     TASK_PROVENANCE_KEYS,
     ActiveDocumentVersion,
+    DocumentFailureRecord,
     FailurePage,
     IngestionTask,
     IngestionTaskState,
@@ -28,7 +29,12 @@ from harborrag_runtime.ingestion_contracts import PreparedSourceSubmission
 
 from .source_conversion import to_source_request
 
-_PINNED_SETTINGS_KEYS = ("settings_revision", "run_settings")
+_PINNED_SETTINGS_KEYS = (
+    "settings_revision",
+    "run_settings",
+    "ingestion_activity_timeout_seconds",
+    "ingestion_max_attempts",
+)
 
 
 class IngestionTaskRegistry:
@@ -332,6 +338,17 @@ class IngestionTaskRegistry:
         document_ids: Sequence[str],
     ) -> dict[str, ActiveDocumentVersion]:
         return await self._control.document_versions.active_versions(document_ids)
+
+    async def list_failures(
+        self,
+        *,
+        tenant_id: str,
+        connection_id: str,
+        limit: int = 100,
+    ) -> tuple[DocumentFailureRecord, ...]:
+        return await self._control.reliability.list_failures(
+            tenant_id=tenant_id, connection_id=connection_id, limit=limit
+        )
 
     async def close(self) -> None:
         await self._control.close()

@@ -26,6 +26,8 @@ class DocumentReleaseRequest:
     configuration_fingerprint: str | None = None
     discovery_decision: SourceAdmissionDecision | None = None
     force_reprocess: bool = False
+    pdf_engine: str | None = None
+    chunking_max_tokens: int | None = None
     run_settings: RunSettings | None = None
 
     def __post_init__(self) -> None:

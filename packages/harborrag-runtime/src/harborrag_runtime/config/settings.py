@@ -120,6 +120,8 @@ class RuntimeSettings(MemorySettingsMixin, BaseSettings):
         pattern=r"^[A-Za-z0-9._-]+$",
     )
     connector_config_path: Path = Path("config/sources/connectors.yaml")
+    # Seeds setting_overrides and the settings log once on an empty install;
+    # see settings_seed.py and settings_import.py.
     settings_seed_path: Path = Path("config/settings.yaml")
     parser_config_path: Path = Path("config/ingestion/parsers.yaml")
     model_config_path: Path = Path("config/models/models.yaml")

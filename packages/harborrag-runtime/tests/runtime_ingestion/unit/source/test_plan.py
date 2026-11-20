@@ -100,6 +100,37 @@ async def test_source_plan_round_trip_is_immutable_and_reference_only() -> None:
 
 
 @pytest.mark.asyncio
+async def test_pdf_engine_and_chunking_max_tokens_overrides_survive_the_round_trip() -> None:
+    """AC8 regression: a batch's durable plan artifact used to silently drop these
+    two override fields on reload, so a connection's `parsing.pdf_parser`/
+    `chunking.max_tokens` override never reached documents released from a
+    continued (multi-batch) source scan."""
+    from dataclasses import replace
+
+    planned = replace(
+        _planned(),
+        request=replace(_planned().request, pdf_engine="docling", chunking_max_tokens=64),
+    )
+    store = MemoryObjectStore()
+    context = StorageOperationContext.system(tenant_id="tenant-1")
+    async with store:
+        repository = SourcePlanRepository(
+            ImmutableArtifactWriter(store),
+            ImmutableArtifactReader(store),
+        )
+        reference = await repository.put(
+            task_id="task-2",
+            scan_id="scan-2",
+            planned=(planned,),
+            context=context,
+        )
+        loaded = await repository.get(reference, context=context)
+
+    assert loaded[0].request.pdf_engine == "docling"
+    assert loaded[0].request.chunking_max_tokens == 64
+
+
+@pytest.mark.asyncio
 async def test_plan_index_and_pages_locate_documents_without_the_whole_plan() -> None:
     store = MemoryObjectStore()
     context = StorageOperationContext.system(tenant_id="tenant-1")

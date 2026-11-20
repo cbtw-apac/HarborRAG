@@ -1,0 +1,58 @@
+"""ISO 8601 duration parsing for setting values like ``ingestion.activity_timeout``."""
+
+from __future__ import annotations
+
+import re
+
+from harborrag_runtime.temporal_models import (
+    MAX_ACTIVITY_TIMEOUT_SECONDS,
+    MIN_ACTIVITY_TIMEOUT_SECONDS,
+)
+
+_ISO8601_DURATION = re.compile(
+    r"^P(?:(?P<days>\d+)D)?"
+    r"(?:T(?:(?P<hours>\d+)H)?(?:(?P<minutes>\d+)M)?(?:(?P<seconds>\d+)S)?)?$"
+)
+
+
+def parse_iso8601_duration_seconds(value: str) -> int:
+    """Convert a ``PnDTnHnMnS`` duration string to whole seconds.
+
+    Raises:
+        ValueError: ``value`` is not a valid, non-zero ISO 8601 duration.
+    """
+
+    match = _ISO8601_DURATION.match(value.strip())
+    if match is None or not any(match.groups()):
+        raise ValueError(f"invalid ISO 8601 duration: {value!r}")
+    parts = {name: int(digits) for name, digits in match.groupdict().items() if digits}
+    seconds = (
+        parts.get("days", 0) * 86_400
+        + parts.get("hours", 0) * 3_600
+        + parts.get("minutes", 0) * 60
+        + parts.get("seconds", 0)
+    )
+    if seconds <= 0:
+        raise ValueError(f"invalid ISO 8601 duration: {value!r}")
+    return seconds
+
+
+def require_activity_timeout_seconds(value: str) -> int:
+    """Parse ``ingestion.activity_timeout`` and enforce Temporal's activity bounds.
+
+    A duration that parses but falls outside what `ActivityTimeoutConfig`
+    accepts (60 seconds to 7 days) would otherwise be stored successfully
+    here and only fail later, when a run actually resolves and applies it.
+
+    Raises:
+        ValueError: ``value`` is not a valid ISO 8601 duration, or its seconds
+            fall outside 60 seconds to 7 days.
+    """
+
+    seconds = parse_iso8601_duration_seconds(value)
+    if not MIN_ACTIVITY_TIMEOUT_SECONDS <= seconds <= MAX_ACTIVITY_TIMEOUT_SECONDS:
+        raise ValueError(
+            f"ingestion.activity_timeout must be between {MIN_ACTIVITY_TIMEOUT_SECONDS} "
+            f"seconds and {MAX_ACTIVITY_TIMEOUT_SECONDS} seconds, got {value!r}"
+        )
+    return seconds

@@ -7,7 +7,8 @@ never on the adapter classes.
 
 from __future__ import annotations
 
-from typing import Any, Protocol, TypeVar
+from collections.abc import Sequence
+from typing import Any, Protocol, TypedDict, TypeVar
 
 from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.domain.activity import ActivityEntry
@@ -19,6 +20,8 @@ from harborrag_core.domain.member import Member
 from harborrag_core.domain.pending_effect import PendingControlPlaneEffect
 from harborrag_core.domain.project import Project
 from harborrag_core.domain.provider import Provider
+from harborrag_core.domain.setting_override import SettingOverride
+from harborrag_core.domain.setting_registry import ScopeLevel
 from harborrag_core.domain.settings import WorkspaceSettings
 from harborrag_core.security.context import AccessContext
 
@@ -228,6 +231,139 @@ class SettingsRepositoryPort(Protocol):
 
     async def put(self, settings: WorkspaceSettings) -> WorkspaceSettings:
         """Replace the settings document and return it."""
+
+
+class SettingOverrideRepositoryPort(Protocol):
+    """Per-scope runtime config overrides: default -> tenant -> project -> connection."""
+
+    async def get_at(
+        self, tenant_id: str, scope_level: ScopeLevel, scope_id: str
+    ) -> dict[str, Any]:
+        """Raw overrides stored at exactly this scope (no merging with other levels)."""
+
+    async def list_for_tenant(self, tenant_id: str) -> list[SettingOverride]:
+        """Every override in ``tenant_id``, across all scopes, for resolution and export."""
+
+    async def put(
+        self, override: SettingOverride, *, expected_version: int | None
+    ) -> SettingOverride:
+        """Upsert one override; advances `version`.
+
+        Raises:
+            HarborPreconditionFailedError: ``expected_version`` is set and does not
+                match the stored version (or the row does not exist yet and
+                ``expected_version`` is not ``None``).
+        """
+
+    async def delete(
+        self, tenant_id: str, scope_level: ScopeLevel, scope_id: str, key: str
+    ) -> None:
+        """Remove one override; a missing row is not an error."""
+
+    async def count_all(self) -> int:
+        """Total override rows across every tenant, for the empty-database seed guard."""
+
+
+class ScopeRevisionRecord(TypedDict):
+    """Who/what produced a scope's current revision."""
+
+    revision: int
+    source: str
+    actor: str | None
+
+
+class SettingScopeRevisionRepositoryPort(Protocol):
+    """One monotonic revision per scope; the ETag/If-Match for `PATCH /v1/admin/settings`."""
+
+    async def get(self, tenant_id: str, scope_level: ScopeLevel, scope_id: str) -> int:
+        """Current revision, or 0 when the scope has never been written."""
+
+    async def get_record(
+        self, tenant_id: str, scope_level: ScopeLevel, scope_id: str
+    ) -> ScopeRevisionRecord | None:
+        """Revision plus ``source``/``actor`` of the last bump, or ``None`` if never written."""
+
+    async def bump_if_match(
+        self,
+        tenant_id: str,
+        scope_level: ScopeLevel,
+        scope_id: str,
+        *,
+        expected_revision: int,
+        source: str,
+        actor: str | None = None,
+    ) -> int:
+        """Advance the scope's revision by one and return it.
+
+        ``source`` identifies what caused the bump (``"api"``, ``"seed"``, ...);
+        ``actor`` is the acting principal's subject, when there is one.
+
+        Raises:
+            HarborPreconditionFailedError: ``expected_revision`` does not match
+                the stored revision (0 when the scope has never been written).
+        """
+
+
+class SettingsPatchRepositoryPort(Protocol):
+    """Apply one `PATCH /v1/admin/settings` write as a single atomic unit.
+
+    The revision bump and every override write for the scope must commit or
+    fail together, under the same row lock, so a concurrent PATCH cannot
+    observe (or clobber) a bumped revision with only some keys written.
+    """
+
+    async def apply(
+        self,
+        tenant_id: str,
+        scope_level: ScopeLevel,
+        scope_id: str,
+        *,
+        expected_revision: int,
+        source: str,
+        actor: str | None,
+        puts: Sequence[SettingOverride],
+        deletes: Sequence[str],
+    ) -> int:
+        """Bump the scope's revision and write every override change; return the new revision.
+
+        Raises:
+            HarborPreconditionFailedError: ``expected_revision`` does not match
+                the stored revision (0 when the scope has never been written).
+        """
+
+
+class SettingsSeedRepositoryPort(Protocol):
+    """Write the one-time `config/settings.yaml` seed as a single atomic unit.
+
+    Every override, the tenant scope's revision, and the workspace marker
+    recording that the seed ran must commit together. Writing them as
+    separate commits means a crash partway through (e.g. the second override
+    write fails) leaves earlier overrides committed with no revision bump and
+    no marker -- `setting_overrides` is then non-empty forever, which blocks
+    every later boot's retry while silently serving that incomplete
+    configuration.
+    """
+
+    async def seed(
+        self,
+        *,
+        tenant_id: str,
+        overrides: Sequence[SettingOverride],
+        workspace_tenant_id: str,
+        marker_key: str,
+        marker_value: dict[str, Any],
+    ) -> None:
+        """Write every override, bump the tenant scope's revision to 1, and record the marker.
+
+        ``workspace_tenant_id`` seeds a brand-new workspace-settings document's
+        own (unrelated, legacy) tenant identity when none exists yet; an
+        existing document's tenant identity is left untouched.
+
+        Raises:
+            HarborConflictError: `setting_overrides` already holds rows, or
+                the tenant scope's revision is already non-zero -- this seed
+                would otherwise overwrite state it does not own.
+        """
 
 
 class ProviderRepositoryPort(Protocol):

@@ -20,6 +20,12 @@ def pending_source_task(request: SourceIngestionRequest) -> IngestionTask:
     """Build the one canonical, runtime-free task record for a source request."""
 
     query = request.query
+    # `run_settings` (a `config_store`-resolved pin, always present once that
+    # store is wired) and the connection scope's own setting-override revision
+    # both want to stamp `settings_revision`. The scope revision is the more
+    # specific, current value when it exists, so it's applied last and wins;
+    # `run_settings` otherwise supplies the fallback plus its own JSON blob.
+    scoped = {"settings_revision": request.settings_revision} if request.settings_revision else {}
     pinned = (
         {
             "settings_revision": request.run_settings.settings_revision,
@@ -28,6 +34,21 @@ def pending_source_task(request: SourceIngestionRequest) -> IngestionTask:
         if request.run_settings is not None
         else {}
     )
+    # Connection-scope overrides resolved once at submission (same `setting_overrides`
+    # source as `settings_revision`). Without these, a deferred start rebuilt later
+    # from this stored request (`source_from_task`) would silently drop them: capture
+    # skips the PDF engine override, materialization skips the chunk-token cap, and
+    # the workflow options lose the activity timeout/retry overrides entirely.
+    overridden = {
+        key: value
+        for key, value in (
+            ("pdf_engine", request.pdf_engine),
+            ("chunking_max_tokens", request.chunking_max_tokens),
+            ("ingestion_activity_timeout_seconds", request.ingestion_activity_timeout_seconds),
+            ("ingestion_max_attempts", request.ingestion_max_attempts),
+        )
+        if value is not None
+    }
     return IngestionTask(
         task_id=request.task_id,
         source_scope_id=request.source_scope_id,
@@ -53,5 +74,7 @@ def pending_source_task(request: SourceIngestionRequest) -> IngestionTask:
             "processing": request.processing.model_dump(mode="json"),
             "force_reprocess": request.force_reprocess,
             **pinned,
+            **scoped,
+            **overridden,
         },
     )

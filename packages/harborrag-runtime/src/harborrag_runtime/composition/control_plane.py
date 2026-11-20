@@ -21,7 +21,11 @@ from harborrag_core.ports.control_plane import (
     PendingEffectRepositoryPort,
     ProjectRepositoryPort,
     ProviderRepositoryPort,
+    SettingOverrideRepositoryPort,
+    SettingScopeRevisionRepositoryPort,
+    SettingsPatchRepositoryPort,
     SettingsRepositoryPort,
+    SettingsSeedRepositoryPort,
 )
 from harborrag_core.ports.conversation import ConversationHistoryRepository
 from harborrag_core.ports.memory import MemoryRepository
@@ -67,6 +71,10 @@ class ControlPlaneRepositories:
     # not wire one, in which case every tenant uses the process-wide catalog.
     model_catalog: TenantModelCatalogPort | None = None
     connection_revisions: ConnectionRevisionRepositoryPort | None = None
+    setting_overrides: SettingOverrideRepositoryPort | None = None
+    setting_scope_revisions: SettingScopeRevisionRepositoryPort | None = None
+    setting_patches: SettingsPatchRepositoryPort | None = None
+    settings_seed: SettingsSeedRepositoryPort | None = None
     config_store: SettingsStore | None = None
     config: ConfigProvider | None = None
 
@@ -147,6 +155,18 @@ class CompositionRoot:
         )
         from harborrag_adapters.repositories.database.control_plane.secrets import (
             SqlSecretsRepository,
+        )
+        from harborrag_adapters.repositories.database.control_plane.setting_overrides import (
+            SqlSettingOverrideRepository,
+        )
+        from harborrag_adapters.repositories.database.control_plane.setting_patches import (
+            SqlSettingPatchRepository,
+        )
+        from harborrag_adapters.repositories.database.control_plane.setting_scope_revisions import (
+            SqlSettingScopeRevisionRepository,
+        )
+        from harborrag_adapters.repositories.database.control_plane.settings_seed_repository import (
+            SqlSettingsSeedRepository,
         )
         from harborrag_adapters.repositories.database.control_plane.usage import (
             SqlModelUsageRepository,
@@ -231,6 +251,10 @@ class CompositionRoot:
             memories=SqlMemoryRepository(sessions),
             model_usage=SqlModelUsageRepository(sessions),
             model_catalog=SqlTenantModelCatalog(sessions),
+            setting_overrides=SqlSettingOverrideRepository(sessions),
+            setting_scope_revisions=SqlSettingScopeRevisionRepository(sessions),
+            setting_patches=SqlSettingPatchRepository(sessions),
+            settings_seed=SqlSettingsSeedRepository(sessions),
             config_store=config_store,
             config=config_provider,
         )

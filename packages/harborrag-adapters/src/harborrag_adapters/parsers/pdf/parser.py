@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from time import perf_counter
 from typing import ClassVar
@@ -55,6 +55,7 @@ class HarborPDFParser(PDFParserSupportMixin, HarborParser):
         router_config: PDFRouterConfig | None = None,
         quality_evaluator: PDFQualityEvaluator | None = None,
         normalizer: PDFNormalizer | None = None,
+        override_engines: Mapping[str, HarborPDFEngine] | None = None,
     ) -> None:
         if engines is not None and backends is not None:
             raise ValueError("Pass PDF engines or backends, not both")
@@ -79,7 +80,9 @@ class HarborPDFParser(PDFParserSupportMixin, HarborParser):
                     else None
                 ),
             )
-            router = PDFEngineRouter(self._registry, resolved_router_config)
+            router = PDFEngineRouter(
+                self._registry, resolved_router_config, override_engines=override_engines
+            )
         self._router = router
         self._quality_evaluator = quality_evaluator or PDFQualityEvaluator(min_content_chars)
         self._normalizer = normalizer or PDFNormalizer()
@@ -208,6 +211,7 @@ class HarborPDFParser(PDFParserSupportMixin, HarborParser):
             source_uri=str(input.path or input.filename or "memory://pdf"),
             filename=input.filename,
             mime_type=input.content_type,
+            engine=input.metadata.get("pdf_engine_override"),
             options={
                 "profile": self._profile_name,
                 "metadata": input.metadata,

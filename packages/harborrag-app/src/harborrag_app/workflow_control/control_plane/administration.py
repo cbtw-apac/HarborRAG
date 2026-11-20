@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from typing import Protocol
 
+from ..ingestion.failures import FailuresService
 from .connections import ConnectionService
 from .projects import ProjectService
+from .settings import SettingsService
 
 
 class ConnectionAdministration(Protocol):
@@ -16,3 +18,9 @@ class ConnectionAdministration(Protocol):
 
     @property
     def project_service(self) -> ProjectService: ...
+
+    @property
+    def settings_service(self) -> SettingsService: ...
+
+    @property
+    def failures_service(self) -> FailuresService: ...
