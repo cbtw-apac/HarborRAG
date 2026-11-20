@@ -1,3 +1,9 @@
+# One catalog for OpenAI and for an OpenAI-compatible gateway such as a LiteLLM proxy.
+# Every value comes from env/.env.models; env-example/.env.models.example lists them.
+#
+#   HARBORRAG_URL             endpoint for every family; OpenAI when unset
+#   HARBORRAG_EMBED_PROVIDER  set to "cohere" when the embedding model is a Cohere model
+#   HARBORRAG_RERANKER_MODEL  turns reranking on; leave unset to run without it
 chat:
   default_model: primary
   backend:
@@ -13,11 +19,11 @@ chat:
   models:
     primary:
       deployments:
-        - name: gateway-chat
+        - name: openai-compatible-chat
           provider: openai_compatible
           model: ${HARBORRAG_CHAT_MODEL}
-          api_base: ${HARBORRAG_URL}
-          api_key: ${HARBORRAG_API_KEY}
+          api_base: ${HARBORRAG_URL:-https://api.openai.com/v1}
+          api_key: ${HARBORRAG_CHAT_API_KEY}
           capabilities:
             streaming: true
             structured_output: true
@@ -31,17 +37,17 @@ embed:
     request_seconds: 60
   default_batch_size: 64
   security:
-    allowed_providers: [cohere]
+    allowed_providers: [openai, openai_compatible, cohere]
   models:
     primary:
-      embedding_space: harbor-cohere-embed-v4
+      embedding_space: ${HARBORRAG_EMBED_MODEL}
       deployments:
-        - name: gateway-embedding
-          provider: cohere
+        - name: openai-compatible-embedding
+          provider: ${HARBORRAG_EMBED_PROVIDER:-openai_compatible}
           custom_llm_provider: litellm_proxy
           model: ${HARBORRAG_EMBED_MODEL}
-          api_base: ${HARBORRAG_URL}
-          api_key: ${HARBORRAG_API_KEY}
+          api_base: ${HARBORRAG_URL:-https://api.openai.com/v1}
+          api_key: ${HARBORRAG_EMBED_API_KEY}
           expected_dimensions: 1536
           capabilities:
             batch: true
@@ -60,6 +66,6 @@ rerank:
       deployments:
         - name: gateway-rerank
           provider: litellm_proxy
-          model: ${HARBORRAG_RERANKER_MODEL}
-          api_base: ${HARBORRAG_URL}
-          api_key: ${HARBORRAG_API_KEY}
+          model: ${HARBORRAG_RERANKER_MODEL:-}
+          api_base: ${HARBORRAG_URL:-https://api.openai.com/v1}
+          api_key: ${HARBORRAG_RERANKER_API_KEY:-}

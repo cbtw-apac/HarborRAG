@@ -67,7 +67,7 @@ loads: copy them, or pass their paths explicitly.
 
 | To change | Edit | Then |
 | --- | --- | --- |
-| The model gateway's URL, key or model names | `env/.env.models` | Recreate the API and worker containers so they read the file again. A new embedding model needs a re-index ([Model Configuration](model-config.md#the-shipped-gateway-catalog)) |
+| The model endpoint's URL, key or model names | `env/.env.models` | Recreate the API and worker containers so they read the file again. A new embedding model needs a re-index ([Model Configuration](model-config.md#the-shipped-catalog)) |
 | Which models each family uses, or their provider | `config/models/models.yaml` | Restart the API and the worker |
 | A connector token or password | `env/.env.connector` | Recreate the worker container; its next run reads the new value |
 | Which sources are ingested, or a source's URL or folder | Before the first start: `config/sources/connectors.yaml` and the variables it names in `env/.env.connector`. After it: `harborrag source add` or `update`, or the API | [Connections](../connections.md). The CLI writes connections only once `HARBORRAG_CONTROL_DB_URL` points it at the stack's Postgres ([Checkout quick start](../../developers/checkout-quick-start.md)) |
