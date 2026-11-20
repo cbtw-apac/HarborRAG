@@ -1,6 +1,8 @@
-"""Present connections, projects and ingestion runs in the HTTP API's shapes.
+"""Presenters for connections, projects and ingestion runs in the HTTP API's shapes.
 
-Secrets are reduced to ``SecretStatus``.
+Secrets leave only as their ``SecretStatus``, never as values. Run counters keep
+``processed + skipped + failed`` within ``discovered``, because progress events
+report that sum as done against ``discovered``.
 """
 
 from __future__ import annotations
@@ -15,6 +17,7 @@ from harborrag_core.domain.project import Project
 from harborrag_core.ingestion import IngestionTask, IngestionTaskState
 from harborrag_core.ingestion.run_contracts import RunKind
 from harborrag_core.security.secret_refs import credentials_view
+from harborrag_engine.ingestion.presenters import discovery_skipped_count
 
 ANY_VERSION = -2
 
@@ -48,10 +51,11 @@ def connection_view(
     progress: Mapping[str, int] | None = None,
     documents: int | None = None,
 ) -> dict[str, Any]:
-    """Return the spec's ``Connection`` object; secrets never leave as values.
+    """Return the spec's ``Connection`` object, with secrets reduced to their status.
 
-    ``stats.errors`` is the failed-document count of ``last_ingestion`` in ``progress``, the
-    source of ``Ingestion.counters.failed``; 0 without a run.
+    ``stats.errors`` is the failed-document count of ``last_ingestion`` in
+    ``progress``, the same source as ``Ingestion.counters.failed``. It is 0
+    without a run.
     """
     return {
         "tenant_id": connection.tenant_id,
@@ -94,7 +98,13 @@ def project_view(project: Project, *, connections: int, documents: int) -> dict[
 
 @dataclass(frozen=True)
 class IngestionLinks:
-    """Operator UI bases a run links to; an unset base yields an empty link."""
+    """Operator UI addresses that a run's links point to.
+
+    Attributes:
+        temporal_ui_url: Base URL of the Temporal UI. Unset leaves that link empty.
+        temporal_namespace: Temporal namespace that runs the workflows.
+        grafana_url: Base URL of Grafana. Unset leaves that link empty.
+    """
 
     temporal_ui_url: str | None
     temporal_namespace: str
@@ -134,7 +144,10 @@ def ingestion_view(  # noqa: PLR0913 - keyword-only view inputs the callers supp
         triggered_by: Principal id, when the caller knows it.
         principal_type: Principal type, when the caller knows it.
         mode: Run mode, when the caller knows it.
-        links: Operator UI bases; without them every link is empty.
+        links: Operator UI addresses. Without them every link is empty.
+
+    Returns:
+        The ``Ingestion`` object, ready to serialize.
     """
     counts = dict(progress or {})
     summary = task.summary
@@ -196,9 +209,16 @@ def ingestion_status(state: IngestionTaskState) -> str:
 def ingestion_counters(task: IngestionTask, progress: Mapping[str, int]) -> dict[str, int]:
     """Return the spec's ``Ingestion`` counters of a durable task from its result counts.
 
+    Items skipped at discovery count in ``discovered`` as well as ``skipped``.
+    The total is then right from the first progress event, and
+    ``processed + skipped + failed`` reaches it only when every document is done.
+
     Args:
         task: The durable run.
         progress: Result counts by status from the run registry.
+
+    Returns:
+        ``discovered``, ``processed``, ``skipped`` and ``failed`` for the run.
     """
     summary = task.summary
     request = task.request
@@ -206,11 +226,12 @@ def ingestion_counters(task: IngestionTask, progress: Mapping[str, int]) -> dict
     document_ids = request.get("document_ids")
     if RunKind.of(request) is RunKind.RETRY and not discovered and isinstance(document_ids, list):
         discovered = len(document_ids)
+    discovery_skipped = discovery_skipped_count(summary)
     processed = progress.get("published", 0)
-    skipped = progress.get("unchanged", 0) + progress.get("skipped", 0)
+    skipped = progress.get("unchanged", 0) + progress.get("skipped", 0) + discovery_skipped
     failed = progress.get("failed", 0)
     return {
-        "discovered": max(discovered, processed + skipped + failed),
+        "discovered": max(discovered + discovery_skipped, processed + skipped + failed),
         "processed": processed,
         "skipped": skipped,
         "failed": failed,
@@ -247,9 +268,12 @@ async def read_connection_views(
     """Return the ``Connection`` view of each connection with its latest run and counts.
 
     Args:
-        runs: Run registry that reports each connection's latest run and document count.
+        runs: Run registry the latest runs, their result counts and document counts come from.
         connections: Connections to view.
         batch: Read the result counts of all latest runs in one query.
+
+    Returns:
+        One ``Connection`` object per connection, in the order given.
     """
     latest = [
         await runs.latest_for_connection(

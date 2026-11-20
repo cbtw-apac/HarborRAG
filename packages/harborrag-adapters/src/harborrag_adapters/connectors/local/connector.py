@@ -40,6 +40,8 @@ class LocalFileConnector(BaseConnector):
 
     Attributes:
         config: Local source configuration.
+        provider_name: Connector type name used in the registry.
+        capabilities: What this connector supports, such as incremental sync.
     """
 
     provider_name = "local"
@@ -67,6 +69,10 @@ class LocalFileConnector(BaseConnector):
             yielded += 1
             if query.limit is not None and yielded >= query.limit:
                 return
+
+    def bind_run_id(self, run_id: str) -> None:
+        """Tag this connector's skip warnings with the caller's run ID."""
+        self._files.skips.run_id = run_id
 
     @property
     def skipped(self) -> tuple[ConnectorSkip, ...]:

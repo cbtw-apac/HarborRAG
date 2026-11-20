@@ -17,8 +17,10 @@ from harborrag_core.ingestion import (
     BindingKind,
     IngestionTaskState,
 )
+from harborrag_core.ingestion.connector_contracts import ConnectorSkip
 from harborrag_core.storage import StorageFamily
 from harborrag_engine.ingestion.release.service import DocumentReleaseService
+from harborrag_engine.ingestion.source.models import DISCOVERY_SKIPS_KEY
 from harborrag_engine.ingestion.source.tasks import source_scan_id
 from harborrag_runtime.errors import RuntimeConfigurationError
 from harborrag_runtime.ingestion import SourceIngestionService
@@ -32,6 +34,23 @@ from ...fixtures.release import (
     build_release_service,
     source_request,
 )
+
+pytestmark = pytest.mark.unit
+
+
+class _SkippingConnector(DescriptorConnector):
+    """A connector whose discovery left one file out for its extension."""
+
+    @property
+    def skipped(self) -> tuple[ConnectorSkip, ...]:
+        """The file the extension filters dropped."""
+        return (
+            ConnectorSkip(
+                path="notes.txt",
+                reason="unsupported_extension",
+                detail="extension '.txt' is not allowed",
+            ),
+        )
 
 
 @pytest.mark.asyncio
@@ -333,7 +352,7 @@ async def test_direct_ingestion_persists_a_failure_that_escapes_dispatch(
         monkeypatch.setattr(service, "_dispatch", broken_dispatch)
 
         with pytest.raises(RuntimeError, match="control plane write failed"):
-            await service.ingest(source_request("task-failed-dispatch"), DescriptorConnector())
+            await service.ingest(source_request("task-failed-dispatch"), _SkippingConnector())
 
         task = await control.tasks.get("task-failed-dispatch")
         assert task is not None
@@ -341,6 +360,7 @@ async def test_direct_ingestion_persists_a_failure_that_escapes_dispatch(
         assert task.summary == {
             "failed_stage": "dispatch",
             "error_code": "dispatch_runtimeerror",
+            DISCOVERY_SKIPS_KEY: {"unsupported_extension": 1},
         }
 
 
@@ -435,13 +455,13 @@ async def test_finalization_failure_preserves_discovery_and_dispatch_counts(
         service = SourceIngestionService(
             control=control,
             documents=build_release_service(resources),
-            relations=FailingRelationRepair(),  # type: ignore[arg-type]
+            relations=FailingRelationRepair(),  # type: ignore[arg-type]  # only repair() is called
         )
 
         with pytest.raises(RuntimeError, match="repair unavailable"):
             await service.ingest(
                 source_request("task-failed-finalization"),
-                DescriptorConnector(),
+                _SkippingConnector(),
             )
 
         task = await control.tasks.get("task-failed-finalization")
@@ -451,6 +471,7 @@ async def test_finalization_failure_preserves_discovery_and_dispatch_counts(
         assert task.summary["discovered"] == 2
         assert task.summary["admitted"] == 2
         assert task.summary["published"] == 2
+        assert task.summary[DISCOVERY_SKIPS_KEY] == {"unsupported_extension": 1}
 
 
 @pytest.mark.asyncio
@@ -458,10 +479,10 @@ async def test_inline_tasks_are_never_outbox_candidates(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """An inline run creates its task in-process.
+    """An inline run's PENDING task never looks like an unsubmitted durable run.
 
-    If it stops before RUNNING, the API outbox must not mistake the PENDING row for an unsubmitted
-    durable run.
+    The run creates its task in-process. If it stops before RUNNING, the API
+    outbox must not submit the row again.
     """
     control = build_control_plane(tmp_path)
     resources = build_release_resources(control)
@@ -538,9 +559,10 @@ async def test_other_provision_validation_errors_propagate_unchanged(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Only the ensure_index schema mismatch is a configuration verdict.
+    """Only the ``ensure_index`` schema mismatch becomes a configuration error.
 
-    Other validation failures (e.g. an invalid tenant or index name) keep their type.
+    Other validation failures, such as an invalid tenant or index name, keep
+    their type.
     """
     control = build_control_plane(tmp_path)
     resources = build_release_resources(control)

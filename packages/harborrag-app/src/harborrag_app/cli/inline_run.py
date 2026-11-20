@@ -43,13 +43,13 @@ async def run_inline(
         updated_after: ISO-8601 time with an offset; only items changed since then.
 
     Returns:
-        The run's result, ``{task_id, status, discovered, published, unchanged, failed}``,
-        where ``status`` is an ``IngestionTaskState`` value; exit ``0`` when it is
-        ``COMPLETED`` or ``PARTIAL``, else ``8``.
+        The run's result, ``{task_id, status, discovered, published, unchanged, failed,
+        skipped}``, where ``status`` is an ``IngestionTaskState`` value; exit ``0`` when
+        it is ``COMPLETED`` or ``PARTIAL``, else ``8``.
 
     Raises:
         HarborNotFoundError: No such connection in the tenant.
-        HarborValidationError: A ``local_file`` source path is not a directory here.
+        HarborValidationError: A ``local_file`` source path does not exist here.
         HarborError: The run failed to run; the message is the reviewed public one.
     """
     scope.require(OPERATIONS["start_ingestion"].role)

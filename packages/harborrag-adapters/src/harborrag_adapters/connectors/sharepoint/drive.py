@@ -20,7 +20,7 @@ from harborrag_adapters.connectors.exceptions import AuthorizationError, FetchEr
 from harborrag_core.domain.source import SourceRecord
 from harborrag_core.ingestion.connector_contracts import ConnectorQuery
 
-from .allowlist import SharePointAllowlist
+from .allowlist import SharePointAllowlist, library_names
 from .client import SharePointClient
 from .config import SharePointSiteConfig
 from .drive_paths import (
@@ -39,6 +39,7 @@ from .drive_paths import (
     item_path,
     matches_pattern,
     site_path_endpoint,
+    validate_graph_id_segment,
 )
 from .mappers import build_source_record, parse_timestamp
 from .skips import (
@@ -310,7 +311,9 @@ class SharePointDriveAPI:
         child_id = str(item.get("id") or "")
         if not child_id:
             return None
-        if not self.allowlist.folder_may_contain_allowed(item_path(item)):
+        if not self.allowlist.folder_may_contain_allowed(
+            item_path(item), library_names=self._library_names(item)
+        ):
             logger.debug("Skipping SharePoint folder %s outside allowed paths", child_id)
             return None
         if child_id in seen_folder_ids:
@@ -589,7 +592,9 @@ class SharePointDriveAPI:
 
     def declined_reason(self, item: dict[str, Any]) -> tuple[str, str] | None:
         """Return the standard skip reason and detail for an out-of-policy file."""
-        if not self.allowlist.path_allowed(item_path(item)):
+        if not self.allowlist.path_allowed(
+            item_path(item), library_names=self._library_names(item)
+        ):
             return NOT_IN_ALLOWLIST, "path is outside allowed_path_prefixes"
         size = int(item.get("size") or 0)
         limit = self.config.max_file_size_bytes
@@ -602,6 +607,34 @@ class SharePointDriveAPI:
         if extension in self.config.excluded_extensions:
             return UNSUPPORTED_EXTENSION, f"extension {extension!r} is excluded"
         return None
+
+    def _library_names(self, item: dict[str, Any]) -> tuple[str, ...]:
+        """Return the names of the resolved library that holds an item, if it is known.
+
+        An item of a library this instance has not resolved gets no names, so
+        its path is matched against the prefixes exactly as configured.
+        """
+        drive_id = str(item.get("parentReference", {}).get("driveId") or "")
+        resolved = [*(self._drives or ()), *((self._drive,) if self._drive else ())]
+        for drive in resolved:
+            if drive_id and str(drive.get("id")) == drive_id:
+                return library_names(self._with_names(drive))
+        return ()
+
+    def _with_names(self, drive: dict[str, Any]) -> dict[str, Any]:
+        """Return a resolved drive with its names, fetched once for a drive set by ID.
+
+        A drive configured by ``drive_id`` starts without its web URL. It is fetched
+        only when a path prefix could start with the library's name, so a one-folder
+        allowlist never depends on the lookup. Graph request errors pass through.
+        """
+        if "webUrl" in drive or not self.allowlist.may_name_a_library():
+            return drive
+        drive_id = validate_graph_id_segment(str(drive.get("id") or ""), label="drive_id")
+        fetched = self.client.get_json(f"drives/{drive_id}", params={"$select": DRIVE_SELECT})
+        drive["name"] = drive.get("name") or fetched.get("name")
+        drive["webUrl"] = fetched.get("webUrl")
+        return drive
 
     def _callback_allows_file(self, item: dict[str, Any]) -> bool:
         """Ask the configured ``process_file_callback`` whether to keep a file.

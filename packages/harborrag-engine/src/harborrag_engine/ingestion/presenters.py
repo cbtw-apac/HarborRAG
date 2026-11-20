@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
+from collections.abc import Mapping
 from datetime import datetime
 from hashlib import sha256
 from uuid import uuid4
@@ -15,6 +16,7 @@ from harborrag_core.ingestion import (
 )
 from harborrag_core.invariants import HarborInvariantError
 from harborrag_engine.ingestion.models import DocumentPageCursor, TaskPageCursor
+from harborrag_engine.ingestion.source.models import DISCOVERY_SKIPS_KEY
 
 TERMINAL_STATES = frozenset(
     {
@@ -46,7 +48,9 @@ def task_response(task: IngestionTask, counts: dict[str, int]) -> dict[str, obje
         raise HarborInvariantError("stored ingestion task is missing tenant identity")
     summary = task.summary
     succeeded = counts.get("published", 0) + counts.get("success", 0)
-    skipped = counts.get("unchanged", 0) + counts.get("skipped", 0)
+    skipped = (
+        counts.get("unchanged", 0) + counts.get("skipped", 0) + discovery_skipped_count(summary)
+    )
     failed = counts.get("failed", 0)
     processed = sum(counts.values())
     status = STATUS_NAMES[task.status]
@@ -78,6 +82,22 @@ def task_response(task: IngestionTask, counts: dict[str, int]) -> dict[str, obje
         "completed_at": task.completed_at,
         "message": _task_message(status, stage),
     }
+
+
+def discovery_skipped_count(summary: Mapping[str, object]) -> int:
+    """Return how many items discovery dropped for a reportable reason.
+
+    Counts only the discovery-time reasons, not the task's combined ``skipped``
+    total, which already includes document-level skips counted from results.
+    """
+    reasons = summary.get(DISCOVERY_SKIPS_KEY)
+    if not isinstance(reasons, dict):
+        return 0
+    return sum(
+        count
+        for count in reasons.values()
+        if isinstance(count, int) and not isinstance(count, bool)
+    )
 
 
 def _summary_count(

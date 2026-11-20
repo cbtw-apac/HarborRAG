@@ -154,6 +154,9 @@ class SourceActivitiesMixin:
                     scan_id=scan_id,
                     plan_reference=to_workflow_artifact(replay),
                     document_count=replayed.document_count,
+                    skipped_by_reason=await self._runtime.sources.discovery_skip_counts(
+                        source.task_id
+                    ),
                 )
             connector = await self._runtime.connector(
                 tenant_id=source.tenant_id,
@@ -221,6 +224,7 @@ class SourceActivitiesMixin:
                 scan_id=discovery.scan_id,
                 plan_reference=to_workflow_artifact(reference),
                 document_count=document_count,
+                skipped_by_reason=await self._runtime.sources.discovery_skip_counts(source.task_id),
             )
 
     async def _discover_checkpointed_pages(
@@ -430,4 +434,6 @@ class SourceActivitiesMixin:
                 removal_count=len(outcome.removal_candidates),
                 unresolved_relations=outcome.unresolved_relations,
                 status=outcome.status.value,
+                skipped=outcome.skipped,
+                skipped_by_reason=outcome.skipped_by_reason,
             )

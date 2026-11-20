@@ -20,6 +20,8 @@ from harborrag_runtime.execution.temporal import TemporalIngestionExecutor
 from harborrag_runtime.ingestion.connections import ConnectionNotFoundError
 from harborrag_runtime.temporal.gateway import to_temporal_source
 
+pytestmark = pytest.mark.unit
+
 
 def _request() -> IngestionRequest:
     return IngestionRequest(
@@ -190,6 +192,7 @@ async def test_direct_executor_runs_and_closes_runtime(monkeypatch) -> None:
                 published=2,
                 unchanged=2,
                 failed=0,
+                skipped=3,
             )
 
     class Runtime:
@@ -249,12 +252,13 @@ async def test_direct_executor_runs_and_closes_runtime(monkeypatch) -> None:
     ]
     assert result.task_id == "task-1"
     assert result.status == "COMPLETED"
-    assert (result.discovered, result.published, result.unchanged, result.failed) == (
-        4,
-        2,
-        2,
-        0,
-    )
+    assert (
+        result.discovered,
+        result.published,
+        result.unchanged,
+        result.failed,
+        result.skipped,
+    ) == (4, 2, 2, 0, 3)
 
 
 @pytest.mark.asyncio
@@ -291,6 +295,7 @@ async def test_temporal_executor_submits_controls_and_reads_results(
                 published=2,
                 unchanged=1,
                 failed=0,
+                skipped=2,
             )
 
         async def get_status(self, task_id: str):
@@ -358,12 +363,13 @@ async def test_temporal_executor_submits_controls_and_reads_results(
     config.aclose.assert_awaited_once_with()
     assert (reference.task_id, reference.workflow_id) == ("task-1", "workflow-1")
     assert result.status == "completed"
-    assert (result.discovered, result.published, result.unchanged, result.failed) == (
-        3,
-        2,
-        1,
-        0,
-    )
+    assert (
+        result.discovered,
+        result.published,
+        result.unchanged,
+        result.failed,
+        result.skipped,
+    ) == (3, 2, 1, 0, 2)
     assert status.paused is True
     assert status.cancel_requested is False
     assert calls == [
@@ -556,8 +562,8 @@ async def test_direct_mode_migrates_then_imports_on_a_fresh_database(tmp_path, m
     runtime = SimpleNamespace(connection_stores=stores)
     executor = DirectIngestionExecutor(settings)
 
-    await executor._import_connectors_once(runtime)  # type: ignore[arg-type]
-    await executor._import_connectors_once(runtime)  # type: ignore[arg-type]
+    await executor._import_connectors_once(runtime)  # type: ignore[arg-type]  # namespace stands in for the runtime
+    await executor._import_connectors_once(runtime)  # type: ignore[arg-type]  # namespace stands in for the runtime
 
     imported = await stores.connections.get_by_source_key(
         tenant_id="DEFAULT", source_key="workspace"

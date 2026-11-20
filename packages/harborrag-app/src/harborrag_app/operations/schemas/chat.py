@@ -1,4 +1,9 @@
-"""Strict public chat-completion contracts."""
+"""Strict public chat-completion contracts.
+
+Titles are trimmed and truncated by the domain (``normalize_conversation_title``)
+rather than rejected, so ``MAX_TITLE_INPUT`` is only input hygiene, well above
+the stored length.
+"""
 
 from __future__ import annotations
 
@@ -8,11 +13,10 @@ from typing import Annotated, Any, Literal
 
 from pydantic import ConfigDict, Field, StringConstraints, field_validator, model_validator
 
-from harborrag_app.operations.schemas.common import ApiModel
+from harborrag_app.operations.schemas.common import ApiModel, VerbatimText
 
 MAX_TITLE_INPUT = 1_000
 """Input-hygiene cap on a session title, well above the stored length; the domain trims and truncates titles."""
-VerbatimText = Annotated[str, StringConstraints(strip_whitespace=False)]
 
 
 class ChatSessionCreateRequest(ApiModel):

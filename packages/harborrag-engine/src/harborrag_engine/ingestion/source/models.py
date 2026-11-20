@@ -22,6 +22,9 @@ from harborrag_core.ingestion.run_contracts import RunSettings
 from harborrag_core.invariants import HarborInvariantError
 from harborrag_engine.ingestion.release.models import DocumentReleaseRequest
 
+DISCOVERY_SKIPS_KEY = "discovery_skipped_by_reason"
+"""Task summary key holding the items discovery dropped, counted by reason."""
+
 
 @dataclass(frozen=True, slots=True)
 class SourceIngestionRequest:
@@ -75,6 +78,8 @@ class SourceIngestionOutcome:
     status: IngestionTaskState
     removal_candidates: tuple[str, ...] = ()
     unresolved_relations: int = 0
+    skipped: int = 0
+    skipped_by_reason: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)

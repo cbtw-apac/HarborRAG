@@ -423,7 +423,7 @@ items; `failures list` and `failures retry` work across runs. The rules are in
 `ingestions start REF --inline` runs the pipeline in the CLI's process, without Temporal
 or a worker, for development. It refuses `--wait`, which it already does, and
 `--item-refs`. It prints the run's result, `{task_id, status, discovered, published,
-unchanged, failed}`, and exits 0 when `status` is `COMPLETED` or `PARTIAL`, else 8.
+unchanged, failed, skipped}`, and exits 0 when `status` is `COMPLETED` or `PARTIAL`, else 8.
 
 `--inline` reads the files on this machine, so a `local_file` connection's `source_path`
 must be an existing file or directory here; if it is not, `--inline` refuses the

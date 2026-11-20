@@ -8,7 +8,7 @@ from typing import Annotated, Literal
 
 from pydantic import AwareDatetime, Field, field_validator, model_validator
 
-from harborrag_app.operations.schemas.common import ApiModel
+from harborrag_app.operations.schemas.common import ApiModel, VerbatimText
 from harborrag_app.operations.schemas.connections import IngestionOut
 
 
@@ -45,7 +45,7 @@ class IngestionListQuery(ApiModel):
 class IngestionDocumentItem(ApiModel):
     """One document of an ingestion and its outcome."""
 
-    document_ref: str
+    document_ref: VerbatimText
     document_id: str
     status: Literal["succeeded", "skipped", "failed"]
     stage: Literal["capture", "interpret", "commit", "derive", "publish"]
@@ -77,7 +77,7 @@ class FailureOut(ApiModel):
     failure_id: str
     ingestion_id: str
     connection_ref: str
-    document_ref: str
+    document_ref: VerbatimText
     stage: FailureStage
     error_category: str
     message: str

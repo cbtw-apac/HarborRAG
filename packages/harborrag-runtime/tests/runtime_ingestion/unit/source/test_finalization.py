@@ -14,6 +14,7 @@ from harborrag_core.ingestion.task_query_contracts import (
     TaskDocumentPage,
 )
 from harborrag_engine.ingestion.source.models import (
+    DISCOVERY_SKIPS_KEY,
     PlannedDocumentRelease,
     PlannedDocuments,
     RelationRepairProgress,
@@ -22,6 +23,8 @@ from harborrag_engine.ingestion.source.models import (
 from harborrag_runtime.ingestion.maintenance.relation_repair import RelationRepairResult
 from harborrag_runtime.ingestion.source.finalization import SourceFinalizationService
 from harborrag_runtime.ingestion.source.skips import discovery_skip_summary, run_skip_summary
+
+pytestmark = pytest.mark.unit
 
 
 class _Recorder:
@@ -72,10 +75,10 @@ def _paged_plan(*pages: tuple[str, ...]) -> PlannedDocuments:
 
 @pytest.mark.asyncio
 async def test_finalization_repairs_relations_page_by_page_and_sums_the_results() -> None:
-    """Then the reverse pass, once, after every page.
+    """Finalization repairs each plan page, then runs the reverse pass once.
 
-    Declarers elsewhere whose link targets are now published. It never adds to the plan's unresolved
-    count.
+    The reverse pass repairs declarers elsewhere whose link targets are now
+    published. It never adds to the plan's unresolved count.
     """
     tasks = _Recorder(document_results_page=_NO_RESULTS)
     control = SimpleNamespace(
@@ -115,9 +118,9 @@ async def test_finalization_repairs_relations_page_by_page_and_sums_the_results(
 
 @pytest.mark.asyncio
 async def test_finalization_resumes_relation_repair_after_the_pages_already_done() -> None:
-    """A retry must not repeat hours of repair.
+    """A retry skips the pages a prior attempt repaired and still counts their totals.
 
-    Pages a prior attempt finished are skipped, and their totals still count toward the outcome.
+    Repeating them could cost hours of repair.
     """
     control = SimpleNamespace(
         tasks=_Recorder(document_results_page=_NO_RESULTS),
@@ -156,10 +159,11 @@ async def test_finalization_resumes_relation_repair_after_the_pages_already_done
 
 @pytest.mark.asyncio
 async def test_finalization_summary_breaks_skips_down_by_reason() -> None:
-    """Discovery skips are already on the task.
+    """Finalization adds extraction skips to the discovery skips already on the task.
 
-    A document that failed while parsing is an extraction skip, and one that failed elsewhere is
-    not.
+    A document that failed while parsing is an extraction skip, and one that
+    failed elsewhere is not. Finalization replaces the stored summary, so it
+    carries the discovery breakdown over for status views to read.
     """
     failed = TaskDocumentPage(
         items=(
@@ -209,6 +213,7 @@ async def test_finalization_summary_breaks_skips_down_by_reason() -> None:
         "EXTRACTION_FAILED": 1,
         "NOT_IN_ALLOWLIST": 2,
     }
+    assert stored[DISCOVERY_SKIPS_KEY] == {"EXCEEDS_SIZE_LIMIT": 1, "NOT_IN_ALLOWLIST": 2}
 
 
 @pytest.mark.asyncio
@@ -259,7 +264,7 @@ def _failed_result(
 
 
 def test_repair_progress_resumes_only_from_a_well_formed_heartbeat() -> None:
-    """Earlier attempts heartbeated a plain string; anything malformed starts over."""
+    """Earlier attempts heartbeated a plain string, so anything malformed starts over."""
     assert RelationRepairProgress.resume(
         {
             "next_page": 4,

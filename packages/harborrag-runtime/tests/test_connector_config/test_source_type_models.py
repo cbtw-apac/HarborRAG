@@ -107,7 +107,7 @@ connectors:
       allowed_extensions: [md, txt, pdf, docx]
       include_pages: false
       requests_per_minute: 120
-      page_size: 200
+      page_size: 100
     secrets:
       tenant_id_env: MICROSOFT_TENANT_ID
       client_id_env: MICROSOFT_CLIENT_ID

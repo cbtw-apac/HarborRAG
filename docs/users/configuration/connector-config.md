@@ -124,6 +124,19 @@ connectors:
 document that is already published leaves through the normal source reconciliation
 and cleanup.
 
+Files that the extension filters, `max_file_size_bytes` or `process_file_callback`
+leave out count as skipped in the run's status, as do paths that cannot be read or
+that resolve outside `source_path`. Path and glob filters, hidden files and
+`excluded_dir_names` drop files without counting them. Each skipped file is logged
+once as a `local.file_skipped` warning with its reason, the run ID and a
+`path_digest` instead of its name, because a file name can name a person. The digest
+is the first 12 characters of the SHA-256 of the file's absolute path, so you can
+check whether a warning is about a file you suspect:
+
+```bash
+printf '%s' "/data/docs/report.pdf" | sha256sum | cut -c1-12
+```
+
 A relative `source_path` written in the YAML resolves against the YAML file's folder.
 A relative path read from an environment variable, or passed as a code override,
 resolves against the process's working directory.

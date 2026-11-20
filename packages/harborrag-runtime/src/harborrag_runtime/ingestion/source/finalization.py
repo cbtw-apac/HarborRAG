@@ -1,4 +1,8 @@
-"""Authoritative source reconciliation and task finalization."""
+"""Authoritative source reconciliation and task finalization.
+
+Each terminal summary stored here replaces the task's summary, so each one
+keeps the discovery skip counts that status views read after the run ends.
+"""
 
 from __future__ import annotations
 
@@ -16,7 +20,7 @@ from harborrag_engine.ingestion.source.models import (
 )
 
 from ..maintenance.relation_repair import GraphRelationRepairService, RelationRepairResult
-from .skips import run_skip_summary
+from .skips import carried_discovery_skips, run_skip_summary
 
 logger = logging.getLogger("harborrag.runtime.ingestion.source_finalization")
 
@@ -27,7 +31,12 @@ the rest of the task for connections.
 
 
 class SourceFinalizationService:
-    """Repair relations, reconcile removals, and close a source task."""
+    """Repair relations, reconcile removals, and close a source task.
+
+    Args:
+        control: Control-plane database that holds the task, its scan and results.
+        relations: Graph relation repair. Without it, finalization skips repair.
+    """
 
     def __init__(
         self,
@@ -47,7 +56,13 @@ class SourceFinalizationService:
         summary: SourceDispatchSummary,
         repair_progress: RelationRepairProgress | None = None,
     ) -> SourceIngestionOutcome:
-        """Repair relations, reconcile removals and close the source ingestion."""
+        """Repair relations, reconcile removals, and record the run's final outcome.
+
+        The final summary replaces the task's summary and keeps the run's skip
+        counts. If repair or reconciliation fails, the task is marked failed with
+        the counts so far and the error is raised. A later attempt may finalize
+        that task again.
+        """
         summary.require_total(planned.document_count)
         logger.info(
             "Source finalization started task_id=%s scan_id=%s documents=%d",
@@ -97,6 +112,8 @@ class SourceFinalizationService:
             status=summary.task_state(),
             removal_candidates=removals,
             unresolved_relations=unresolved_relations,
+            skipped=skips["skipped"],
+            skipped_by_reason=skips["skipped_by_reason"],
         )
         logger.info(
             "Source finalization completed task_id=%s status=%s discovered=%d "
@@ -173,6 +190,9 @@ class SourceFinalizationService:
         few hundred removals overran a pool sized ``control_db_pool_size +
         control_db_max_overflow`` (15 by default), timed out, and marked the
         task FAILED even though every document had already been published.
+        At most ``_MAX_CONCURRENT_RETIREMENTS`` run at once, comfortably under the
+        smallest supported pool, so retirement never competes with the rest of
+        the task for connections.
         """
         slots = asyncio.Semaphore(_MAX_CONCURRENT_RETIREMENTS)
 
@@ -190,8 +210,7 @@ class SourceFinalizationService:
         planned: PlannedDocuments,
         summary: SourceDispatchSummary,
     ) -> tuple[str, ...]:
-        """A deliberately partial scan cannot tell "not in scope" from "gone"."""
-        if request.query.limit is not None or request.query.updated_after is not None:
+        if _is_partial_scan(request):
             logger.info(
                 "Skipping removal reconciliation for a partial scan task_id=%s "
                 "(limit/updated_after set)",
@@ -237,6 +256,13 @@ class SourceFinalizationService:
         *,
         failed_stage: str,
     ) -> None:
+        """Mark the task failed at a finalization stage, keeping its counts so far.
+
+        A later attempt may finalize the task again, and reads the discovery skip
+        counts kept here.
+        """
+        task = await self._control.tasks.get(task_id)
+        carried = carried_discovery_skips(task.summary) if task is not None else {}
         discovered = planned.document_count
         await self._control.tasks.transition(
             task_id,
@@ -249,5 +275,15 @@ class SourceFinalizationService:
                 "published": summary.published,
                 "unchanged": summary.unchanged,
                 "failed": summary.failed,
+                **carried,
             },
         )
+
+
+def _is_partial_scan(request: SourceIngestionRequest) -> bool:
+    """Whether a limit or ``updated_after`` narrowed the scan.
+
+    A deliberately partial scan cannot tell "not in scope" from "gone", so it
+    never reconciles removals.
+    """
+    return request.query.limit is not None or request.query.updated_after is not None

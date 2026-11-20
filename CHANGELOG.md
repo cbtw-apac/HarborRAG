@@ -180,6 +180,17 @@ action.
 - Chat history and `message_count` leave out the empty or whitespace-only assistant steps of 1.x agent turns, and migration `0047`'s downgrade waits at most 5 s for its locks on Postgres, like its upgrade
 - **Breaking:** LiteParse and image OCR settings outside their permitted values are rejected, instead of being replaced by a default or failing on every document
 - SharePoint connector and sign-in errors no longer show the client secret, refresh token, device code or access token, and failed token requests report their HTTP status [#123]
+- Local, GitHub and SharePoint files whose name ends in a space keep their file type instead of being skipped
+- Attachments whose name ends in a space are no longer skipped, and no longer get past an excluded file type
+- Local Markdown links in angle brackets, or to a name that starts with a space, now link the two documents
+- A local folder whose name ends in a space can be excluded
+- Attachment failure logs name the attachment by its ID instead of its title
+- SharePoint path allowlists match folders named with a no-break space, and accept a folder path that starts with the library's name, also for a library chosen by its ID
+- Files whose name ends in a zero-width space keep their file type instead of being skipped
+- Confluence Data Center page links keep a `+` in the page title
+- A Confluence page whose own or parent page's title is only no-break spaces is ingested instead of failing
+- Connector downloads follow a redirect whose target has accented or other non-ASCII characters, in any encoding, instead of failing
+- A malformed link in a local Markdown file no longer fails the document
 
 - The Confluence connector drops a body's attachment references that the attachment list supersedes, matching body media nodes to listed attachments by file ID
 - A SharePoint `tenant_id` that is not a GUID or a domain name is refused: `connections create`, `update` and `test` answer a field error on `credentials.tenant_id`, and a connector config built in Python raises `ValueError`, instead of failing when the first token is requested
@@ -197,10 +208,17 @@ action.
 - A relative file path typed in a project subdirectory, for `--file` of `projects`, `connections` and `settings`, `settings import FILE` and `--config`, names that subdirectory's file instead of one at the project root
 - `harborrag settings export --file` no longer refuses to run in a repository checkout, because it only reads the control database
 - `harborrag ingestions start --inline` accepts a `local_file` connection whose `source_path` is one file, as the connector does
+- Ingestion document and failure lists keep the spaces at the start or end of a document's reference
+
+#### harborrag-core
+
+- Local and GitHub files with spaces in their file or folder name are ingested instead of failing
+- Files whose paths differ only in spacing, such as a trailing or no-break space, stay separate documents
 
 #### harborrag-engine
 
 - A retry after a change to chunk metadata, such as the local file timestamps, adopts the chunk set an earlier attempt stored, never replacing it, and rebuilds its index from the stored bytes
+- SharePoint folders with spaces or accents in their name appear in the graph under that name instead of its URL encoding
 
 #### harborrag-mcp-server
 
@@ -221,6 +239,8 @@ action.
 - Pausing a run no longer strands it: a run and its batch are paused by signal only, not natively in Temporal, where a workflow task scheduled at the pause was never dispatched again and resume and cancel hung; the Temporal UI now shows a paused run as `Running`
 - A chat completion the response model rejects no longer marks its `Idempotency-Key` as completed; a retry answers that the first request failed, instead of that its result predates this API version
 - A blank `HARBORRAG_INGESTION_TENANT_ID` counts as unset when the settings are read
+- Folder and glob settings of local, GitHub and SharePoint connections keep spaces at their start or end; re-save a connection to apply it
+- **Breaking:** SharePoint connections refuse a page size above 100, as Jira and Confluence do [#135]
 
 #### Deployment
 

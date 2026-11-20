@@ -1,9 +1,14 @@
-"""Facade for source discovery, dispatch, retry, and finalization."""
+"""Facade for source discovery, dispatch, retry, and finalization.
+
+Every terminal summary stored here replaces the task's summary, so each one
+keeps the discovery skip counts that status views read after the run ends.
+"""
 
 from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Mapping
 
 from harborrag_adapters.connectors.base import BaseConnector
 from harborrag_adapters.connectors.harbor_connector import HarborConnector
@@ -14,6 +19,7 @@ from harborrag_adapters.repositories.errors import HarborStorageValidationError
 from harborrag_core.ingestion import IngestionTaskState
 from harborrag_engine.ingestion.release.service import DocumentReleaseService
 from harborrag_engine.ingestion.source.models import (
+    DISCOVERY_SKIPS_KEY,
     PlannedDocuments,
     RelationRepairProgress,
     SourceDiscoveryPage,
@@ -31,12 +37,19 @@ from .documents import SourceDocumentService
 from .finalization import SourceFinalizationService
 from .operations import SourceDocumentOperations
 from .retry import SourceRetryService
+from .skips import carried_discovery_skips
 
 logger = logging.getLogger("harborrag.runtime.ingestion.source")
 
 
 class SourceIngestionService(SourceDocumentOperations):
-    """Coordinate authoritative discovery and bounded document dispatch."""
+    """Coordinate authoritative discovery and bounded document dispatch.
+
+    Args:
+        control: Control-plane database that holds tasks, scans and results.
+        documents: Release service that ingests one document.
+        relations: Graph relation repair. Without it, finalization skips repair.
+    """
 
     def __init__(
         self,
@@ -67,14 +80,13 @@ class SourceIngestionService(SourceDocumentOperations):
         request: SourceIngestionRequest,
         connector: BaseConnector | HarborConnector,
     ) -> SourceIngestionOutcome:
-        """Run one source ingestion from discovery to finalization.
+        """Discover, dispatch and finalize one source run in this process.
 
-        A direct run interrupted with Ctrl-C arrives here, not in the handler below. Left RUNNING,
-        its scan would block every later scan of the scope, and a still-PENDING task would look like
-        an unsubmitted durable run.
-
-        Provisioning runs inside discovery's first step, but a schema mismatch is a configuration
-        fault, not a source-discovery one.
+        A cancellation, such as Ctrl-C on a direct run, cancels the task before it
+        propagates. Left RUNNING, the run's scan would block every later scan of
+        the scope, and a PENDING task would look like an unsubmitted durable run.
+        Any other error marks the task failed. A failure to record either outcome
+        is logged and never hides the run's own error.
         """
         logger.info(
             "Source ingestion started task_id=%s connector_type=%s concurrency=%d",
@@ -116,8 +128,7 @@ class SourceIngestionService(SourceDocumentOperations):
                 )
             raise
         except Exception as error:
-            if isinstance(error, VectorIndexSchemaError):
-                stage = "provision"
+            stage = _failure_stage(error, stage)
             logger.error(
                 "Source %s failed task_id=%s connector_type=%s error_type=%s",
                 stage,
@@ -153,8 +164,8 @@ class SourceIngestionService(SourceDocumentOperations):
     async def cancel(self, task_id: str) -> None:
         """Converge a graceful workflow cancellation on durable task state.
 
-        A cancel during discovery would otherwise leave the scan STARTED and block every later scan
-        of the scope.
+        The open scan is cancelled first, so a cancel during discovery cannot
+        block later scans of the scope. The task keeps its summary.
         """
         if await self._control.source_scans.cancel_if_started(source_scan_id(task_id)):
             logger.info("Open source scan cancelled task_id=%s", task_id)
@@ -199,7 +210,11 @@ class SourceIngestionService(SourceDocumentOperations):
             await self._control.tasks.transition(task_id, IngestionTaskState.RUNNING)
 
     async def fail(self, task_id: str, *, error_code: str, stage: str = "discovery") -> None:
-        """Persist one terminal source-workflow failure without runtime details."""
+        """Persist one terminal source-workflow failure without runtime details.
+
+        The failed task keeps the counts of what discovery skipped, so status
+        views still show them. A task that already ended is left as it is.
+        """
         await self._control.source_scans.fail_if_started(
             source_scan_id(task_id),
             safe_reason=error_code,
@@ -223,6 +238,7 @@ class SourceIngestionService(SourceDocumentOperations):
             summary={
                 "failed_stage": stage,
                 "error_code": error_code,
+                **carried_discovery_skips(task.summary),
             },
         )
         logger.warning(
@@ -312,6 +328,20 @@ class SourceIngestionService(SourceDocumentOperations):
         await self._control.source_scans.complete(scan_id)
         logger.debug("Source discovery scan completed scan_id=%s", scan_id)
 
+    async def discovery_skip_counts(self, task_id: str) -> dict[str, int]:
+        """Return the discovery-time skip counts recorded on the task so far."""
+        task = await self._control.tasks.get(task_id)
+        if task is None:
+            return {}
+        reasons = task.summary.get(DISCOVERY_SKIPS_KEY)
+        if not isinstance(reasons, Mapping):
+            return {}
+        return {
+            str(reason): int(count)
+            for reason, count in reasons.items()
+            if isinstance(count, int) and not isinstance(count, bool)
+        }
+
     async def record_discovery_planned(self, task_id: str, document_count: int) -> None:
         """Expose durable coarse progress without leaking workflow activities."""
         await self._control.tasks.update_summary(
@@ -372,6 +402,15 @@ class SourceIngestionService(SourceDocumentOperations):
             if dimensions is None:
                 raise
             raise VectorIndexSchemaError(_schema_mismatch_message(error, *dimensions)) from error
+
+
+def _failure_stage(error: Exception, stage: str) -> str:
+    """Return the stage to record for a run that failed while in ``stage``.
+
+    Provisioning runs inside discovery's first step, but a vector index schema
+    mismatch is a configuration fault, not a discovery one.
+    """
+    return "provision" if isinstance(error, VectorIndexSchemaError) else stage
 
 
 def _schema_mismatch_dimensions(error: HarborStorageValidationError) -> tuple[int, int] | None:

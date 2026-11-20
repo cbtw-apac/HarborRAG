@@ -103,6 +103,7 @@ SKIP_REASON_SIZE_LIMIT_EXCEEDED = "size_limit_exceeded"
 SKIP_REASON_UNREADABLE = "unreadable"
 SKIP_REASON_OUT_OF_SCOPE = "out_of_scope"
 SKIP_REASON_CALLBACK_REJECTED = "callback_rejected"
+SKIP_REASON_UNSUPPORTED_EXTENSION = "unsupported_extension"
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,8 +112,8 @@ class ConnectorSkip:
 
     Skips are reported rather than silently omitted so callers can tell "the
     source contains nothing else" apart from "an item was excluded by a
-    configured limit or a source-side condition". Intended filtering
-    (extension, glob, pattern, ``updated_after``) is *not* a skip; only
+    configured limit, an extension policy or a source-side condition".
+    Glob, pattern and ``updated_after`` filtering are *not* skips; only
     exclusions a caller would want to see named belong here.
 
     ``reason`` is one of the ``SKIP_REASON_*`` constants (or a provider's

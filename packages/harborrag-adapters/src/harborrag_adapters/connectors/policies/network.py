@@ -3,7 +3,8 @@
 Public addresses are always allowed; private, loopback, link-local and reserved ones only
 when named in ``HARBORRAG_CONNECTOR_ALLOWED_HOSTS``. ``guarded_session`` checks every address
 a host resolves to before connecting, then the address the socket actually reached, so
-neither a closed port nor a DNS answer that changes in between slips through.
+neither a closed port nor a DNS answer that changes in between slips through. Its redirect
+targets keep bytes that are not UTF-8 as percent escapes, so following one never fails.
 
 Proxy variables such as ``HTTPS_PROXY`` are ignored unless the operator sets
 ``HARBORRAG_CONNECTOR_USE_PROXY``. Through a proxy, only the target host's own
@@ -101,6 +102,10 @@ class DestinationPolicy:
         TCP handshake; the peer check then refuses the socket before any request is
         sent. An unresolvable host is left to the connection, which reports it.
 
+        Args:
+            host: Host name the request targets.
+            port: Port the request targets, used for name resolution.
+
         Raises:
             BlockedDestinationError: An address of ``host`` is private and not allowed.
         """
@@ -118,6 +123,10 @@ class DestinationPolicy:
 
         An IPv6 address that carries an IPv4 address (IPv4-mapped, NAT64 or
         IPv4-compatible) is judged by the IPv4 address it carries.
+
+        Args:
+            host: Host name the address was resolved from.
+            address: IP address to check, with an optional IPv6 zone suffix.
 
         Raises:
             BlockedDestinationError: The address is private and not allowed.
@@ -151,11 +160,43 @@ def _embedded_ipv4(address: IPv4Address | IPv6Address) -> IPv4Address | None:
 
 def guarded_session(policy: DestinationPolicy) -> requests.Session:
     """Return a session whose direct connections obey ``policy``."""
-    session = requests.Session()
+    session = _GuardedSession()
     adapter = _GuardedAdapter(policy)
     session.mount("http://", adapter)
     session.mount("https://", adapter)
     return session
+
+
+def redirect_location(header: str) -> str:
+    """Return a redirect ``Location`` header as the URL the server meant.
+
+    http.client hands header bytes over as Latin-1 characters. Bytes that form UTF-8
+    are decoded as UTF-8, as requests does. Other bytes are kept as percent escapes,
+    so the redirect reaches exactly the bytes the server sent instead of failing to
+    decode. A header that already holds characters beyond Latin-1 is returned as is.
+    """
+    try:
+        raw = header.encode("latin-1")
+    except UnicodeEncodeError:
+        return header
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return "".join(chr(byte) if byte < 0x80 else f"%{byte:02X}" for byte in raw)
+
+
+class _GuardedSession(requests.Session):
+    """Session whose redirect targets keep bytes that are not UTF-8 as percent escapes."""
+
+    def get_redirect_target(self, resp: requests.Response) -> str | None:
+        """Return the redirect target of a response, or None when it is not a redirect.
+
+        Requests calls this while sending, even when it does not follow redirects, and
+        its own version raises for a ``Location`` whose bytes are not UTF-8.
+        """
+        if not resp.is_redirect:
+            return None
+        return redirect_location(resp.headers["location"])
 
 
 class _GuardedAdapter(HTTPAdapter):
@@ -176,6 +217,17 @@ class _GuardedAdapter(HTTPAdapter):
         proxies: dict[str, str] | None = None,
     ) -> requests.Response:
         """Send directly through the guarded pools unless the operator opted in to proxies.
+
+        Args:
+            request: Prepared request to send.
+            stream: Whether to stream the response body, as in requests.
+            timeout: Connect and read timeout, as in requests.
+            verify: TLS verification setting, as in requests.
+            cert: Client certificate, as in requests.
+            proxies: Proxies for the request, ignored unless the operator allows them.
+
+        Returns:
+            The response from the target host.
 
         Raises:
             BlockedDestinationError: Through a proxy, the target host resolves to a
@@ -207,6 +259,9 @@ class _PeerCheck:
 
     def _new_conn(self) -> Any:
         """Connect only to an allowed host, then refuse a peer address the policy refuses.
+
+        Returns:
+            The connected socket.
 
         Raises:
             BlockedDestinationError: The host or the address reached is not allowed.

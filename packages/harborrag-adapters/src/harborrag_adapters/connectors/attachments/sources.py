@@ -1,3 +1,9 @@
+"""Admission and download of attachments ingested as documents of their own.
+
+Admission reads only the provider's attachment metadata, so an attachment outside
+the policy is never downloaded. Downloads stop at the configured size limit.
+"""
+
 from __future__ import annotations
 
 import hashlib
@@ -8,7 +14,7 @@ from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol
 
 from harborrag_adapters.connectors.exceptions import FetchError
-from harborrag_adapters.connectors.file_filters import ExtensionFilter
+from harborrag_adapters.connectors.file_filters import ExtensionFilter, trim_file_name
 from harborrag_adapters.connectors.policies.http import (
     require_same_origin_url,
 )
@@ -29,6 +35,8 @@ AttachmentSourceStatus = Literal[
 
 
 class BoundedDownload(Protocol):
+    """Downloader that streams a response and refuses to buffer past a byte limit."""
+
     def __call__(self, url: str, *, max_bytes: int | None) -> bytes | None:
         """Stream a response while refusing to buffer more than max_bytes."""
         ...
@@ -36,7 +44,18 @@ class BoundedDownload(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class AttachmentSourceDescriptor:
-    """Fetch-safe metadata for one independently ingestible attachment."""
+    """Fetch-safe metadata for one independently ingestible attachment.
+
+    Attributes:
+        attachment_id: Provider ID of the attachment.
+        title: File name without surrounding whitespace or zero-width characters.
+        media_type: Media type the provider reported, or a generic one.
+        size_bytes: Size the provider reported before download.
+        download_url: Trusted absolute download URL, or ``""`` when none was usable.
+        source_version: Hash of the attachment's identity, title, size and version.
+        status: Admission decision for the attachment.
+        reason: Why the attachment was not admitted.
+    """
 
     attachment_id: str
     title: str
@@ -50,6 +69,18 @@ class AttachmentSourceDescriptor:
 
 @dataclass(frozen=True, slots=True)
 class AttachmentSourcePolicy:
+    """Admission rules for the attachments of one connection.
+
+    Attributes:
+        base_url: Provider base URL that every download URL must share an origin with.
+        process_callback: Optional caller check on media type, size and title that
+            returns whether to admit the attachment and why not.
+        max_size_bytes: Largest attachment to admit, or None for no limit.
+        fail_on_error: Whether an unexpected admission error raises instead of
+            being recorded on that attachment.
+        extensions: Allowed and excluded file extensions.
+    """
+
     base_url: str
     process_callback: Callable[[str, int, str], tuple[bool, str]] | None = None
     max_size_bytes: int | None = DEFAULT_MAX_ATTACHMENT_SIZE_BYTES
@@ -58,7 +89,13 @@ class AttachmentSourcePolicy:
 
 
 class AttachmentSourceGateway:
-    """Apply attachment admission policy without downloading source bytes."""
+    """Apply attachment admission policy without downloading source bytes.
+
+    Args:
+        download_fn: Bounded downloader used to fetch admitted attachments.
+        policy: Admission rules for the connection.
+        logger_: Logger for admission failures, the module logger by default.
+    """
 
     def __init__(
         self,
@@ -77,11 +114,18 @@ class AttachmentSourceGateway:
         self,
         attachments: Sequence[Mapping[str, Any]],
     ) -> tuple[AttachmentSourceDescriptor, ...]:
+        """Return one admission decision per provider attachment, in order.
+
+        Args:
+            attachments: Attachment payloads as the provider returned them.
+
+        Returns:
+            One descriptor per attachment, admitted or not.
+        """
         return tuple(self._safely_describe(attachment) for attachment in attachments)
 
     def fetch(self, descriptor: AttachmentSourceDescriptor) -> bytes:
         """Download an admitted attachment and re-enforce the byte limit."""
-
         if descriptor.status != "admitted":
             raise FetchError("attachment was not admitted for content capture")
         trusted_url = self._trusted_url(descriptor.download_url)
@@ -192,9 +236,14 @@ class AttachmentSourceGateway:
 
     @staticmethod
     def _title(attachment: Mapping[str, Any]) -> str:
-        return str(
-            attachment.get("title") or attachment.get("filename") or attachment.get("name") or ""
-        ).strip()
+        return trim_file_name(
+            str(
+                attachment.get("title")
+                or attachment.get("filename")
+                or attachment.get("name")
+                or ""
+            )
+        )
 
     @classmethod
     def _media_type(cls, attachment: Mapping[str, Any]) -> str:
@@ -207,12 +256,15 @@ class AttachmentSourceGateway:
 
     @classmethod
     def _size_bytes(cls, attachment: Mapping[str, Any]) -> int:
-        return int(
+        size = (
             attachment.get("size")
             or attachment.get("sizeBytes")
             or cls._nested(attachment, "extensions", "fileSize")
             or 0
         )
+        if not isinstance(size, (int, float, str)):
+            raise TypeError("attachment size is not a number")
+        return int(size)
 
     @classmethod
     def _version(cls, attachment: Mapping[str, Any]) -> str:
@@ -241,6 +293,6 @@ class AttachmentSourceGateway:
         value: Mapping[str, Any],
         parent: str,
         child: str,
-    ) -> Any:
+    ) -> object:
         nested = value.get(parent)
         return nested.get(child) if isinstance(nested, Mapping) else None

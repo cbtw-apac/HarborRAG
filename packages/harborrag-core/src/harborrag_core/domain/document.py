@@ -15,10 +15,12 @@ from harborrag_core.chunking.source_schemas import SourceLocator
 from .element import DocumentElement
 from .provenance import DocumentProvenance
 from .table import TableArtifact
-from .validation import require_id
+from .validation import require_source_item_id
 
 
 class DocumentBlockKind(StrEnum):
+    """Kind of node in a canonical document block tree."""
+
     DOCUMENT = "document"
     SECTION = "section"
     HEADING = "heading"
@@ -67,12 +69,33 @@ class DocumentBlock(StrictModel):
     )
     @classmethod
     def validate_identifiers(cls, value: str | None) -> str | None:
+        """Reject a block or section identifier that is present but blank.
+
+        Args:
+            value: Identifier to check, or None when the block has none.
+
+        Returns:
+            The identifier unchanged.
+
+        Raises:
+            ValueError: The identifier is blank.
+        """
         if value is not None and not value.strip():
             raise ValueError("canonical block identifiers must be non-empty")
         return value
 
     @model_validator(mode="after")
     def validate_structure(self) -> DocumentBlock:
+        """Check the heading level, the path values and the order of child blocks.
+
+        Returns:
+            The block unchanged.
+
+        Raises:
+            ValueError: A heading has no level or another kind has one, a path
+                holds a blank value, or the children repeat an ID, name another
+                parent or break the ascending ordinal order.
+        """
         if self.kind == DocumentBlockKind.HEADING and self.heading_level is None:
             raise ValueError("heading blocks require heading_level")
         if self.kind != DocumentBlockKind.HEADING and self.heading_level is not None:
@@ -93,6 +116,7 @@ class DocumentBlock(StrictModel):
 
     @property
     def ordered_child_block_ids(self) -> tuple[str, ...]:
+        """IDs of the child blocks in ordinal order."""
         return tuple(child.block_id for child in self.children)
 
 
@@ -122,7 +146,12 @@ class Document:
     """Canonical normalized document passed between ingestion stages."""
 
     id: str = field(
-        metadata={"description": "Globally unique document ID, e.g. confluence://SPACE/123"}
+        metadata={
+            "description": (
+                "Connector's source item ID, such as confluence://SPACE/123 or a local "
+                "file path, which may hold spaces"
+            )
+        }
     )
     title: str = field(metadata={"description": "Human-readable title of the document"})
     content: list[DocumentElement] = field(
@@ -162,7 +191,13 @@ class Document:
     )
 
     def __post_init__(self) -> None:
-        require_id(self.id, label="Document")
+        """Check the source item ID and that each table artifact belongs here.
+
+        Raises:
+            ValueError: The ID is blank or holds a control character, or the
+                table artifacts repeat a table ID or name another document.
+        """
+        require_source_item_id(self.id, label="Document")
         table_ids = [artifact.table_id for artifact in self.table_artifacts]
         if len(set(table_ids)) != len(table_ids):
             raise ValueError("Document table_artifacts must have unique table_id values")

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
 
 from harborrag_core.ingestion.run_contracts import (
@@ -59,6 +59,8 @@ class IngestionExecutionResult:
     unresolved_relations: int
     status: str = "COMPLETED"
     removal_count: int | None = None
+    skipped: int = 0
+    skipped_by_reason: dict[str, int] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         """Default ``removal_count`` to the sample size."""

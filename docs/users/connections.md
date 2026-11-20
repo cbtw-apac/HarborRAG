@@ -347,6 +347,8 @@ One run: `ingestion_id`, `tenant_id`, `project_id`, `connection_id`, `mode`, `st
 `counters` (`discovered`, `processed`, `skipped`, `failed`), `stages` (empty),
 `error_category`, `triggered_by`, `settings_revision`, `workflow_id`, `run_id`,
 `trace_id`, `links` (`temporal`, `grafana`, `langfuse`), `created_at`, `finished_at`.
+Items skipped at discovery, such as files outside a local connection's
+`allowed_extensions`, count in both `counters.discovered` and `counters.skipped`.
 
 ### `POST /v1/admin/ingestions/{ingestion_id}/pause`, `/resume`, `/cancel`
 
@@ -505,7 +507,7 @@ where it finally goes.
 | Field | Types | Connector default |
 | --- | --- | --- |
 | `requests_per_minute` | Jira, Confluence, SharePoint, GitHub | 60 (Jira, Confluence), 120 (SharePoint, GitHub) |
-| `page_size` | Jira, Confluence, SharePoint | 50 (Jira), 25 (Confluence), 200 (SharePoint) |
+| `page_size` | Jira, Confluence, SharePoint | 50 (Jira), 25 (Confluence), 100 (SharePoint) |
 | `request_timeout_seconds` | Jira, Confluence, SharePoint, GitHub | 30, 60 for SharePoint |
 | `max_retries` | Jira, Confluence, SharePoint, GitHub | 3 |
 | `backoff_factor` | Jira, Confluence, SharePoint, GitHub | 0.5 |
@@ -520,8 +522,8 @@ store holds only the keys of [Runtime settings](configuration/runtime-settings.m
 | `"advanced": {}` | Every field uses the connector default. |
 | `"advanced": {"page_size": null}` | That field uses the connector default. |
 
-Jira and Confluence accept a `page_size` from 1 to 100. Settings imported from
-`connectors.yaml`, such as `requests_per_minute: 600`, show up here.
+Jira, Confluence and SharePoint accept a `page_size` from 1 to 100. Settings
+imported from `connectors.yaml`, such as `requests_per_minute: 600`, show up here.
 
 ## File type filters
 

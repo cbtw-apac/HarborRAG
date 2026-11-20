@@ -1,14 +1,24 @@
+"""Inline attachment download and parsing shared by the Confluence and Jira connectors.
+
+Each attachment is checked for a trusted origin and its size before download, and a
+failure stays on that one attachment. A failure log names the attachment by ID, not
+by title.
+"""
+
 from __future__ import annotations
 
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
-from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 from harborrag_adapters.connectors.exceptions import FetchError
-from harborrag_adapters.connectors.file_filters import ExtensionFilter
+from harborrag_adapters.connectors.file_filters import (
+    ExtensionFilter,
+    file_name_extension,
+    trim_file_name,
+)
 from harborrag_adapters.connectors.limits import DEFAULT_MAX_DOCUMENT_BYTES
 from harborrag_core.domain.parser import ParseInput
 from harborrag_core.security.redaction import redact_secrets
@@ -41,7 +51,19 @@ class FileType(StrEnum):
 
 @dataclass(slots=True)
 class AttachmentMetadata:
-    """Result of attempting to download and parse one source attachment."""
+    """Result of attempting to download and parse one source attachment.
+
+    Attributes:
+        id: Provider ID of the attachment.
+        title: File name with surrounding whitespace removed.
+        media_type: Media type the provider reported, or ``""``.
+        size_bytes: Size the provider reported before download.
+        download_url: Trusted absolute download URL, or ``""`` when none was usable.
+        status: Outcome of the attempt.
+        text: Parsed text of a processed attachment.
+        reason: Why the attachment was skipped, unsupported or failed.
+        created_at: When the provider recorded the upload, if it says.
+    """
 
     id: str
     title: str
@@ -127,7 +149,7 @@ def classify_attachment(media_type: str, title: str) -> tuple[FileType, str] | N
     uploads, so filename suffixes intentionally take precedence where they are
     more specific.
     """
-    suffix = Path(title).suffix.lower().lstrip(".")
+    suffix = file_name_extension(title).lstrip(".")
     if suffix in _SUFFIX_TYPE_MAP:
         return _SUFFIX_TYPE_MAP[suffix]
     return MEDIA_TYPE_MAP.get(media_type)
@@ -135,7 +157,7 @@ def classify_attachment(media_type: str, title: str) -> tuple[FileType, str] | N
 
 def attachment_extension(media_type: str, title: str) -> str:
     """Return the dot-prefixed extension of an attachment, from its title or its media type."""
-    suffix = Path(title).suffix.lower()
+    suffix = file_name_extension(title)
     if suffix:
         return suffix
     classified = classify_attachment(media_type, title)
@@ -145,10 +167,27 @@ def attachment_extension(media_type: str, title: str) -> str:
 class AttachmentProcessor:
     """Download source attachments and extract text through Harbor parsers.
 
-    This class is shared by Confluence and JIRA. It keeps attachment handling
-    outside provider connectors while preserving their safety controls: trusted
-    origin checks, pre-download size limits, optional custom parsers, and
-    best-effort per-attachment failures.
+    This class is shared by Confluence and Jira. It keeps attachment handling
+    outside provider connectors and keeps their safety controls. Those are trusted
+    origin checks, size limits before download, optional custom parsers, and
+    failures that stay on one attachment.
+
+    The class never builds a default parser, because a silent default would bypass
+    the runtime's configured PDF backends and parser policies.
+
+    Args:
+        download_fn: Fetches the bytes at a trusted download URL, or returns None.
+        base_url: Provider base URL that every download URL must share an origin with.
+        parser: Injected parser registry. None is safe only when ``custom_parsers``
+            covers every attachment type, because an uncovered one then fails.
+        custom_parsers: Text extractors that replace the registry for a file type.
+        process_attachment_callback: Optional caller check on media type, size and
+            title that returns whether to process the attachment and why not.
+        max_attachment_size_bytes: Largest attachment to download, or None for no limit.
+        fail_on_error: Whether an attachment failure raises FetchError instead of
+            being recorded on that attachment.
+        logger_: Logger for attachment failures, the module logger by default.
+        extension_filter: Allowed and excluded file extensions.
     """
 
     def __init__(
@@ -164,16 +203,6 @@ class AttachmentProcessor:
         logger_: logging.Logger | None = None,
         extension_filter: ExtensionFilter | None = None,
     ) -> None:
-        """Configure attachment download, parsing, limits, and error policy.
-
-        ``parser`` should be an explicitly constructed/injected parser registry
-        (e.g. the runtime's profile-configured instance). This class never
-        constructs a default parser itself, since a silent default would
-        bypass runtime-configured PDF backends and parser policies. Passing
-        ``None`` is only safe when every attachment type is covered by
-        ``custom_parsers``; otherwise parsing an uncovered attachment raises
-        (caught by the per-attachment failure boundary below).
-        """
         self._download = download_fn
         self.base_url = base_url.rstrip("/")
         self.parser = parser
@@ -189,6 +218,13 @@ class AttachmentProcessor:
         return [self._process_one(attachment) for attachment in attachments]
 
     def _process_one(self, attachment: dict) -> AttachmentMetadata:
+        """Process one attachment so that any failure stays on that attachment.
+
+        The upload time is read first, so a skipped, unsupported or failed attachment
+        still reports it. Everything after that runs inside one failure boundary, so
+        a malformed provider value or a raising callback fails this attachment
+        instead of aborting the remaining ones.
+        """
         attachment_id = str(attachment.get("id") or "")
         title = self._title(attachment)
         media_type = self._media_type(attachment)
@@ -200,16 +236,9 @@ class AttachmentProcessor:
             size_bytes=0,
             download_url="",
             status="skipped",
-            # Set before the failure boundary below so a skipped, unsupported,
-            # or failed attachment still reports when it was uploaded.
             created_at=self._created_at(attachment),
         )
         try:
-            # Everything below (size/URL normalization, the caller callback,
-            # size limits, classification, download, and parsing) runs inside
-            # this one boundary so a malformed provider value or a raising
-            # callback degrades to a per-attachment failure instead of
-            # aborting every remaining attachment.
             metadata.size_bytes = self._size_bytes(attachment)
 
             try:
@@ -260,8 +289,7 @@ class AttachmentProcessor:
         except Exception as exc:  # noqa: BLE001 - attachment boundary
             safe_reason = redact_secrets(str(exc))
             self.logger.warning(
-                "Failed to process attachment %s (%s): %s",
-                title,
+                "Failed to process attachment %s: %s",
                 attachment_id,
                 safe_reason,
             )
@@ -273,7 +301,6 @@ class AttachmentProcessor:
 
     def _download_within_limit(self, metadata: AttachmentMetadata) -> bytes | None:
         """Download one attachment and apply the post-download size boundary."""
-
         content = self._download(metadata.download_url)
         if not content:
             metadata.status = "failed"
@@ -327,8 +354,13 @@ class AttachmentProcessor:
 
     @staticmethod
     def _title(attachment: dict) -> str:
-        return str(
-            attachment.get("title") or attachment.get("filename") or attachment.get("name") or ""
+        return trim_file_name(
+            str(
+                attachment.get("title")
+                or attachment.get("filename")
+                or attachment.get("name")
+                or ""
+            )
         )
 
     @staticmethod
