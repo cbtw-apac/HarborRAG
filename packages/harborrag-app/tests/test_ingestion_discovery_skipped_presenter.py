@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import pytest
+
 from harborrag_app.workflow_control.control_plane.connection_views import ingestion_counters
 from harborrag_app.workflow_control.ingestion.presenters import (
     discovery_skipped_count,
     task_response,
 )
 from harborrag_core.ingestion import IngestionTask, IngestionTaskState
+
+pytestmark = pytest.mark.unit
 
 
 def _task(summary: dict[str, object]) -> IngestionTask:
@@ -46,9 +50,21 @@ def test_task_response_includes_discovery_skips_in_progress_skipped() -> None:
 
 
 def test_ingestion_counters_includes_discovery_skips() -> None:
-    task = _task({"discovered": 5, "discovery_skipped_by_reason": {"unsupported_extension": 2}})
+    task = _task({"discovered": 3, "discovery_skipped_by_reason": {"unsupported_extension": 2}})
 
     counters = ingestion_counters(task, {"published": 3})
 
-    assert counters["skipped"] == 2
-    assert counters["processed"] == 3
+    assert counters == {"discovered": 5, "processed": 3, "skipped": 2, "failed": 0}
+
+
+def test_ingestion_counters_mid_run_leave_pending_documents_outstanding() -> None:
+    """``stage.progress`` counts processed, skipped and failed against ``discovered``.
+
+    With 6 documents planned and 4 files skipped at discovery, 2 published
+    documents must not read as a finished run.
+    """
+    task = _task({"discovered": 6, "discovery_skipped_by_reason": {"unsupported_extension": 4}})
+
+    counters = ingestion_counters(task, {"published": 2})
+
+    assert counters == {"discovered": 10, "processed": 2, "skipped": 4, "failed": 0}

@@ -333,6 +333,8 @@ One run: `ingestion_id`, `tenant_id`, `project_id`, `connection_id`, `mode`, `st
 `counters` (`discovered`, `processed`, `skipped`, `failed`), `stages` (empty),
 `error_category`, `triggered_by`, `settings_revision`, `workflow_id`, `run_id`,
 `trace_id`, `links` (`temporal`, `grafana`, `langfuse`), `created_at`, `finished_at`.
+Items skipped at discovery, such as files outside a local connection's
+`allowed_extensions`, count in both `counters.discovered` and `counters.skipped`.
 
 ### `POST /v1/admin/ingestions/{ingestion_id}/pause`, `/resume`, `/cancel`
 

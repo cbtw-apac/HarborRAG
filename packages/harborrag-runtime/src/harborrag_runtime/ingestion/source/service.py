@@ -1,4 +1,8 @@
-"""Facade for source discovery, dispatch, retry, and finalization."""
+"""Facade for source discovery, dispatch, retry, and finalization.
+
+Every terminal summary stored here replaces the task's summary, so each one
+keeps the discovery skip counts that status views read after the run ends.
+"""
 
 from __future__ import annotations
 
@@ -31,14 +35,20 @@ from .models import (
 )
 from .operations import SourceDocumentOperations
 from .retry import SourceRetryService
-from .skips import DISCOVERY_SKIPS_KEY
+from .skips import DISCOVERY_SKIPS_KEY, carried_discovery_skips
 from .tasks import pending_source_task, source_scan_id
 
 logger = logging.getLogger("harborrag.runtime.ingestion.source")
 
 
 class SourceIngestionService(SourceDocumentOperations):
-    """Coordinate authoritative discovery and bounded document dispatch."""
+    """Coordinate authoritative discovery and bounded document dispatch.
+
+    Args:
+        control: Control-plane database that holds tasks, scans and results.
+        documents: Release service that ingests one document.
+        relations: Graph relation repair. Without it, finalization skips repair.
+    """
 
     def __init__(
         self,
@@ -69,6 +79,14 @@ class SourceIngestionService(SourceDocumentOperations):
         request: SourceIngestionRequest,
         connector: BaseConnector | HarborConnector,
     ) -> SourceIngestionOutcome:
+        """Discover, dispatch and finalize one source run in this process.
+
+        A cancellation, such as Ctrl-C on a direct run, cancels the task before it
+        propagates. Left RUNNING, the run's scan would block every later scan of
+        the scope, and a PENDING task would look like an unsubmitted durable run.
+        Any other error marks the task failed. A failure to record either outcome
+        is logged and never hides the run's own error.
+        """
         logger.info(
             "Source ingestion started task_id=%s connector_type=%s concurrency=%d",
             request.task_id,
@@ -98,9 +116,6 @@ class SourceIngestionService(SourceDocumentOperations):
                 summary=SourceDispatchSummary.from_results(results),
             )
         except asyncio.CancelledError:
-            # A direct run interrupted with Ctrl-C arrives here, not in the handler
-            # below. Left RUNNING, its scan would block every later scan of the scope,
-            # and a still-PENDING task would look like an unsubmitted durable run.
             logger.warning(
                 "Source ingestion interrupted task_id=%s stage=%s", request.task_id, stage
             )
@@ -112,10 +127,7 @@ class SourceIngestionService(SourceDocumentOperations):
                 )
             raise
         except Exception as error:
-            if isinstance(error, VectorIndexSchemaError):
-                # Provisioning runs inside discovery's first step, but a schema
-                # mismatch is a configuration fault, not a source-discovery one.
-                stage = "provision"
+            stage = _failure_stage(error, stage)
             logger.error(
                 "Source %s failed task_id=%s connector_type=%s error_type=%s",
                 stage,
@@ -149,10 +161,11 @@ class SourceIngestionService(SourceDocumentOperations):
         return outcome
 
     async def cancel(self, task_id: str) -> None:
-        """Converge a graceful workflow cancellation on durable task state."""
+        """Converge a graceful workflow cancellation on durable task state.
 
-        # A cancel during discovery would otherwise leave the scan STARTED and
-        # block every later scan of the scope.
+        The open scan is cancelled first, so a cancel during discovery cannot
+        block later scans of the scope. The task keeps its summary.
+        """
         if await self._control.source_scans.cancel_if_started(source_scan_id(task_id)):
             logger.info("Open source scan cancelled task_id=%s", task_id)
         task = await self._control.tasks.get(task_id)
@@ -180,6 +193,7 @@ class SourceIngestionService(SourceDocumentOperations):
         logger.info("Source ingestion cancelled task_id=%s", task_id)
 
     async def pause(self, task_id: str) -> None:
+        """Mark a running task paused, leaving a task in any other state as it is."""
         task = await self._control.tasks.get(task_id)
         if task is None or task.status == IngestionTaskState.PAUSED:
             return
@@ -187,6 +201,7 @@ class SourceIngestionService(SourceDocumentOperations):
             await self._control.tasks.transition(task_id, IngestionTaskState.PAUSED)
 
     async def resume(self, task_id: str) -> None:
+        """Mark a paused task running again, leaving a task in any other state as it is."""
         task = await self._control.tasks.get(task_id)
         if task is None or task.status == IngestionTaskState.RUNNING:
             return
@@ -194,8 +209,11 @@ class SourceIngestionService(SourceDocumentOperations):
             await self._control.tasks.transition(task_id, IngestionTaskState.RUNNING)
 
     async def fail(self, task_id: str, *, error_code: str, stage: str = "discovery") -> None:
-        """Persist one terminal source-workflow failure without runtime details."""
+        """Persist one terminal source-workflow failure without runtime details.
 
+        The failed task keeps the counts of what discovery skipped, so status
+        views still show them. A task that already ended is left as it is.
+        """
         await self._control.source_scans.fail_if_started(
             source_scan_id(task_id),
             safe_reason=error_code,
@@ -219,6 +237,7 @@ class SourceIngestionService(SourceDocumentOperations):
             summary={
                 "failed_stage": stage,
                 "error_code": error_code,
+                **carried_discovery_skips(task.summary),
             },
         )
         logger.warning(
@@ -233,7 +252,6 @@ class SourceIngestionService(SourceDocumentOperations):
         connector: BaseConnector | HarborConnector,
     ) -> SourceDiscoveryRun:
         """Run and persist an authoritative descriptor-only source scan."""
-
         discovery = await self.prepare_discovery(request, connector)
         await self.complete_discovery(discovery.scan_id)
         return discovery
@@ -244,7 +262,6 @@ class SourceIngestionService(SourceDocumentOperations):
         connector: BaseConnector | HarborConnector,
     ) -> SourceDiscoveryRun:
         """Discover descriptors while leaving the scan open for plan persistence."""
-
         scan_id = await self.begin_discovery(request)
         planned = await self._discovery.discover(
             request,
@@ -261,7 +278,6 @@ class SourceIngestionService(SourceDocumentOperations):
 
     async def begin_discovery(self, request: SourceIngestionRequest) -> str:
         """Create or resume the deterministic authoritative scan."""
-
         await self._initialize(request)
         return await self._control.source_scans.start(
             request.source_scope_id,
@@ -278,7 +294,6 @@ class SourceIngestionService(SourceDocumentOperations):
         page_size: int | None = None,
     ) -> SourceDiscoveryPage:
         """Persist one native provider page without completing the scan."""
-
         return await self._discovery.discover_page(
             request,
             connector,
@@ -295,6 +310,7 @@ class SourceIngestionService(SourceDocumentOperations):
         document_count: int,
         page_count: int,
     ) -> None:
+        """Record how far paged discovery has got on the task."""
         await self._control.tasks.update_summary(
             task_id,
             {
@@ -308,13 +324,11 @@ class SourceIngestionService(SourceDocumentOperations):
 
     async def complete_discovery(self, scan_id: str) -> None:
         """Make a scan authoritative after its dispatch plan is durable."""
-
         await self._control.source_scans.complete(scan_id)
         logger.debug("Source discovery scan completed scan_id=%s", scan_id)
 
     async def discovery_skip_counts(self, task_id: str) -> dict[str, int]:
         """Return the discovery-time skip counts recorded on the task so far."""
-
         task = await self._control.tasks.get(task_id)
         if task is None:
             return {}
@@ -329,7 +343,6 @@ class SourceIngestionService(SourceDocumentOperations):
 
     async def record_discovery_planned(self, task_id: str, document_count: int) -> None:
         """Expose durable coarse progress without leaking workflow activities."""
-
         await self._control.tasks.update_summary(
             task_id,
             {
@@ -348,6 +361,7 @@ class SourceIngestionService(SourceDocumentOperations):
         summary: SourceDispatchSummary,
         repair_progress: RelationRepairProgress | None = None,
     ) -> SourceIngestionOutcome:
+        """Repair relations, reconcile removals and record the run's final outcome."""
         return await self._finalization.finish(
             request,
             scan_id=scan_id,
@@ -357,6 +371,14 @@ class SourceIngestionService(SourceDocumentOperations):
         )
 
     async def _initialize(self, request: SourceIngestionRequest) -> None:
+        """Register the scope, start the task and provision the vector index.
+
+        The task runs in this process, so it is created with an ``executor``
+        submission marker. The marker keeps the API outbox from submitting it
+        again if it stops while PENDING. A row that a durable start registered
+        already exists and keeps its summary. Provisioning comes after the task
+        runs, so a provisioning failure can be recorded on it.
+        """
         await self._control.source_scans.register_scope(
             tenant_id=request.tenant_id,
             source_scope_id=request.source_scope_id,
@@ -364,9 +386,6 @@ class SourceIngestionService(SourceDocumentOperations):
             connection_id=request.connection_id,
             configuration_fingerprint=request.configuration_fingerprint,
         )
-        # The task executes here, so it is never awaiting submission: the marker
-        # keeps the API outbox from re-submitting it if it stops while PENDING.
-        # A row a durable start registered already exists and keeps its summary.
         await self._control.tasks.create(
             pending_source_task(request).model_copy(
                 update={"summary": {"submission_state": "executor"}}
@@ -376,7 +395,6 @@ class SourceIngestionService(SourceDocumentOperations):
             request.task_id,
             IngestionTaskState.RUNNING,
         )
-        # After the task exists and runs, so a provisioning failure can be recorded.
         try:
             await self._documents.provision(tenant_id=request.tenant_id)
         except HarborStorageValidationError as error:
@@ -386,13 +404,21 @@ class SourceIngestionService(SourceDocumentOperations):
             raise VectorIndexSchemaError(_schema_mismatch_message(error, *dimensions)) from error
 
 
+def _failure_stage(error: Exception, stage: str) -> str:
+    """Return the stage to record for a run that failed while in ``stage``.
+
+    Provisioning runs inside discovery's first step, but a vector index schema
+    mismatch is a configuration fault, not a discovery one.
+    """
+    return "provision" if isinstance(error, VectorIndexSchemaError) else stage
+
+
 def _schema_mismatch_dimensions(error: HarborStorageValidationError) -> tuple[int, int] | None:
     """Both dimensions when ``error`` is the existing-index schema mismatch, else None.
 
     Only that mismatch is a configuration verdict the operator can act on; other
     validation failures (an invalid tenant or index name, say) keep their type.
     """
-
     if error.context.operation != "ensure_index":
         return None
     existing = error.context.metadata.get("existing_dimension")
@@ -406,7 +432,6 @@ def _schema_mismatch_message(
     error: HarborStorageValidationError, existing: int, configured: int
 ) -> str:
     """Authored text plus the safe values the adapter attached, never its message."""
-
     index = error.context.resource_name
     subject = f"Vector index {index!r}" if isinstance(index, str) and index else "The vector index"
     detail = (

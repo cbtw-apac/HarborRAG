@@ -1,11 +1,10 @@
 """Per-run skip accounting for source ingestion tasks.
 
-A run skips an item for one of two kinds of reason. Discovery-time skips
-(allowlist, size, extension, deleted, access denied, retries exhausted) are
-reported by the connector through ``skipped``; extraction failures happen
-later, when one document fails to parse, and are read back from the task's
-document results. Both are folded into the task summary as ``skipped`` and
-``skipped_by_reason``.
+Discovery skips come from the connector's ``skipped`` report and stay on the
+task under ``DISCOVERY_SKIPS_KEY``, which status views read even after the run
+ends. Per-document skips are read back from the task's document results.
+Connector and database types are imported for annotations only, so modules
+that just need the constants, such as the CLI presenters, stay light.
 """
 
 from __future__ import annotations
@@ -15,8 +14,6 @@ from collections.abc import Mapping
 from typing import TYPE_CHECKING, TypedDict
 
 if TYPE_CHECKING:
-    # Annotation-only: keeps the database and connector stacks (SQLAlchemy, etc.)
-    # out of modules that just need the constants, such as the CLI presenters.
     from harborrag_adapters.connectors.base import BaseConnector
     from harborrag_adapters.connectors.harbor_connector import HarborConnector
     from harborrag_adapters.repositories.database import IngestionControlPlaneDatabase
@@ -28,8 +25,18 @@ _RESULT_PAGE_SIZE = 200
 
 
 class SkipSummary(TypedDict):
+    """Skip counts that finalization stores on a finished task.
+
+    Attributes:
+        skipped: Items the run skipped, at discovery or per document.
+        skipped_by_reason: ``skipped`` broken down by reason code.
+        discovery_skipped_by_reason: The discovery part of ``skipped_by_reason``.
+            Its name is ``DISCOVERY_SKIPS_KEY``, the key status views read.
+    """
+
     skipped: int
     skipped_by_reason: dict[str, int]
+    discovery_skipped_by_reason: dict[str, int]
 
 
 def bind_connector_run(connector: BaseConnector | HarborConnector, run_id: str) -> None:
@@ -60,25 +67,48 @@ def discovery_skip_summary(
     }
 
 
+def carried_discovery_skips(summary: Mapping[str, object]) -> dict[str, object]:
+    """Return the discovery skip counts that a replacement task summary must keep.
+
+    Moving a task to a terminal state stores a new summary in place of the old
+    one, and status views read these counts after the run ends. The result is
+    empty when the summary holds no discovery counts.
+    """
+    stored = summary.get(DISCOVERY_SKIPS_KEY)
+    return {DISCOVERY_SKIPS_KEY: dict(stored)} if isinstance(stored, Mapping) else {}
+
+
 async def run_skip_summary(
     control: IngestionControlPlaneDatabase,
     task_id: str,
 ) -> SkipSummary:
     """Combine discovery skips already on the task with per-document skips.
 
-    Document-level skips are recounted from the document results on every
-    call and added to the discovery counts, which finalization never rewrites,
-    so a retried finalization never counts them twice.
+    Per-document skips are recounted from the document results on every call.
+    Finalization replaces the stored summary, so the discovery counts come back
+    too, for it to keep on the task. A retried finalization reads them back
+    unchanged and never counts a skip twice.
+
+    Args:
+        control: Control-plane database that holds the task and its results.
+        task_id: Run whose skips to count.
+
+    Returns:
+        The run's skip total, its breakdown by reason, and the discovery part.
     """
     task = await control.tasks.get(task_id)
-    discovered = task.summary.get(DISCOVERY_SKIPS_KEY) if task is not None else None
-    counts: Counter[str] = Counter()
-    if isinstance(discovered, Mapping):
-        counts.update({str(reason): int(count) for reason, count in discovered.items()})
+    stored = task.summary.get(DISCOVERY_SKIPS_KEY) if task is not None else None
+    discovered = (
+        {str(reason): int(count) for reason, count in stored.items()}
+        if isinstance(stored, Mapping)
+        else {}
+    )
+    counts: Counter[str] = Counter(discovered)
     counts.update(await _document_skips(control, task_id))
     return SkipSummary(
         skipped=sum(counts.values()),
         skipped_by_reason=dict(sorted(counts.items())),
+        discovery_skipped_by_reason=dict(sorted(discovered.items())),
     )
 
 
