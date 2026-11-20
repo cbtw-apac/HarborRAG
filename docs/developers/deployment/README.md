@@ -286,8 +286,16 @@ and database settings and network-reachable data services. Its writable JSONL au
 `/var/lib/harborrag/.harborrag/mcp-audit.jsonl`.
 
 Use `scripts/deployment/mcp.sh --http` for the authenticated loopback HTTP transport and the
-local status and configuration UI. Remote MCP needs TLS and a production JWT/JWKS verifier,
+local status page. Its container joins `harborrag-data-network`, and Docker publishes the
+port on `127.0.0.1` only. The wrapper runs `harborrag-mcp --http --preflight` before it starts the
+server, so a missing setting is one line and not a restart loop. Remote MCP needs TLS and a
+production JWT/JWKS verifier,
 and the local container command intentionally does not provide it.
+
+The MCP image records the commit it was built from in its
+`org.opencontainers.image.revision` label. The wrapper passes it when it builds, compares it
+with the checkout on later runs and says when to rebuild. To stamp a manual build, add
+`--build-arg "HARBORRAG_GIT_REVISION=$(git rev-parse HEAD)"`.
 
 The Explorer MCP UI server is optional and separate. `scripts/deployment/mcp-ui.sh` builds
 `deploy/docker/Dockerfile.mcp-ui`, a layer over the MCP image that adds the `ui` extra and runs

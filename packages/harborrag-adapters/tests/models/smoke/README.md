@@ -27,9 +27,9 @@ The scripts read their own variables, one set per family:
 | Embedding | `HARBORRAG_EMBED_` | `embed.py` |
 | Reranking | `HARBOR_SMOKE_RERANK_` | `rerank.py` |
 
-The application's model gateway values (`HARBORRAG_URL`, `HARBORRAG_API_KEY` and the gateway's
-model names) do not configure a smoke family. `HARBORRAG_CHAT_MODEL` and `HARBORRAG_EMBED_MODEL`
-are names the gateway values also use, so keep the smoke values in a separate file rather than in
+The shipped model catalog reads `HARBORRAG_CHAT_MODEL`, `HARBORRAG_CHAT_API_KEY`,
+`HARBORRAG_EMBED_MODEL` and `HARBORRAG_EMBED_API_KEY`. The smoke families read the same
+names and may need other values, so keep the smoke values in a separate file rather than in
 `env/.env.models`, for example `env/.env.models-smoke` (everything under `env/` is git-ignored).
 Copy the smoke examples from `env-example/.env.models.example` into it.
 

@@ -71,7 +71,9 @@ def test_doctor_flags_a_blank_provider_key(tmp_path: Path, monkeypatch, capsys) 
 
     checks = {c["name"]: c for c in json.loads(capsys.readouterr().out)["checks"]}
     assert checks["models catalog"]["status"] == "fail"
-    assert "HARBORRAG_API_KEY" in checks["models catalog"]["detail"]
+    detail = checks["models catalog"]["detail"]
+    assert "HARBORRAG_CHAT_API_KEY" in detail
+    assert "HARBORRAG_EMBED_API_KEY" in detail
 
 
 def test_doctor_ignores_variables_in_commented_out_model_config(

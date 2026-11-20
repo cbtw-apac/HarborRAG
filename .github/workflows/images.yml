@@ -1,0 +1,49 @@
+name: Container Images
+
+on:
+  push:
+    branches: [ main, dev/*, develop, feature/*, feat/*, bugfix/*, fix/*, hotfix/*, release/*, chore/*, patch/* ]
+    paths:
+      - deploy/docker/Dockerfile.mcp
+      - packages/**
+      - config/**
+      - uv.lock
+      - pyproject.toml
+      - .dockerignore
+      - .github/workflows/images.yml
+  pull_request:
+    branches: [ main, dev/*, develop, feature/*, feat/*, bugfix/*, release/*, fix/* ]
+    paths:
+      - deploy/docker/Dockerfile.mcp
+      - packages/**
+      - config/**
+      - uv.lock
+      - pyproject.toml
+      - .dockerignore
+      - .github/workflows/images.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: "images-${{ github.ref }}"
+  cancel-in-progress: true
+
+jobs:
+  mcp-image:
+    name: Build and check the MCP image
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Build the MCP image
+        run: >-
+          docker build
+          --file deploy/docker/Dockerfile.mcp
+          --build-arg "HARBORRAG_GIT_REVISION=${GITHUB_SHA}"
+          --tag harborrag-mcp:ci
+          .
+      - name: Run the MCP handshake inside the image
+        run: docker run --rm --network none harborrag-mcp:ci --check

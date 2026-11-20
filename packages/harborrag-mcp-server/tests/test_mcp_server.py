@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import contextlib
 import json
 from io import StringIO
@@ -74,6 +75,48 @@ def test_module_http_requires_a_strong_bearer_token(monkeypatch, capsys) -> None
         cli.main(["--transport", "http"])
 
     assert "HARBORRAG_MCP_BEARER_TOKEN" in capsys.readouterr().err
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("host", "address"),
+    [
+        ("127.0.0.1", "http://127.0.0.1:8010"),
+        ("localhost", "http://localhost:8010"),
+        ("::1", "http://[::1]:8010"),
+        ("192.0.2.10", "http://192.0.2.10:8010"),
+    ],
+)
+def test_start_up_lines_give_the_address_of_a_bind_a_client_can_open(
+    host: str, address: str
+) -> None:
+    import harborrag_mcp_server.__main__ as cli
+
+    arguments = argparse.Namespace(host=host, port=8010, path="/mcp")
+
+    assert cli._announcement(arguments, ui=False) == [
+        f"HarborRAG MCP UI: {address}/",
+        f"HarborRAG MCP endpoint: {address}/mcp",
+    ]
+    assert cli._announcement(arguments, ui=True) == [
+        f"HarborRAG Explorer MCP endpoint: {address}/mcp"
+    ]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("host", ["0.0.0.0", "::"])
+@pytest.mark.parametrize("ui", [False, True])
+def test_start_up_line_gives_no_address_for_a_bind_to_every_interface(host: str, ui: bool) -> None:
+    import harborrag_mcp_server.__main__ as cli
+
+    arguments = argparse.Namespace(host=host, port=8010, path="/mcp")
+
+    (line,) = cli._announcement(arguments, ui=ui)
+
+    assert "http://" not in line
+    assert host not in line
+    assert "port 8010" in line
+    assert "/mcp" in line
 
 
 @pytest.mark.asyncio

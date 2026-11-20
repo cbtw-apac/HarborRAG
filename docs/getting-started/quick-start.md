@@ -6,8 +6,8 @@ waiting for the first container build.
 
 HarborRAG reads documents from your sources, splits them into passages, and stores those
 passages so you can search them and chat over them. Everything in this tutorial runs on your
-machine, in Docker containers, except the language models, which you reach through a model
-gateway.
+machine, in Docker containers, except the language models, which you call at OpenAI or
+another OpenAI-compatible endpoint.
 
 ## Before you start
 
@@ -49,19 +49,19 @@ command in this tutorial inside your WSL distribution.
 
 </details>
 
-You also need a **model gateway**: a [LiteLLM proxy](https://docs.litellm.ai/docs/simple_proxy)
-that serves three models, which HarborRAG calls with one URL and one key:
+You also need an **API key for a model endpoint**. HarborRAG calls two models there, each
+with its own key setting, so one key can serve both:
 
 - a chat model, which writes answers;
-- a Cohere Embed v4 model, which turns each passage into the 1536-dimension vector
-  HarborRAG searches (the shipped configuration calls it as a Cohere model, so another
-  embedding model will not work without changing that configuration);
-- a reranking model, which reorders search results for chat.
+- an embedding model, which turns each passage into the 1536-dimension vector HarborRAG
+  searches. OpenAI's `text-embedding-3-small` writes that size, and the shipped
+  configuration expects it.
 
-[The shipped gateway catalog](../users/configuration/model-config.md#the-shipped-gateway-catalog)
-explains how HarborRAG calls each one. If your team already runs a gateway, ask for its URL,
-a key, and the names of those three models. Every model call goes through the gateway, so
-ingesting documents and chatting both cost a little.
+The endpoint is OpenAI's unless you name another OpenAI-compatible one, such as a
+[LiteLLM proxy](https://docs.litellm.ai/docs/simple_proxy) gateway your team runs.
+[The shipped catalog](../users/configuration/model-config.md#the-shipped-catalog) explains
+how HarborRAG calls each model. Every model call goes to that endpoint, so ingesting
+documents and chatting both cost a little.
 
 Plan for about 1 GB of disk for the Python packages and several GB for the container images.
 
@@ -111,30 +111,33 @@ Copy the key from `env/.env.database` somewhere safe.
 
 Two settings have no safe default, so fill them in now.
 
-**The model gateway.** Open `env/.env.models`. The five lines at the top ship as:
+**The model endpoint.** Open `env/.env.models`. The four lines at the top ship as:
 
 ```dotenv
-HARBORRAG_URL=https://gateway.example.com
-HARBORRAG_API_KEY=REPLACE_WITH_GATEWAY_API_KEY
-HARBORRAG_CHAT_MODEL=REPLACE_WITH_GATEWAY_CHAT_MODEL
-HARBORRAG_EMBED_MODEL=REPLACE_WITH_GATEWAY_EMBEDDING_MODEL
-HARBORRAG_RERANKER_MODEL=REPLACE_WITH_GATEWAY_RERANK_MODEL
+HARBORRAG_CHAT_MODEL=REPLACE_WITH_CHAT_MODEL
+HARBORRAG_CHAT_API_KEY=REPLACE_WITH_REAL_CHAT_API_KEY
+HARBORRAG_EMBED_MODEL=text-embedding-3-small
+HARBORRAG_EMBED_API_KEY=REPLACE_WITH_REAL_EMBED_API_KEY
 ```
 
-Replace all five values. `HARBORRAG_URL` is the gateway's base URL without `/v1`, and the
-three model values are names the gateway serves. All five are required, even the reranker:
-`config/models/models.yaml` reads every one of them when it loads. Leave every other
-`REPLACE_WITH_...` placeholder further down the file as it is; this tutorial does not use them.
+Set both key lines to your OpenAI API key, and `HARBORRAG_CHAT_MODEL` to a chat model
+that key can use. The two keys are separate settings so that chat and embedding can use
+different accounts. All four lines are required: `config/models/models.yaml` reads every
+one of them when it loads. To call another OpenAI-compatible endpoint instead of OpenAI,
+also uncomment the `HARBORRAG_URL` line below them and set it to that endpoint's base
+URL; the keys and the model names are then that endpoint's. Leave every other `REPLACE_WITH_...` placeholder further down the file as it
+is; this tutorial does not use them.
 
-Check the URL, the key and the model names before you go on, because a mistake here only
-shows up later, as failed documents in step 5:
+Check the key and the model names before you go on, because a mistake here only shows up
+later, as failed documents in step 5:
 
 ```bash
-(set -a; . env/.env.models; curl -s -H "Authorization: Bearer $HARBORRAG_API_KEY" "$HARBORRAG_URL/v1/models")
+(set -a; . env/.env.models; curl -s -H "Authorization: Bearer $HARBORRAG_CHAT_API_KEY" "${HARBORRAG_URL:-https://api.openai.com/v1}/models")
 ```
 
 The parentheses read the file's values in a subshell, so they do not stay set in your shell.
-The response should list the three model names you entered.
+The response should list the two model names you entered. If embedding uses another key or
+endpoint, run the command again with the two `EMBED` variables.
 
 **The control database.** The *control database* is the PostgreSQL database where HarborRAG
 records its sources and ingestion runs. Open `env/.env.database` and remove the `#` in front
@@ -233,7 +236,7 @@ uv run harborrag ingestions start default/harborrag-workspace --wait
 ```
 
 The command submits the run to the Temporal server on `localhost:7233`, and `--wait` keeps it
-attached until the run ends. Each passage is sent to your gateway's embedding model.
+attached until the run ends. Each passage is sent to the embedding model.
 
 While the run works, the command prints a line whenever the run's status or counts change:
 the run's ID, its status, and how many documents were `discovered`, `processed`, `skipped`
@@ -244,7 +247,7 @@ run fails or is cancelled, the command exits with status 8.
 Run the same command again and the unchanged documents are counted as `skipped`: HarborRAG
 only processes what changed.
 
-If every document fails, check the gateway values from step 2. For other errors, see
+If every document fails, check the model values from step 2. For other errors, see
 [Troubleshooting](../users/troubleshooting/README.md).
 
 ## 6. Ask a question
@@ -261,7 +264,7 @@ permissions for; see
 [Read access inside a tenant](../users/configuration/workspace-mode.md#read-access-inside-a-tenant).
 
 Ask the chat model for an answer grounded in the
-passages that match your question. It calls your gateway, so it can cost a little:
+passages that match your question. It calls the model endpoint, so it can cost a little:
 
 ```bash
 uv run harborrag chat "Summarise what the HarborRAG documentation covers in three bullet points."

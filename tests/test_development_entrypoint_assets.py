@@ -230,9 +230,14 @@ def _mcp_project(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
     fake_docker = fake_bin / "docker"
     fake_docker.write_text(
         """#!/usr/bin/env sh
-printf '%s\\n' "$* HARBORRAG_ENV=${HARBORRAG_ENV:-}" >> "$MCP_DOCKER_LOG"
+printf '%s\\n' "$* HARBORRAG_ENV=${HARBORRAG_ENV:-} HARBORRAG_MCP_PORT=${HARBORRAG_MCP_PORT:-} \\
+HARBORRAG_GIT_REVISION=${HARBORRAG_GIT_REVISION:-}" >> "$MCP_DOCKER_LOG"
 case " $* " in
+  *" image inspect --format "*) [ -n "$MCP_IMAGE_PRESENT" ] && printf '%s\\n' "${MCP_IMAGE_REVISION:-}" ;;
   *" image inspect "*) [ -n "$MCP_IMAGE_PRESENT" ] ;;
+  *" network inspect "*) [ -z "${MCP_NETWORK_ABSENT:-}" ] ;;
+  *" --preflight "*) [ -z "${MCP_PREFLIGHT_FAILS:-}" ] ;;
+  *" up "*) [ -z "${MCP_UP_FAILS:-}" ] ;;
 esac
 """,
         encoding="utf-8",
@@ -246,26 +251,117 @@ esac
     return script, docker_log, env
 
 
+def _run_mcp(
+    script: Path, env: dict[str, str], *arguments: str
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["bash", str(script), *arguments],
+        env=env,
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        check=False,
+        text=True,
+    )
+
+
+def _notes(result: subprocess.CompletedProcess[str]) -> list[str]:
+    return [line for line in result.stderr.splitlines() if line.startswith("Note:")]
+
+
+_COMMITTED_SOURCE = "VALUE = 1\n"
+_EDITED_SOURCE = "VALUE = 2\n"
+
+
+def _commit_source(project: Path) -> str:
+    """Make the project a git checkout with one committed source file; return the commit."""
+
+    (project / "packages").mkdir()
+    (project / "packages/module.py").write_text(_COMMITTED_SOURCE, encoding="utf-8")
+    git = ["git", "-C", str(project), "-c", "user.name=Test", "-c", "user.email=test@example.com"]
+    subprocess.run(["git", "init", "--quiet", str(project)], check=True)
+    subprocess.run([*git, "add", "packages"], check=True)
+    subprocess.run([*git, "commit", "--quiet", "--message", "source"], check=True)
+    head = subprocess.run([*git, "rev-parse", "HEAD"], check=True, capture_output=True, text=True)
+    return head.stdout.strip()
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("arguments", ((), ("--build", "--http")))
+def test_mcp_entrypoint_names_the_fix_when_the_data_network_is_missing(
+    tmp_path: Path, arguments: tuple[str, ...]
+) -> None:
+    script, docker_log, env = _mcp_project(tmp_path)
+
+    result = _run_mcp(
+        script, {**env, "MCP_IMAGE_PRESENT": "1", "MCP_NETWORK_ABSENT": "1"}, *arguments
+    )
+
+    assert result.returncode == 2
+    assert "harborrag-data-network" in result.stderr
+    assert "scripts/deployment/dev.sh data" in result.stderr
+    docker_calls = docker_log.read_text(encoding="utf-8")
+    assert " build " not in docker_calls
+    assert " run " not in docker_calls
+
+
+@pytest.mark.unit
+def test_mcp_check_runs_the_image_without_any_network(tmp_path: Path) -> None:
+    script, docker_log, env = _mcp_project(tmp_path)
+
+    result = _run_mcp(
+        script, {**env, "MCP_IMAGE_PRESENT": "1", "MCP_NETWORK_ABSENT": "1"}, "--check"
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == ""
+    docker_calls = docker_log.read_text(encoding="utf-8")
+    assert "run --rm --network none" in docker_calls
+    assert "/config:/app/config:ro" in docker_calls
+    assert "harborrag-mcp-mcp --transport stdio --check" in docker_calls
+    assert " network inspect " not in docker_calls
+    assert "run --rm --no-deps" not in docker_calls
+
+
+@pytest.mark.unit
+def test_mcp_entrypoint_stops_the_server_without_the_data_network(tmp_path: Path) -> None:
+    script, docker_log, env = _mcp_project(tmp_path)
+
+    result = _run_mcp(script, {**env, "MCP_NETWORK_ABSENT": "1"}, "down")
+
+    assert result.returncode == 0, result.stderr
+    assert "docker-compose.mcp.yml down" in docker_log.read_text(encoding="utf-8")
+
+
 @pytest.mark.parametrize(
     ("arguments", "image_present", "expected_calls", "unexpected_calls"),
     (
         (
             ("--check",),
             "1",
-            ("run --rm --no-deps -T mcp --transport stdio --check",),
-            (" build mcp",),
+            ("run --rm --network none", "harborrag-mcp-mcp --transport stdio --check"),
+            (" build mcp", "run --rm --no-deps"),
         ),
         (
             ("--check",),
             "",
-            (" build mcp", "run --rm --no-deps -T mcp --transport stdio --check"),
+            (" build mcp", "harborrag-mcp-mcp --transport stdio --check"),
+            ("run --rm --no-deps",),
+        ),
+        (
             (),
+            "1",
+            ("run --rm --no-deps -T mcp --transport stdio",),
+            (" build mcp", "--network none"),
         ),
         (
             ("--build", "--http"),
             "1",
-            (" build mcp", "up --no-build --detach --wait --wait-timeout 120 mcp"),
-            (" run ",),
+            (
+                " build mcp",
+                "run --rm --no-deps -T mcp --http --preflight",
+                "up --no-build --detach --wait --wait-timeout 120 mcp",
+            ),
+            ("--transport stdio",),
         ),
         (("down",), "1", ("docker-compose.mcp.yml down",), (" build ", " run ")),
     ),
@@ -295,11 +391,225 @@ def test_mcp_entrypoint_drives_the_mcp_compose_service(
         assert call in docker_calls
     for call in unexpected_calls:
         assert call not in docker_calls
-    if arguments[-1] == "--http":
+    if arguments[-1:] == ("--http",):
         assert "http://127.0.0.1:8123/" in result.stdout
     else:
         # Stdio and check mode must keep stdout free for the MCP protocol.
         assert result.stdout == ""
+
+
+@pytest.mark.unit
+def test_mcp_http_start_checks_the_configuration_before_starting(tmp_path: Path) -> None:
+    script, docker_log, env = _mcp_project(tmp_path)
+
+    result = _run_mcp(script, {**env, "MCP_IMAGE_PRESENT": "1"}, "--http")
+
+    assert result.returncode == 0, result.stderr
+    calls = docker_log.read_text(encoding="utf-8")
+    assert calls.index("--http --preflight") < calls.index("up --no-build --detach --wait")
+
+
+@pytest.mark.unit
+def test_mcp_entrypoint_publishes_the_port_its_env_file_names(tmp_path: Path) -> None:
+    script, docker_log, env = _mcp_project(tmp_path)
+
+    result = _run_mcp(script, {**env, "MCP_IMAGE_PRESENT": "1"}, "--http")
+
+    assert result.returncode == 0, result.stderr
+    (start,) = [
+        line for line in docker_log.read_text(encoding="utf-8").splitlines() if " up " in line
+    ]
+    assert "HARBORRAG_MCP_PORT=8123" in start
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "port_line",
+    [
+        pytest.param('HARBORRAG_MCP_PORT="8124"', id="double-quoted"),
+        pytest.param("HARBORRAG_MCP_PORT='8124'", id="single-quoted"),
+        pytest.param("HARBORRAG_MCP_PORT=8124   # the playground", id="trailing-comment"),
+        pytest.param("HARBORRAG_MCP_PORT=8124\r", id="windows-line-ending"),
+    ],
+)
+def test_mcp_entrypoint_reads_a_port_the_way_compose_reads_env_files(
+    tmp_path: Path, port_line: str
+) -> None:
+    script, docker_log, env = _mcp_project(tmp_path)
+    (script.parents[2] / "env/.env.mcp").write_text(
+        f"HARBORRAG_MCP_BEARER_TOKEN=test-token\n{port_line}\n", encoding="utf-8", newline=""
+    )
+
+    result = _run_mcp(script, {**env, "MCP_IMAGE_PRESENT": "1"}, "--http")
+
+    assert result.returncode == 0, result.stderr
+    (start,) = [
+        line for line in docker_log.read_text(encoding="utf-8").splitlines() if " up " in line
+    ]
+    assert "HARBORRAG_MCP_PORT=8124 " in start
+    assert "http://127.0.0.1:8124/" in result.stdout
+
+
+@pytest.mark.unit
+def test_mcp_entrypoint_refuses_a_port_that_is_not_a_number(tmp_path: Path) -> None:
+    script, docker_log, env = _mcp_project(tmp_path)
+    (script.parents[2] / "env/.env.mcp").write_text(
+        "HARBORRAG_MCP_BEARER_TOKEN=test-token\nHARBORRAG_MCP_PORT=eighty\n", encoding="utf-8"
+    )
+
+    result = _run_mcp(script, {**env, "MCP_IMAGE_PRESENT": "1"}, "--http")
+
+    assert result.returncode == 2
+    assert "HARBORRAG_MCP_PORT" in result.stderr
+    assert not docker_log.exists() or " up " not in docker_log.read_text(encoding="utf-8")
+
+
+@pytest.mark.unit
+def test_mcp_http_start_stops_when_the_preflight_fails(tmp_path: Path) -> None:
+    script, docker_log, env = _mcp_project(tmp_path)
+
+    result = _run_mcp(
+        script, {**env, "MCP_IMAGE_PRESENT": "1", "MCP_PREFLIGHT_FAILS": "1"}, "--http"
+    )
+
+    assert result.returncode == 2
+    assert "was not started" in result.stderr
+    assert "env/.env.mcp" in result.stderr
+    assert "env/.env.models" in result.stderr
+    assert " up " not in docker_log.read_text(encoding="utf-8")
+
+
+@pytest.mark.unit
+def test_mcp_http_start_removes_a_server_that_never_becomes_healthy(tmp_path: Path) -> None:
+    script, docker_log, env = _mcp_project(tmp_path)
+
+    result = _run_mcp(script, {**env, "MCP_IMAGE_PRESENT": "1", "MCP_UP_FAILS": "1"}, "--http")
+
+    assert result.returncode == 2
+    assert "did not become healthy" in result.stderr
+    calls = docker_log.read_text(encoding="utf-8")
+    assert (
+        calls.index(" up ")
+        < calls.index("logs --tail 20 mcp")
+        < calls.index("docker-compose.mcp.yml down")
+    )
+
+
+def _project_with_templates(tmp_path: Path) -> tuple[Path, dict[str, str]]:
+    """An MCP project whose template and model configuration name the settings they need."""
+
+    script, _, env = _mcp_project(tmp_path)
+    project = script.parents[2]
+    (project / "env-example").mkdir()
+    (project / "env-example/.env.mcp.example").write_text(
+        "HARBORRAG_MCP_BEARER_TOKEN=\n"
+        "HARBORRAG_MCP_PORT=8010\n"
+        "HARBORRAG_QDRANT_PREFER_GRPC=false\n"
+        "# HARBORRAG_MCP_AUTH_MODE=api_key\n",
+        encoding="utf-8",
+    )
+    (project / "config/models").mkdir(parents=True)
+    (project / "config/models/models.yaml").write_text(
+        "gateway:\n"
+        "  url: ${HARBORRAG_URL}\n"
+        "  key: ${HARBORRAG_API_KEY}\n"
+        "  model: ${HARBORRAG_EMBED_MODEL:-default-embedding}\n"
+        "  # retired: ${HARBORRAG_RETIRED}\n",
+        encoding="utf-8",
+    )
+    return script, {**env, "MCP_IMAGE_PRESENT": "1"}
+
+
+@pytest.mark.unit
+def test_mcp_launcher_names_the_model_variables_no_env_file_sets(tmp_path: Path) -> None:
+    script, env = _project_with_templates(tmp_path)
+    (script.parents[2] / "env/.env.models").write_text(
+        "HARBORRAG_API_KEY=placeholder\n", encoding="utf-8"
+    )
+
+    result = _run_mcp(script, env, "--http")
+
+    assert result.returncode == 0, result.stderr
+    (model_note,) = _notes(result)
+    assert "env/.env.models" in model_note
+    assert "HARBORRAG_URL" in model_note
+    for satisfied in ("HARBORRAG_API_KEY", "HARBORRAG_EMBED_MODEL", "HARBORRAG_RETIRED"):
+        assert satisfied not in model_note
+
+
+@pytest.mark.unit
+def test_mcp_launcher_is_silent_about_a_setting_left_to_its_default(tmp_path: Path) -> None:
+    script, env = _project_with_templates(tmp_path)
+    (script.parents[2] / "env/.env.models").write_text(
+        "HARBORRAG_URL=https://gateway.example\nHARBORRAG_API_KEY=placeholder\n",
+        encoding="utf-8",
+    )
+
+    result = _run_mcp(script, env, "--http")
+
+    assert result.returncode == 0, result.stderr
+    assert _notes(result) == []
+    assert "HARBORRAG_QDRANT_PREFER_GRPC" not in result.stderr
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("recorded", "source_now", "expected_note"),
+    (
+        ("{head}", _COMMITTED_SOURCE, None),
+        ("{head}", _EDITED_SOURCE, "was built from"),
+        ("", _COMMITTED_SOURCE, "does not record a commit of this checkout"),
+        pytest.param(
+            "ea456083" + "0" * 32,
+            _COMMITTED_SOURCE,
+            "does not record a commit of this checkout",
+            id="revision-inherited-from-the-base-image",
+        ),
+        ("{head}-dirty", _EDITED_SOURCE, None),
+    ),
+)
+def test_mcp_launcher_warns_when_the_image_predates_the_source(
+    tmp_path: Path, recorded: str, source_now: str, expected_note: str | None
+) -> None:
+    script, _, env = _mcp_project(tmp_path)
+    project = script.parents[2]
+    head = _commit_source(project)
+    (project / "packages/module.py").write_text(source_now, encoding="utf-8")
+
+    result = _run_mcp(
+        script,
+        {**env, "MCP_IMAGE_PRESENT": "1", "MCP_IMAGE_REVISION": recorded.format(head=head)},
+        "--check",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == ""
+    if expected_note is None:
+        assert _notes(result) == []
+    else:
+        (note,) = _notes(result)
+        assert expected_note in note
+        assert "--build" in note
+
+
+@pytest.mark.unit
+def test_mcp_image_build_records_the_source_commit(tmp_path: Path) -> None:
+    script, docker_log, env = _mcp_project(tmp_path)
+    project = script.parents[2]
+    head = _commit_source(project)
+
+    committed = _run_mcp(script, {**env, "MCP_IMAGE_PRESENT": ""}, "--check")
+    (project / "packages/module.py").write_text("VALUE = 2\n", encoding="utf-8")
+    edited = _run_mcp(script, {**env, "MCP_IMAGE_PRESENT": ""}, "--check")
+
+    assert (committed.returncode, edited.returncode) == (0, 0), committed.stderr + edited.stderr
+    builds = [
+        line
+        for line in docker_log.read_text(encoding="utf-8").splitlines()
+        if " build mcp " in line
+    ]
+    assert builds[0].endswith(f"HARBORRAG_GIT_REVISION={head}")
+    assert builds[1].endswith(f"HARBORRAG_GIT_REVISION={head}-dirty")
 
 
 def test_mcp_entrypoint_requires_bootstrapped_environment(tmp_path: Path) -> None:
@@ -378,7 +688,7 @@ def test_mcp_entrypoint_gives_the_server_the_apis_environment(tmp_path: Path) ->
     env = {k: v for k, v in env.items() if k != "HARBORRAG_ENV"}
 
     result = subprocess.run(
-        ["bash", str(script), "--check"],
+        ["bash", str(script)],
         env={**env, "MCP_IMAGE_PRESENT": "1"},
         stdin=subprocess.DEVNULL,
         capture_output=True,

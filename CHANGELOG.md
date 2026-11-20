@@ -7,10 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Documents are re-chunked and re-embedded on their next ingestion, and the shipped
-embedding model changes, so re-ingest every source in `force` mode
-(`harborrag ingestions start PROJECT_ID/CONNECTION_ID --mode force`). The `harborrag`
-commands are renamed to follow the HTTP API. Follow the
+Documents are re-chunked and re-embedded on their next ingestion, so re-ingest every
+source in `force` mode (`harborrag ingestions start PROJECT_ID/CONNECTION_ID --mode force`).
+The `harborrag` commands are renamed to follow the HTTP API. Follow the
 [upgrade guide](docs/users/upgrading.md) before upgrading; entries marked **Breaking** need
 action.
 
@@ -47,6 +46,7 @@ action.
 #### harborrag-mcp-server
 
 - `vector_search` reads `retrieval.top_k` at tenant level as its default `top_k`; chat reads it at the level of the session's project
+- `harborrag-mcp --preflight` connects every backend once and reports a start-up failure in one line
 
 #### harborrag-runtime
 
@@ -56,6 +56,12 @@ action.
 - Chunk sizes, per-source profiles and the splitting strategy are configurable in `config/ingestion/chunking.yaml`
 - **Breaking:** ingestion requires the code grammars; the worker images and the `local` and `production` installs include them
 - Retrieval can rerank with the model catalog's `rerank` model: it fetches four times `top_k` passages (at most 100), keeps the first `top_k` in rerank order, and adds `rerank_score` to each result's metadata while `relevance` keeps the lane's similarity; a rerank provider error fails the retrieval
+
+#### Deployment
+
+- `mcp.sh --http` checks the configuration before it starts the server and names model variables that no env file sets
+- The MCP launchers say when the image is older than the source
+- CI builds the MCP image and runs its handshake
 
 ### Changed
 
@@ -124,6 +130,9 @@ action.
 
 - The MCP server reads `config/mcp/server.yaml` and, with the file key store, `config/mcp/keys.yaml`
 - `harborrag-mcp` reads `HARBORRAG_MCP_AUDIT_PATH` once at launch and passes the path to the server; code that builds `McpServer(...)` or calls `create_mcp_server()` without a registry gets the default `.harborrag/mcp-audit.jsonl` and no longer reads the variable, so pass `audit=McpAuditLog(path=...)` to choose the path; see the [upgrade guide](docs/users/upgrading.md#mcp-server-built-in-python)
+- **Breaking:** the MCP HTTP server refuses a request addressed to a host name other than loopback, or sent from another origin
+- The MCP HTTP server answers extra host names, such as a reverse proxy's, when they are listed; a development container may listen beyond loopback when it acknowledges that
+- The MCP status page walks through connecting, choosing a tenant that holds content, picking a tool and running it, in one window
 
 #### harborrag-memory
 
@@ -133,8 +142,7 @@ action.
 
 - **Breaking:** `ConnectorPool` and `ConnectionService` require a `destination_policy` keyword argument, and `run_checks` takes a `destination_policy` parameter after `tenant_id`; `build_connector`, `build_connector_from_parts` and connectors built from a config file with `ConnectorDefinition.build` or `ConnectorCatalog.build` reach public addresses only unless the caller passes `destination_policy`, see the [upgrade guide](docs/users/upgrading.md#connectors-built-outside-the-runtime)
 - **Breaking:** `config/` is organised by domain (`sources/`, `ingestion/`, `graph/`, `models/`, `mcp/`) and every default path follows; a deployment that sets each `HARBORRAG_*_CONFIG_PATH` keeps working
-- **Breaking:** `config/models/models.yaml` sends chat, embedding and reranking through one LiteLLM proxy gateway and reads `HARBORRAG_URL`, `HARBORRAG_API_KEY`, `HARBORRAG_CHAT_MODEL`, `HARBORRAG_EMBED_MODEL` and `HARBORRAG_RERANKER_MODEL` instead of a provider, model and API key per family
-- **Breaking:** the shipped embedding model is the gateway's, in the embedding space `harbor-cohere-embed-v4`; its vectors have the same 1536 dimensions as before, so re-ingest every source in `force` mode
+- **Breaking:** one `config/models/models.yaml` serves OpenAI and an OpenAI-compatible gateway, with a key per family, an optional Cohere embedding mode and an optional reranker; the per-family provider variables and the shared gateway key are no longer read
 - **Breaking:** `HARBORRAG_INGESTION_TENANT_ID` is renamed `HARBORRAG_TENANT_ID` (setting `RuntimeSettings.tenant_id`) and also sets the API's default tenant, so the API, the workers and the CLI share one; the old name has no alias and stops startup
 - **Breaking:** model variables with the `HARBOR_CHAT_`, `HARBOR_EMBED_` and `HARBOR_MEMORY_` prefixes, such as those the model smoke tests read, are renamed `HARBORRAG_CHAT_`, `HARBORRAG_EMBED_` and `HARBORRAG_MEMORY_`
 - **Breaking:** `harborrag-runtime` depends on `harborrag-memory` directly and its `memory` extra is removed; `pip install harborrag-runtime[memory]` installs the same packages and prints a warning about the unknown extra
@@ -150,7 +158,9 @@ action.
 - `opentelemetry-api` requires `>=1.45.2,<2` in `harborrag-adapters` (the `opentelemetry` extra) and `harborrag-runtime`
 - The `qdrant` extra of `harborrag-adapters` requires `qdrant-client>=1.17,<1.20` (was `>=1.10,<2`); the lock stays on 1.18.0
 - `config/temporal.example.yaml`, `config/models.example.yaml` and `config/harborrag.example.yaml` are removed
-- `env-example/.env.models.example` sets the five model gateway variables and keeps the direct-provider and other-proxy examples commented out
+- `env-example/.env.models.example` sets a model name and a key for chat and for embedding, and keeps the direct-provider and other-proxy examples commented out
+- `env-example/.env.mcp.example` sets the shared corpus for `DEFAULT`, so MCP tools find sources on a new deployment as chat does
+- **Breaking:** the MCP containers join the data network and publish their port on loopback; Docker Desktop host networking is no longer needed, and the data services must be started first, except for `mcp.sh --check`
 
 ### Removed
 
@@ -169,6 +179,7 @@ action.
 
 - Chat history and `message_count` leave out the empty or whitespace-only assistant steps of 1.x agent turns, and migration `0047`'s downgrade waits at most 5 s for its locks on Postgres, like its upgrade
 - **Breaking:** LiteParse and image OCR settings outside their permitted values are rejected, instead of being replaced by a default or failing on every document
+- SharePoint connector and sign-in errors no longer show the client secret, refresh token, device code or access token, and failed token requests report their HTTP status [#123]
 
 - The Confluence connector drops a body's attachment references that the attachment list supersedes, matching body media nodes to listed attachments by file ID
 - A SharePoint `tenant_id` that is not a GUID or a domain name is refused: `connections create`, `update` and `test` answer a field error on `credentials.tenant_id`, and a connector config built in Python raises `ValueError`, instead of failing when the first token is requested
@@ -188,6 +199,12 @@ action.
 
 - A retry after a change to chunk metadata, such as the local file timestamps, adopts the chunk set an earlier attempt stored, never replacing it, and rebuilds its index from the stored bytes
 
+#### harborrag-mcp-server
+
+- Saving from the status page answers a clear error when the configuration file is read-only, and the page disables Save
+- The status page's tool runner answers a failure inside a tool with the error type only, as the MCP endpoint does, and logs where it was raised without the error's message
+- A server that listens on every interface no longer prints an address that cannot be opened
+
 #### harborrag-runtime
 
 - A `parsers.yaml` definition for one format, such as `docx` or `csv`, replaces only that format's engine, so the other formats of its family, such as DOC, ODT, EPUB or Excel, still parse
@@ -204,6 +221,7 @@ action.
 
 - The development API receives `JIRA_EMAIL`, `CONFLUENCE_EMAIL`, `MICROSOFT_TENANT_ID`, `MICROSOFT_CLIENT_ID` and `GITHUB_REPOSITORY_URL` from `env/.env.connector`, so the first-start import no longer stores the Jira, Confluence and SharePoint connections without them and with status `error`
 - The SharePoint entry of `config/sources/connectors.yaml` crawls the drive with the shared file type list instead of a test folder of Markdown files
+- `mcp.sh --http` stops and removes a server that never becomes healthy
 
 ## [2.0.0a2] - 2026-10-26
 

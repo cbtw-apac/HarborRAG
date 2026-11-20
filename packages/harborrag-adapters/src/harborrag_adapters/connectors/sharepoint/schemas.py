@@ -30,6 +30,7 @@ class SharePointMetadata(ConnectorMetadata):
     drive_type: Any
     item_id: Any
     item_name: str
+    url: str | None
     path: str
     size: int
     etag: Any
@@ -52,6 +53,7 @@ class SharePointPageMetadata(ConnectorMetadata):
     site_name: Any
     page_id: str
     item_name: str
+    url: str | None
     page_layout: Any
     etag: Any
     author: str | None

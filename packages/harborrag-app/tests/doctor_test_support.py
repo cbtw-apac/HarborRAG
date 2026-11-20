@@ -47,12 +47,15 @@ connectors:
       token_env: GITHUB_TOKEN
 """,
 }
-GATEWAY_VARIABLES = (
+MODEL_VARIABLES = (
     "HARBORRAG_URL",
-    "HARBORRAG_API_KEY",
     "HARBORRAG_CHAT_MODEL",
+    "HARBORRAG_CHAT_API_KEY",
     "HARBORRAG_EMBED_MODEL",
+    "HARBORRAG_EMBED_API_KEY",
+    "HARBORRAG_EMBED_PROVIDER",
     "HARBORRAG_RERANKER_MODEL",
+    "HARBORRAG_RERANKER_API_KEY",
 )
 
 
@@ -64,8 +67,8 @@ def project(
     Args:
         tmp_path: Directory that becomes the project root.
         monkeypatch: Moves into the project and clears variables that would leak in.
-        api_key: ``HARBORRAG_API_KEY`` written to the project's ``.env``; ``None``
-            leaves it blank.
+        api_key: Chat and embedding key written to the project's ``.env``; ``None``
+            leaves both blank.
         connectors: Key of ``CONNECTORS`` written as the connector catalog.
     """
     for relative in SHIPPED_CATALOGS:
@@ -80,7 +83,7 @@ def project(
     (tmp_path / "docs").mkdir(exist_ok=True)
     monkeypatch.chdir(tmp_path)
     for name in (
-        *GATEWAY_VARIABLES,
+        *MODEL_VARIABLES,
         "LOCAL_SOURCE_PATH",
         "HARBORRAG_LOCAL_SOURCE_ROOT",
         "HARBORRAG_QDRANT_URL",
@@ -102,11 +105,10 @@ def _environment(api_key: str | None) -> str:
         "HARBORRAG_OBJECT_STORE_SECRET_ACCESS_KEY=test-object-store-secret\n"
         "HARBORRAG_OCR_SERVER_URL=\n"
         "LOCAL_SOURCE_PATH=./docs\n"
-        "HARBORRAG_URL=https://gateway.example.com\n"
-        f"HARBORRAG_API_KEY={api_key or ''}\n"
         "HARBORRAG_CHAT_MODEL=chat-test\n"
+        f"HARBORRAG_CHAT_API_KEY={api_key or ''}\n"
         "HARBORRAG_EMBED_MODEL=embed-test\n"
-        "HARBORRAG_RERANKER_MODEL=rerank-test\n"
+        f"HARBORRAG_EMBED_API_KEY={api_key or ''}\n"
     )
 
 
