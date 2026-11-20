@@ -134,6 +134,7 @@ action.
 
 - Chat history and `message_count` leave out the empty or whitespace-only assistant steps of 1.x agent turns, and migration `0047`'s downgrade waits at most 5 s for its locks on Postgres, like its upgrade
 - **Breaking:** LiteParse and image OCR settings outside their permitted values are rejected, instead of being replaced by a default or failing on every document
+- SharePoint connector and sign-in errors no longer show the client secret, refresh token, device code or access token, and failed token requests report their HTTP status [#123]
 
 #### harborrag-app
 

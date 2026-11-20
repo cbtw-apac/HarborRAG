@@ -100,8 +100,7 @@ def test_sharepoint_request_raises_authentication_error_on_401():
 
 
 def test_sharepoint_request_raises_authorization_error_on_403():
-    # A 403 is "no access to this resource", not "bad credentials": callers
-    # skip one item as ACCESS_DENIED instead of failing the whole run.
+    """A 403 means no access to one resource, which callers skip instead of failing the run."""
     from harborrag_adapters.connectors.exceptions import AuthenticationError, AuthorizationError
 
     client = sharepoint_client()
@@ -110,6 +109,19 @@ def test_sharepoint_request_raises_authorization_error_on_403():
         client.get_json("sites/x")
     assert excinfo.value.status_code == 403
     assert not isinstance(excinfo.value, AuthenticationError)
+
+
+def test_sharepoint_graph_error_never_echoes_the_bearer_token():
+    from harborrag_adapters.connectors.exceptions import AuthorizationError
+
+    token = "graph-token-ExampleValue42"
+    client = sharepoint_client(access_token=token)
+    client.session = FakeSession(
+        responses=[FakeResponse(status_code=403, text=f"denied for {token}")]
+    )
+    with pytest.raises(AuthorizationError) as excinfo:
+        client.get_json("sites/x")
+    assert token not in str(excinfo.value)
 
 
 def test_sharepoint_request_keeps_status_code_on_not_found():
@@ -274,13 +286,13 @@ def test_sharepoint_acquire_reserves_distinct_slots_for_concurrent_callers(monke
 
     Two threads that both read the same stale "last request" time would both
     proceed together, bursting past the configured requests-per-minute budget.
-    The limiter reserves one evenly spaced slot per caller instead.
+    The limiter reserves one evenly spaced slot per caller instead. The clock is
+    frozen, so the reserved slots alone decide each wait, and one request per
+    minute gives one slot every 60 seconds.
     """
     import threading
     import time
 
-    # Fix the clock so every call observes the same "now" and the reserved
-    # slots alone decide how long each caller waits.
     monkeypatch.setattr(time, "monotonic", lambda: 1000.0)
     waits: list[float] = []
     guard = threading.Lock()
@@ -290,7 +302,7 @@ def test_sharepoint_acquire_reserves_distinct_slots_for_concurrent_callers(monke
             waits.append(seconds)
 
     monkeypatch.setattr(time, "sleep", recording_sleep)
-    client = sharepoint_client(requests_per_minute=1)  # one slot every 60s
+    client = sharepoint_client(requests_per_minute=1)
 
     threads = [threading.Thread(target=client._acquire) for _ in range(3)]
     for thread in threads:
