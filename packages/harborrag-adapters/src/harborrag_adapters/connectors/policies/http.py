@@ -1,9 +1,15 @@
+"""Retry, size-cap, origin and error-text policies shared by every connector.
+
+Error text built here can reach logs, run status and API responses, so it is
+redacted and truncated before it leaves this module.
+"""
+
 from __future__ import annotations
 
 import json
 import random
 import time
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from http.client import HTTPResponse
@@ -20,6 +26,9 @@ _ALLOWED_SCHEMES = frozenset({"http", "https"})
 DEFAULT_ERROR_BODY_LIMIT = 500
 DEFAULT_ERROR_BODY_READ_LIMIT = 8 * 1024
 DEFAULT_JSON_BODY_LIMIT = 8 * 1024 * 1024
+
+_REDACTED = "<redacted>"
+_MIN_KNOWN_SECRET_LENGTH = 4
 
 
 class StreamingResponse(Protocol):
@@ -39,14 +48,42 @@ class StreamingResponse(Protocol):
         ...
 
 
-def safe_error_detail(text: str | None, *, limit: int = DEFAULT_ERROR_BODY_LIMIT) -> str:
-    """Return a truncated, secret-redacted snippet of a response body."""
+def safe_error_detail(
+    text: str | None,
+    *,
+    limit: int = DEFAULT_ERROR_BODY_LIMIT,
+    known_secrets: Iterable[str | None] = (),
+) -> str:
+    """Return a truncated, secret-redacted snippet of a response body.
+
+    Generic redaction only finds labelled values and well-known token shapes.
+    Each known secret is also replaced wherever it appears, longest first and
+    before truncation, so no part of it survives.
+
+    Args:
+        text: Response body or provider message, or ``None`` when there is none.
+        limit: Maximum characters kept before the truncation marker.
+        known_secrets: Credential values sent with the request. ``None`` and
+            values shorter than four characters are skipped, because replacing
+            them would blank ordinary words in the message.
+
+    Returns:
+        One line of redacted text, or an empty string when ``text`` is empty.
+    """
     if not text:
         return ""
-    text = redact_secrets(text)
+    text = redact_secrets(_remove_known_secrets(text, known_secrets), replacement=_REDACTED)
     text = text.strip().replace("\n", " ")
     if len(text) > limit:
         return f"{text[:limit]}… (truncated)"
+    return text
+
+
+def _remove_known_secrets(text: str, known_secrets: Iterable[str | None]) -> str:
+    """Replace each known secret, longest first so a longer one is never left partly shown."""
+    values = {value for value in known_secrets if value and len(value) >= _MIN_KNOWN_SECRET_LENGTH}
+    for value in sorted(values, key=len, reverse=True):
+        text = text.replace(value, _REDACTED)
     return text
 
 
@@ -74,11 +111,7 @@ def summarize_provider_error(exc: Exception) -> str:
 
 
 def _with_status_code(message: str, status_code: int | None) -> str:
-    """Append the raw HTTP status so it's always visible, even when the
-    provider's own error body happens not to mention it (Jira Cloud's 401
-    body is just "Client must be authenticated..." with no digits, while
-    Confluence's 403 body happens to embed "403 FORBIDDEN" -- callers must
-    not depend on incidental provider wording to see the status code)."""
+    """Append the HTTP status, since a provider's error body may not mention it."""
     return message if status_code is None else f"{message} (HTTP {status_code})"
 
 
@@ -193,7 +226,6 @@ def read_capped_json(
     max_bytes: int = DEFAULT_JSON_BODY_LIMIT,
 ) -> object:
     """Decode JSON only after incrementally enforcing the connector body limit."""
-
     body = read_capped_content(response, max_bytes)
     return json.loads(body)
 
@@ -202,14 +234,26 @@ def safe_response_error_detail(
     response: StreamingResponse,
     *,
     limit: int = DEFAULT_ERROR_BODY_LIMIT,
+    known_secrets: Iterable[str | None] = (),
 ) -> str:
-    """Read only a small error-body prefix before redacting and rendering it."""
+    """Read a small prefix of an error body, then redact and truncate it.
 
+    Args:
+        response: Error response. It is closed after the read.
+        limit: Maximum characters kept before the truncation marker.
+        known_secrets: Credential values sent with the request, replaced as
+            `safe_error_detail` does.
+
+    Returns:
+        The redacted detail, or a fixed message when the body is over the read cap.
+    """
     try:
         body = read_capped_content(response, DEFAULT_ERROR_BODY_READ_LIMIT)
     except ResponseTooLargeError:
         return "response body exceeded safe diagnostic limit"
-    return safe_error_detail(body.decode("utf-8", errors="replace"), limit=limit)
+    return safe_error_detail(
+        body.decode("utf-8", errors="replace"), limit=limit, known_secrets=known_secrets
+    )
 
 
 def same_origin(url: str, base_url: str) -> bool:
