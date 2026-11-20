@@ -180,3 +180,36 @@ async def test_follow_of_an_ended_run_with_nothing_after_the_resume_point_is_no_
     )
 
     assert stream is None
+
+
+class _Closing:
+    """An async generator stand-in that fails on the first read and records ``aclose``."""
+
+    def __init__(self) -> None:
+        self.closed = False
+
+    def __aiter__(self) -> _Closing:
+        return self
+
+    async def __anext__(self) -> HarborEvent:
+        raise ConnectionError("event store down")
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+
+async def test_follow_of_an_ended_run_closes_the_events_when_the_first_read_fails(
+    world: ConnectionWorld,
+) -> None:
+    stream = _Closing()
+    world.runs.tasks["ing_done"] = running_task("ing_done", IngestionTaskState.COMPLETED)
+
+    def events(task_id: str, *, after_seq: int | None = None) -> _Closing:
+        return stream
+
+    follower = IngestionFollower(runs=world.operations, events=events)  # type: ignore[arg-type]  # fake stream
+
+    with pytest.raises(ConnectionError):
+        await follower.follow(tenant_id="acme", ingestion_id="ing_done", after_seq=None)
+
+    assert stream.closed

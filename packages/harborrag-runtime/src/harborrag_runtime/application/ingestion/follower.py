@@ -65,6 +65,9 @@ class IngestionFollower:
             first = await events.__anext__()
         except StopAsyncIteration:
             return None
+        except BaseException:
+            await events.aclose()
+            raise
         return _after_first(first, events)
 
 

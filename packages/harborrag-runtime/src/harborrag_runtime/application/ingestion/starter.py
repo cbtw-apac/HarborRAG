@@ -5,7 +5,7 @@ The transport chooses the response's status and ``Location``.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from harborrag_core.contracts.errors import HarborNotFoundError, UnknownReferenceError
 from harborrag_engine.ingestion.operations import IngestionOperations
@@ -37,7 +37,7 @@ class IngestionStarter:
         *,
         actor: str,
         actor_type: str,
-        mode: str,
+        mode: Literal["incremental", "force"],
         item_refs: tuple[str, ...],
         updated_after: str | None,
     ) -> dict[str, Any]:
@@ -47,7 +47,7 @@ class IngestionStarter:
             key: The connection to ingest.
             actor: Subject recorded as who triggered the run.
             actor_type: ``api_key`` or ``user``.
-            mode: ``incremental`` or ``forced``.
+            mode: ``incremental`` or ``force``.
             item_refs: Items to ingest alone; refused for sources that cannot.
             updated_after: ISO timestamp that narrows the run to newer items.
 
