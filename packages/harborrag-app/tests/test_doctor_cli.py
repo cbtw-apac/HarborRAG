@@ -733,8 +733,33 @@ def test_doctor_warns_when_the_acting_tenant_reads_by_source_acl(
     assert code == 0
     assert row["status"] == "warn"
     assert row["required"] is False
-    assert row["detail"] == "source_acl for tenant other"
+    assert row["detail"] == (
+        "source_acl for tenant other; the shared corpus belongs to tenant DEFAULT"
+    )
+    assert "--tenant DEFAULT" in str(row["hint"])
     assert "workspace mode" in str(row["hint"])
+
+
+@pytest.mark.unit
+def test_doctor_acts_in_the_tenant_of_the_api_env_file(tmp_path: Path, monkeypatch, capsys) -> None:
+    project(tmp_path, monkeypatch, api_key="sk-test")
+    api_file = tmp_path / "api.env"
+    api_file.write_text(
+        "HARBORRAG_TENANT_ID=ACME\nHARBORRAG_CORPUS_ACCESS_MODE=tenant_shared\n"
+        "HARBORRAG_CORPUS_SHARED_TENANT_ID=ACME\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("API_ENV_FILE", str(api_file))
+    for name in ("HARBORRAG_CORPUS_ACCESS_MODE", "HARBORRAG_CORPUS_SHARED_TENANT_ID"):
+        monkeypatch.delenv(name, raising=False)
+    reachable(monkeypatch)
+    monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
+
+    code = cli.main(["doctor", "-o", "json"])
+
+    row = _corpus_mode_row(capsys)
+    assert code == 0
+    assert row["detail"] == "tenant_shared for tenant ACME"
 
 
 def test_doctor_warns_by_default_when_no_corpus_mode_is_set(

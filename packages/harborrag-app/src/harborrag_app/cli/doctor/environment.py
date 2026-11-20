@@ -13,6 +13,7 @@ from typing import Literal
 import yaml
 from pydantic import ValidationError
 
+from harborrag_app.cli.globals import TENANT_ENV
 from harborrag_app.cli.project import active_project
 from harborrag_core.contracts.errors import HarborConfigurationError
 from harborrag_runtime.application.errors import public_error_message, validation_error_detail
@@ -252,4 +253,8 @@ def corpus_mode_check(settings: RuntimeSettings, tenant_id: str) -> Check:
         "Chat reads only sources the caller has permissions for; see workspace mode "
         "(docs/users/configuration/workspace-mode.md)."
     )
+    shared = settings.corpus_shared_tenant_id
+    if settings.corpus_access_mode == "tenant_shared" and shared:
+        detail = f"{detail}; the shared corpus belongs to tenant {shared}"
+        hint = f"Pass --tenant {shared} or set {TENANT_ENV}. {hint}"
     return Check("corpus mode", "config", "warn", detail, hint=hint, required=False)

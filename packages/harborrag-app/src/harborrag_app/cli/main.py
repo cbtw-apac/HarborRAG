@@ -39,6 +39,8 @@ from harborrag_core.observability.process_logging import (
     configure_logging,
 )
 
+logger = logging.getLogger("harborrag.app.cli.main")
+
 _HELP_FLAGS = ("-h", "--help")
 # Global options declared by `configure()` that consume the following argv item. main()
 # scans argv before Click parses it, so `_command_name` has to skip those values itself;
@@ -205,6 +207,7 @@ def main(argv: list[str] | None = None) -> int:
     args = list(argv) if argv is not None else sys.argv[1:]
     # Before logging is configured and before any command builds a service: a project's
     # harborrag.yaml and .env, then the checkout's env files, must be in os.environ.
+    notice: str | None = None
     if _activates_project(args):
         origin = Path.cwd()
         try:
@@ -218,10 +221,10 @@ def main(argv: list[str] | None = None) -> int:
         # Never configure a run from a directory the user cannot see they are in.
         if project is not None:
             if project.root != origin.resolve():
-                _announce(f"harborrag: using project {project.root}")
+                notice = f"harborrag: using project {project.root}"
         elif checkout is not None:
             if checkout != origin.resolve():
-                _announce(f"harborrag: using repository checkout {checkout}")
+                notice = f"harborrag: using repository checkout {checkout}"
         elif _requires_project(args):
             # Fail here with guidance instead of letting a catalog loader explain a missing
             # file in Docker-image terms to someone who just ran `pip install harborrag`.
@@ -229,6 +232,7 @@ def main(argv: list[str] | None = None) -> int:
             return 1
     _load_environment(args)
     _configure_cli_logging(os.environ.get(LEVEL_ENV_VAR, _DEFAULT_CLI_LOG_LEVEL))
+    _announce(notice)
     if not args or args[0] in _HELP_FLAGS:
         # Click resolves --help and no_args_is_help before the group callback
         # runs, so the banner can't live in configure(); print it here instead.
@@ -240,14 +244,19 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
-def _announce(notice: str) -> None:
-    """Tell a person at a terminal which directory the command runs from.
+def _announce(notice: str | None) -> None:
+    """Tell a person at a terminal which directory the command runs from; else log it.
 
-    Only on a terminal: a script reads stderr as the command's error report, so a notice
-    there would break parsing it.
+    Off stderr away from a terminal: a script reads stderr as the command's error report, so
+    a notice there would break parsing it. The INFO record leaves a trace in the CLI's logs.
+    ``None`` means the command runs from where the user stands, so there is nothing to say.
     """
+    if notice is None:
+        return
     if sys.stderr.isatty():
         print(notice, file=sys.stderr)
+    else:
+        logger.info(notice)
 
 
 def _command_name(args: list[str]) -> str | None:

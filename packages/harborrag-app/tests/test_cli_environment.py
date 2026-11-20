@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from harborrag_app.cli.environment import load_project_environment
+from harborrag_app.cli.environment import load_project_environment, stack_tenant_id
 
 
 def _write(root: Path, relative: str, body: str) -> Path:
@@ -527,3 +527,33 @@ def test_corpus_mode_is_not_read_from_an_api_file_outside_a_checkout(
 
     assert load_project_environment(tmp_path) == ()
     assert _CORPUS_MODE not in os.environ
+
+
+@pytest.mark.unit
+def test_the_api_file_tenant_is_kept_beside_the_environment_not_in_it(
+    tmp_path: Path, monkeypatch
+) -> None:
+    path = _write(tmp_path, "env/.env.api", "HARBORRAG_TENANT_ID=ACME\n")
+    _mark_checkout(tmp_path)
+    _clear_corpus_mode(monkeypatch)
+
+    loaded = load_project_environment(tmp_path)
+
+    assert stack_tenant_id() == "ACME"
+    assert "HARBORRAG_TENANT_ID" not in os.environ
+    assert loaded == (path,)
+
+
+@pytest.mark.unit
+def test_a_later_load_without_the_api_file_forgets_the_stack_tenant(
+    tmp_path: Path, monkeypatch
+) -> None:
+    api_file = _write(tmp_path, "env/.env.api", "HARBORRAG_TENANT_ID=ACME\n")
+    _mark_checkout(tmp_path)
+    _clear_corpus_mode(monkeypatch)
+    load_project_environment(tmp_path)
+
+    api_file.unlink()
+    load_project_environment(tmp_path)
+
+    assert stack_tenant_id() is None

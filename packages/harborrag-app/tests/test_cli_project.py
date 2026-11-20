@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import sys
 from pathlib import Path
@@ -239,6 +240,30 @@ def test_main_announces_activation_at_a_terminal_when_it_leaves_the_current_dire
     monkeypatch.delenv("HARBORRAG_PROJECT", raising=False)
     monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
     monkeypatch.setattr(sys.stderr, "isatty", lambda: True)
+
+    unreachable(monkeypatch)
+    cli.main(["doctor", "-o", "json"])
+
+    assert f"using project {root.resolve()}" in capsys.readouterr().err
+
+
+@pytest.mark.unit
+def test_main_logs_the_activation_at_info_when_stderr_is_not_a_terminal(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    from app_test_fixtures import MockAppService
+
+    from harborrag_app.cli import invoke as cli_runner
+    from harborrag_app.cli import main as cli
+
+    root = _scaffold(tmp_path)
+    (root / "sub").mkdir()
+    monkeypatch.chdir(root / "sub")
+    monkeypatch.delenv("HARBORRAG_PROJECT", raising=False)
+    monkeypatch.setenv("HARBORRAG_LOG_LEVEL", "INFO")
+    monkeypatch.setattr(logging.getLogger("harborrag"), "handlers", [])
+    monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
+    monkeypatch.setattr(sys.stderr, "isatty", lambda: False)
 
     unreachable(monkeypatch)
     cli.main(["doctor", "-o", "json"])

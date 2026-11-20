@@ -275,7 +275,8 @@ The CLI reads the corpus mode from the API's env file, so it answers from the
 same documents as HTTP chat. The shipped `env-example/.env.api.example` sets
 `tenant_shared` for the `DEFAULT` tenant, and from a repository checkout the CLI
 reads exactly these two lines of `env/.env.api` (the file named by `API_ENV_FILE`
-when you set it), and nothing else in that file:
+when you set it), plus its `HARBORRAG_TENANT_ID` line as the default tenant, and nothing
+else in that file:
 
 ```bash
 HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared

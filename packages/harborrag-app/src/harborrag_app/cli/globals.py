@@ -20,6 +20,7 @@ from typing import Annotated
 import click
 import typer
 
+from harborrag_app.cli.environment import stack_tenant_id
 from harborrag_app.cli.output import OutputFormat
 from harborrag_app.cli.profiles import DEFAULT_CONFIG_PATH, DEFAULT_PROFILE, load_profile
 from harborrag_app.cli.project import invocation_path
@@ -35,7 +36,10 @@ TenantOption = Annotated[
     typer.Option(
         "--tenant",
         metavar="TENANT_ID",
-        help=f"Tenant to act in (env {TENANT_ENV}; default: the profile's, else DEFAULT).",
+        help=(
+            f"Tenant to act in (env {TENANT_ENV}; default: the profile's, else the tenant in "
+            "env/.env.api, else DEFAULT)."
+        ),
         rich_help_panel=GLOBAL_OPTIONS_PANEL,
     ),
 ]
@@ -106,6 +110,7 @@ def resolve_globals(  # noqa: PLR0913 - one keyword per global option and its co
     yes: bool,
     environ: Mapping[str, str],
     stdout_is_tty: bool,
+    stack_tenant: str | None = None,
 ) -> Globals:
     """Resolve each option from its flag, environment variable, profile or default.
 
@@ -117,6 +122,8 @@ def resolve_globals(  # noqa: PLR0913 - one keyword per global option and its co
         yes: ``-y/--yes``.
         environ: Process environment; an empty value counts as unset.
         stdout_is_tty: Whether stdout is a terminal, which makes ``table`` the default.
+        stack_tenant: Tenant of the stack's env file; the tenant when no flag, variable or
+            profile names one, ahead of ``DEFAULT``.
 
     Returns:
         The options this invocation runs with.
@@ -129,7 +136,9 @@ def resolve_globals(  # noqa: PLR0913 - one keyword per global option and its co
     chosen = load_profile(config or DEFAULT_CONFIG_PATH, name)
     terminal_default = OutputFormat.TABLE if stdout_is_tty else OutputFormat.JSON
     return Globals(
-        tenant=tenant or environ.get(TENANT_ENV) or chosen.tenant or DEFAULT_TENANT_ID,
+        tenant=(
+            tenant or environ.get(TENANT_ENV) or chosen.tenant or stack_tenant or DEFAULT_TENANT_ID
+        ),
         output=output or _environment_output(environ) or chosen.output or terminal_default,
         yes=yes,
         profile=name,
@@ -153,6 +162,7 @@ def current_globals(  # noqa: PLR0913 - one keyword per global option
         yes=yes,
         environ=os.environ,
         stdout_is_tty=sys.stdout.isatty(),
+        stack_tenant=stack_tenant_id(),
     )
 
 

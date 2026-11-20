@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 from typer import rich_utils
 
+from harborrag_app.cli import environment as environment_module
 from harborrag_app.cli import project as project_module
 
 SHELL_VARIABLES = (
@@ -103,12 +104,16 @@ def cli_project(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
 def _reset_active_project(monkeypatch: pytest.MonkeyPatch) -> None:
     """Each test starts without a project activated by a previous `cli.main` call.
 
-    `monkeypatch.setattr` rather than a plain assignment: if `_ACTIVE` is ever renamed,
+    Resets the activated project, the directory it was activated from and the stack tenant
+    the environment load recorded.
+    `monkeypatch.setattr` rather than a plain assignment: if any is ever renamed,
     this raises instead of quietly creating a new attribute and letting every test share
     process-level activation state again.
     """
 
     monkeypatch.setattr(project_module, "_ACTIVE", None)
+    monkeypatch.setattr(project_module, "_INVOCATION", None)
+    monkeypatch.setattr(environment_module, "_stack_tenant_id", None)
 
 
 @pytest.fixture(autouse=True)

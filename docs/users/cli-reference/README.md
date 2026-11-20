@@ -80,7 +80,7 @@ option.
 
 | Option | Environment variable | Default | HTTP equivalent |
 | --- | --- | --- | --- |
-| `--tenant TENANT_ID` | `HARBORRAG_TENANT_ID` | the profile's tenant, else `DEFAULT` | `X-Tenant-Id` |
+| `--tenant TENANT_ID` | `HARBORRAG_TENANT_ID` | the profile's tenant, else the `HARBORRAG_TENANT_ID` line of the checkout's `env/.env.api`, else `DEFAULT` | `X-Tenant-Id` |
 | `-o`, `--output FORMAT`: `table`, `json` or `yaml` | `HARBORRAG_OUTPUT` | the profile's format, else `table` when stdout is a terminal and `json` otherwise | the response body |
 | `--profile NAME` | `HARBORRAG_PROFILE` | `default` | none |
 | `--config PATH` | none | `~/.config/harborrag/config.yaml` | none |
@@ -90,7 +90,9 @@ A flag beats its environment variable, which beats the profile, which beats the 
 default. `HARBORRAG_TENANT_ID` is also the default tenant of the API and the workers, so
 the three act in the same tenant unless you pass `--tenant`. An exported
 `HARBORRAG_TENANT_ID`, for example from sourcing the API's env file, therefore outranks
-a profile's `tenant`.
+a profile's `tenant`. The `HARBORRAG_TENANT_ID` line of a checkout's `env/.env.api` is
+the last default before `DEFAULT`: the CLI acts in the stack's tenant without exporting
+anything, and a profile's `tenant` still outranks it.
 
 Three options belong to `harborrag` itself and go before the command: `--no-color` turns
 color off (as `NO_COLOR=1` does), `--project DIR` names a project directory (see
@@ -240,7 +242,7 @@ directory that holds `config/sources/connectors.yaml`, and runs from there. `doc
 walks up the same way, so it gives the same report from any subfolder. When that is not
 the current directory and stderr is a terminal, the command says so on stderr:
 `harborrag: using repository checkout DIR`. A script that reads stderr does not see the
-notice. A relative file path you type, such as `-f body.yaml`, `settings import FILE`,
+notice; it is logged at `INFO` instead, so `HARBORRAG_LOG_LEVEL=INFO` shows it. A relative file path you type, such as `-f body.yaml`, `settings import FILE`,
 `settings export --file` or `--config`, still names the file in the directory you ran the
 command in. Outside a checkout and without a project directory, every command except
 `doctor` stops with exit 1; `doctor` reports the missing project instead.
@@ -252,8 +254,9 @@ harborrag: no project found. Run it inside a HarborRAG repository checkout, or p
 In a checkout, the CLI reads `env/.env.connector`, `env/.env.parser` and
 `env/.env.models`. From `env/.env.database` it reads only the MinIO credentials, an
 uncommented `HARBORRAG_CONTROL_DB_URL` line and `HARBORRAG_LOCAL_SOURCE_ROOT`. From
-`env/.env.api` it reads only `HARBORRAG_CORPUS_ACCESS_MODE` and
-`HARBORRAG_CORPUS_SHARED_TENANT_ID`. It does not read `env/.env.temporal`. An exported
+`env/.env.api` it reads only `HARBORRAG_CORPUS_ACCESS_MODE`,
+`HARBORRAG_CORPUS_SHARED_TENANT_ID` and `HARBORRAG_TENANT_ID`, the last as the default
+tenant described under [Global options](#global-options). It does not read `env/.env.temporal`. An exported
 variable always wins over a file.
 
 A command that writes refuses the checkout's local SQLite control database (the
@@ -446,7 +449,7 @@ its numbered citations; `-o json` prints the completion body.
 The CLI reads the corpus mode from the API's env file, so it answers from the same
 documents as HTTP chat. The shipped `env-example/.env.api.example` sets
 `HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared` and `HARBORRAG_CORPUS_SHARED_TENANT_ID=DEFAULT`,
-and from a checkout the CLI reads exactly those two lines of `env/.env.api` (the file named
+and from a checkout the CLI reads exactly those two lines, and the `HARBORRAG_TENANT_ID` line as its default tenant, of `env/.env.api` (the file named
 by `API_ENV_FILE` when you set it), and nothing else in that file. An exported variable
 outranks the file. Only the shared tenant reads the whole corpus; any other tenant stays on
 `source_acl`, where a caller with no source permissions gets no sources. To return the
@@ -587,8 +590,8 @@ uv run harborrag auth keys list --tenant DEFAULT
 uv run harborrag auth keys revoke --reason "laptop replaced" --key-id KEY_ID
 ```
 
-- `create` makes a hashed, tenant-bound reader key with a lifetime such as `7d` or `12h`.
-  The owner is `user-<name>`, `svc-<name>` or `team-<name>`. The secret goes only to a
+- `create` makes a hashed, tenant-bound reader key for an explicit `--tenant`, with a
+  lifetime such as `7d` or `12h`. The owner is `user-<name>`, `svc-<name>` or `team-<name>`. The secret goes only to a
   new file, `~/.harborrag/keys/<name>.key` unless `--secret-output` names another, never
   to the terminal. `--migrate` applies pending control-database migrations when the key
   table is missing.
@@ -602,12 +605,16 @@ and `{"keys": […]}` for `list`, in `-o table`, `json` or `yaml`. A failure is 
 [error envelope](#read-errors-and-exit-codes) with its exit code: `2` for a policy
 violation such as a lifetime over the limit, `3` for a key that does not exist, `4` when
 the database rejects the key row, and `6` when the key table is missing, behind or
-unreachable. `--tenant` defaults like the resource commands, from `HARBORRAG_TENANT_ID`
-and else `DEFAULT`, on `create` and `list`. `revoke` never defaults it: pass `--key-id`
-alone, or `--owner` together with an explicit `--tenant`, so revoking every key of an
-owner cannot hit a default tenant by accident. The operator notices of `auth keys`, such as
-the SQLite warning, print on stderr only when the command succeeds, so a failure's stderr
-is the error envelope alone.
+unreachable. `list` defaults `--tenant` like the resource commands, from `HARBORRAG_TENANT_ID` and
+else `DEFAULT`. `create` and `revoke` never default it: `create` needs an explicit
+`--tenant`, so a mistyped or forgotten tenant cannot mint a live key in the wrong tenant,
+and `revoke` needs `--key-id` alone, or `--owner` together with an explicit `--tenant`, so
+revoking every key of an owner cannot hit a default tenant by accident; both refuse with
+exit 2. `--secret-output -` is refused, because the secret goes only to a file. The
+operator notices of `auth keys` print on stderr only when the command succeeds, so a
+failure's stderr is the error envelope alone; the exception is the warning that the
+control database is the local SQLite default, which prints at once so a failure on the
+wrong database carries its hint.
 
 Lifetime limits, the key format and how the MCP server checks keys are in
 [Tenant-bound reader keys and shared corpus access](../detailed-guides/mcp-server/setup-and-integration.md#tenant-bound-reader-keys-and-shared-corpus-access).

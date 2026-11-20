@@ -67,7 +67,7 @@ These operations have no command.
 
 ## harborrag auth keys create
 
-Create a reader key for the tenant; the secret goes only to the output file.
+Create a reader key for an explicit tenant; the secret goes only to the output file.
 
 Prints the key's id, tenant, owner, name, expiry and the file holding the secret.
 
@@ -82,7 +82,7 @@ harborrag auth keys create [OPTIONS]
 | `--expires-in` | text | required | Lifetime such as 30d or 12h; required. |
 | `--secret-output` | path |  | New file to receive the key (mode 0600); default ~/.harborrag/keys/&lt;name&gt;.key. |
 | `--migrate` | boolean | `false` | Apply pending control-plane migrations if the key table is missing. |
-| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
+| `--tenant TENANT_ID` | text |  | Tenant that owns the key; required. Never defaults: HARBORRAG_TENANT_ID and the profile are ignored. |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
 | `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
@@ -98,7 +98,7 @@ harborrag auth keys list [OPTIONS]
 
 | Name | Type | Default | Description |
 | --- | --- | --- | --- |
-| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
+| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else the tenant in env/.env.api, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
 | `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
@@ -140,7 +140,7 @@ harborrag chat [OPTIONS] MESSAGE
 | `--mode` | text |  | instant or classic (default: classic); advanced and auto are reserved and answer mode_unavailable until v2.1.0. |
 | `--project-id PROJECT_ID` | text |  | One-off questions: read only this project. |
 | `--connection-ref REF` | text |  | Narrow to this connection, PROJECT_ID/CONNECTION_ID; repeat for more. |
-| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
+| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else the tenant in env/.env.api, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
 | `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
@@ -159,7 +159,7 @@ harborrag connections create [OPTIONS] REF
 | `REF` | text | required | PROJECT_ID/CONNECTION_ID, e.g. engineering/jira-main. |
 | `--file, -f BODY` | text | required | JSON or YAML body; - reads stdin. |
 | `--secret-prompt FIELD` | text |  | Ask for this credential field without echo; repeat for more fields. |
-| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
+| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else the tenant in env/.env.api, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
 | `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
@@ -177,7 +177,7 @@ harborrag connections delete [OPTIONS] REF
 | --- | --- | --- | --- |
 | `REF` | text | required | PROJECT_ID/CONNECTION_ID, e.g. engineering/jira-main. |
 | `--purge` | boolean | `false` | Also drop the connection's Postgres history. |
-| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
+| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else the tenant in env/.env.api, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
 | `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
@@ -194,7 +194,7 @@ harborrag connections get [OPTIONS] REF
 | Name | Type | Default | Description |
 | --- | --- | --- | --- |
 | `REF` | text | required | PROJECT_ID/CONNECTION_ID, e.g. engineering/jira-main. |
-| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
+| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else the tenant in env/.env.api, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
 | `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
@@ -216,7 +216,7 @@ harborrag connections list [OPTIONS]
 | `--limit` | integer range | `20` | Page size, 1 to 100. |
 | `--cursor` | text |  | next_cursor of the previous page. |
 | `--all` | boolean | `false` | Follow next_cursor and print every page as one. |
-| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
+| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else the tenant in env/.env.api, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
 | `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
@@ -234,7 +234,7 @@ harborrag connections test [OPTIONS] REF
 | --- | --- | --- | --- |
 | `REF` | text | required | PROJECT_ID/CONNECTION_ID, e.g. engineering/jira-main. |
 | `--file, -f BODY` | text |  | Values to check; default: the saved connection. |
-| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
+| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else the tenant in env/.env.api, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
 | `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
@@ -254,7 +254,7 @@ harborrag connections update [OPTIONS] REF
 | `--file, -f BODY` | text | required | JSON or YAML body; - reads stdin. |
 | `--secret-prompt FIELD` | text |  | Ask for this credential field without echo; repeat for more fields. |
 | `--if-match` | text |  | Update only if the connection still has this ETag. |
-| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
+| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else the tenant in env/.env.api, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
 | `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
@@ -270,7 +270,7 @@ harborrag doctor [OPTIONS]
 
 | Name | Type | Default | Description |
 | --- | --- | --- | --- |
-| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
+| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else the tenant in env/.env.api, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
 | `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
@@ -296,7 +296,7 @@ harborrag failures list [OPTIONS]
 | `--limit` | integer range | `20` | Page size, 1 to 100. |
 | `--cursor` | text |  | next_cursor of the previous page. |
 | `--all` | boolean | `false` | Follow next_cursor and print every page as one. |
-| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
+| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else the tenant in env/.env.api, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
 | `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
@@ -318,7 +318,7 @@ harborrag failures retry [OPTIONS]
 | `--connection-ref` | text |  | Only this connection, e.g. engineering/jira-main. |
 | `--stage` | text |  | Only this stage: capture, interpret, commit, derive or publish. |
 | `--error-category` | text |  | Only this error category. |
-| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
+| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else the tenant in env/.env.api, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
 | `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
@@ -335,7 +335,7 @@ harborrag ingestions cancel [OPTIONS] INGESTION_ID
 | Name | Type | Default | Description |
 | --- | --- | --- | --- |
 | `INGESTION_ID` | text | required | Run id, as ingestions list prints it. |
-| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
+| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else the tenant in env/.env.api, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
 | `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
@@ -353,7 +353,7 @@ harborrag ingestions get [OPTIONS] INGESTION_ID
 | --- | --- | --- | --- |
 | `INGESTION_ID` | text | required | Run id, as ingestions list prints it. |
 | `--watch` | boolean | `false` | Refresh until the run ends; exit 8 unless it succeeds. |
-| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
+| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else the tenant in env/.env.api, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
 | `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
@@ -376,7 +376,7 @@ harborrag ingestions list [OPTIONS]
 | `--limit` | integer range | `20` | Page size, 1 to 100. |
 | `--cursor` | text |  | next_cursor of the previous page. |
 | `--all` | boolean | `false` | Follow next_cursor and print every page as one. |
-| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
+| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else the tenant in env/.env.api, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
 | `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
@@ -393,7 +393,7 @@ harborrag ingestions pause [OPTIONS] INGESTION_ID
 | Name | Type | Default | Description |
 | --- | --- | --- | --- |
 | `INGESTION_ID` | text | required | Run id, as ingestions list prints it. |
-| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
+| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else the tenant in env/.env.api, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
 | `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
@@ -410,7 +410,7 @@ harborrag ingestions resume [OPTIONS] INGESTION_ID
 | Name | Type | Default | Description |
 | --- | --- | --- | --- |
 | `INGESTION_ID` | text | required | Run id, as ingestions list prints it. |
-| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
+| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else the tenant in env/.env.api, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
 | `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
@@ -427,7 +427,7 @@ harborrag ingestions retry-failures [OPTIONS] INGESTION_ID
 | Name | Type | Default | Description |
 | --- | --- | --- | --- |
 | `INGESTION_ID` | text | required | Run id, as ingestions list prints it. |
-| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
+| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else the tenant in env/.env.api, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
 | `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
@@ -449,7 +449,7 @@ harborrag ingestions start [OPTIONS] REF
 | `--item-refs A,B` | text |  | Only these items, e.g. DEMO-1 (not in v2.0.0). |
 | `--wait` | boolean | `false` | Follow the run; exit 8 when it fails or is cancelled. |
 | `--inline` | boolean | `false` | Run the pipeline in this process without Temporal (development). |
-| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
+| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else the tenant in env/.env.api, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
 | `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
@@ -465,7 +465,7 @@ harborrag me [OPTIONS]
 
 | Name | Type | Default | Description |
 | --- | --- | --- | --- |
-| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
+| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else the tenant in env/.env.api, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
 | `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
@@ -485,7 +485,7 @@ harborrag projects create [OPTIONS] PROJECT
 | `--project-name` | text |  | Display name (required unless -f sets it). |
 | `--project-description` | text |  | What the project holds. |
 | `--file, -f BODY` | text |  | JSON or YAML body; - reads stdin. |
-| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
+| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else the tenant in env/.env.api, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
 | `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
@@ -503,7 +503,7 @@ harborrag projects delete [OPTIONS] PROJECT
 | --- | --- | --- | --- |
 | `PROJECT` | text | required | Project id, for example harborrag-workspace. |
 | `--cascade` | boolean | `false` | Also remove its connections, documents and secrets in the background, printing the job; a project with no connections is deleted at once and prints nothing. |
-| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
+| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else the tenant in env/.env.api, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
 | `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
@@ -520,7 +520,7 @@ harborrag projects get [OPTIONS] PROJECT
 | Name | Type | Default | Description |
 | --- | --- | --- | --- |
 | `PROJECT` | text | required | Project id, for example harborrag-workspace. |
-| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
+| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else the tenant in env/.env.api, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
 | `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
@@ -540,7 +540,7 @@ harborrag projects list [OPTIONS]
 | `--limit` | integer range | `20` | Page size, 1 to 100. |
 | `--cursor` | text |  | next_cursor of the previous page. |
 | `--all` | boolean | `false` | Follow next_cursor and print every page as one. |
-| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
+| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else the tenant in env/.env.api, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
 | `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
@@ -563,7 +563,7 @@ harborrag projects update [OPTIONS] PROJECT
 | `--project-description` | text |  | What the project holds. |
 | `--file, -f BODY` | text |  | JSON or YAML body; - reads stdin. |
 | `--if-match` | text |  | Update only if the project still has this ETag. |
-| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
+| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else the tenant in env/.env.api, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
 | `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
@@ -583,7 +583,7 @@ harborrag settings export [OPTIONS]
 | --- | --- | --- | --- |
 | `--level LEVEL` | text |  | tenant, project:ID or connection:PROJECT/CONNECTION; default: every level. |
 | `--file PATH` | path |  | Write here, not to stdout. |
-| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
+| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else the tenant in env/.env.api, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
 | `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
@@ -601,7 +601,7 @@ harborrag settings get [OPTIONS]
 | --- | --- | --- | --- |
 | `--level LEVEL` | text | `tenant` | tenant, project:ID or connection:PROJECT_ID/CONNECTION_ID. |
 | `--effective` | boolean | `false` | Show every key's effective value and origin. |
-| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
+| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else the tenant in env/.env.api, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
 | `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
@@ -622,7 +622,7 @@ harborrag settings import [OPTIONS] FILE
 | `FILE` | path | required | Settings YAML file. |
 | `--apply` | boolean | `false` | Write the changes; without it, print them only. |
 | `--prune` | boolean | `false` | Also remove stored overrides the file lacks. |
-| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
+| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else the tenant in env/.env.api, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
 | `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
@@ -638,7 +638,7 @@ harborrag settings schema [OPTIONS]
 
 | Name | Type | Default | Description |
 | --- | --- | --- | --- |
-| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
+| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else the tenant in env/.env.api, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
 | `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
@@ -659,7 +659,7 @@ harborrag settings set [OPTIONS] [KEY=VALUE]...
 | `--level LEVEL` | text | `tenant` | tenant, project:ID or connection:PROJECT_ID/CONNECTION_ID. |
 | `--dry-run` | boolean | `false` | Show the changes without saving them. |
 | `--if-match` | text |  | Change only if the settings still have this ETag. |
-| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
+| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else the tenant in env/.env.api, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
 | `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
@@ -676,7 +676,7 @@ harborrag source-types list [OPTIONS]
 | Name | Type | Default | Description |
 | --- | --- | --- | --- |
 | `--category` | `issue_tracker`, `wiki`, `files`, `code` |  | Only types of this category. |
-| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
+| `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else the tenant in env/.env.api, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
 | `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |

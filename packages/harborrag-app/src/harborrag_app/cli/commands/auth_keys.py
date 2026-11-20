@@ -4,7 +4,8 @@ The secret is written once to a file the operator names, created with
 ``O_EXCL`` and mode 0600, and never printed: terminal scrollback, shell
 recordings and CI logs all outlive a key's usefulness. Operator notices go through
 the CLI log, which the kernel holds until the command succeeds, so a failure's stderr
-is its error report alone.
+is its error report alone; only the local SQLite warning is released at once, because
+a failure on the wrong database needs that hint.
 """
 
 from __future__ import annotations
@@ -32,7 +33,12 @@ from harborrag_app.cli.globals import (
     YesOption,
     current_globals,
 )
-from harborrag_app.cli.invoke import LocalSetupError, ReportedError, run_standalone
+from harborrag_app.cli.invoke import (
+    LocalSetupError,
+    ReportedError,
+    release_held_logs,
+    run_standalone,
+)
 from harborrag_app.cli.project import invocation_path
 from harborrag_app.cli.typer_app import new_typer
 from harborrag_app.operations.errors import ErrorBody
@@ -182,6 +188,7 @@ def _settings() -> Any:
             "checkout root (env/.env.database) or export HARBORRAG_CONTROL_DB_URL so keys land "
             "in the database the MCP server reads"
         )
+        release_held_logs()
     return settings
 
 
@@ -207,17 +214,33 @@ def create(  # noqa: PLR0913 - one parameter per documented option, plus the glo
             help="Apply pending control-plane migrations if the key table is missing.",
         ),
     ] = False,
-    tenant: TenantOption = None,
+    tenant: Annotated[
+        str | None,
+        typer.Option(
+            "--tenant",
+            metavar="TENANT_ID",
+            help=(
+                "Tenant that owns the key; required. Never defaults: "
+                f"{TENANT_ENV} and the profile are ignored."
+            ),
+            rich_help_panel=GLOBAL_OPTIONS_PANEL,
+        ),
+    ] = None,
     output: OutputOption = None,
     profile: ProfileOption = None,
     config: ConfigOption = None,
     yes: YesOption = False,
 ) -> None:
-    """Create a reader key for the tenant; the secret goes only to the output file.
+    """Create a reader key for an explicit tenant; the secret goes only to the output file.
 
     Prints the key's id, tenant, owner, name, expiry and the file holding the secret.
     """
 
+    if tenant is None:
+        raise typer.BadParameter(
+            "pass an explicit --tenant; creating never uses the default tenant "
+            "or HARBORRAG_TENANT_ID"
+        )
     resolved = current_globals(
         tenant=tenant, output=output, profile=profile, config=config, yes=yes
     )

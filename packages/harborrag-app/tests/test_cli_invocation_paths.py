@@ -68,7 +68,6 @@ def test_a_relative_secret_output_lands_where_the_user_stood_and_is_reported_abs
 def activated_from_subdirectory(
     in_project_subdirectory: Path, monkeypatch: pytest.MonkeyPatch
 ) -> Path:
-    monkeypatch.setattr(project_module, "_INVOCATION", None)
     monkeypatch.setattr(project_module, "_ACTIVE", None)
     project = project_module.find_project()
     assert project is not None
@@ -97,7 +96,6 @@ def test_a_body_read_from_stdin_ignores_the_invocation_directory(
 def test_a_relative_config_is_found_from_where_the_user_stood(
     in_project_subdirectory: Path, monkeypatch: pytest.MonkeyPatch, capsys
 ) -> None:
-    monkeypatch.setattr(project_module, "_INVOCATION", None)
     monkeypatch.setattr(project_module, "_ACTIVE", None)
     (in_project_subdirectory / "profiles.yaml").write_text(
         "profiles:\n  default:\n    tenant: DEMO\n", encoding="utf-8"
@@ -167,3 +165,27 @@ def test_main_keeps_the_checkout_and_its_write_guard_under_a_stray_marker(
     assert "using project" not in capsys.readouterr().err
     assert project_module.active_project() is None
     assert checkout_write_refusal() is not None
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["me", "--config", "-"],
+        ["settings", "export", "--file", "-"],
+        ["settings", "import", "-"],
+        [
+            "auth", "keys", "create", "--tenant", "t", "--owner", "user-x", "--name", "k",
+            "--expires-in", "1d", "--secret-output", "-",
+        ],
+    ],
+    ids=["config", "export-file", "import-file", "secret-output"],
+)  # fmt: skip
+def test_a_dash_is_refused_where_the_command_cannot_use_stdin_or_stdout(
+    argv: list[str], in_project_subdirectory: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    code = cli.main(argv)
+
+    assert code == 2
+    assert "'-'" in capsys.readouterr().err
+    assert not (in_project_subdirectory / "-").exists()

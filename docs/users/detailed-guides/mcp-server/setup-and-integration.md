@@ -381,9 +381,9 @@ change the server.
 1. Set `HARBORRAG_MCP_AUTH_MODE=api_key` in `env/.env.mcp` and restart the
    server.
 2. Inside your repository checkout, create a key. `auth keys create` requires
-   `--owner` (`user-<name>`, `svc-<name>` or `team-<name>`), `--name` (the device or
-   workload) and `--expires-in`. `--tenant` names the tenant the key may read and
-   defaults to `HARBORRAG_TENANT_ID`, else `DEFAULT`:
+   `--tenant`, `--owner` (`user-<name>`, `svc-<name>` or `team-<name>`), `--name` (the
+   device or workload) and `--expires-in`. `--tenant` names the tenant the key may read and
+   never defaults, so a mistyped tenant cannot mint a key in the wrong one:
 
    ```bash
    uv run harborrag auth keys create \

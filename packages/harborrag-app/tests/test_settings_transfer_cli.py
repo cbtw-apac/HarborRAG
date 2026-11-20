@@ -296,7 +296,6 @@ def test_import_and_export_resolve_relative_files_where_the_user_stood(
     subdirectory.mkdir()
     (subdirectory / "in.yaml").write_text(f"{_KEY}: 512\n", encoding="utf-8")
     monkeypatch.chdir(subdirectory)
-    monkeypatch.setattr(project_module, "_INVOCATION", None)
     monkeypatch.setattr(project_module, "_ACTIVE", None)
 
     imported, _ = _json(capsys, "import", "in.yaml")

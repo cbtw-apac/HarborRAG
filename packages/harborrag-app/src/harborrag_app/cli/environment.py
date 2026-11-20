@@ -28,6 +28,7 @@ from harborrag_runtime.config.checkout import (
     checkout_local_source_root,
     checkout_object_store_credentials,
     checkout_secrets_encryption_key,
+    checkout_tenant_id,
 )
 from harborrag_runtime.config.settings import DEFAULT_CONTROL_DB_URL
 
@@ -42,7 +43,9 @@ logger = logging.getLogger("harborrag.app.cli.environment")
 # localhost), HARBORRAG_LOCAL_SOURCE_ROOT, and an explicit HARBORRAG_CONTROL_DB_URL line,
 # with the secrets key that database's secrets are stored under, are read (see load_project_environment); the
 # POSTGRES_* values alone never select the database. From env/.env.api only the two
-# corpus-mode lines are read, so chat on the host reads the corpus in the mode the API does.
+# corpus-mode lines are read, so chat on the host reads the corpus in the mode the API does,
+# and its HARBORRAG_TENANT_ID, which stack_tenant_id() keeps out of the environment so a
+# profile's tenant still outranks it.
 _ENV_FILES: tuple[tuple[str, str], ...] = (
     ("CONNECTOR_ENV_FILE", "env/.env.connector"),
     ("PARSER_ENV_FILE", "env/.env.parser"),
@@ -50,11 +53,20 @@ _ENV_FILES: tuple[tuple[str, str], ...] = (
 )
 
 
+_stack_tenant_id: str | None = None
+
+
+def stack_tenant_id() -> str | None:
+    """The tenant the stack's ``env/.env.api`` names, as ``load_project_environment`` last saw it."""
+    return _stack_tenant_id
+
+
 def load_project_environment(root: Path | None = None) -> tuple[Path, ...]:
     """Load the connector, parser and model env files, and selected keys of two stack files.
 
     From the database and API env files only the keys named at the top of this module are
-    read. An exported variable always outranks a file.
+    read. An exported variable always outranks a file. The API file's tenant is not exported:
+    it is only recorded for :func:`stack_tenant_id`.
 
     Returns:
         The files that supplied at least one value.
@@ -80,12 +92,26 @@ def load_project_environment(root: Path | None = None) -> tuple[Path, ...]:
     if database_path is not None and _apply_database_values(database_path):
         loaded.append(database_path)
     api_path = _api_env_file(base)
+    _record_stack_tenant(api_path)
     if api_path is not None and _apply_corpus_mode(api_path):
         logger.info("Applied the corpus mode from %s", api_path)
+        loaded.append(api_path)
+    elif _stack_tenant_id is not None and api_path is not None:
         loaded.append(api_path)
     if loaded:
         logger.debug("Loaded project environment files: %s", ", ".join(str(p) for p in loaded))
     return tuple(loaded)
+
+
+def _record_stack_tenant(path: Path | None) -> None:
+    """Remember the tenant ``path`` names, or forget the last one when it names none."""
+
+    global _stack_tenant_id  # noqa: PLW0603 - one environment load per process, by design
+    try:
+        _stack_tenant_id = None if path is None else checkout_tenant_id(path)
+    except (ValueError, OSError):
+        logger.debug("Ignoring unreadable %s", path)
+        _stack_tenant_id = None
 
 
 def _apply_database_values(path: Path) -> bool:

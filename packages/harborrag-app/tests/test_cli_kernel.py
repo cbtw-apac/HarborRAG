@@ -347,6 +347,23 @@ def test_tenant_takes_the_flag_then_the_environment_then_the_profile(tmp_path: P
     assert _resolve(tmp_path, {}).output is OutputFormat.YAML
 
 
+@pytest.mark.unit
+def test_the_stack_tenant_is_the_last_default_before_the_literal(tmp_path: Path) -> None:
+    assert _resolve(tmp_path, {}, stack_tenant="ACME").tenant == "engineering"
+    assert _resolve(tmp_path, {"HARBORRAG_TENANT_ID": "DEMO"}, stack_tenant="ACME").tenant == "DEMO"
+    unprofiled = resolve_globals(
+        tenant=None,
+        output=None,
+        profile=None,
+        config=None,
+        yes=False,
+        environ={},
+        stack_tenant="ACME",
+        stdout_is_tty=True,
+    )
+    assert unprofiled.tenant == "ACME"
+
+
 def test_tenant_and_output_fall_back_to_the_built_in_defaults() -> None:
     resolved = resolve_globals(
         tenant=None,

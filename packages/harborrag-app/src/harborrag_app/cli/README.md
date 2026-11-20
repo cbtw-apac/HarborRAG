@@ -149,8 +149,11 @@ The loading is in `environment.py`:
   uncommented `HARBORRAG_CONTROL_DB_URL` line, with the
   `HARBORRAG_SECRETS_ENCRYPTION_KEY` that database's secrets are stored under. The
   `POSTGRES_*` values alone never select the database. From the checkout's `env/.env.api`
-  it reads only `HARBORRAG_CORPUS_ACCESS_MODE` and `HARBORRAG_CORPUS_SHARED_TENANT_ID`, so
-  `chat` reads the corpus in the mode the API does; blank values are skipped.
+  it reads only `HARBORRAG_CORPUS_ACCESS_MODE`, `HARBORRAG_CORPUS_SHARED_TENANT_ID` and
+  `HARBORRAG_TENANT_ID`, so `chat` reads the corpus in the mode the API does; blank values
+  are skipped. The tenant is the last default before `DEFAULT`, below `--tenant`, an
+  exported `HARBORRAG_TENANT_ID` and the profile, and is never exported to the process
+  environment.
 - `DATABASE_ENV_FILE` and `API_ENV_FILE` name other files for those selected keys and are
   honoured in any directory.
 
@@ -225,7 +228,7 @@ the `HARBORRAG_` variables it reads most often; every runtime variable is in the
 | Variable | Default | Used by |
 | --- | --- | --- |
 | `HARBORRAG_ENV` | `dev` | Runtime safety policy |
-| `HARBORRAG_TENANT_ID` | `DEFAULT` | The CLI's default tenant, shared with the API and the workers |
+| `HARBORRAG_TENANT_ID` | the profile's tenant, else the checkout's `env/.env.api` value, else `DEFAULT` | The CLI's default tenant, shared with the API and the workers |
 | `HARBORRAG_CONTROL_DB_URL` | local SQLite | Control-plane migrations, connections, run state and diagnostics |
 | `HARBORRAG_LOCAL_SOURCE_ROOT` | unset | The folder `local_file` connections must stay inside |
 | `HARBORRAG_TEMPORAL_CONFIG_PATH` | `config/temporal.yaml` | Temporal connection, queues, retries, worker, health and workflow configuration |
@@ -246,7 +249,7 @@ the `HARBORRAG_` variables it reads most often; every runtime variable is in the
 | `HARBORRAG_CORPUS_SHARED_TENANT_ID` | unset | Tenant whose retrieval reads the shared corpus in `tenant_shared` mode |
 | `HARBORRAG_LOG_LEVEL` | `WARNING` for the CLI | Diagnostic logging |
 
-From a checkout the CLI reads only the two corpus-mode lines of `env/.env.api` (the file
+From a checkout the CLI reads only the two corpus-mode lines and the tenant line of `env/.env.api` (the file
 named by `API_ENV_FILE`), where an exported variable outranks the file; see
 [Ask a grounded question](../../../../../docs/users/cli-reference/README.md#ask-a-grounded-question).
 

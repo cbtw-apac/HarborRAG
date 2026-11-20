@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import stat
@@ -14,7 +15,7 @@ import pytest
 from typer.testing import CliRunner
 
 from harborrag_app.cli.commands import auth_keys
-from harborrag_app.cli.main import app
+from harborrag_app.cli.main import app, main
 from harborrag_core.security.api_keys import parse_key
 from harborrag_engine.security import CreatedKey
 from harborrag_runtime.security import api_key_operations
@@ -427,6 +428,28 @@ def test_a_sqlite_fallback_is_warned_about(monkeypatch, caplog):
     assert json.loads(result.stdout) == {"keys": []}
 
 
+@pytest.mark.unit
+def test_the_sqlite_hint_reaches_stderr_when_the_command_fails(
+    cli_project: Path, monkeypatch, capsys
+):
+    monkeypatch.chdir(cli_project)
+    monkeypatch.setattr(logging.getLogger("harborrag"), "handlers", [])
+    monkeypatch.setattr("harborrag_app.cli.project.find_legacy_checkout", lambda *a, **k: None)
+    monkeypatch.delenv("HARBORRAG_LOG_LEVEL", raising=False)
+    monkeypatch.setattr(
+        api_key_operations,
+        "ensure_key_schema",
+        AsyncMock(side_effect=api_key_operations.ApiKeySchemaMissing("no key table")),
+    )
+
+    code = main(["auth", "keys", "list", "--tenant", "t"])
+
+    err = capsys.readouterr().err
+    assert code == 6
+    assert "local SQLite default" in err
+    assert "not_ready" in err
+
+
 def test_policy_violations_show_the_rule(tmp_path: Path, monkeypatch):
     from harborrag_engine.security import ApiKeyPolicyError
 
@@ -591,32 +614,40 @@ def test_list_honours_the_output_option(monkeypatch):
     assert "laptop" in as_table.stdout and not as_table.stdout.lstrip().startswith("{")
 
 
-def test_tenant_defaults_like_the_resource_commands(tmp_path: Path, monkeypatch):
+def test_list_defaults_the_tenant_like_the_resource_commands(monkeypatch):
     listing = AsyncMock(return_value=[])
-    create = AsyncMock(return_value=_created())
     monkeypatch.setattr(api_key_operations, "list_keys", listing)
-    monkeypatch.setattr(api_key_operations, "create_key", create)
     monkeypatch.delenv("HARBORRAG_TENANT_ID", raising=False)
-    create_args = [
-        "auth",
-        "keys",
-        "create",
-        "--owner",
-        "user-demo",
-        "--name",
-        "k",
-        "--expires-in",
-        "1d",
-    ]
 
     CliRunner().invoke(app, ["auth", "keys", "list"])
-    CliRunner().invoke(app, [*create_args, "--secret-output", str(tmp_path / "a.key")])
     monkeypatch.setenv("HARBORRAG_TENANT_ID", "engineering")
     CliRunner().invoke(app, ["auth", "keys", "list"])
-    CliRunner().invoke(app, [*create_args, "--secret-output", str(tmp_path / "b.key")])
 
     assert [call.args[1] for call in listing.call_args_list] == ["DEFAULT", "engineering"]
-    assert [call.kwargs["tenant_id"] for call in create.call_args_list] == [
-        "DEFAULT",
-        "engineering",
-    ]
+
+
+@pytest.mark.unit
+def test_create_needs_an_explicit_tenant_whatever_the_environment_says(tmp_path: Path, monkeypatch):
+    create = AsyncMock(return_value=_created())
+    monkeypatch.setattr(api_key_operations, "create_key", create)
+    monkeypatch.setenv("HARBORRAG_TENANT_ID", "engineering")
+    secret_output = tmp_path / "a.key"
+
+    result = CliRunner().invoke(
+        app,
+        ["auth", "keys", "create", "--owner", "user-demo", "--name", "k", "--expires-in", "1d",
+         "--secret-output", str(secret_output)],
+    )  # fmt: skip
+
+    assert result.exit_code == 2
+    assert "explicit --tenant" in re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+    create.assert_not_called()
+    assert not secret_output.exists()
+
+
+@pytest.mark.unit
+def test_create_help_says_the_tenant_is_explicit():
+    result = CliRunner().invoke(app, ["auth", "keys", "create", "--help"])
+
+    text = " ".join(re.sub(r"\x1b\[[0-9;]*m", "", result.stdout).split())
+    assert "required. Never defaults" in text
