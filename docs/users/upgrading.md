@@ -267,6 +267,13 @@ token is kept.
   `requests_per_minute`, `page_size`, `request_timeout_seconds`,
   `max_retries` and `backoff_factor`; see
   [Advanced settings](connections.md#advanced-settings).
+- **SharePoint takes a `page_size` from 1 to 100**, as Jira and Confluence do,
+  and its default drops from 200 to 100. The 2.0.0a2 example `connectors.yaml`
+  set `page_size: 200`: such an entry is imported with status `error`, and a
+  stored connection with a value above 100 is refused when its next sync
+  starts. `PUT` the connection with its whole `advanced` object and a
+  `page_size` of 100 or less, or `null` for the default: `PUT` replaces
+  `advanced` whole, and leaving it out keeps the refused value.
 - **Every connector reads a fixed list of file types by default**: `md`,
   `markdown`, `txt`, `pdf`, `docx`, `doc`, `epub`, `odt`, `pptx`, `csv`,
   `xlsx`, `png`, `jpg`, `jpeg` and `html`. This covers Jira and Confluence

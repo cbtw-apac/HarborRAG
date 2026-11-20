@@ -116,9 +116,14 @@ def test_config_requests_per_minute_out_of_range_raises() -> None:
         config(requests_per_minute=0)
 
 
-def test_config_page_size_out_of_range_raises() -> None:
-    with pytest.raises(ValueError, match="page_size must be between"):
-        config(page_size=0)
+@pytest.mark.parametrize("page_size", [0, 101])
+def test_config_page_size_out_of_range_raises(page_size: int) -> None:
+    with pytest.raises(ValueError, match="page_size must be between 1 and 100"):
+        config(page_size=page_size)
+
+
+def test_config_page_size_at_most_100_is_kept() -> None:
+    assert config(page_size=100).page_size == 100
 
 
 @pytest.mark.parametrize(("field", "value"), _VALID_SITE_LOCATIONS)
