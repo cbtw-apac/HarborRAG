@@ -6,7 +6,7 @@ import pytest
 
 from harborrag_adapters.connectors.policies.http import require_same_origin_url
 
-pytestmark = pytest.mark.blackbox
+pytestmark = [pytest.mark.unit, pytest.mark.blackbox]
 
 
 def test_require_same_origin_allows_relative_and_same_origin() -> None:
@@ -26,6 +26,9 @@ def test_require_same_origin_allows_relative_and_same_origin() -> None:
         "http://example.atlassian.net/x",
         "file:///etc/passwd",
         "gopher://evil/x",
+        "//evil.example.com/x",
+        "//example.atlassian.net/x",
+        " //evil.example.com/x",
     ],
 )
 def test_require_same_origin_rejects_cross_origin_and_odd_schemes(hostile: str) -> None:

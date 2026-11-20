@@ -3,16 +3,27 @@
 Handles:
 - ``Secret``: a write-only credential that is a value or a secret reference
 - ``HttpUrl``, ``HttpsUrl`` and ``Email``: string fields with a published JSON Schema format
+- ``PathText``: a path or glob kept as typed, because a file or folder name may
+  start or end with a space; every other string field is trimmed
 - widget markers that turn into ``ui`` hints for the connection form
 """
 
 from __future__ import annotations
 
 import re
-from typing import Annotated, Any, Literal, get_args, get_origin
+from typing import Annotated, Literal, get_args, get_origin
 from urllib.parse import urlparse
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, WithJsonSchema
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    JsonValue,
+    StringConstraints,
+    WithJsonSchema,
+)
 from pydantic.fields import FieldInfo
 
 Widget = Literal["text", "secret", "select", "textarea", "path", "list", "toggle", "number"]
@@ -44,6 +55,13 @@ def _require_email(value: str) -> str:
     """Accept ``local@domain``; self-hosted sites often use internal domains."""
     if not _EMAIL.match(value):
         raise ValueError("must be an email address")
+    return value
+
+
+def _blank_to_empty(value: object) -> object:
+    """Turn a path made only of whitespace into ``""``, so length limits still reject it."""
+    if isinstance(value, str) and not value.strip():
+        return ""
     return value
 
 
@@ -89,6 +107,11 @@ HttpsUrl = Annotated[
     AfterValidator(_require_https_url),
     WithJsonSchema({"type": "string", "format": "uri", "pattern": "^https://"}),
 ]
+PathText = Annotated[
+    str,
+    StringConstraints(strip_whitespace=False),
+    BeforeValidator(_blank_to_empty),
+]
 Email = Annotated[
     str,
     AfterValidator(_require_email),
@@ -96,7 +119,7 @@ Email = Annotated[
 ]
 
 
-def widget(kind: Widget, **extra: Any) -> dict[str, Any]:
+def widget(kind: Widget, **extra: JsonValue) -> dict[str, JsonValue]:
     """Return ``json_schema_extra`` that pins the form widget of a field."""
     return {WIDGET_MARKER: kind, **extra}
 
@@ -108,8 +131,8 @@ def is_secret(field: FieldInfo) -> bool:
     return _carries_marker(field.annotation)
 
 
-def _carries_marker(annotation: Any) -> bool:
+def _carries_marker(annotation: object) -> bool:
     """Search ``annotation`` and its union members for ``SecretMarker`` metadata."""
     if get_origin(annotation) is Annotated:
-        return any(isinstance(item, SecretMarker) for item in annotation.__metadata__)
+        return any(isinstance(item, SecretMarker) for item in get_args(annotation)[1:])
     return any(_carries_marker(member) for member in get_args(annotation))

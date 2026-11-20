@@ -21,6 +21,8 @@ from pathlib import PurePosixPath
 from typing import Any
 from urllib.parse import quote, unquote, urlparse
 
+from harborrag_adapters.connectors.file_filters import file_name_extension, trim_file_name
+
 DEFAULT_GITHUB_API_URL = "https://api.github.com"
 DEFAULT_GITHUB_WEB_URL = "https://github.com"
 DEFAULT_GITHUB_API_VERSION = "2022-11-28"
@@ -172,16 +174,20 @@ def normalize_repo_path(path: str | None) -> str:
 
 
 def file_extension(path: str) -> str:
-    """Return the lowercased extension of a repository path, or ``""`` without one."""
-    name = normalize_repo_path(path)
-    if "." not in PurePosixPath(name).name:
-        return ""
-    return PurePosixPath(name).suffix.lower()
+    """Return the lowercased extension of a repository path, or ``""`` without one.
+
+    Whitespace and zero-width characters around the file name are ignored, so
+    ``notes.md `` gives ``.md``.
+    """
+    return file_name_extension(normalize_repo_path(path))
 
 
 def guess_mime_type(path: str) -> str:
-    """Infer a MIME type from a path, defaulting to ``application/octet-stream``."""
-    mime_type, _ = mimetypes.guess_type(path)
+    """Infer a MIME type from a path's file name, ignoring blanks around it.
+
+    Defaults to ``application/octet-stream``.
+    """
+    mime_type, _ = mimetypes.guess_type(trim_file_name(PurePosixPath(path).name))
     return mime_type or "application/octet-stream"
 
 

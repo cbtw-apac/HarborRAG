@@ -23,7 +23,7 @@ for evidence and document reads and `memory` for conversation context.
   Export at least `HARBORRAG_CONTROL_DB_URL` and `HARBORRAG_SECRETS_ENCRYPTION_KEY`
   with the stack's values, the object-store keys `HARBORRAG_OBJECT_STORE_ACCESS_KEY_ID`
   and `HARBORRAG_OBJECT_STORE_SECRET_ACCESS_KEY` (the stack's MinIO root user and
-  password), and the model gateway variables of `env/.env.models`.
+  password), and the model variables of `env/.env.models`.
 
 Without `HARBORRAG_CONTROL_DB_URL`, the SDK keeps connections and run state in a local
 SQLite file, `./harborrag_control.db`, while it reads and writes the same vector, graph

@@ -1,4 +1,10 @@
-"""Pure path, checksum, MIME, and filtering helpers for local files."""
+"""Pure path, checksum, MIME, and filtering helpers for local files.
+
+``SUPPORTS_DIR_FD`` is false on Windows, which has no ``openat()`` and no
+``O_NOFOLLOW`` per path component, so reads there fall back to path checks.
+Extensions and MIME types ignore whitespace and zero-width characters around a
+file name.
+"""
 
 from __future__ import annotations
 
@@ -8,9 +14,12 @@ from datetime import UTC, datetime
 from fnmatch import fnmatch
 from pathlib import Path
 
+from harborrag_adapters.connectors.file_filters import (
+    file_name_extension,
+    trim_file_name,
+)
 from harborrag_adapters.connectors.file_filters import normalize_extension as normalize_extension
 
-# Windows has no openat()/O_NOFOLLOW-per-component equivalent
 SUPPORTS_DIR_FD = os.open in os.supports_dir_fd
 
 DEFAULT_EXCLUDED_DIR_NAMES = {
@@ -34,13 +43,13 @@ def resolve_path(value: str | Path) -> Path:
 
 
 def file_extension(path: Path) -> str:
-    """Return a lowercased suffix for a local path."""
-    return path.suffix.lower()
+    """Return the lowercased suffix of a local file name, ignoring blanks around it."""
+    return file_name_extension(path.name)
 
 
 def guess_mime_type(path: Path) -> str:
-    """Infer a MIME type from a local path."""
-    mime_type, _ = mimetypes.guess_type(str(path))
+    """Infer a MIME type from a local file name, ignoring blanks around it."""
+    mime_type, _ = mimetypes.guess_type(trim_file_name(path.name))
     return mime_type or "application/octet-stream"
 
 

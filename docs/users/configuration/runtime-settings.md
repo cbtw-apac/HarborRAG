@@ -87,8 +87,10 @@ carry such a change over, see [Upgrading](../upgrading.md).
 
 ## Rerank chat retrieval
 
-`retrieval.rerank: true` makes chat reorder its passages with the rerank model of
-`config/models/models.yaml` ([The shipped gateway catalog](model-config.md#the-shipped-gateway-catalog)).
+`retrieval.rerank: true` makes chat reorder its passages with the rerank model of the
+model catalog. The shipped `config/models/models.yaml` has one only when
+`HARBORRAG_RERANKER_MODEL` is set; see
+[Send Cohere embeddings and reranking through a gateway](model-config.md#send-cohere-embeddings-and-reranking-through-a-gateway).
 
 - Only chat reads it, over HTTP and with `harborrag chat`, at the same level as
   `retrieval.top_k`: the session's project, or the one project a one-off question
@@ -101,12 +103,12 @@ carry such a change over, see [Upgrading](../upgrading.md).
   `HARBORRAG_CHAT_RETRIEVAL_MIN_RELEVANCE` and the MCP `score_threshold` compare
   against.
 - A rerank provider error fails the retrieval, the same as an embedding error.
-- `PATCH` and `harborrag config import` accept `true` only when the catalog has a
-  `rerank` section; otherwise they answer `422 validation_error` with
+- `PATCH` and `harborrag config import` accept `true` only when the catalog names a
+  rerank model; otherwise they answer `422 validation_error` with
   `field = "retrieval.rerank"`.
-- The API reads the catalog's `rerank` section when it starts, so restart it after you
-  add or remove the section. An override still on after the section is gone is served
-  in retrieval order, and each such turn logs a warning.
+- The API reads the catalog's rerank model when it starts, so restart it after you set
+  or remove `HARBORRAG_RERANKER_MODEL`. An override still on after the model is gone is
+  served in retrieval order, and each such turn logs a warning.
 
 ## What reprocesses on the next sync
 

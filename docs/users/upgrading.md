@@ -90,32 +90,32 @@ removed; [Temporal configuration](../../deploy/temporal/README.md) and
 - The development worker now mounts the whole `config/` read-only, like the API and the
   MCP server. A configuration change needs a worker restart, not an image rebuild.
 
-### Send the models through one gateway
+### Set the model endpoint variables
 
-**Breaking:** `config/models/models.yaml` now sends chat, embedding and reranking through
-one LiteLLM proxy gateway. It reads five variables in place of a provider, a model and an
-API key per family. Update `env/.env.models`, or the secret manager that injects it:
+**Breaking:** `config/models/models.yaml` now calls an OpenAI-compatible endpoint for chat
+and one for embedding, OpenAI's by default. It keeps a model name and an API key per
+family and no longer reads a provider. Update `env/.env.models`, or the secret manager
+that injects it:
 
-1. Remove the variables the previous catalog read for chat and embedding:
-   `HARBOR_CHAT_PROVIDER`, `HARBOR_CHAT_MODEL`, `HARBOR_CHAT_API_KEY`,
-   `HARBOR_EMBED_PROVIDER`, `HARBOR_EMBED_MODEL` and `HARBOR_EMBED_API_KEY`, or their
-   `HARBORRAG_` forms if you already renamed them. The shipped catalog no longer reads
-   `HARBORRAG_CHAT_PROVIDER`, `HARBORRAG_CHAT_API_KEY`, `HARBORRAG_EMBED_PROVIDER` or
-   `HARBORRAG_EMBED_API_KEY`, and `HARBORRAG_CHAT_MODEL` and `HARBORRAG_EMBED_MODEL` now
-   hold gateway model names.
+1. Remove the chat provider variable, `HARBOR_CHAT_PROVIDER`, or its `HARBORRAG_` form
+   if you already renamed it. The shipped catalog no longer reads it: chat is called as
+   an OpenAI-compatible endpoint. `HARBORRAG_EMBED_PROVIDER` is still read, and takes
+   `openai`, `openai_compatible` or `cohere`; any other value stops the start-up.
 
-2. Set the five gateway variables:
+2. Keep the model name and the key of each family, under the names step 3 gives them:
 
     | Variable | Value |
     | --- | --- |
-    | `HARBORRAG_URL` | The gateway's base URL, without `/v1`, for example `https://gateway.example.com` |
-    | `HARBORRAG_API_KEY` | The gateway's API key |
-    | `HARBORRAG_CHAT_MODEL` | The gateway's name for the chat model |
-    | `HARBORRAG_EMBED_MODEL` | The gateway's name for the embedding model |
-    | `HARBORRAG_RERANKER_MODEL` | The gateway's name for the rerank model |
+    | `HARBORRAG_CHAT_MODEL` | The chat endpoint's name for the model |
+    | `HARBORRAG_CHAT_API_KEY` | The chat endpoint's API key |
+    | `HARBORRAG_EMBED_MODEL` | The embedding endpoint's name for the model |
+    | `HARBORRAG_EMBED_API_KEY` | The embedding endpoint's API key; it may equal the chat key |
+    | `HARBORRAG_URL` | Optional. The base URL of another OpenAI-compatible endpoint for every family, such as a LiteLLM proxy gateway. Unset, the endpoint is `https://api.openai.com/v1` |
+    | `HARBORRAG_EMBED_PROVIDER` | Optional. `cohere` when the embedding model is a Cohere model |
+    | `HARBORRAG_RERANKER_MODEL`, `HARBORRAG_RERANKER_API_KEY` | Optional. A rerank model at the same endpoint and its key |
 
-    The model values are the bare names `GET <HARBORRAG_URL>/v1/models` lists, with
-    no provider prefix.
+    Use the endpoint's own model names. Remove a provider prefix such as `openai/` from
+    `HARBORRAG_EMBED_MODEL`: the embedding name is sent as written.
 
 3. Rename every remaining variable with these prefixes, in `env/.env.models` and any
    other environment file, including those the memory model and the model smoke tests
@@ -133,29 +133,39 @@ API key per family. Update `env/.env.models`, or the secret manager that injects
 
     `HARBOR_SMOKE_*` and `HARBOR_GATEWAY_TENANT` keep their names.
 
-All five gateway variables are required: while one is missing, loading the catalog
-fails, for example with `environment variable HARBORRAG_URL is not set`.
+The first four variables are required: while one is missing, loading the catalog
+fails, for example with `environment variable HARBORRAG_EMBED_API_KEY is not set`.
 `HARBORRAG_EMBEDDING_MODEL` keeps its meaning: a logical model of the catalog, such as
-`primary`, not a gateway model name.
+`primary`, not an endpoint model name.
 
-To keep calling a provider directly, keep a catalog of your own, point
+A deployment that sent everything through a LiteLLM proxy gateway keeps
+`HARBORRAG_URL` and its model names. It renames `HARBORRAG_API_KEY` to the three key
+variables, and adds `HARBORRAG_EMBED_PROVIDER=cohere` for a Cohere embedding model.
+A reranker needs `HARBORRAG_RERANKER_API_KEY` beside `HARBORRAG_RERANKER_MODEL` when
+the gateway asks for a key; without it the services still start, and chat fails
+while `retrieval.rerank` is on. See
+[Send Cohere embeddings and reranking through a gateway](configuration/model-config.md#send-cohere-embeddings-and-reranking-through-a-gateway).
+To call a provider through its own API, keep a catalog of your own, point
 `HARBORRAG_MODEL_CONFIG_PATH` at it, and keep the variables it reads, renamed as in
 step 3; see [Model configuration](configuration/model-config.md).
 `env-example/.env.models.example` keeps commented examples for that case.
 
 If you added a `memory` model to the shipped catalog, point its deployment at the
-gateway as `primary` is: `provider: openai_compatible`, `api_base: ${HARBORRAG_URL}`,
-`api_key: ${HARBORRAG_API_KEY}`, and the gateway's name for the model in
+endpoint as `primary` is: `provider: openai_compatible`,
+`api_base: ${HARBORRAG_URL:-https://api.openai.com/v1}`,
+`api_key: ${HARBORRAG_CHAT_API_KEY}`, and the endpoint's name for the model in
 `HARBORRAG_MEMORY_MODEL`. See
 [Optional memory model](configuration/model-config.md#optional-memory-model).
 
-#### Re-index after the embedding change
+#### Re-index when the embedding model changes
 
-The shipped embedding model is now the gateway's, in the embedding space
-`harbor-cohere-embed-v4`. Vectors written by the previous model have the same 1536
-dimensions, so nothing reports an error, but retrieval quality drops without warning
-until every document is embedded again. Re-ingest every source with
-`--force-reprocess`, so unchanged documents are embedded again too:
+The shipped catalog expects an embedding model that writes 1536-dimension vectors. It
+now names the embedding space after `HARBORRAG_EMBED_MODEL`, which changes the revision
+the contextual index is keyed by, so plan one re-ingest with this upgrade. If the model
+`HARBORRAG_EMBED_MODEL` names is not the one that wrote your stored vectors, nothing reports an error, because both write the same size, but
+retrieval quality drops without warning until every document is embedded again.
+Re-ingest every source with `--force-reprocess`, so unchanged documents are embedded
+again too:
 
 ```bash
 harborrag ingest run <connector> --force-reprocess
@@ -257,6 +267,13 @@ token is kept.
   `requests_per_minute`, `page_size`, `request_timeout_seconds`,
   `max_retries` and `backoff_factor`; see
   [Advanced settings](connections.md#advanced-settings).
+- **SharePoint takes a `page_size` from 1 to 100**, as Jira and Confluence do,
+  and its default drops from 200 to 100. The 2.0.0a2 example `connectors.yaml`
+  set `page_size: 200`: such an entry is imported with status `error`, and a
+  stored connection with a value above 100 is refused when its next sync
+  starts. `PUT` the connection with its whole `advanced` object and a
+  `page_size` of 100 or less, or `null` for the default: `PUT` replaces
+  `advanced` whole, and leaving it out keeps the refused value.
 - **Every connector reads a fixed list of file types by default**: `md`,
   `markdown`, `txt`, `pdf`, `docx`, `doc`, `epub`, `odt`, `pptx`, `csv`,
   `xlsx`, `png`, `jpg`, `jpeg` and `html`. This covers Jira and Confluence
@@ -283,6 +300,28 @@ token is kept.
   Without either on the API, the API refuses new `local_file` connections;
   the CLI and `connectors.yaml` still accept them.
 - **Removed:** `GET /v1/connections` and `/api/v1/sources*` answer `404`.
+
+#### Parser configuration
+
+- **The API checks `config/ingestion/parsers.yaml` when it starts.** An invalid
+  file stops the API with a configuration error, as it stops the worker. A
+  `${VARIABLE}` reference without a default must now be set for the API as
+  well, which does not receive `env/.env.parser` under Compose: set it in
+  `env/.env.api`, or write `${VARIABLE:-}`. Without the file the API still
+  starts and logs a warning.
+- **Setting values are checked when the file loads.** A value outside what a
+  setting accepts fails the load. Before, such a value failed only in the
+  worker, was replaced by a default, or was passed on as written, as a limit
+  written as a decimal or a boolean was. This covers the PDF `profile`,
+  `min_content_chars` and `max_pages`, the image `ocr_engine`, `max_pixels`,
+  `timeout`, `lang`, `config` and `ocr_server_url`, and the LiteParse
+  settings. Two enabled definitions for one parser family fail the load as
+  well. `harborrag doctor` reports the first error in its `parsers catalog`
+  check; see
+  [When the file is checked](configuration/parser-config.md#when-the-file-is-checked).
+- **LiteParse `extra_options` cannot repeat a setting.** Move an argument
+  that has its own key, such as `num_workers`, from `extra_options` to
+  `settings`.
 
 #### CLI, dependencies and Temporal
 
@@ -322,6 +361,40 @@ token is kept.
   Temporal UI. Terminating the child first fails the run, and cancelling it
   then answers `409 invalid_state`. HarborRAG records the run as `cancelled`
   when you next cancel it or start an ingestion of its connection.
+
+#### MCP server
+
+- **MCP tools answer with empty results until `env/.env.mcp` shares the corpus.**
+  The shipped template now sets `HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared` and
+  `HARBORRAG_CORPUS_SHARED_TENANT_ID=DEFAULT`, as the API and worker templates do.
+  An existing `env/.env.mcp` keeps `source_acl` until you add both lines and
+  restart the MCP server.
+- **The HTTP server checks the `Host` and `Origin` headers.** A request
+  addressed to a name other than `127.0.0.1`, `localhost` or `::1` now gets
+  `421`, and one sent from another origin gets `403`. If a reverse proxy
+  forwards its own host name to the loopback listener, list that name in
+  `HARBORRAG_MCP_ALLOWED_HOSTS`, use reader keys
+  (`HARBORRAG_MCP_AUTH_MODE=api_key`), and restart the server.
+- **The MCP containers join the data network.** `scripts/deployment/mcp.sh`
+  and `mcp-ui.sh` no longer use the host network. The container reaches the
+  data services by name on `harborrag-data-network`, and Docker publishes the
+  HTTP port on `127.0.0.1`. Docker Desktop host networking is no longer
+  needed, and `HARBORRAG_QDRANT_PREFER_GRPC=false` can leave `env/.env.mcp`.
+  Start the data services first with `scripts/deployment/dev.sh data`; only
+  `--check` runs without them. The containers start only with `HARBORRAG_ENV=dev`, because
+  the data services there use no TLS. Replace a running server with
+  `scripts/deployment/mcp.sh down` and
+  `scripts/deployment/mcp.sh --build --http`.
+- **`scripts/deployment/mcp.sh --http` checks the configuration first.** It
+  starts nothing when a setting or backend is missing, and says which one; see
+  [Checks before the HTTP server starts](detailed-guides/mcp-server/setup-and-integration.md#checks-before-the-http-server-starts).
+- **Rebuild the MCP image once.** Run
+  `scripts/deployment/mcp.sh --build --check` so the image records the commit
+  it was built from. The wrapper then says when the image is older than the
+  source.
+- **The status page cannot save in the container.** `config/` is mounted
+  read-only there, so **Save** is disabled and `PUT /api/config` answers `409`.
+  Edit `config/mcp/server.yaml` and select **Reload YAML**.
 
 ### HTTP API changes
 

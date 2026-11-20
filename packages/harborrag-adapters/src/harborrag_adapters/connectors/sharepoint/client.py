@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import math
 import time
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -62,7 +63,16 @@ class SharePointClient(Protocol):
 
 
 class _RequestsGraphClient:
-    """Authenticated, rate-limited Microsoft Graph client."""
+    """Authenticated, rate-limited Microsoft Graph client.
+
+    Graph throttles per app registration and tenant, so every worker that
+    shares them draws from one lane of the shared rate limiter.
+
+    Args:
+        config: SharePoint site settings, including credentials and retry limits.
+        rate_limiter: Shared limiter for Graph requests. A local one is used
+            when omitted.
+    """
 
     def __init__(
         self,
@@ -73,8 +83,6 @@ class _RequestsGraphClient:
         self.config = config
         self.session = guarded_session()
         self.session.headers.update({"Accept": "application/json"})
-        # Graph throttles per app registration and tenant, so every worker
-        # sharing them draws from one lane of the shared limiter.
         self._rate_limit_identity = RateLimitIdentity.from_http_source(
             connector_type="sharepoint",
             deployment_type=str(config.auth_mode),
@@ -92,7 +100,7 @@ class _RequestsGraphClient:
         params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """GET a Graph endpoint and decode its JSON body."""
-        response = self._request("GET", self._api_url(endpoint), params=params, stream=True)
+        response = self._request("GET", self._api_url(endpoint), params=params)
         try:
             payload = read_capped_json(response)
         except (ValueError, ResponseTooLargeError) as exc:
@@ -103,33 +111,38 @@ class _RequestsGraphClient:
 
     def get_bytes(self, endpoint: str) -> bytes:
         """GET a Graph endpoint that returns file bytes, capped by size limit."""
-        response = self._request(
-            "GET",
-            self._api_url(endpoint),
-            headers={"Accept": "*/*"},
-            stream=True,
-        )
+        response = self._request("GET", self._api_url(endpoint), headers={"Accept": "*/*"})
         try:
             return read_capped_content(response, self.config.max_file_size_bytes)
         except ResponseTooLargeError as exc:
             raise FetchError(str(exc)) from exc
 
-    def _request(self, method: str, url: str, **kwargs: Any) -> requests.Response:
-        """Send one Graph request with auth, shared rate limiting, and retries."""
+    def _request(
+        self,
+        method: str,
+        url: str,
+        *,
+        params: dict[str, Any] | None = None,
+        headers: Mapping[str, str] | None = None,
+    ) -> requests.Response:
+        """Send one streamed Graph request with auth, shared rate limiting and retries.
+
+        A 401 is retried once with a fresh token, since the cached one may have
+        expired during a retry wait or been revoked early. A second 401 means the
+        credentials are rejected.
+        """
         last_error: Exception | None = None
-        headers = dict(kwargs.pop("headers", {}) or {})
+        request_headers = dict(headers or {})
         refreshed = False
 
         for attempt in range(self.config.max_retries + 1):
             try:
-                response = self._send(method, url, headers, **kwargs)
+                response = self._send(method, url, request_headers, params=params)
                 if response.status_code == 401 and not refreshed and self._can_refresh_token():
-                    # The cached token expired during a retry wait or was revoked
-                    # early; one fresh token tells that apart from bad credentials.
                     refreshed = True
                     response.close()
                     self._discard_token()
-                    response = self._send(method, url, headers, **kwargs)
+                    response = self._send(method, url, request_headers, params=params)
             except requests.RequestException as exc:
                 last_error = exc
                 if attempt == self.config.max_retries:
@@ -156,17 +169,19 @@ class _RequestsGraphClient:
         method: str,
         url: str,
         headers: dict[str, str],
-        **kwargs: Any,
+        *,
+        params: dict[str, Any] | None,
     ) -> requests.Response:
-        """Send one attempt with the current token; a retry may outlive the last one."""
+        """Send one streamed attempt, fetching the token again since a retry can outlive it."""
         headers["Authorization"] = f"Bearer {self._access_token()}"
         self._acquire()
         return self.session.request(
             method,
             url,
             headers=headers,
+            params=params,
+            stream=True,
             timeout=self.config.request_timeout_seconds,
-            **kwargs,
         )
 
     @staticmethod
@@ -197,35 +212,42 @@ class _RequestsGraphClient:
         self._token = None
         self._token_expires_at = 0.0
 
-    @staticmethod
-    def _raise_for_final_status(response: requests.Response, *, final_attempt: bool) -> None:
+    def _raise_for_final_status(self, response: requests.Response, *, final_attempt: bool) -> None:
         """Raise the typed error for a response that will not be retried.
 
         A 401 means the credentials are rejected, which is fatal for the run. A
         403 means the app lacks access to that resource, which callers handle
-        per item (or as fatal when it is the configured site itself).
+        per item, or as fatal when it is the configured site itself.
         """
         status = response.status_code
         if status == 401:
-            raise AuthenticationError(safe_response_error_detail(response), status_code=401)
+            raise AuthenticationError(self._graph_error_detail(response), status_code=401)
         if status == 403:
-            raise AuthorizationError(safe_response_error_detail(response), status_code=403)
+            raise AuthorizationError(self._graph_error_detail(response), status_code=403)
         if status in _RETRYABLE_STATUS and not final_attempt:
             return
         if status == 429:
-            raise RateLimitError(safe_response_error_detail(response), status_code=429)
+            raise RateLimitError(self._graph_error_detail(response), status_code=429)
         if status >= 400:
             raise FetchError(
                 f"Microsoft Graph request failed with HTTP "
-                f"{status}: {safe_response_error_detail(response)}",
+                f"{status}: {self._graph_error_detail(response)}",
                 status_code=status,
             )
 
-    def _access_token(self) -> str:
-        """Return a configured token or obtain/cache one for the auth mode.
+    def _graph_error_detail(self, response: requests.Response) -> str:
+        """Return a Graph error body without the bearer token the request carried."""
+        return safe_response_error_detail(
+            response, known_secrets=(self.config.access_token, self._token)
+        )
 
-        Client credentials request an app-only token; device code redeems the
-        signed-in user's cached refresh token and stores the rotated one.
+    def _access_token(self) -> str:
+        """Return the configured token, or a cached or new one for the auth mode.
+
+        Client credentials request an app-only token. Device code redeems the
+        signed-in user's cached refresh token and stores the rotated one. A
+        rejected refresh adds the sign-in hint, because only signing in again
+        recovers an expired or revoked refresh token.
         """
         if self.config.auth_mode == SharePointAuthMode.ACCESS_TOKEN and self.config.access_token:
             reject_broad_permissions(self.config.access_token)
@@ -240,7 +262,6 @@ class _RequestsGraphClient:
         except AuthenticationError as exc:
             if cache is None:
                 raise
-            # An expired or revoked refresh token only recovers by signing in again.
             raise AuthenticationError(f"{exc}; {LOGIN_HINT}", status_code=exc.status_code) from exc
         try:
             payload = read_capped_json(response)
@@ -289,8 +310,13 @@ class _RequestsGraphClient:
         )
 
     def _request_token(self, form: dict[str, str]) -> requests.Response:
-        """POST for an OAuth token, retrying transient failures and 429/5xx."""
+        """POST for an OAuth token, retrying transient failures and 429/5xx.
+
+        A failed response raises with its HTTP status, and the message never
+        contains the client secret or refresh token posted in ``form``.
+        """
         token_url = identity_url(str(self.config.tenant_id), "token")
+        posted_secrets = (form.get("client_secret"), form.get("refresh_token"))
         last_error: Exception | None = None
         for attempt in range(self.config.max_retries + 1):
             try:
@@ -307,12 +333,14 @@ class _RequestsGraphClient:
                 self._sleep(attempt, exc)
                 continue
 
-            if response.status_code not in _RETRYABLE_STATUS:
-                if response.status_code >= 400:
-                    raise AuthenticationError(safe_response_error_detail(response))
+            retryable = response.status_code in _RETRYABLE_STATUS
+            if not retryable and response.status_code < 400:
                 return response
-            if attempt == self.config.max_retries:
-                raise AuthenticationError(safe_response_error_detail(response))
+            if not retryable or attempt == self.config.max_retries:
+                raise AuthenticationError(
+                    safe_response_error_detail(response, known_secrets=posted_secrets),
+                    status_code=response.status_code,
+                )
 
             last_error = AuthenticationError(
                 f"Microsoft identity token request returned HTTP {response.status_code}"
@@ -325,7 +353,6 @@ class _RequestsGraphClient:
 
     def close(self) -> None:
         """Close the connector-owned HTTP connection pool and discard its token."""
-
         self._discard_token()
         self.session.close()
 
@@ -349,7 +376,9 @@ class _RequestsGraphClient:
             requests_per_minute=self.config.requests_per_minute,
         )
 
-    def _sleep(self, attempt: int, error: Exception, headers: Any = None) -> None:
+    def _sleep(
+        self, attempt: int, error: Exception, headers: Mapping[str, str] | None = None
+    ) -> None:
         """Sleep before retrying, honoring provider retry headers when present."""
         fallback_delay = self.config.backoff_factor * (2**attempt)
         delay = retry_delay_seconds(headers, fallback_delay)

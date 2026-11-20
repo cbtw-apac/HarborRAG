@@ -12,7 +12,7 @@ pytestmark = pytest.mark.unit
 
 
 @pytest.mark.whitebox
-def test_mineru_command_includes_advanced_cli_options():
+def test_mineru_command_includes_advanced_cli_options() -> None:
     backend = MinerUBackend(
         MinerUBackendOptions(
             backend="hybrid-http-client",
@@ -49,7 +49,10 @@ def test_mineru_command_includes_advanced_cli_options():
 
 
 @pytest.mark.whitebox
-def test_mineru_cleans_up_custom_output_dir_when_run_fails(tmp_path, monkeypatch):
+def test_mineru_cleans_up_custom_output_dir_when_run_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A run that fails before output is read still removes its subdirectory."""
     base_dir = tmp_path / "custom-output"
     backend = MinerUBackend(MinerUBackendOptions(output_dir=base_dir, keep_output=False))
 
@@ -61,12 +64,12 @@ def test_mineru_cleans_up_custom_output_dir_when_run_fails(tmp_path, monkeypatch
     with pytest.raises(RuntimeError, match="mineru exited non-zero"):
         backend._parse_path("mineru", Path("in.pdf"))
 
-    # The per-document subdirectory under output_dir must not leak even
-    # though `_run` (not just `_read_output`) failed.
     assert list(base_dir.iterdir()) == []
 
 
-def test_mineru_keeps_custom_output_dir_when_run_fails_and_keep_output_true(tmp_path, monkeypatch):
+def test_mineru_keeps_custom_output_dir_when_run_fails_and_keep_output_true(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     base_dir = tmp_path / "custom-output"
     backend = MinerUBackend(MinerUBackendOptions(output_dir=base_dir, keep_output=True))
 
@@ -87,8 +90,13 @@ def test_mineru_keeps_custom_output_dir_when_run_fails_and_keep_output_true(tmp_
         ({"timeout_seconds": 0}, "timeout_seconds must be greater than 0"),
         ({"method": "invalid"}, "method must be one of"),
         ({"effort": "invalid"}, "effort must be one of"),
+        ({"backend": None}, "backend must be a non-empty string"),
+        ({"backend": 5}, "backend must be a non-empty string"),
+        ({"backend": "  "}, "backend must be a non-empty string"),
     ],
 )
-def test_mineru_options_reject_invalid_cli_controls(overrides, match):
+def test_mineru_options_reject_invalid_cli_controls(
+    overrides: dict[str, object], match: str
+) -> None:
     with pytest.raises(ValueError, match=match):
         MinerUBackendOptions(**overrides)

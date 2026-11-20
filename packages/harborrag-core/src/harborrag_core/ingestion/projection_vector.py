@@ -1,3 +1,9 @@
+"""Evidence payloads and batches written to the vector evidence collection.
+
+Payloads are projections of canonical chunks and can be rebuilt from them, so a
+payload is never the only copy of a value.
+"""
+
 from __future__ import annotations
 
 import json
@@ -18,8 +24,6 @@ from harborrag_core.chunking import (
 from harborrag_core.schemas.ids import DocumentId, DocumentVersionId, TenantId
 from harborrag_core.schemas.vector import SparseVector
 
-# Keys a connector produced by normalizing a field's display name, so a dotted
-# filter path (``fields.skill_set``) can never be ambiguous.
 _PAYLOAD_FIELD_KEY = re.compile(r"[a-z0-9][a-z0-9_]{0,127}")
 _MAX_PAYLOAD_FIELDS = 128
 
@@ -27,8 +31,12 @@ _MAX_PAYLOAD_FIELDS = 128
 class VectorPayload(StrictModel):
     """Minimal evidence payload stored beside a retrieval vector.
 
-    Chunk text has one projection owner: ``content`` in the evidence collection.
+    Chunk text has one projection owner, ``content`` in the evidence collection.
     Graph projections contain identifiers and relationships only.
+
+    The date, people, status, type, project, label and component fields are the
+    source's own descriptors, which callers narrow or sort results on. They
+    describe the evidence and never replace it, so the text stays in ``content``.
     """
 
     chunk_id: str = Field(min_length=1)
@@ -41,9 +49,14 @@ class VectorPayload(StrictModel):
     document_kind: DocumentKind | None = None
     source_scope_id: str = Field(min_length=1)
     source_item_id: str | None = Field(default=None, min_length=1)
-    # The item this one is attached to -- an attachment's issue or page -- so a
-    # filter that selects parents can reach the documents attached to them.
-    parent_source_item_id: str | None = Field(default=None, min_length=1)
+    parent_source_item_id: str | None = Field(
+        default=None,
+        min_length=1,
+        description=(
+            "The item this one is attached to, such as an attachment's issue or page, "
+            "so a filter that selects parents reaches the documents attached to them."
+        ),
+    )
     language: str | None = None
     content: str = Field(min_length=1)
     document_title: str | None = None
@@ -58,8 +71,12 @@ class VectorPayload(StrictModel):
     project_id: str | None = None
     issue_key: str | None = None
     attachment_id: str | None = None
-    # Source-owned descriptors a caller narrows or sorts a result set on. They
-    # describe the evidence, never replace it: the text stays in ``content``.
+    site_id: str | None = Field(default=None, description="SharePoint site of the document.")
+    drive_id: str | None = Field(
+        default=None, description="SharePoint drive (document library) of the document."
+    )
+    item_id: str | None = Field(default=None, description="SharePoint drive item of the document.")
+    web_url: str | None = Field(default=None, description="Link to the document in SharePoint.")
     created_at: str | None = None
     updated_at: str | None = None
     resolved_at: str | None = None
@@ -76,16 +93,31 @@ class VectorPayload(StrictModel):
     project_name: str | None = None
     labels: tuple[str, ...] = ()
     components: tuple[str, ...] = ()
-    # The source's own typed fields -- a Jira issue's custom fields -- keyed by
-    # normalized field name and filtered as ``fields.<key>``. Values keep their
-    # type, so a range filter works on a number and set membership on a list.
-    fields: dict[str, str | float | bool | tuple[str, ...]] | None = None
-    # Where this chunk sits in the knowledge graph of the same document version:
-    # its Chunk node and the source entity the document is a version of. A vector
-    # hit joins the graph on these keys directly, without re-deriving a node key
-    # from a connector-specific source id ("jira://DEMO/DEMO-1" vs "DEMO-1").
-    graph_chunk_node_key: str | None = Field(default=None, min_length=1)
-    graph_source_node_key: str | None = Field(default=None, min_length=1)
+    fields: dict[str, str | float | bool | tuple[str, ...]] | None = Field(
+        default=None,
+        description=(
+            "The source's own typed fields, such as a Jira issue's custom fields, keyed "
+            "by normalized field name and filtered as ``fields.<key>``. Values keep "
+            "their type, so a range filter works on a number and set membership on a list."
+        ),
+    )
+    graph_chunk_node_key: str | None = Field(
+        default=None,
+        min_length=1,
+        description=(
+            "Key of this chunk's Chunk node in the same version's knowledge graph, so a "
+            "vector hit joins the graph directly."
+        ),
+    )
+    graph_source_node_key: str | None = Field(
+        default=None,
+        min_length=1,
+        description=(
+            "Key of the graph node for the source entity this document is a version of. "
+            "A hit joins on it without re-deriving a key from a connector-specific "
+            'source ID ("jira://DEMO/DEMO-1" vs "DEMO-1").'
+        ),
+    )
 
     @field_validator(
         "language",
@@ -99,6 +131,10 @@ class VectorPayload(StrictModel):
         "project_id",
         "issue_key",
         "attachment_id",
+        "site_id",
+        "drive_id",
+        "item_id",
+        "web_url",
         "created_at",
         "updated_at",
         "resolved_at",
@@ -116,6 +152,7 @@ class VectorPayload(StrictModel):
     )
     @classmethod
     def validate_optional_text(cls, value: str | None) -> str | None:
+        """Reject optional text that is present but blank."""
         if value is not None and not value.strip():
             raise ValueError("optional vector payload text must be non-empty")
         return value
@@ -125,6 +162,11 @@ class VectorPayload(StrictModel):
     def validate_fields(
         cls, value: dict[str, str | float | bool | tuple[str, ...]] | None
     ) -> dict[str, str | float | bool | tuple[str, ...]] | None:
+        """Reject too many fields, unnormalized keys, and blank or non-finite values.
+
+        A key must be a normalized field name, so a dotted filter path such as
+        ``fields.skill_set`` is never ambiguous.
+        """
         if value is None:
             return None
         if len(value) > _MAX_PAYLOAD_FIELDS:
@@ -142,6 +184,7 @@ class VectorPayload(StrictModel):
     @field_validator("section_path", "labels", "components")
     @classmethod
     def validate_text_sequence(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        """Reject blank entries in the section path, labels or components."""
         if any(not item.strip() for item in value):
             raise ValueError("vector payload sequence entries must be non-empty")
         return value
@@ -163,14 +206,19 @@ class _VectorRecord(StrictModel):
 
 
 class VectorEvidenceRecord(_VectorRecord):
+    """A vector point stored in the evidence collection."""
+
     @model_validator(mode="after")
     def validate_evidence(self) -> VectorEvidenceRecord:
+        """Reject a payload that is not an evidence record."""
         if self.payload.record_kind != RecordKind.EVIDENCE:
             raise ValueError("evidence vector record requires an evidence payload")
         return self
 
 
 class VectorProjectionManifest(StrictModel):
+    """Point IDs and payload checksum of one version's vector projection."""
+
     schema_version: str = "1.0"
     document_id: DocumentId
     document_version_id: DocumentVersionId
@@ -179,17 +227,21 @@ class VectorProjectionManifest(StrictModel):
 
     @model_validator(mode="after")
     def validate_point_ids(self) -> VectorProjectionManifest:
+        """Reject duplicate point IDs."""
         if len(self.evidence_point_ids) != len(set(self.evidence_point_ids)):
             raise ValueError("vector projection point IDs must be unique")
         return self
 
 
 class VectorProjectionBatch(StrictModel):
+    """Evidence points of one document version, with their manifest."""
+
     evidence_records: tuple[VectorEvidenceRecord, ...]
     manifest: VectorProjectionManifest
 
     @model_validator(mode="after")
     def validate_manifest(self) -> VectorProjectionBatch:
+        """Reject records whose point IDs differ from the manifest's."""
         if tuple(record.point_id for record in self.evidence_records) != (
             self.manifest.evidence_point_ids
         ):
@@ -198,6 +250,7 @@ class VectorProjectionBatch(StrictModel):
 
     @property
     def point_count(self) -> int:
+        """Number of evidence points in the batch."""
         return len(self.evidence_records)
 
     @classmethod
@@ -206,6 +259,16 @@ class VectorProjectionBatch(StrictModel):
         *,
         evidence_records: tuple[VectorEvidenceRecord, ...],
     ) -> VectorProjectionBatch:
+        """Build a batch and its manifest from one version's evidence records.
+
+        The manifest's checksum covers every payload, serialized with sorted keys.
+
+        Args:
+            evidence_records: Records of a single document version.
+
+        Returns:
+            The batch, with point IDs in record order.
+        """
         records = evidence_records
         if not records:
             raise ValueError("vector projection batch must not be empty")

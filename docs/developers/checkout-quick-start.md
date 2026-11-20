@@ -9,7 +9,7 @@ Run every command from the root of the checkout unless a step says otherwise.
 ## Requirements
 
 The [Quick Start prerequisites](../getting-started/quick-start.md#before-you-start) cover what
-this page needs: Git, uv, Docker Engine with Compose v2, OpenSSL and a LiteLLM proxy gateway.
+this page needs: Git, uv, Docker Engine with Compose v2, OpenSSL and an API key for a model endpoint.
 The workspace pins Python 3.12 in `.python-version`.
 
 ## Explore a checkout without services
@@ -101,8 +101,8 @@ to point HarborRAG at your own sources.
 ### 5. Create the `env/` folder
 
 [Quick Start step 2](../getting-started/quick-start.md#2-create-the-environment-files)
-creates `env/` with `scripts/deployment/dev.sh bootstrap`, fills in the five model gateway
-values in `env/.env.models`, and uncomments the `HARBORRAG_CONTROL_DB_URL` line in
+creates `env/` with `scripts/deployment/dev.sh bootstrap`, fills in the four model values
+in `env/.env.models`, and uncomments the `HARBORRAG_CONTROL_DB_URL` line in
 `env/.env.database`. When you work on the code, these points also matter:
 
 - Back up `HARBORRAG_SECRETS_ENCRYPTION_KEY` from `env/.env.database`. The API and the worker

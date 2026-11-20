@@ -7,8 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Documents are re-chunked and re-embedded on their next ingestion, and the shipped
-embedding model changes, so re-ingest every source with `--force-reprocess`. Follow the
+Documents are re-chunked and re-embedded on their next ingestion, so re-ingest every
+source with `--force-reprocess`. Follow the
 [upgrade guide](docs/users/upgrading.md) before upgrading; entries marked **Breaking** need
 action.
 
@@ -37,6 +37,7 @@ action.
 #### harborrag-mcp-server
 
 - `vector_search` reads `retrieval.top_k` at tenant level as its default `top_k`; chat reads it at the level of the session's project
+- `harborrag-mcp --preflight` connects every backend once and reports a start-up failure in one line
 
 #### harborrag-runtime
 
@@ -46,6 +47,12 @@ action.
 - Chunk sizes, per-source profiles and the splitting strategy are configurable in `config/ingestion/chunking.yaml`
 - **Breaking:** ingestion requires the code grammars; the worker images and the `local` and `production` installs include them
 - Retrieval can rerank with the model catalog's `rerank` model: it fetches four times `top_k` passages (at most 100), keeps the first `top_k` in rerank order, and adds `rerank_score` to each result's metadata while `relevance` keeps the lane's similarity; a rerank provider error fails the retrieval
+
+#### Deployment
+
+- `mcp.sh --http` checks the configuration before it starts the server and names model variables that no env file sets
+- The MCP launchers say when the image is older than the source
+- CI builds the MCP image and runs its handshake
 
 ### Changed
 
@@ -90,12 +97,14 @@ action.
 #### harborrag-mcp-server
 
 - The MCP server reads `config/mcp/server.yaml` and, with the file key store, `config/mcp/keys.yaml`
+- **Breaking:** the MCP HTTP server refuses a request addressed to a host name other than loopback, or sent from another origin
+- The MCP HTTP server answers extra host names, such as a reverse proxy's, when they are listed; a development container may listen beyond loopback when it acknowledges that
+- The MCP status page walks through connecting, choosing a tenant that holds content, picking a tool and running it, in one window
 
 #### harborrag-runtime
 
 - **Breaking:** `config/` is organised by domain (`sources/`, `ingestion/`, `graph/`, `models/`, `mcp/`) and every default path follows; a deployment that sets each `HARBORRAG_*_CONFIG_PATH` keeps working
-- **Breaking:** `config/models/models.yaml` sends chat, embedding and reranking through one LiteLLM proxy gateway and reads `HARBORRAG_URL`, `HARBORRAG_API_KEY`, `HARBORRAG_CHAT_MODEL`, `HARBORRAG_EMBED_MODEL` and `HARBORRAG_RERANKER_MODEL` instead of a provider, model and API key per family
-- **Breaking:** the shipped embedding model is the gateway's, in the embedding space `harbor-cohere-embed-v4`; its vectors have the same 1536 dimensions as before, so re-ingest every source with `--force-reprocess`
+- **Breaking:** one `config/models/models.yaml` serves OpenAI and an OpenAI-compatible gateway, with a key per family, an optional Cohere embedding mode and an optional reranker; the per-family provider variables and the shared gateway key are no longer read
 - **Breaking:** model variables with the `HARBOR_CHAT_`, `HARBOR_EMBED_` and `HARBOR_MEMORY_` prefixes, such as those the model smoke tests read, are renamed `HARBORRAG_CHAT_`, `HARBORRAG_EMBED_` and `HARBORRAG_MEMORY_`
 - Config YAML files hold values only; their explanations moved to the configuration pages. `config/ingestion/parsers.yaml` keeps its comments because its bytes are the parser identity
 
@@ -105,7 +114,9 @@ action.
 - `config/sources/schedules.yaml` and `config/mcp/keys.yaml` are git-ignored; each ships as an `.example.yaml` beside it
 - The `qdrant` extra of `harborrag-adapters` requires `qdrant-client>=1.17,<1.20` (was `>=1.10,<2`); the lock stays on 1.18.0
 - `config/temporal.example.yaml`, `config/models.example.yaml` and `config/harborrag.example.yaml` are removed
-- `env-example/.env.models.example` sets the five model gateway variables and keeps the direct-provider and other-proxy examples commented out
+- `env-example/.env.models.example` sets a model name and a key for chat and for embedding, and keeps the direct-provider and other-proxy examples commented out
+- `env-example/.env.mcp.example` sets the shared corpus for `DEFAULT`, so MCP tools find sources on a new deployment as chat does
+- **Breaking:** the MCP containers join the data network and publish their port on loopback; Docker Desktop host networking is no longer needed, and the data services must be started first, except for `mcp.sh --check`
 
 ### Removed
 
@@ -122,6 +133,19 @@ action.
 #### harborrag-adapters
 
 - Chat history and `message_count` leave out the empty or whitespace-only assistant steps of 1.x agent turns, and migration `0047`'s downgrade waits at most 5 s for its locks on Postgres, like its upgrade
+- **Breaking:** LiteParse and image OCR settings outside their permitted values are rejected, instead of being replaced by a default or failing on every document
+- SharePoint connector and sign-in errors no longer show the client secret, refresh token, device code or access token, and failed token requests report their HTTP status [#123]
+- Local, GitHub and SharePoint files whose name ends in a space keep their file type instead of being skipped
+- Attachments whose name ends in a space are no longer skipped, and no longer get past an excluded file type
+- Local Markdown links in angle brackets, or to a name that starts with a space, now link the two documents
+- A local folder whose name ends in a space can be excluded
+- Attachment failure logs name the attachment by its ID instead of its title
+- SharePoint path allowlists match folders named with a no-break space, and accept a folder path that starts with the library's name, also for a library chosen by its ID
+- Files whose name ends in a zero-width space keep their file type instead of being skipped
+- Confluence Data Center page links keep a `+` in the page title
+- A Confluence page whose own or parent page's title is only no-break spaces is ingested instead of failing
+- Connector downloads follow a redirect whose target has accented or other non-ASCII characters, in any encoding, instead of failing
+- A malformed link in a local Markdown file no longer fails the document
 
 #### harborrag-app
 
@@ -133,20 +157,42 @@ action.
 - `POST /v1/admin/ingestions` with an `updated_after` that has no UTC offset answers `422 validation_error` on `updated_after`, instead of `500`
 - `harborrag ingest pause`, `resume` and `cancel` follow the HTTP rules: pausing a paused run, pausing or resuming a retry run, and any action on a finished run exit 1 with the `invalid_state` message and send no signal, cancelling a retry run cancels its own workflow instead of answering "task not found", and an unknown run is not found
 - `harborrag retrieve` reads on the shared basis for the shared tenant (`HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared`), as chat does, instead of returning no candidates
+- **Breaking:** the API refuses to start on an invalid `parsers.yaml`, as the worker does, and warns when the file is missing
+- Ingestion document and failure lists keep the spaces at the start or end of a document's reference
+
+#### harborrag-core
+
+- Local and GitHub files with spaces in their file or folder name are ingested instead of failing
+- Files whose paths differ only in spacing, such as a trailing or no-break space, stay separate documents
+
+#### harborrag-engine
+
+- SharePoint folders with spaces or accents in their name appear in the graph under that name instead of its URL encoding
+
+#### harborrag-mcp-server
+
+- Saving from the status page answers a clear error when the configuration file is read-only, and the page disables Save
+- The status page's tool runner answers a failure inside a tool with the error type only, as the MCP endpoint does, and logs where it was raised without the error's message
+- A server that listens on every interface no longer prints an address that cannot be opened
 
 #### harborrag-runtime
 
 - A `parsers.yaml` definition for one format, such as `docx` or `csv`, replaces only that format's engine, so the other formats of its family, such as DOC, ODT, EPUB or Excel, still parse
+- **Breaking:** a wrong `parsers.yaml` setting value, or two enabled definitions for one parser family, is rejected when the file loads instead of passing the API and failing only in the worker
+- Starting an ingestion while `parsers.yaml` is missing reports the missing file
 - Starting against a control database a newer build already migrated names both schema revisions and how to recover, instead of only "migrations failed"
 - The first-start import gives a Jira or Confluence Cloud entry without its email the `api_token` method, instead of the Data Center `pat` method, so a `PUT` of the email fixes it
 - Cancelling a run keeps its summary, so the run's `discovered` count no longer drops when it is cancelled
 - `harborrag ingest status` of a run Temporal reports as natively paused shows `paused` instead of failing with `8 is not a valid WorkflowExecutionStatus`
 - Pausing a run no longer strands it: a run and its batch are paused by signal only, not natively in Temporal, where a workflow task scheduled at the pause was never dispatched again and resume and cancel hung; the Temporal UI now shows a paused run as `Running`
+- Folder and glob settings of local, GitHub and SharePoint connections keep spaces at their start or end; re-save a connection to apply it
+- **Breaking:** SharePoint connections refuse a page size above 100, as Jira and Confluence do [#135]
 
 #### Deployment
 
 - The development API receives `JIRA_EMAIL`, `CONFLUENCE_EMAIL`, `MICROSOFT_TENANT_ID`, `MICROSOFT_CLIENT_ID` and `GITHUB_REPOSITORY_URL` from `env/.env.connector`, so the first-start import no longer stores the Jira, Confluence and SharePoint connections without them and with status `error`
 - The SharePoint entry of `config/sources/connectors.yaml` crawls the drive with the shared file type list instead of a test folder of Markdown files
+- `mcp.sh --http` stops and removes a server that never becomes healthy
 
 ## [2.0.0a2] - 2026-10-26
 
