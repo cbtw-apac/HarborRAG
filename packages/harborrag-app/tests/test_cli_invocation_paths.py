@@ -8,6 +8,7 @@ Discovery also stops at the nearest marker, so a checkout is not outranked by a 
 
 from __future__ import annotations
 
+import io
 import json
 from datetime import UTC, datetime
 from pathlib import Path
@@ -16,6 +17,7 @@ from unittest.mock import AsyncMock
 import pytest
 from project_test_support import scaffold
 
+from harborrag_app.cli import bodies
 from harborrag_app.cli import main as cli
 from harborrag_app.cli import project as project_module
 from harborrag_app.cli.environment import checkout_write_refusal
@@ -60,6 +62,51 @@ def test_a_relative_secret_output_lands_where_the_user_stood_and_is_reported_abs
     assert expected.is_file()
     assert not (in_project_subdirectory.parent / "k.key").exists()
     assert json.loads(capsys.readouterr().out)["secret_written_to"] == str(expected)
+
+
+@pytest.fixture
+def activated_from_subdirectory(
+    in_project_subdirectory: Path, monkeypatch: pytest.MonkeyPatch
+) -> Path:
+    monkeypatch.setattr(project_module, "_INVOCATION", None)
+    monkeypatch.setattr(project_module, "_ACTIVE", None)
+    project = project_module.find_project()
+    assert project is not None
+    project_module.activate_project(project)
+    return in_project_subdirectory
+
+
+def test_a_relative_body_file_is_read_from_where_the_user_stood(
+    activated_from_subdirectory: Path,
+) -> None:
+    (activated_from_subdirectory / "body.yaml").write_text("name: demo\n", encoding="utf-8")
+
+    assert bodies.read_document("body.yaml") == {"name": "demo"}
+    absolute = activated_from_subdirectory / "body.yaml"
+    assert bodies.read_document(str(absolute)) == {"name": "demo"}
+
+
+def test_a_body_read_from_stdin_ignores_the_invocation_directory(
+    activated_from_subdirectory: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("sys.stdin", io.StringIO("name: demo\n"))
+
+    assert bodies.read_document("-") == {"name": "demo"}
+
+
+def test_a_relative_config_is_found_from_where_the_user_stood(
+    in_project_subdirectory: Path, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    monkeypatch.setattr(project_module, "_INVOCATION", None)
+    monkeypatch.setattr(project_module, "_ACTIVE", None)
+    (in_project_subdirectory / "profiles.yaml").write_text(
+        "profiles:\n  default:\n    tenant: DEMO\n", encoding="utf-8"
+    )
+
+    code = cli.main(["me", "--config", "profiles.yaml", "-o", "json"])
+
+    assert "does not exist" not in capsys.readouterr().err
+    assert code != 2
 
 
 def test_invocation_cwd_falls_back_to_the_cwd_once_the_process_moves_on(

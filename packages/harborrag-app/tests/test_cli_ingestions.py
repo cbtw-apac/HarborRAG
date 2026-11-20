@@ -511,8 +511,8 @@ def test_inline_refuses_a_source_path_this_machine_does_not_have(
     assert error["details"] == [
         {
             "field": "config.source_path",
-            "issue": f"{_STACK_SOURCE_PATH} is not a directory on this machine; "
-            "--inline reads files from here",
+            "issue": f"{_STACK_SOURCE_PATH} is not an existing file or directory on this "
+            "machine; --inline reads files from here",
         }
     ]
     assert built[0].direct_runs == []
@@ -562,6 +562,22 @@ def test_inline_runs_the_stored_connection_by_its_source_key(
     assert built[0].connection_service.keys == [  # type: ignore[attr-defined]
         ConnectionKey("DEFAULT", "default", "harborrag-workspace")
     ]
+
+
+def test_inline_accepts_a_local_file_connection_that_names_one_file(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    notes = tmp_path / "notes.md"
+    notes.write_text("# Demo notes\n", encoding="utf-8")
+    built = _built(
+        monkeypatch,
+        _inline_service(_local_file(str(notes)), final_status=IngestionTaskState.COMPLETED.value),
+    )
+
+    code, _, _ = _run(capsys, "ingestions", "start", _REF, "--inline", "--yes", "-o", "json")
+
+    assert code == 0
+    assert len(built[0].direct_runs) == 1
 
 
 def test_an_inline_run_that_fails_to_run_is_one_error_envelope(

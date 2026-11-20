@@ -70,17 +70,21 @@ async def run_inline(
 
 
 def _refuse_a_source_path_not_here(connection: Connection) -> None:
-    """Refuse a ``local_file`` connection whose ``source_path`` is not a directory here.
+    """Refuse a ``local_file`` connection whose ``source_path`` is not a file or directory here.
 
     Raises:
-        HarborValidationError: The path is missing or not a directory on this machine.
+        HarborValidationError: The path does not exist on this machine.
     """
     source_path = connection.config.get("source_path")
     if connection.source_type != LOCAL_FILE or not isinstance(source_path, str):
         return
-    if Path(source_path).expanduser().is_dir():
+    path = Path(source_path).expanduser()
+    if path.is_file() or path.is_dir():
         return
-    issue = f"{source_path} is not a directory on this machine; --inline reads files from here"
+    issue = (
+        f"{source_path} is not an existing file or directory on this machine; "
+        "--inline reads files from here"
+    )
     raise HarborValidationError(
         f"connection {connection.ref} cannot run inline",
         {"errors": [{"field": "config.source_path", "issue": issue}]},

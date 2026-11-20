@@ -195,6 +195,13 @@ def invocation_cwd() -> Path:
     return cwd
 
 
+def from_invocation(path: str | Path) -> Path:
+    """Expand ``~`` and anchor a relative path at :func:`invocation_cwd`."""
+
+    expanded = Path(path).expanduser()
+    return expanded if expanded.is_absolute() else invocation_cwd() / expanded
+
+
 def invocation_path(
     *, exists: bool = False, dir_okay: bool = True
 ) -> Callable[[Path | None], Path | None]:
@@ -210,9 +217,7 @@ def invocation_path(
     def rebase(value: Path | None) -> Path | None:
         if value is None or os.fspath(value) == "-":
             return value
-        path = Path(value).expanduser()
-        if not path.is_absolute():
-            path = invocation_cwd() / path
+        path = from_invocation(value)
         if exists and not path.exists():
             raise typer.BadParameter(f"File '{value}' does not exist.")
         if not dir_okay and path.is_dir():

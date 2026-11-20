@@ -22,8 +22,9 @@ import typer
 
 from harborrag_app.cli.output import OutputFormat
 from harborrag_app.cli.profiles import DEFAULT_CONFIG_PATH, DEFAULT_PROFILE, load_profile
+from harborrag_app.cli.project import invocation_path
+from harborrag_core.domain.identity import DEFAULT_TENANT_ID
 
-DEFAULT_TENANT_ID = "DEFAULT"
 TENANT_ENV = "HARBORRAG_TENANT_ID"
 OUTPUT_ENV = "HARBORRAG_OUTPUT"
 PROFILE_ENV = "HARBORRAG_PROFILE"
@@ -63,8 +64,7 @@ ConfigOption = Annotated[
     typer.Option(
         "--config",
         metavar="PATH",
-        exists=True,
-        dir_okay=False,
+        callback=invocation_path(exists=True, dir_okay=False),
         help=f"Config file holding the profiles (default: {DEFAULT_CONFIG_PATH}).",
         rich_help_panel=GLOBAL_OPTIONS_PANEL,
     ),

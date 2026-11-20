@@ -240,7 +240,9 @@ directory that holds `config/sources/connectors.yaml`, and runs from there. `doc
 walks up the same way, so it gives the same report from any subfolder. When that is not
 the current directory and stderr is a terminal, the command says so on stderr:
 `harborrag: using repository checkout DIR`. A script that reads stderr does not see the
-notice. Outside a checkout and without a project directory, every command except
+notice. A relative file path you type, such as `-f body.yaml`, `settings import FILE`,
+`settings export --file` or `--config`, still names the file in the directory you ran the
+command in. Outside a checkout and without a project directory, every command except
 `doctor` stops with exit 1; `doctor` reports the missing project instead.
 
 ```text
@@ -424,16 +426,16 @@ or a worker, for development. It refuses `--wait`, which it already does, and
 unchanged, failed}`, and exits 0 when `status` is `COMPLETED` or `PARTIAL`, else 8.
 
 `--inline` reads the files on this machine, so a `local_file` connection's `source_path`
-must be a directory here; if it is not, `--inline` refuses the connection, as shown
-below. It must also lie inside `HARBORRAG_LOCAL_SOURCE_ROOT` when the
-CLI has one; the template of `env/.env.database` sets `/data/sources`. The stack's
+must be an existing file or directory here; if it is not, `--inline` refuses the
+connection, as shown below. It must also lie inside `HARBORRAG_LOCAL_SOURCE_ROOT` when
+the CLI has one; the template of `env/.env.database` sets `/data/sources`. The stack's
 connections name the folder as the containers see it: `default/harborrag-workspace`
 reads `/data/sources`. On a machine without that directory, `--inline` refuses such a
 connection with `422 validation_error` on `config.source_path`, exits 2 and runs
 nothing:
 
 ```text
-error 422 validation_error: connection default/harborrag-workspace cannot run inline; config.source_path: /data/sources is not a directory on this machine; --inline reads files from here (trace 1a2b3c4d…)
+error 422 validation_error: connection default/harborrag-workspace cannot run inline; config.source_path: /data/sources is not an existing file or directory on this machine; --inline reads files from here (trace 1a2b3c4d…)
 ```
 
 ## Ask a grounded question

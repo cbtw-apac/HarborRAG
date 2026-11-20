@@ -9,11 +9,12 @@ from __future__ import annotations
 import getpass
 import sys
 from collections.abc import Mapping, Sequence
-from pathlib import Path
 
 import click
 import yaml
 from pydantic import BaseModel, ValidationError
+
+from harborrag_app.cli.project import from_invocation
 
 STDIN = "-"
 
@@ -71,11 +72,15 @@ def read_fields(path: str | None, *, flags: Mapping[str, object]) -> dict[str, o
 def read_document(path: str) -> dict[str, object]:
     """Read a JSON or YAML mapping from a file or, for ``-``, from stdin.
 
+    A relative path is read from the directory the user ran the command in.
+
     Raises:
         click.UsageError: The file cannot be read, is not valid JSON or YAML, or holds no mapping.
     """
     try:
-        text = sys.stdin.read() if path == STDIN else Path(path).read_text(encoding="utf-8")
+        text = (
+            sys.stdin.read() if path == STDIN else from_invocation(path).read_text(encoding="utf-8")
+        )
     except (OSError, UnicodeDecodeError) as exc:
         raise click.UsageError(f"cannot read {path}: {type(exc).__name__}") from None
     try:

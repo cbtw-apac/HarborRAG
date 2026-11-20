@@ -259,7 +259,7 @@ and exits 2, with `--help` too:
 | `harborrag source sync REF` | `harborrag ingestions start REF` |
 | `harborrag source remove REF` | `harborrag connections delete REF` |
 | `harborrag ingest start CONNECTOR` | `harborrag ingestions start REF` |
-| `harborrag ingest run CONNECTOR` | `harborrag ingestions start REF --inline`, which refuses a `local_file` connection whose `source_path` is not a directory on this machine, such as the stack's `/data/sources` |
+| `harborrag ingest run CONNECTOR` | `harborrag ingestions start REF --inline`, which refuses a `local_file` connection whose `source_path` is neither a file nor a directory on this machine, such as the stack's `/data/sources` |
 | `harborrag ingest status RUN_ID` | `harborrag ingestions get INGESTION_ID` |
 | `harborrag ingest wait RUN_ID`, `harborrag ingest watch RUN_ID` | `harborrag ingestions get INGESTION_ID --watch` |
 | `harborrag ingest pause RUN_ID`, `resume`, `cancel` | `harborrag ingestions pause INGESTION_ID`, `resume`, `cancel` |

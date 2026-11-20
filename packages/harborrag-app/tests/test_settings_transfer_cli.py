@@ -20,8 +20,9 @@ from harborrag_adapters.repositories.database.control_plane.engine import (
     create_control_plane_engine,
 )
 from harborrag_adapters.repositories.database.control_plane.migrations import run_migrations
-from harborrag_app.cli import invoke
+from harborrag_app.cli import environment, invoke
 from harborrag_app.cli import main as cli
+from harborrag_app.cli import project as project_module
 from harborrag_core.config_store import SettingsLevel, SettingsRegistry
 from harborrag_core.config_store.documents import plan_import
 from harborrag_core.config_store.resolution import SettingChange
@@ -274,6 +275,38 @@ def test_export_to_a_file_prints_where_it_wrote(
     assert code == 0
     assert out == {"file": str(exported)}
     assert exported.read_text(encoding="utf-8") == f"{_KEY}: 512\n"
+
+
+def test_export_to_a_file_is_not_refused_in_a_checkout(
+    world: _World, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(environment, "checkout_write_refusal", lambda: "refused: checkout")
+    world.seed(f"{_KEY}: 512\n")
+
+    code, _ = _json(capsys, "export", "--file", str(world.directory / "out.yaml"))
+
+    assert code == 0
+
+
+def test_import_and_export_resolve_relative_files_where_the_user_stood(
+    world: _World, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = Path.cwd()
+    subdirectory = root / "sub"
+    subdirectory.mkdir()
+    (subdirectory / "in.yaml").write_text(f"{_KEY}: 512\n", encoding="utf-8")
+    monkeypatch.chdir(subdirectory)
+    monkeypatch.setattr(project_module, "_INVOCATION", None)
+    monkeypatch.setattr(project_module, "_ACTIVE", None)
+
+    imported, _ = _json(capsys, "import", "in.yaml")
+    monkeypatch.chdir(subdirectory)
+    monkeypatch.setattr(project_module, "_INVOCATION", None)
+    exported, _ = _json(capsys, "export", "--file", "out.yaml")
+
+    assert (imported, exported) == (0, 0)
+    assert (subdirectory / "out.yaml").is_file()
+    assert not (root / "out.yaml").exists()
 
 
 def test_export_has_no_output_option_of_its_own(

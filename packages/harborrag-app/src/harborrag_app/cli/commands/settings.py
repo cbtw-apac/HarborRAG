@@ -19,7 +19,6 @@ from pydantic_core import to_jsonable_python
 
 from harborrag_app.cli.bodies import read_document
 from harborrag_app.cli.commands.auth_keys import operator_identity
-from harborrag_app.cli.environment import refuse_checkout_write
 from harborrag_app.cli.globals import (
     ConfigOption,
     OutputOption,
@@ -29,6 +28,7 @@ from harborrag_app.cli.globals import (
     current_globals,
 )
 from harborrag_app.cli.invoke import Outcome, run_operation
+from harborrag_app.cli.project import invocation_path
 from harborrag_app.cli.typer_app import new_typer
 from harborrag_app.operations.local import LocalOperations
 from harborrag_app.operations.scope import Scope
@@ -150,7 +150,10 @@ def set_settings(  # noqa: PLR0913 - the change sources, flags and global option
 
 @app.command("import")
 def import_settings(  # noqa: PLR0913 - one parameter per documented option
-    file: Annotated[Path, typer.Argument(metavar="FILE", help="Settings YAML file.")],
+    file: Annotated[
+        Path,
+        typer.Argument(metavar="FILE", callback=invocation_path(), help="Settings YAML file."),
+    ],
     apply: Annotated[
         bool, typer.Option("--apply", help="Write the changes; without it, print them only.")
     ] = False,
@@ -216,7 +219,13 @@ def export_settings(  # noqa: PLR0913 - the level and file flags plus the global
         ),
     ] = None,
     file: Annotated[
-        Path | None, typer.Option("--file", metavar="PATH", help="Write here, not to stdout.")
+        Path | None,
+        typer.Option(
+            "--file",
+            metavar="PATH",
+            callback=invocation_path(),
+            help="Write here, not to stdout.",
+        ),
     ] = None,
     tenant: TenantOption = None,
     output: OutputOption = None,
@@ -231,8 +240,6 @@ def export_settings(  # noqa: PLR0913 - the level and file flags plus the global
     resolved = current_globals(
         tenant=tenant, output=output, profile=profile, config=config, yes=yes
     )
-    if file is not None:
-        refuse_checkout_write()
 
     async def operation(importer: SettingsImporter, tenant_id: str) -> Mapping[str, Any] | Outcome:
         from harborrag_core.config_store import SettingsLevel  # noqa: PLC0415
@@ -249,7 +256,7 @@ def export_settings(  # noqa: PLR0913 - the level and file flags plus the global
         if file is None:
             sys.stdout.write(text)
             return Outcome(None, 0)
-        file.expanduser().write_text(text, encoding="utf-8")
+        file.write_text(text, encoding="utf-8")
         return {"file": str(file)}
 
     run_operation(None, _importer_call(operation, None), globals=resolved)

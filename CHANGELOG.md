@@ -194,6 +194,9 @@ action.
 - Cancelling a running or paused run whose Temporal workflow is gone, such as one past the namespace retention, records it as `cancelled` with `error_category` `workflow_not_found`, over HTTP and with `harborrag ingestions cancel`, instead of answering `503` every time; a queued run that is not a retry run still answers `503`
 - `POST /v1/admin/ingestions` with an `updated_after` that has no UTC offset answers `422 validation_error` on `updated_after`, instead of `500`
 - `harborrag ingestions pause`, `resume` and `cancel` follow the HTTP rules: pausing a paused run, pausing or resuming a retry run, and any action on a finished run exit `4` with `invalid_state` and send no signal, cancelling a retry run cancels its own workflow instead of answering "task not found", and an unknown run is not found
+- A relative file path typed in a project subdirectory, for `--file` of `projects`, `connections` and `settings`, `settings import FILE` and `--config`, names that subdirectory's file instead of one at the project root
+- `harborrag settings export --file` no longer refuses to run in a repository checkout, because it only reads the control database
+- `harborrag ingestions start --inline` accepts a `local_file` connection whose `source_path` is one file, as the connector does
 
 #### harborrag-engine
 
@@ -216,12 +219,15 @@ action.
 - Cancelling a run keeps its summary, so the run's `discovered` count no longer drops when it is cancelled
 - Reading a run Temporal reports as natively paused shows `paused` instead of failing with `8 is not a valid WorkflowExecutionStatus`
 - Pausing a run no longer strands it: a run and its batch are paused by signal only, not natively in Temporal, where a workflow task scheduled at the pause was never dispatched again and resume and cancel hung; the Temporal UI now shows a paused run as `Running`
+- A chat completion the response model rejects no longer marks its `Idempotency-Key` as completed; a retry answers that the first request failed, instead of that its result predates this API version
+- A blank `HARBORRAG_INGESTION_TENANT_ID` counts as unset when the settings are read
 
 #### Deployment
 
 - The development API receives `JIRA_EMAIL`, `CONFLUENCE_EMAIL`, `MICROSOFT_TENANT_ID`, `MICROSOFT_CLIENT_ID` and `GITHUB_REPOSITORY_URL` from `env/.env.connector`, so the first-start import no longer stores the Jira, Confluence and SharePoint connections without them and with status `error`
 - The SharePoint entry of `config/sources/connectors.yaml` crawls the drive with the shared file type list instead of a test folder of Markdown files
 - `mcp.sh --http` stops and removes a server that never becomes healthy
+- The development worker receives `HARBORRAG_INGESTION_TENANT_ID` from the compose environment file, so it refuses to start on the removed name as the API does
 
 ## [2.0.0a2] - 2026-10-26
 

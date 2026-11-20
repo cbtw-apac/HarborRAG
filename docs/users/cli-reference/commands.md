@@ -85,7 +85,7 @@ harborrag auth keys create [OPTIONS]
 | `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
-| `--config PATH` | file |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
+| `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
 | `--yes, -y` | boolean | `false` | Answer yes to confirmation questions, for scripts. |
 
 ## harborrag auth keys list
@@ -101,7 +101,7 @@ harborrag auth keys list [OPTIONS]
 | `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
-| `--config PATH` | file |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
+| `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
 | `--yes, -y` | boolean | `false` | Answer yes to confirmation questions, for scripts. |
 
 ## harborrag auth keys revoke
@@ -122,7 +122,7 @@ harborrag auth keys revoke [OPTIONS]
 | `--tenant TENANT_ID` | text |  | Required with --owner, and not allowed with --key-id. Never defaults: HARBORRAG_TENANT_ID and the profile are ignored. |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
-| `--config PATH` | file |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
+| `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
 | `--yes, -y` | boolean | `false` | Answer yes to confirmation questions, for scripts. |
 
 ## harborrag chat
@@ -143,7 +143,7 @@ harborrag chat [OPTIONS] MESSAGE
 | `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
-| `--config PATH` | file |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
+| `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
 | `--yes, -y` | boolean | `false` | Answer yes to confirmation questions, for scripts. |
 
 ## harborrag connections create
@@ -162,7 +162,7 @@ harborrag connections create [OPTIONS] REF
 | `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
-| `--config PATH` | file |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
+| `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
 | `--yes, -y` | boolean | `false` | Answer yes to confirmation questions, for scripts. |
 
 ## harborrag connections delete
@@ -180,7 +180,7 @@ harborrag connections delete [OPTIONS] REF
 | `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
-| `--config PATH` | file |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
+| `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
 | `--yes, -y` | boolean | `false` | Answer yes to confirmation questions, for scripts. |
 
 ## harborrag connections get
@@ -197,7 +197,7 @@ harborrag connections get [OPTIONS] REF
 | `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
-| `--config PATH` | file |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
+| `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
 | `--yes, -y` | boolean | `false` | Answer yes to confirmation questions, for scripts. |
 
 ## harborrag connections list
@@ -219,7 +219,7 @@ harborrag connections list [OPTIONS]
 | `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
-| `--config PATH` | file |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
+| `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
 | `--yes, -y` | boolean | `false` | Answer yes to confirmation questions, for scripts. |
 
 ## harborrag connections test
@@ -237,7 +237,7 @@ harborrag connections test [OPTIONS] REF
 | `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
-| `--config PATH` | file |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
+| `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
 | `--yes, -y` | boolean | `false` | Answer yes to confirmation questions, for scripts. |
 
 ## harborrag connections update
@@ -257,7 +257,7 @@ harborrag connections update [OPTIONS] REF
 | `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
-| `--config PATH` | file |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
+| `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
 | `--yes, -y` | boolean | `false` | Answer yes to confirmation questions, for scripts. |
 
 ## harborrag doctor
@@ -273,7 +273,7 @@ harborrag doctor [OPTIONS]
 | `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
-| `--config PATH` | file |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
+| `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
 | `--yes, -y` | boolean | `false` | Answer yes to confirmation questions, for scripts. |
 
 ## harborrag failures list
@@ -299,7 +299,7 @@ harborrag failures list [OPTIONS]
 | `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
-| `--config PATH` | file |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
+| `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
 | `--yes, -y` | boolean | `false` | Answer yes to confirmation questions, for scripts. |
 
 ## harborrag failures retry
@@ -321,7 +321,7 @@ harborrag failures retry [OPTIONS]
 | `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
-| `--config PATH` | file |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
+| `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
 | `--yes, -y` | boolean | `false` | Answer yes to confirmation questions, for scripts. |
 
 ## harborrag ingestions cancel
@@ -338,7 +338,7 @@ harborrag ingestions cancel [OPTIONS] INGESTION_ID
 | `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
-| `--config PATH` | file |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
+| `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
 | `--yes, -y` | boolean | `false` | Answer yes to confirmation questions, for scripts. |
 
 ## harborrag ingestions get
@@ -356,7 +356,7 @@ harborrag ingestions get [OPTIONS] INGESTION_ID
 | `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
-| `--config PATH` | file |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
+| `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
 | `--yes, -y` | boolean | `false` | Answer yes to confirmation questions, for scripts. |
 
 ## harborrag ingestions list
@@ -379,7 +379,7 @@ harborrag ingestions list [OPTIONS]
 | `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
-| `--config PATH` | file |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
+| `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
 | `--yes, -y` | boolean | `false` | Answer yes to confirmation questions, for scripts. |
 
 ## harborrag ingestions pause
@@ -396,7 +396,7 @@ harborrag ingestions pause [OPTIONS] INGESTION_ID
 | `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
-| `--config PATH` | file |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
+| `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
 | `--yes, -y` | boolean | `false` | Answer yes to confirmation questions, for scripts. |
 
 ## harborrag ingestions resume
@@ -413,7 +413,7 @@ harborrag ingestions resume [OPTIONS] INGESTION_ID
 | `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
-| `--config PATH` | file |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
+| `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
 | `--yes, -y` | boolean | `false` | Answer yes to confirmation questions, for scripts. |
 
 ## harborrag ingestions retry-failures
@@ -430,7 +430,7 @@ harborrag ingestions retry-failures [OPTIONS] INGESTION_ID
 | `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
-| `--config PATH` | file |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
+| `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
 | `--yes, -y` | boolean | `false` | Answer yes to confirmation questions, for scripts. |
 
 ## harborrag ingestions start
@@ -452,7 +452,7 @@ harborrag ingestions start [OPTIONS] REF
 | `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
-| `--config PATH` | file |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
+| `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
 | `--yes, -y` | boolean | `false` | Answer yes to confirmation questions, for scripts. |
 
 ## harborrag me
@@ -468,7 +468,7 @@ harborrag me [OPTIONS]
 | `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
-| `--config PATH` | file |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
+| `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
 | `--yes, -y` | boolean | `false` | Answer yes to confirmation questions, for scripts. |
 
 ## harborrag projects create
@@ -488,7 +488,7 @@ harborrag projects create [OPTIONS] PROJECT
 | `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
-| `--config PATH` | file |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
+| `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
 | `--yes, -y` | boolean | `false` | Answer yes to confirmation questions, for scripts. |
 
 ## harborrag projects delete
@@ -506,7 +506,7 @@ harborrag projects delete [OPTIONS] PROJECT
 | `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
-| `--config PATH` | file |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
+| `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
 | `--yes, -y` | boolean | `false` | Answer yes to confirmation questions, for scripts. |
 
 ## harborrag projects get
@@ -523,7 +523,7 @@ harborrag projects get [OPTIONS] PROJECT
 | `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
-| `--config PATH` | file |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
+| `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
 | `--yes, -y` | boolean | `false` | Answer yes to confirmation questions, for scripts. |
 
 ## harborrag projects list
@@ -543,7 +543,7 @@ harborrag projects list [OPTIONS]
 | `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
-| `--config PATH` | file |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
+| `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
 | `--yes, -y` | boolean | `false` | Answer yes to confirmation questions, for scripts. |
 
 ## harborrag projects update
@@ -566,7 +566,7 @@ harborrag projects update [OPTIONS] PROJECT
 | `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
-| `--config PATH` | file |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
+| `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
 | `--yes, -y` | boolean | `false` | Answer yes to confirmation questions, for scripts. |
 
 ## harborrag settings export
@@ -586,7 +586,7 @@ harborrag settings export [OPTIONS]
 | `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
-| `--config PATH` | file |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
+| `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
 | `--yes, -y` | boolean | `false` | Answer yes to confirmation questions, for scripts. |
 
 ## harborrag settings get
@@ -604,7 +604,7 @@ harborrag settings get [OPTIONS]
 | `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
-| `--config PATH` | file |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
+| `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
 | `--yes, -y` | boolean | `false` | Answer yes to confirmation questions, for scripts. |
 
 ## harborrag settings import
@@ -625,7 +625,7 @@ harborrag settings import [OPTIONS] FILE
 | `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
-| `--config PATH` | file |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
+| `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
 | `--yes, -y` | boolean | `false` | Answer yes to confirmation questions, for scripts. |
 
 ## harborrag settings schema
@@ -641,7 +641,7 @@ harborrag settings schema [OPTIONS]
 | `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
-| `--config PATH` | file |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
+| `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
 | `--yes, -y` | boolean | `false` | Answer yes to confirmation questions, for scripts. |
 
 ## harborrag settings set
@@ -662,7 +662,7 @@ harborrag settings set [OPTIONS] [KEY=VALUE]...
 | `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
-| `--config PATH` | file |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
+| `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
 | `--yes, -y` | boolean | `false` | Answer yes to confirmation questions, for scripts. |
 
 ## harborrag source-types list
@@ -679,5 +679,5 @@ harborrag source-types list [OPTIONS]
 | `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
-| `--config PATH` | file |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
+| `--config PATH` | path |  | Config file holding the profiles (default: ~/.config/harborrag/config.yaml). |
 | `--yes, -y` | boolean | `false` | Answer yes to confirmation questions, for scripts. |

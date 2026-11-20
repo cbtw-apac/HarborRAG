@@ -19,11 +19,9 @@ from harborrag_app.operations.errors import ErrorBody, error_body
 from harborrag_app.operations.port import Operations
 from harborrag_app.operations.schemas.connections import IngestionOut
 from harborrag_app.operations.scope import Scope
-from harborrag_engine.control_plane.connection_views import ingestion_status
-from harborrag_engine.ingestion.presenters import TERMINAL_STATES
+from harborrag_runtime.application.ingestion.follower import ENDED_STATUSES
 
 POLL_SECONDS = 5.0
-ENDED_STATUSES = frozenset(ingestion_status(state) for state in TERMINAL_STATES)
 REATTACH = (
     "Stopped following; the run keeps going. Re-attach with: "
     "harborrag ingestions get {ingestion_id} --watch"
