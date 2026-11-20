@@ -504,8 +504,8 @@ store holds only the keys of [Runtime settings](configuration/runtime-settings.m
 | `"advanced": {}` | Every field uses the connector default. |
 | `"advanced": {"page_size": null}` | That field uses the connector default. |
 
-Jira, Confluence and SharePoint accept a `page_size` from 1 to 100. Settings imported from
-`connectors.yaml`, such as `requests_per_minute: 600`, show up here.
+Jira, Confluence and SharePoint accept a `page_size` from 1 to 100. Settings
+imported from `connectors.yaml`, such as `requests_per_minute: 600`, show up here.
 
 ## File type filters
 

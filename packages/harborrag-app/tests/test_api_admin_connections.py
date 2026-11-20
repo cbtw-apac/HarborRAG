@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 import jwt
@@ -185,7 +186,7 @@ def test_put_errors_follow_the_spec(client: TestClient) -> None:
 
 
 def test_list_test_sync_and_delete(
-    client: TestClient, app_service: _ConnectionApp, monkeypatch: pytest.MonkeyPatch, tmp_path: Any
+    client: TestClient, app_service: _ConnectionApp, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setenv("HARBORRAG_LOCAL_SOURCE_ROOT", str(tmp_path))
     client.put(_PATH, json=_BODY)
@@ -281,7 +282,7 @@ def test_openapi_documents_the_connection_routes(client: TestClient) -> None:
 
 
 def test_local_connections_stay_inside_the_source_root(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Any
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setenv("HARBORRAG_LOCAL_SOURCE_ROOT", str(tmp_path))
     body = {"source_type": "local_file", "credentials": {}, "config": {"source_path": "/proc/self"}}
@@ -323,7 +324,7 @@ def test_templates_are_offered_per_setup(client: TestClient) -> None:
 
 
 def test_every_template_creates_a_connection_that_builds_its_connector(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Any
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setenv("HARBORRAG_LOCAL_SOURCE_ROOT", "/data/sources")
     monkeypatch.delenv("LOCAL_SOURCE_PATH", raising=False)
@@ -398,6 +399,25 @@ def test_advanced_settings_are_kept_replaced_and_reset(client: TestClient) -> No
     assert refused.json()["error"]["details"][0]["field"] == "advanced.page_size"
     assert too_large.json()["error"]["details"][0]["field"] == "advanced.page_size"
     assert client.get(_PATH).json()["advanced"] == {}
+
+
+def test_sharepoint_page_size_above_100_is_refused_without_saving(client: TestClient) -> None:
+    body = _templates(client, _ROUTE, "put")["sharepoint-device_code"]["value"]
+    path = "/v1/admin/projects/cpm/connections/sharepoint-docs"
+
+    refused_create = client.put(path, json={**body, "advanced": {"page_size": 200}})
+    missing = client.get(path)
+    created = client.put(path, json={**body, "advanced": {"page_size": 100}})
+    refused_update = client.put(path, json={**body, "advanced": {"page_size": 200}})
+    stored = client.get(path)
+
+    for refused in (refused_create, refused_update):
+        assert refused.status_code == 422
+        assert refused.json()["error"]["details"][0]["field"] == "advanced.page_size"
+    assert missing.status_code == 404
+    assert created.status_code == 201
+    assert stored.json()["advanced"] == {"page_size": 100}
+    assert stored.headers["ETag"] == created.headers["ETag"]
 
 
 def test_source_types_publish_their_advanced_schema(client: TestClient) -> None:
@@ -493,7 +513,7 @@ def _sample(schema: dict[str, Any]) -> dict[str, Any]:
 
 
 def test_local_connections_need_a_source_root_through_the_api(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Any
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.delenv("HARBORRAG_LOCAL_SOURCE_ROOT", raising=False)
     monkeypatch.delenv("LOCAL_SOURCE_PATH", raising=False)

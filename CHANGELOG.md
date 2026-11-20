@@ -186,6 +186,7 @@ action.
 - `harborrag ingest status` of a run Temporal reports as natively paused shows `paused` instead of failing with `8 is not a valid WorkflowExecutionStatus`
 - Pausing a run no longer strands it: a run and its batch are paused by signal only, not natively in Temporal, where a workflow task scheduled at the pause was never dispatched again and resume and cancel hung; the Temporal UI now shows a paused run as `Running`
 - Folder and glob settings of local, GitHub and SharePoint connections keep spaces at their start or end; re-save a connection to apply it
+- **Breaking:** SharePoint connections refuse a page size above 100, as Jira and Confluence do [#135]
 
 #### Deployment
 
