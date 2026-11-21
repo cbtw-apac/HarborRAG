@@ -3,7 +3,7 @@ PYTHON ?= python
 PYTEST ?= pytest
 PACKAGE ?=
 
-.PHONY: help bootstrap install-dev test test-package coverage coverage-html openapi cli-reference lint complexity file-length import-boundaries format typecheck compile doctor deps-check provider-matrix clean hooks
+.PHONY: help bootstrap install-dev test test-package coverage coverage-html openapi cli-reference lint complexity file-length import-boundaries format typecheck compile doctor deps-check clean hooks
 
 help:
 	@echo "HarborRAG development targets"
@@ -30,7 +30,6 @@ help:
 	@echo "Diagnostics:"
 	@echo "  make doctor           Run CLI doctor as JSON"
 	@echo "  make deps-check       Check package dependency direction"
-	@echo "  make provider-matrix  Print provider/repository TODO matrix"
 	@echo "  make clean            Remove Python build/test caches"
 
 bootstrap:
@@ -97,9 +96,6 @@ doctor:
 
 deps-check:
 	$(PYTHON) scripts/check_dependency_direction.py
-
-provider-matrix:
-	$(PYTHON) scripts/generate_provider_matrix.py
 
 clean:
 	find . -type d \( -name __pycache__ -o -name .pytest_cache -o -name .ruff_cache -o -name .mypy_cache -o -name htmlcov \) -prune -exec rm -rf {} +

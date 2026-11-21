@@ -301,7 +301,3 @@ class HarborParserRegistry:
         if existing is not None and existing is not builder and not replace:
             raise ValueError(f"Parser route {key!r} is already registered.")
         index[key] = builder
-
-
-# Compatibility name for callers migrating from the former combined facade.
-HarborParserEngineRegistry = HarborParserRegistry
