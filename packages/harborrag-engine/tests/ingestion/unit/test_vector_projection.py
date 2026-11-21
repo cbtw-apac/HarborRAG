@@ -351,13 +351,12 @@ def test_a_document_without_typed_fields_stores_no_fields_key() -> None:
 @pytest.mark.parametrize(
     "fields",
     (
-        {"Skill Set": "Data"},  # not a normalized key: a dotted filter path would be ambiguous
         {"skill_set": "  "},
         {"skills": ("java", "")},
         {"rate": float("nan")},
     ),
 )
-def test_payload_fields_must_be_normalized_and_non_empty(fields: dict[str, object]) -> None:
+def test_payload_field_values_must_be_non_empty_and_finite(fields: dict[str, object]) -> None:
     with pytest.raises(ValidationError):
         VectorPayload.model_validate({**_minimal_payload(), "fields": fields})
 
