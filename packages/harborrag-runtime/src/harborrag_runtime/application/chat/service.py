@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
-from collections.abc import AsyncGenerator, AsyncIterator, Sequence
+from collections.abc import AsyncGenerator, AsyncIterator, Callable, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import replace
 from typing import TYPE_CHECKING
@@ -183,6 +183,7 @@ class ChatApplicationService:
         tenant_id: str,
         principal_id: str,
         options: ChatExecutionOptions,
+        validate: Callable[[Completion], object] | None = None,
     ) -> AsyncGenerator[TurnEvent, None]:
         """Run one turn, yielding the passages found, the answer text, then the completion.
 
@@ -190,7 +191,8 @@ class ChatApplicationService:
         observes the graph per settings; instant does neither. In a session the
         exchange is stored under the completion's id before ``TurnCompleted``; a
         one-off question stores nothing. Every check that can refuse the turn runs
-        before any model call.
+        before any model call. ``validate`` sees the completion before it is stored;
+        when it raises, nothing is stored and its error propagates.
 
         Raises:
             HarborNotFoundError: The session does not exist for this caller.
@@ -235,6 +237,8 @@ class ChatApplicationService:
                 citations=numbering.citations(),
                 usage=_usage(options, calls),
             )
+            if validate is not None:
+                validate(completion)
             answer_tokens = response.usage.completion_tokens if response is not None else None
             await self._remember(query, identity, completion, answer_tokens)
             yield TurnCompleted(completion)

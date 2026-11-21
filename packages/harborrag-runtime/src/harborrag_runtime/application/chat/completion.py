@@ -10,6 +10,7 @@ model call, and the next step is that call. A failure before it cost no model ca
 
 from __future__ import annotations
 
+import json
 from dataclasses import asdict, dataclass
 
 from harborrag_core.domain.retrieval import RetrievalResult
@@ -61,6 +62,10 @@ class Completion:
                 "cost_usd": usage.cost_usd,
             },
         }
+
+    def body(self) -> str:
+        """Return ``data()`` as the compact JSON that is validated, stored and replayed."""
+        return json.dumps(self.data(), ensure_ascii=False, separators=(",", ":"))
 
 
 @dataclass(frozen=True, slots=True)
