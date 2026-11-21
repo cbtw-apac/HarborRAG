@@ -5,10 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from harborrag_adapters.repositories.backends.sqlalchemy import SQLAlchemyDBClient
+from harborrag_adapters.repositories.backends.sqlite import prepare_sqlite_database
 from harborrag_adapters.repositories.database.ingestion_control import (
     IngestionControlPlaneDatabase,
 )
-from harborrag_adapters.repositories.database.sqlite.client import SQLiteDBClient
 from harborrag_adapters.repositories.object_store import (
     CanonicalCommentArtifactRepository,
     CanonicalDocumentArtifactRepository,
@@ -61,7 +62,14 @@ from .storage import (
 
 def build_control_plane(tmp_path: Path) -> IngestionControlPlaneDatabase:
     return IngestionControlPlaneDatabase(
-        SQLiteDBClient(database=str(tmp_path / "release.db")),
+        SQLAlchemyDBClient(
+            backend="sqlite",
+            url=prepare_sqlite_database(str(tmp_path / "release.db")),
+            pool_size=None,
+            max_overflow=None,
+            pool_recycle_seconds=1800,
+            echo=False,
+        ),
         create_schema=True,
     )
 

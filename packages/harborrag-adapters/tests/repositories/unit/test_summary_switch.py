@@ -10,15 +10,14 @@ from harborrag_adapters.repositories.database.ingestion_control.summary_schema i
     SUMMARY_SCOPES,
     SUMMARY_TENANTS,
 )
-from harborrag_adapters.repositories.database.sqlite.client import SQLiteDBClient
 
-from .ingestion_control_fixtures import advance_to_verified, candidate
+from .ingestion_control_fixtures import advance_to_verified, candidate, sqlite_client
 from .topology_fixtures import permit
 
 
 def _control(tmp_path: Path, *, summaries_enabled: bool) -> IngestionControlPlaneDatabase:
     return IngestionControlPlaneDatabase(
-        SQLiteDBClient(database=str(tmp_path / "control-plane.db")),
+        sqlite_client(tmp_path / "control-plane.db"),
         create_schema=True,
         summaries_enabled=summaries_enabled,
     )

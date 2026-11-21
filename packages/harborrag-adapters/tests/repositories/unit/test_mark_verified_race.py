@@ -9,14 +9,14 @@ from typing import Any
 import pytest
 from sqlalchemy import event
 
+from harborrag_adapters.repositories.backends.sqlalchemy import SQLAlchemyDBClient
 from harborrag_adapters.repositories.database.ingestion_control import (
     IngestionControlPlaneDatabase,
 )
-from harborrag_adapters.repositories.database.sqlite.client import SQLiteDBClient
 from harborrag_core.contracts import HarborConflictError
 from harborrag_core.ingestion import DocumentVersionState, ProjectionManifest
 
-from .ingestion_control_fixtures import candidate
+from .ingestion_control_fixtures import candidate, sqlite_client
 
 pytestmark = pytest.mark.unit
 
@@ -29,7 +29,7 @@ _STAGES = (
 )
 
 
-def _fail_after_status_read(client: SQLiteDBClient, database: Path, version_id: str) -> None:
+def _fail_after_status_read(client: SQLAlchemyDBClient, database: Path, version_id: str) -> None:
     """Commit a move to FAILED from another connection right after the status read."""
     fired: list[bool] = []
 
@@ -54,7 +54,7 @@ def _fail_after_status_read(client: SQLiteDBClient, database: Path, version_id: 
 @pytest.mark.asyncio
 async def test_mark_verified_after_a_concurrent_failure_keeps_failed(tmp_path: Path) -> None:
     database = tmp_path / "control-plane.db"
-    client = SQLiteDBClient(database=str(database))
+    client = sqlite_client(database)
     control_plane = IngestionControlPlaneDatabase(client, create_schema=True)
     version = candidate("release guide body")
     version_id = str(version.document_version_id)
