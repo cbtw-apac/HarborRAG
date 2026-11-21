@@ -58,7 +58,7 @@ def _no_sleep(monkeypatch):
     ],
 )
 def test_github_rate_limited_classification(response, expected):
-    assert _RequestsGitHubClient._rate_limited(response) is expected
+    assert _RequestsGitHubClient._rate_limited(response, response.text) is expected
 
 
 def _github_config(**overrides) -> GitHubRepositoryConfig:
@@ -86,11 +86,11 @@ def test_github_retries_after_rate_limit_then_succeeds():
     assert len(client.session.calls) == 2  # retried once
 
 
-def test_github_plain_403_becomes_authentication_error():
+def test_github_plain_403_becomes_authorization_error():
     client = _RequestsGitHubClient(_github_config())
     client.session = FakeSession(responses=[FakeResponse(status_code=403, text="Bad credentials")])
 
-    with pytest.raises(AuthenticationError):
+    with pytest.raises(AuthorizationError):
         client.get_json("repos/acme/harbor-rag")
     assert len(client.session.calls) == 1  # not retried
 

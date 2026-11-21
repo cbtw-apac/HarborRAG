@@ -9,6 +9,8 @@ from dataclasses import dataclass, field
 from html import escape
 from typing import Any
 
+from requests.exceptions import StreamConsumedError
+
 
 def build_docx_bytes(text: str = "Hello Harbor") -> bytes:
     from docx import Document
@@ -182,7 +184,11 @@ def build_understated_file_size_zip_bytes(
 
 @dataclass
 class FakeResponse:
-    """Minimal stand-in for ``requests.Response`` used by client-level tests."""
+    """Minimal stand-in for ``requests.Response`` used by client-level tests.
+
+    Like a streamed ``requests`` body, ``iter_content`` reads the body once; a
+    second call raises ``StreamConsumedError``.
+    """
 
     status_code: int = 200
     headers: dict[str, str] = field(default_factory=dict)
@@ -190,6 +196,7 @@ class FakeResponse:
     text: str = ""
     _chunks: list[bytes] = field(default_factory=list)
     closed: bool = False
+    _consumed: bool = field(default=False, init=False, repr=False)
 
     def json(self) -> Any:
         if self._json is None:
@@ -198,12 +205,14 @@ class FakeResponse:
 
     def iter_content(self, chunk_size: int = 65536) -> Iterator[bytes]:
         _ = chunk_size
+        if self._consumed:
+            raise StreamConsumedError()
+        self._consumed = True
         if self._chunks:
-            yield from self._chunks
-        elif self._json is not None:
-            yield json.dumps(self._json).encode("utf-8")
-        elif self.text:
-            yield self.text.encode("utf-8")
+            return iter(self._chunks)
+        if self._json is not None:
+            return iter([json.dumps(self._json).encode("utf-8")])
+        return iter([self.text.encode("utf-8")] if self.text else [])
 
     def close(self) -> None:
         self.closed = True

@@ -7,6 +7,8 @@ from harborrag_core.ingestion import (
     SourceUnavailableError,
 )
 
+_RETRYABLE_CLIENT_STATUS = frozenset({408, 429})
+
 
 def _redact_url(url: str) -> str:
     """Strip userinfo, query, and fragment before a URL reaches an error message.
@@ -53,7 +55,11 @@ class AuthorizationError(SourceAuthorizationError, ConnectorError):
 
 
 class FetchError(SourceUnavailableError, ConnectorError):
-    """Raised when a connector cannot fetch source data."""
+    """Raised when a connector cannot fetch source data.
+
+    A 4xx answer other than 408 or 429 is not retryable: the source refuses the
+    request itself, and asking again gets the same answer.
+    """
 
     def __init__(
         self,
@@ -66,6 +72,16 @@ class FetchError(SourceUnavailableError, ConnectorError):
         super().__init__(message)
         self.status_code = status_code
         self.detail = detail
+        self.retryable = type(self).retryable and not _is_permanent_status(status_code)
+
+
+def _is_permanent_status(status_code: int | None) -> bool:
+    """Return whether an HTTP status is a client error that retrying cannot fix."""
+    return (
+        status_code is not None
+        and 400 <= status_code < 500
+        and status_code not in _RETRYABLE_CLIENT_STATUS
+    )
 
 
 class ItemNotFoundError(FetchError, SourceItemNotFoundError):

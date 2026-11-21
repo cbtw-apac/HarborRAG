@@ -10,7 +10,9 @@ import requests
 
 from harborrag_adapters.connectors.exceptions import (
     AuthenticationError,
+    AuthorizationError,
     FetchError,
+    ItemNotFoundError,
     RateLimitError,
 )
 from harborrag_adapters.connectors.policies.http import (
@@ -123,7 +125,7 @@ class _RequestsGitHubClient:
             except requests.RequestException as exc:
                 last_error = exc
                 if attempt == self.config.max_retries:
-                    raise FetchError("GitHub request failed") from exc
+                    raise FetchError(f"GitHub request failed: {type(exc).__name__}") from None
                 self._sleep(attempt, exc)
                 continue
 
@@ -131,19 +133,28 @@ class _RequestsGitHubClient:
                 raise AuthenticationError(
                     safe_response_error_detail(response), status_code=response.status_code
                 )
-            if self._rate_limited(response):
+            forbidden = response.status_code == 403
+            detail = safe_response_error_detail(response) if forbidden else ""
+            if self._rate_limited(response, detail):
                 if attempt == self.config.max_retries:
-                    raise RateLimitError(safe_response_error_detail(response))
+                    raise RateLimitError(
+                        detail if forbidden else safe_response_error_detail(response)
+                    )
                 last_error = RateLimitError("GitHub rate limit exceeded")
                 retry_headers = response.headers
                 response.close()
                 self._sleep(attempt, last_error, retry_headers)
                 continue
             if response.status_code == 403:
-                raise AuthenticationError(
-                    safe_response_error_detail(response), status_code=response.status_code
-                )
+                raise AuthorizationError(detail, status_code=response.status_code)
             if response.status_code not in _RETRYABLE_STATUS or attempt == self.config.max_retries:
+                if response.status_code == 404:
+                    detail = safe_response_error_detail(response)
+                    raise ItemNotFoundError(
+                        f"GitHub request failed with HTTP 404: {detail}",
+                        status_code=404,
+                        detail=detail,
+                    )
                 if response.status_code >= 400:
                     raise FetchError(
                         f"GitHub request failed with HTTP "
@@ -173,7 +184,13 @@ class _RequestsGitHubClient:
         return f"{self.config.api_url}/{endpoint.lstrip('/')}"
 
     @staticmethod
-    def _rate_limited(response: requests.Response) -> bool:
+    def _rate_limited(response: requests.Response, detail: str = "") -> bool:
+        """Return whether a 429, or a 403 by its headers or ``detail``, is a rate limit.
+
+        Args:
+            response: Response whose status and headers are checked.
+            detail: The 403 body already read, since a streamed body reads only once.
+        """
         if response.status_code == 429:
             return True
         if response.status_code != 403:
@@ -182,7 +199,7 @@ class _RequestsGitHubClient:
             return True
         if response.headers.get("Retry-After"):
             return True
-        body = safe_response_error_detail(response, limit=2_000).lower()
+        body = detail.lower()
         return "secondary rate limit" in body or "abuse detection" in body
 
     def _acquire(self) -> None:

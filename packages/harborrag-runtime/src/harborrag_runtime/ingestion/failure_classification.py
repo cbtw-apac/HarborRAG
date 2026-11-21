@@ -5,6 +5,7 @@ from __future__ import annotations
 from sqlalchemy.exc import InterfaceError, OperationalError
 from sqlalchemy.exc import TimeoutError as ConnectionPoolTimeoutError
 
+from harborrag_adapters.connectors.policies.network import BlockedDestinationError
 from harborrag_adapters.repositories.errors import (
     HarborStorageConnectionError,
     HarborStorageRateLimitError,
@@ -46,7 +47,9 @@ def ingestion_failure_classifier() -> IngestionFailureClassifier:
     """Classifier that treats storage, database and network faults as transient.
 
     A pinned PDF parser the worker cannot build is ``parser_unavailable``, the code the
-    Temporal parse activity records, so direct and Temporal runs report it alike.
+    Temporal parse activity records, so direct and Temporal runs report it alike. A
+    connector request to a private address the operator has not allowed is
+    ``destination_blocked`` and is not retried.
     """
     from harborrag_runtime.ingestion.document.run_tools import (  # noqa: PLC0415 - the document package imports this module
         ParserUnavailableError,
@@ -60,6 +63,12 @@ def ingestion_failure_classifier() -> IngestionFailureClassifier:
                 FailureCategory.INVALID_CONFIGURATION,
                 True,
                 "parser_unavailable",
+            ),
+            (
+                BlockedDestinationError,
+                FailureCategory.INVALID_CONFIGURATION,
+                False,
+                "destination_blocked",
             ),
         ),
     )
