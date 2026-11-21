@@ -16,6 +16,7 @@ from harborrag_adapters.connectors.exceptions import (
     AuthorizationError,
     FetchError,
     RateLimitError,
+    RefusedResponseError,
 )
 from harborrag_adapters.connectors.policies.http import (
     DEFAULT_MAX_RETRY_DELAY_SECONDS,
@@ -104,7 +105,11 @@ class _RequestsGraphClient:
         response = self._request("GET", self._api_url(endpoint), params=params)
         try:
             payload = read_capped_json(response)
-        except (ValueError, ResponseTooLargeError) as exc:
+        except ResponseTooLargeError as exc:
+            raise RefusedResponseError(
+                f"Microsoft Graph response exceeded byte limit for {endpoint}"
+            ) from exc
+        except ValueError as exc:
             raise FetchError(f"Microsoft Graph returned non-JSON for {endpoint}") from exc
         if not isinstance(payload, dict):
             raise FetchError(f"Microsoft Graph returned invalid JSON for {endpoint}")
@@ -116,7 +121,7 @@ class _RequestsGraphClient:
         try:
             return read_capped_content(response, self.config.max_file_size_bytes)
         except ResponseTooLargeError as exc:
-            raise FetchError(str(exc)) from exc
+            raise RefusedResponseError(str(exc)) from exc
 
     def _request(
         self,
@@ -369,7 +374,7 @@ class _RequestsGraphClient:
                     label="Microsoft Graph",
                 )
             except ValueError as exc:
-                raise FetchError(str(exc)) from exc
+                raise RefusedResponseError(str(exc)) from exc
         return f"{self.config.graph_api_url}/{endpoint.lstrip('/')}"
 
     def _acquire(self) -> None:

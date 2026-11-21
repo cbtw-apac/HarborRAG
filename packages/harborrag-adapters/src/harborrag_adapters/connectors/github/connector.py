@@ -257,7 +257,7 @@ class GitHubConnector(BaseConnector):
 
         if not sha:
             raise DocumentProcessingError(
-                f"GitHub source record {record.id!r} does not include a blob sha"
+                f"GitHub source record path_digest={path_digest(path)} does not include a blob sha"
             )
         known_size = int(item.get("size") or 0)
         self._github.enforce_size_limit(path, known_size)
@@ -307,8 +307,8 @@ class GitHubConnector(BaseConnector):
         The record's own ``tree_sha`` is never trusted.
 
         Args:
-            record: Source record being loaded, named in the error.
-            path: The record's normalized repository path.
+            record: Source record being loaded, whose ``commit_sha`` is preferred.
+            path: The record's normalized repository path, named by digest in the error.
             sha: The record's blob sha.
             commit: Commit resolved for this run.
 
@@ -320,7 +320,8 @@ class GitHubConnector(BaseConnector):
         commit_sha = str(record.metadata.get("commit_sha") or commit.get("sha") or "")
         if self._github.blob_sha_at_commit(path, commit_sha=commit_sha) != sha:
             raise DocumentProcessingError(
-                f"GitHub source record {record.id!r} does not match the tree of its commit"
+                f"GitHub source record path_digest={path_digest(path)} does not match the tree "
+                "of its commit"
             )
 
     def load_by_paths(self, paths: Sequence[str]) -> Iterator[RawDocument]:

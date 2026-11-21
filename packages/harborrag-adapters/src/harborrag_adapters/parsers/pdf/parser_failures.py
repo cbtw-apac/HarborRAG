@@ -9,6 +9,7 @@ from harborrag_adapters.parsers.errors import (
     MaxFileSizeExceededError,
     MaxPagesExceededError,
     NoExtractableTextError,
+    ParseError,
     PDFParsingFailedError,
 )
 
@@ -28,3 +29,12 @@ def raise_pdf_failure(attempts: list[ParserAttempt]) -> NoReturn:
     ):
         raise first_cause
     raise PDFParsingFailedError(attempts=attempts)
+
+
+def engine_failure_reason(error: Exception) -> str:
+    """Return why an engine failed: a parser's own message, else only the error class.
+
+    Another library's exception text can quote the file's path or name.
+    """
+
+    return str(error) if isinstance(error, ParseError) else type(error).__name__

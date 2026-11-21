@@ -26,6 +26,7 @@ from harborrag_adapters.parsers.pdf.normalization import PDFNormalizer
 from harborrag_adapters.parsers.pdf.page_limit import PdfPageLimit
 from harborrag_adapters.parsers.pdf.parser_failures import (
     TYPED_ENGINE_FAILURES,
+    engine_failure_reason,
     raise_pdf_failure,
 )
 from harborrag_adapters.parsers.pdf.parser_support import PDFParserSupportMixin
@@ -153,7 +154,7 @@ class HarborPDFParser(PDFParserSupportMixin, HarborParser):
                 continue
             except Exception as error:  # noqa: BLE001
                 duration_ms = (perf_counter() - started) * 1000
-                message = f"failed ({error})"
+                message = f"failed ({engine_failure_reason(error)})"
                 attempts.append(
                     ParserAttempt(
                         engine=engine.name,
@@ -167,7 +168,7 @@ class HarborPDFParser(PDFParserSupportMixin, HarborParser):
                     "PDF engine %s failed for name_digest=%s: %s",
                     engine.name,
                     name_digest(request.filename or request.source_uri),
-                    error,
+                    engine_failure_reason(error),
                 )
                 continue
 
@@ -293,7 +294,7 @@ class HarborPDFParser(PDFParserSupportMixin, HarborParser):
                 continue
             except Exception as error:  # noqa: BLE001
                 duration_ms = (perf_counter() - started) * 1000
-                message = f"failed ({error})"
+                message = f"failed ({engine_failure_reason(error)})"
                 attempts.append(
                     ParserAttempt(
                         engine=engine.name,
@@ -307,7 +308,7 @@ class HarborPDFParser(PDFParserSupportMixin, HarborParser):
                     "PDF engine %s failed for %s: %s",
                     engine.name,
                     input_label(input),
-                    error,
+                    engine_failure_reason(error),
                 )
                 continue
 

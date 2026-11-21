@@ -96,6 +96,17 @@ class ItemNotFoundError(FetchError, SourceItemNotFoundError):
     retryable = False
 
 
+class RefusedResponseError(FetchError):
+    """The source answered with something the connector will not read.
+
+    Examples are a body over its size cap, a redirect to an untrusted origin and a
+    URL outside the configured origin. Asking again gets the same answer, so it is
+    never retried.
+    """
+
+    retryable = False
+
+
 class RateLimitError(FetchError):
     """Raised when the source system rate-limits the connector."""
 

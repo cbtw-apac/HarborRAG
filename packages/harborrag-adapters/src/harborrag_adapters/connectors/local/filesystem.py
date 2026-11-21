@@ -88,7 +88,7 @@ class LocalFileSystem:
             return
 
         start_path = self.start_path(query)
-        logger.info("Discovering local files under %s", start_path)
+        logger.info("Discovering local files under path_digest=%s", path_digest(start_path))
         for path, is_symlink in self.iter_files(start_path, query=query):
             if self.should_process_file(path, query):
                 yield path, is_symlink
@@ -111,7 +111,9 @@ class LocalFileSystem:
         seen_dirs = seen_dirs or set()
         directory_key = resolve_path(start_path)
         if directory_key in seen_dirs:
-            logger.debug("Skipping already visited local directory %s", start_path)
+            logger.debug(
+                "Skipping already visited local directory path_digest=%s", path_digest(start_path)
+            )
             return
         seen_dirs.add(directory_key)
 
@@ -129,7 +131,9 @@ class LocalFileSystem:
             self.skips.out_of_scope(path)
             return False
         if not path.is_file() and not path.is_dir():
-            raise DocumentProcessingError(f"Local path is not a file or directory: {path}")
+            raise DocumentProcessingError(
+                f"Local path is not a file or directory: path_digest={path_digest(path)}"
+            )
         return True
 
     def _directory_entries(self, path: Path) -> list[Path] | None:
@@ -312,12 +316,12 @@ class LocalFileSystem:
             candidate = self.root_path / candidate
         if not self.config.follow_symlinks and self.has_symlink_component(candidate):
             raise DocumentProcessingError(
-                f"Local symlinks are disabled for source scope {self.root_path}: {value}"
+                f"Local symlinks are disabled: path_digest={path_digest(value)}"
             )
         resolved = resolve_path(candidate)
         if not self.within_source_scope(resolved):
             raise DocumentProcessingError(
-                f"Local path is outside configured source scope {self.root_path}: {value}"
+                f"Local path is outside the configured source scope: path_digest={path_digest(value)}"
             )
         return resolved
 

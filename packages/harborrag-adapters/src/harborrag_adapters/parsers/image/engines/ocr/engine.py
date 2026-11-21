@@ -243,7 +243,7 @@ class OcrImageEngine(HarborImageEngine):
             parser_logger.warning(
                 "Image OCR failed for %s: %s",
                 input_label(parse_input),
-                exc,
+                type(exc).__name__,
                 extra=parser_log_extra(
                     input=parse_input,
                     parser_name=self.parser_name,
@@ -251,7 +251,7 @@ class OcrImageEngine(HarborImageEngine):
                     ocr_lang=self.lang,
                 ),
             )
-            raise ParseError(f"Image OCR failed: {exc}") from exc
+            raise ParseError(f"Image OCR failed: {type(exc).__name__}") from exc
 
         elements = (
             [

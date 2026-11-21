@@ -82,3 +82,17 @@ def test_vietnamese_and_cjk_names_get_readable_or_field_id_keys():
         "kinh_nghiem": "5",
         "customfield_500": "3",
     }
+
+
+def test_a_name_too_long_for_a_payload_key_falls_back_to_the_field_id():
+    long_name = "Preferred " + "deployment region " * 8
+    names = {"customfield_600": long_name, "customfield_700": "x" * 128}
+    issue = _issue(
+        {"customfield_600": {"value": "EU"}, "customfield_700": {"value": "kept"}}, names
+    )
+
+    assert len(field_key(long_name)) > 128
+    assert filterable_fields(custom_field_metadata(issue)) == {
+        "customfield_600": "EU",
+        "x" * 128: "kept",
+    }

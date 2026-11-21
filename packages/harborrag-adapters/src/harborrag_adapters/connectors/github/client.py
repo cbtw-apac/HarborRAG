@@ -14,6 +14,7 @@ from harborrag_adapters.connectors.exceptions import (
     FetchError,
     ItemNotFoundError,
     RateLimitError,
+    RefusedResponseError,
 )
 from harborrag_adapters.connectors.policies.http import (
     DEFAULT_JSON_BODY_LIMIT,
@@ -96,7 +97,9 @@ class _RequestsGitHubClient:
                 max_bytes=DEFAULT_JSON_BODY_LIMIT if max_bytes is None else max_bytes,
             )
         except ResponseTooLargeError as exc:
-            raise FetchError(f"GitHub response exceeded byte limit for {endpoint}") from exc
+            raise RefusedResponseError(
+                f"GitHub response exceeded byte limit for {endpoint}"
+            ) from exc
         except ValueError as exc:
             raise FetchError(f"GitHub returned non-JSON response for {endpoint}") from exc
         if isinstance(payload, dict):
@@ -180,7 +183,7 @@ class _RequestsGitHubClient:
                     label="GitHub API",
                 )
             except ValueError as exc:
-                raise FetchError(str(exc)) from exc
+                raise RefusedResponseError(str(exc)) from exc
         return f"{self.config.api_url}/{endpoint.lstrip('/')}"
 
     @staticmethod
