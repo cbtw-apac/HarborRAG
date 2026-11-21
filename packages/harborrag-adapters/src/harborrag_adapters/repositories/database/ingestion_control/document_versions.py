@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import Any, cast
 
 from sqlalchemy import insert, select, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from harborrag_adapters.repositories.backends.sqlalchemy import SQLAlchemyDBClient
@@ -259,9 +261,9 @@ class DocumentVersionRepository:
                     "a document version cannot be verified without a projection manifest"
                 )
             result = await session.execute(
-                select(DOCUMENT_VERSIONS.c.status).where(
-                    DOCUMENT_VERSIONS.c.document_version_id == document_version_id
-                )
+                select(DOCUMENT_VERSIONS.c.status)
+                .where(DOCUMENT_VERSIONS.c.document_version_id == document_version_id)
+                .with_for_update()
             )
             status = result.scalar_one_or_none()
             if status is None:
@@ -277,11 +279,16 @@ class DocumentVersionRepository:
                     f"document version is not ready for verification: {current.value}"
                 )
             now = utc_now()
-            await session.execute(
+            verified = await session.execute(
                 update(DOCUMENT_VERSIONS)
-                .where(DOCUMENT_VERSIONS.c.document_version_id == document_version_id)
+                .where(
+                    DOCUMENT_VERSIONS.c.document_version_id == document_version_id,
+                    DOCUMENT_VERSIONS.c.status == current.value,
+                )
                 .values(status=DocumentVersionState.VERIFIED.value, updated_at=now)
             )
+            if cast(CursorResult[Any], verified).rowcount != 1:
+                raise HarborConflictError("document version status changed during verification")
             await session.execute(
                 update(PROJECTION_MANIFESTS)
                 .where(PROJECTION_MANIFESTS.c.document_version_id == document_version_id)
@@ -349,11 +356,27 @@ class DocumentVersionRepository:
     async def active_relation_document_ids(
         self,
         *,
+        tenant_id: str | None = None,
         processing_fingerprint: str,
         anchor_document_id: str | None = None,
         limit: int = 100_000,
     ) -> tuple[str, ...]:
+        """Select one tenant's active documents whose source edges may need endpoint repair.
+
+        Args:
+            tenant_id: Tenant whose documents are selected; required despite the default.
+            processing_fingerprint: Fingerprint the active version must carry.
+            anchor_document_id: Limit the selection to the scopes of this document.
+            limit: Maximum documents to return, from 1 to 100000.
+
+        Returns:
+            Document IDs in ascending order.
+        """
+        # TODO: make tenant_id required once DocumentVersionPort declares it
+        if tenant_id is None:
+            raise ValueError("relation repair tenant_id is required")
         return await self._reader.active_relation_document_ids(
+            tenant_id=tenant_id,
             processing_fingerprint=processing_fingerprint,
             anchor_document_id=anchor_document_id,
             limit=limit,
