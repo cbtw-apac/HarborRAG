@@ -173,11 +173,7 @@ class DocumentCaptureStages:
                     candidate_id,
                     request.source_identity.connector_type.value,
                 )
-                return PreparedDocumentStage(
-                    document_id=capture.document_id,
-                    document_version_id=candidate_id,
-                    decision=SourceAdmissionDecision.UNSUPPORTED,
-                )
+                return await self._without_evidence(capture.document_id, candidate_id)
             active = await self._dependencies.control.document_versions.active_snapshot(
                 capture.document_id
             )
@@ -273,6 +269,38 @@ class DocumentCaptureStages:
             artifact=reference,
         )
         return reference
+
+    async def _without_evidence(
+        self,
+        document_id: str,
+        candidate_id: str,
+    ) -> PreparedDocumentStage:
+        """Retire the active version of a document that no longer yields evidence.
+
+        Its old text would otherwise stay searchable. The version is retired the
+        way a removed source item is, so its projections are queued for cleanup,
+        and the result is REMOVED_CANDIDATE. With no active version the candidate
+        is UNSUPPORTED and nothing is written.
+        """
+        active = await self._dependencies.control.document_versions.active_snapshot(document_id)
+        if active is None:
+            return PreparedDocumentStage(
+                document_id=document_id,
+                document_version_id=candidate_id,
+                decision=SourceAdmissionDecision.UNSUPPORTED,
+            )
+        await self._dependencies.control.publisher.retire_removed(document_id=document_id)
+        logger.info(
+            "Active version retired because the document has no indexable content "
+            "document_id=%s document_version_id=%s",
+            document_id,
+            active.document_version_id,
+        )
+        return PreparedDocumentStage(
+            document_id=document_id,
+            document_version_id=str(active.document_version_id),
+            decision=SourceAdmissionDecision.REMOVED_CANDIDATE,
+        )
 
     @staticmethod
     def _has_indexable_content(document: Document) -> bool:
