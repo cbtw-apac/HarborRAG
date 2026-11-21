@@ -199,7 +199,7 @@ class Operations(Protocol):
         ...
 
     async def resume_ingestion(self, scope: Scope, ingestion_id: str) -> IngestionOut:
-        """Resume a paused ingestion."""
+        """Resume a paused ingestion, or one whose pause has not been applied yet."""
         ...
 
     async def cancel_ingestion(self, scope: Scope, ingestion_id: str) -> IngestionOut:

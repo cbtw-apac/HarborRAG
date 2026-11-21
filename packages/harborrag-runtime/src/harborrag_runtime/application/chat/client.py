@@ -42,7 +42,7 @@ class ChatClientMixin:
     ) -> AppResponse:
         """Create a chat session scoped to ``project_id`` for its whole life.
 
-        ``user_id`` owns the new conversation and defaults to the principal. The transport
+        ``user_id`` owns the new conversation; ``None`` is the shared ``DEFAULT_USER``. The transport
         must pass the same end-user identity it later puts on
         ``ChatExecutionOptions``: the session is keyed by it, so creating as
         the credential and completing as the human would make every turn look
