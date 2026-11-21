@@ -92,6 +92,24 @@ def _with_exact_spacing(identity: dict[str, str], key: str, value: str) -> dict[
     return identity
 
 
+def _document_identity(
+    *,
+    tenant_id: str,
+    connector_type: ConnectorType,
+    connection_id: str,
+    source_item_id: str,
+) -> dict[str, str]:
+    """Return the identity inputs of a document ID, before any exact-spacing entry."""
+    identity = {
+        "connector_type": connector_type.value,
+        "connection_id": connection_id,
+        "source_item_id": source_item_id,
+    }
+    if tenant_id != "DEFAULT":
+        identity["tenant_id"] = tenant_id
+    return identity
+
+
 class DocumentIdentityBuilder:
     """Build every ingestion identity from stable knowledge inputs."""
 
@@ -118,13 +136,12 @@ class DocumentIdentityBuilder:
         Returns:
             The document ID.
         """
-        identity = {
-            "connector_type": connector_type.value,
-            "connection_id": connection_id,
-            "source_item_id": source_item_id,
-        }
-        if tenant_id != "DEFAULT":
-            identity["tenant_id"] = tenant_id
+        identity = _document_identity(
+            tenant_id=tenant_id,
+            connector_type=connector_type,
+            connection_id=connection_id,
+            source_item_id=source_item_id,
+        )
         return DocumentId(
             encoded_identifier(
                 "document",
@@ -359,4 +376,24 @@ def identity_for_source(source: SourceIdentity) -> DocumentId:
         connector_type=source.connector_type,
         connection_id=source.connection_id,
         source_item_id=source.source_item_id,
+    )
+
+
+def legacy_identity_for_source(source: SourceIdentity) -> DocumentId:
+    """Return the document ID that 2.0.0a2 and earlier gave a source identity.
+
+    Those releases had no exact-spacing entry, so source item IDs that differ only
+    in spacing shared one ID. For every other source item ID it equals
+    ``identity_for_source``.
+    """
+    return DocumentId(
+        encoded_identifier(
+            "document",
+            _document_identity(
+                tenant_id=source.tenant_id,
+                connector_type=source.connector_type,
+                connection_id=source.connection_id,
+                source_item_id=source.source_item_id,
+            ),
+        )
     )

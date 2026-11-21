@@ -252,7 +252,7 @@ def source_identity_from_canonical(document: Document) -> SourceIdentity:
     """Recover stable source identity without consulting a source connector."""
     metadata = document.provenance.extra
     required = {
-        name: str(metadata.get(name, "")).strip()
+        name: str(metadata.get(name, ""))
         for name in (
             "tenant_id",
             "connector_type",
@@ -261,14 +261,12 @@ def source_identity_from_canonical(document: Document) -> SourceIdentity:
             "source_scope_id",
         )
     }
-    missing = tuple(name for name, value in required.items() if not value)
+    missing = tuple(name for name, value in required.items() if not value.strip())
     if missing:
         raise ValueError("canonical source identity is incomplete: " + ", ".join(missing))
     binding_kind = BindingKind(str(metadata.get("binding_kind", BindingKind.ROOT.value)))
     parent = metadata.get("parent_source_item_id")
-    parent_source_item_id = (
-        str(parent).strip() if parent is not None and str(parent).strip() else None
-    )
+    parent_source_item_id = str(parent) if parent is not None and str(parent).strip() else None
     return SourceIdentity(
         tenant_id=required["tenant_id"],
         connector_type=ConnectorType(required["connector_type"]),

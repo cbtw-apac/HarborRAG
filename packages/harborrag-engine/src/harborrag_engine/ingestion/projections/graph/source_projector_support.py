@@ -112,7 +112,7 @@ def source_provider_id(connector_type: str, source_item_id: str) -> str:
     """Recover the provider ID/path carried by a canonical source item identity."""
 
     connector = connector_type.casefold()
-    value = source_item_id.strip()
+    value = source_item_id
     if connector in {"confluence", "sharepoint"} and "/" in value:
         return value.rstrip("/").rsplit("/", 1)[-1]
     if connector == "jira" and value.casefold().startswith("jira://"):
@@ -196,6 +196,19 @@ def text_value(values: Mapping[str, Any], *keys: str) -> str | None:
         value = values.get(key)
         if value is not None and str(value).strip():
             return str(value).strip()
+    return None
+
+
+def identity_value(values: Mapping[str, Any], *keys: str) -> str | None:
+    """Return the first non-blank value of ``keys`` as stored, edge spaces kept.
+
+    Graph node keys read paths through this, so two files whose paths differ only
+    in edge spaces stay two nodes. Titles and other display values use ``text_value``.
+    """
+    for key in keys:
+        value = values.get(key)
+        if value is not None and str(value).strip():
+            return str(value)
     return None
 
 
