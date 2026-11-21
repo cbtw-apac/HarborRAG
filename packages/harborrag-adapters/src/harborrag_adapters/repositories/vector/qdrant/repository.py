@@ -48,6 +48,8 @@ except ImportError:  # pragma: no cover - optional dependency
 else:
     qm = _qm
 
+_UPSERT_BATCH_POINTS = 128
+
 
 class QdrantVectorRepository(QdrantCollectionMixin, HarborVectorRepository):
     """Stores and searches tenant-scoped dense vectors through Qdrant."""
@@ -115,6 +117,11 @@ class QdrantVectorRepository(QdrantCollectionMixin, HarborVectorRepository):
         *,
         context: StorageOperationContext,
     ) -> None:
+        """Upsert in requests of at most 128 points, below Qdrant's 32 MiB request limit.
+
+        A failure can leave earlier requests written; upserts are idempotent, so a retry
+        completes the set.
+        """
         spec = await self._queries.require_spec(index_name, context)
         qdrant_points = []
         for point in records:
@@ -168,11 +175,13 @@ class QdrantVectorRepository(QdrantCollectionMixin, HarborVectorRepository):
                     qm,
                 )
             )
-        await self._database.raw.upsert(
-            collection_name=self._queries.collection_name(index_name, context),
-            points=qdrant_points,
-            wait=True,
-        )
+        collection_name = self._queries.collection_name(index_name, context)
+        for start in range(0, len(qdrant_points), _UPSERT_BATCH_POINTS):
+            await self._database.raw.upsert(
+                collection_name=collection_name,
+                points=qdrant_points[start : start + _UPSERT_BATCH_POINTS],
+                wait=True,
+            )
 
     @traced_repository_operation("get_records")
     @translate_qdrant_errors
