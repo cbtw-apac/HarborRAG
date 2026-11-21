@@ -401,7 +401,7 @@ harborrag ingestions pause [OPTIONS] INGESTION_ID
 
 ## harborrag ingestions resume
 
-Resume a paused run; 409 invalid_state when its status does not allow it.
+Resume a paused run, or a running one with a pending pause; else 409 invalid_state.
 
 ```text
 harborrag ingestions resume [OPTIONS] INGESTION_ID
@@ -448,7 +448,7 @@ harborrag ingestions start [OPTIONS] REF
 | `--updated-after DATE_TIME` | text |  | Re-read items changed since then, with a UTC offset: 2026-11-01T00:00:00Z. |
 | `--item-refs A,B` | text |  | Only these items, e.g. DEMO-1 (not in v2.0.0). |
 | `--wait` | boolean | `false` | Follow the run; exit 8 when it fails or is cancelled. |
-| `--inline` | boolean | `false` | Run the pipeline in this process without Temporal (development). |
+| `--inline` | boolean | `false` | Run the pipeline in this process without Temporal (development); 409 already_running when the connection has an active run. |
 | `--tenant TENANT_ID` | text |  | Tenant to act in (env HARBORRAG_TENANT_ID; default: the profile's, else the tenant in env/.env.api, else DEFAULT). |
 | `--output, -o` | `table`, `json`, `yaml` |  | Print a table, JSON or YAML (env HARBORRAG_OUTPUT; default: table in a terminal, else json). |
 | `--profile NAME` | text |  | Profile of the config file to use (env HARBORRAG_PROFILE; default: default). |
