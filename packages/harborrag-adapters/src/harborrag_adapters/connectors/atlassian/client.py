@@ -217,7 +217,7 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
                 allow_redirects=False,
             )
         except requests.RequestException as exc:
-            raise FetchError(f"{label} redirect request failed") from exc
+            raise FetchError(f"{label} redirect request failed: {type(exc).__name__}") from None
         if follow_up.status_code >= 400:
             detail = safe_response_error_detail(follow_up)
             raise FetchError(
@@ -247,7 +247,9 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
             except requests.RequestException as exc:
                 last_error = exc
                 if attempt == self.config.max_retries:
-                    raise FetchError(f"{self._provider_label} request failed") from exc
+                    raise FetchError(
+                        f"{self._provider_label} request failed: {type(exc).__name__}"
+                    ) from None
                 self._sleep(attempt, exc)
                 continue
 

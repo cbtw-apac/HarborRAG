@@ -13,6 +13,7 @@ from harborrag_adapters.parsers.common.models import ParserAttempt, ParseRequest
 from harborrag_adapters.parsers.common.utils import (
     get_parser_logger,
     input_label,
+    name_digest,
     parser_log_extra,
 )
 from harborrag_adapters.parsers.errors import EncryptedPdfError
@@ -99,8 +100,8 @@ class HarborPDFParser(PDFParserSupportMixin, HarborParser):
 
         if self._is_empty_request(request):
             parser_logger.info(
-                "PDF input %s is empty (0 bytes); returning empty content",
-                request.filename or request.source_uri,
+                "PDF input name_digest=%s is empty (0 bytes); returning empty content",
+                name_digest(request.filename or request.source_uri),
             )
             metadata = request.options.get("metadata", {})
             return self._normalizer.normalize(
@@ -163,9 +164,9 @@ class HarborPDFParser(PDFParserSupportMixin, HarborParser):
                 )
                 warnings.append(f"{engine.name}: {message}")
                 parser_logger.warning(
-                    "PDF engine %s failed for %s: %s",
+                    "PDF engine %s failed for name_digest=%s: %s",
                     engine.name,
-                    request.filename or request.source_uri,
+                    name_digest(request.filename or request.source_uri),
                     error,
                 )
                 continue

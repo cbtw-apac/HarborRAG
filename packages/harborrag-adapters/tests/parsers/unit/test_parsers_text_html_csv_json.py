@@ -49,7 +49,8 @@ def test_text_parser_compacts_and_emits_paragraph(caplog):
     assert document.content == "hello\n\nworld"
     assert [element.type for element in document.elements] == ["paragraph"]
     assert document.elements[0].content == "hello\n\nworld"
-    assert "Parsed text a.txt content_chars=12 elements=1" in caplog.text
+    assert "Parsed text input=18b7cb099a9e suffix=.txt size=22 content_chars=12" in caplog.text
+    assert "a.txt" not in caplog.text
 
 
 @pytest.mark.parametrize(

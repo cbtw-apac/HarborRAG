@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from pathlib import PurePath
 
 from harborrag_core.ingestion import ParserRejectedDocumentError, UnsupportedDocumentError
 
@@ -18,11 +19,15 @@ class UnsupportedFormatError(UnsupportedDocumentError, ParseError):
 
 
 class UnsupportedParserError(UnsupportedFormatError):
-    """Raised when no parser family owns a filename or MIME type."""
+    """Raised when no parser family owns a filename or MIME type.
+
+    The message names the file's suffix only; the name stays on ``filename``.
+    """
 
     def __init__(self, *, filename: str | None, mime_type: str | None) -> None:
+        suffix = PurePath(filename.strip()).suffix.strip().lower() if filename else ""
         super().__init__(
-            f"No parser family registered for filename={filename!r} mime_type={mime_type!r}."
+            f"No parser family registered for suffix={suffix!r} mime_type={mime_type!r}."
         )
         self.filename = filename
         self.mime_type = mime_type
@@ -143,6 +148,7 @@ class MaxPixelsExceededError(ParseError):
 
     ``more_than`` replaces the dimensions when the decoder rejected the image
     before reporting them, so only a lower bound on its pixel count is known.
+    The file name stays on ``filename`` and out of the message.
     """
 
     def __init__(
@@ -154,14 +160,13 @@ class MaxPixelsExceededError(ParseError):
         more_than: int | None = None,
         filename: str | None = None,
     ) -> None:
-        suffix = f" (file={filename!r})" if filename else ""
         if width is not None and height is not None:
             pixel_count: int | None = width * height
             subject = f"Image {width}x{height} ({pixel_count} pixels)"
         else:
             pixel_count = None
             subject = f"Image of more than {more_than} pixels" if more_than else "Image"
-        super().__init__(f"{subject} exceeds max_pixels {max_pixels}{suffix}.")
+        super().__init__(f"{subject} exceeds max_pixels {max_pixels}.")
         self.width = width
         self.height = height
         self.pixel_count = pixel_count
@@ -178,13 +183,14 @@ class UnreadableImageError(ParseError):
     that case already raises through the generic exception path below with
     the underlying engine's own message. Pillow's ``UnidentifiedImageError``
     carries a `<_io.BytesIO object at 0x...>` repr instead of any detail
-    about the file, so it must be replaced rather than just re-wrapped.
+    about the file, so it must be replaced rather than just re-wrapped. The file
+    name stays on ``filename`` and out of the message.
     """
 
     def __init__(self, *, filename: str | None, size_bytes: int) -> None:
         super().__init__(
-            f"Cannot decode {filename or 'image'} ({size_bytes} bytes) as a supported "
-            "image format; the file may be corrupt, truncated, or not actually an image."
+            f"Cannot decode image ({size_bytes} bytes) as a supported image format; "
+            "the file may be corrupt, truncated, or not actually an image."
         )
         self.filename = filename
         self.size_bytes = size_bytes

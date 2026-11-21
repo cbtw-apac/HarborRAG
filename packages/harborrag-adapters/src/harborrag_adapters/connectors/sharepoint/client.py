@@ -147,7 +147,9 @@ class _RequestsGraphClient:
             except requests.RequestException as exc:
                 last_error = exc
                 if attempt == self.config.max_retries:
-                    raise FetchError("Microsoft Graph request failed") from exc
+                    raise FetchError(
+                        f"Microsoft Graph request failed: {type(exc).__name__}"
+                    ) from None
                 self._sleep(attempt, exc)
                 continue
 

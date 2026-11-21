@@ -18,6 +18,7 @@ from typing import Any
 
 from harborrag_adapters.connectors.base import BaseConnector
 from harborrag_adapters.connectors.exceptions import DocumentProcessingError
+from harborrag_adapters.connectors.local.skips import path_digest
 from harborrag_adapters.connectors.policies.network import DestinationPolicy
 from harborrag_core.domain.raw_document import RawDocument
 from harborrag_core.domain.source import SourceRecord
@@ -261,7 +262,9 @@ class GitHubConnector(BaseConnector):
         known_size = int(item.get("size") or 0)
         self._github.enforce_size_limit(path, known_size)
 
-        logger.info("Loading GitHub file %s/%s:%s", self.owner, self.repo, path)
+        logger.info(
+            "Loading GitHub file %s/%s path_digest=%s", self.owner, self.repo, path_digest(path)
+        )
         content = self._github.load_blob(sha, known_size=known_size or None)
         metadata = build_document_metadata(
             item,

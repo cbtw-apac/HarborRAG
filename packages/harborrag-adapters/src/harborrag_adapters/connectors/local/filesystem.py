@@ -23,7 +23,7 @@ from .filters import file_paths_from_query
 from .mappers import build_source_record
 from .secure_read import LocalFileSnapshot, SecureReadScope, read_snapshot_beneath
 from .selection import LocalFileSelector
-from .skips import LocalSkipReport
+from .skips import LocalSkipReport, path_digest
 
 logger = logging.getLogger("harborrag.adapters.connectors.local")
 
@@ -135,7 +135,10 @@ class LocalFileSystem:
             return sorted(path.iterdir(), key=lambda item: item.name.lower())
         except OSError as exc:
             if self.config.fail_on_error:
-                raise FetchError(f"Could not list local directory {path}: {exc}") from exc
+                raise FetchError(
+                    f"Could not list local directory path_digest={path_digest(path)}: "
+                    f"{type(exc).__name__}"
+                ) from None
             self.skips.unreadable(path, error=exc)
             return None
 
@@ -186,7 +189,7 @@ class LocalFileSystem:
             return
         if size > self.config.max_file_size_bytes:
             raise DocumentProcessingError(
-                f"Local file {path} size {size} exceeds "
+                f"Local file path_digest={path_digest(path)} size {size} exceeds "
                 f"max_file_size_bytes {self.config.max_file_size_bytes}"
             )
 
@@ -242,7 +245,8 @@ class LocalFileSystem:
                 digest.update(chunk)
                 if limit is not None and len(buffer) > limit:
                     raise DocumentProcessingError(
-                        f"Local file {path} exceeds max_file_size_bytes {limit}"
+                        f"Local file path_digest={path_digest(path)} exceeds "
+                        f"max_file_size_bytes {limit}"
                     )
         return LocalFileSnapshot(
             content=bytes(buffer),
