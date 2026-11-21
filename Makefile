@@ -35,6 +35,7 @@ help:
 bootstrap:
 	$(PYTHON) -m pip install -e packages/harborrag-core
 	$(PYTHON) -m pip install -e "packages/harborrag-adapters[control-plane]"
+	$(PYTHON) -m pip install -e packages/harborrag-memory
 	$(PYTHON) -m pip install -e packages/harborrag-engine
 	$(PYTHON) -m pip install -e "packages/harborrag-runtime[production]"
 	$(PYTHON) -m pip install -e "packages/harborrag-app[api]"
