@@ -4,7 +4,7 @@ import asyncio
 from datetime import timedelta
 
 from temporalio import workflow
-from temporalio.exceptions import ActivityError
+from temporalio.exceptions import ActivityError, is_cancelled_exception
 
 from harborrag_core.ingestion import DocumentIngestionOutcome
 from harborrag_runtime.document_stage_catalog import DOCUMENT_STAGE_CATALOG
@@ -17,6 +17,8 @@ from .schemas import (
     PreparedDocument,
     RawCaptureResult,
 )
+
+_RECORDS_CANCELLATION_PATCH = "harborrag-document-records-cancellation"
 
 
 @workflow.defn(name="harborrag.document_ingestion")
@@ -74,21 +76,12 @@ class DocumentIngestionWorkflow:
                 )
             )
         except asyncio.CancelledError:
-            cleanup = workflow.execute_activity(
-                "harborrag.record_document_failure",
-                DocumentFailureInput(
-                    document=request,
-                    prepared=prepared,
-                    failed_stage=failed_stage,
-                    error_type="cancelled",
-                ),
-                task_queue=queues.io,
-                start_to_close_timeout=timedelta(minutes=2),
-                retry_policy=discovery_retry,
-            )
-            await asyncio.shield(cleanup)
+            await _record_cancellation(request, prepared, failed_stage)
             raise
         except ActivityError as error:
+            if is_cancelled_exception(error) and workflow.patched(_RECORDS_CANCELLATION_PATCH):
+                await _record_cancellation(request, prepared, failed_stage)
+                raise
             error_type, _ = durable_failure(error)
             await workflow.execute_activity(
                 "harborrag.record_document_failure",
@@ -106,3 +99,25 @@ class DocumentIngestionWorkflow:
             if error_type == "source_item_not_found":
                 return DocumentIngestionOutcome.SOURCE_ITEM_MISSING
             return DocumentIngestionOutcome.FAILED
+
+
+async def _record_cancellation(
+    request: DocumentIngestionInput, prepared: PreparedDocument | None, failed_stage: str
+) -> None:
+    """Record the document as cancelled before Temporal closes the run as cancelled.
+
+    Shielded, so a second cancel request cannot stop the recording.
+    """
+    recording = workflow.execute_activity(
+        "harborrag.record_document_failure",
+        DocumentFailureInput(
+            document=request,
+            prepared=prepared,
+            failed_stage=failed_stage,
+            error_type="cancelled",
+        ),
+        task_queue=request.workflow_options.task_queues.io,
+        start_to_close_timeout=timedelta(minutes=2),
+        retry_policy=temporal_retry_policy(request.workflow_options.retries.discovery),
+    )
+    await asyncio.shield(recording)

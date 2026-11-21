@@ -26,12 +26,14 @@ from harborrag_engine.ingestion.source.models import (
 )
 from harborrag_engine.ingestion.source.tasks import source_scan_id
 from harborrag_runtime.ingestion.composition import IngestionRuntime
+from harborrag_runtime.ingestion.source.skips import run_skip_summary
 
 from .activity_observability import ActivityObservability
 from .conversion import to_artifact_reference, to_source_request, to_workflow_artifact
 from .heartbeats import heartbeat_while, last_heartbeat_detail
 from .schemas import (
     SourceCancellationInput,
+    SourceCancellationResult,
     SourceDiscoveryResult,
     SourceFailureInput,
     SourceFinalizationInput,
@@ -357,10 +359,14 @@ class SourceActivitiesMixin:
             cursor = next_cursor
 
     @activity.defn(name="harborrag.cancel_source_ingestion")
-    async def cancel_source_ingestion(self, request: SourceCancellationInput) -> None:
-        """Cancel the source ingestion."""
+    async def cancel_source_ingestion(
+        self, request: SourceCancellationInput
+    ) -> SourceCancellationResult:
+        """Cancel the source ingestion and return its skips at discovery and per document."""
         with self._observability.boundary("CancelSourceIngestion"):
             await self._runtime.sources.cancel(request.task_id)
+            skips = await run_skip_summary(self._runtime.control, request.task_id)
+            return SourceCancellationResult(skipped_by_reason=skips["skipped_by_reason"])
 
     @activity.defn(name="harborrag.pause_source_ingestion")
     async def pause_source_ingestion(self, request: SourcePauseInput) -> None:
