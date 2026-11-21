@@ -69,6 +69,10 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
     ) -> ScheduledSourcePreparation:
         """Prepare a scheduled firing from this worker's current configuration.
 
+        The firing is skipped while the connection has a pending, running or paused
+        run, or its scope a running scan. A run keeps dispatching and finalizing for
+        hours after its scan ends.
+
         Raises:
             ApplicationError: Non-retryable when the worker lacks settings or a
                 connection store, or the connection is removed, being deleted or
@@ -103,7 +107,13 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
             raise ApplicationError(
                 str(error), type=type(error).__name__, non_retryable=True
             ) from error
-        if await self._runtime.control.source_scans.has_running_scan(prepared.source_scope_id):
+        control = self._runtime.control
+        if await control.source_scans.has_running_scan(prepared.source_scope_id) or (
+            await control.connection_records.active_task(
+                tenant_id=prepared.tenant_id, connection_id=prepared.connection_id
+            )
+            is not None
+        ):
             return ScheduledSourcePreparation(source=None, source_scope_id=prepared.source_scope_id)
         source = replace(
             to_temporal_source(prepared),

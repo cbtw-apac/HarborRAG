@@ -313,11 +313,14 @@ class IngestionApplicationService:
     async def resume(self, task_id: str, *, actor: str | None = None) -> dict[str, object]:
         """Resume a paused run's workflow and record who asked.
 
+        A running run is resumed too when its workflow holds a pause it has not
+        applied yet, such as one sent during discovery.
+
         Raises:
             IngestionNotFoundError: No such run.
             IngestionActionStateError: The run is a retry run, which can only be cancelled.
             IngestionAlreadyCompletedError: The run already ended.
-            IngestionAlreadyRunningError: The run is already running.
+            IngestionAlreadyRunningError: The run is running with no pause pending.
             HarborConnectionError: The workflow service could not take the request.
         """
         store = await self._task_store_provider()
@@ -325,7 +328,7 @@ class IngestionApplicationService:
         _refuse_retry_run(task, "resumed")
         if task.status in TERMINAL_STATES:
             raise IngestionAlreadyCompletedError("The ingestion task is already complete.")
-        if task.status is IngestionTaskState.RUNNING:
+        if task.status is IngestionTaskState.RUNNING and not await self._pause_pending(task_id):
             raise IngestionAlreadyRunningError("The ingestion task is already running.")
         try:
             await (await self._client_provider()).resume(task_id)
@@ -337,6 +340,21 @@ class IngestionApplicationService:
             "status": STATUS_NAMES[IngestionTaskState.RUNNING],
             "message": "Resume requested",
         }
+
+    async def _pause_pending(self, task_id: str) -> bool:
+        """Whether the run's workflow reports a pause it has not applied yet.
+
+        The workflow takes a pause at its next batch boundary, so one sent during
+        discovery leaves the run RUNNING for hours. An unknown answer counts as none.
+        """
+        try:
+            status = await (await self._client_provider()).get_status(task_id)
+        except Exception:  # noqa: BLE001 - an unknown answer keeps the already-running refusal
+            logger.debug(
+                "Could not read the workflow status of ingestion %s", task_id, exc_info=True
+            )
+            return False
+        return status.paused and not status.cancel_requested
 
     async def cancel(self, task_id: str, *, actor: str | None = None) -> dict[str, object]:
         """Cancel an unfinished run and record who asked.
