@@ -28,6 +28,8 @@ from .schemas import (
 
 _CANCELLATION_PATCH = "harborrag-retry-records-cancellation"
 _HEARTBEAT_TIMEOUT_PATCH = "harborrag-retry-heartbeat-timeout"
+_DOCUMENT_CANCELLATION_PATCH = "harborrag-document-retry-records-cancellation"
+_CANCELLED_DOCUMENT_PATCH = "harborrag-retry-counts-cancelled-document"
 
 
 @workflow.defn(name="harborrag.document_retry")
@@ -37,7 +39,8 @@ class DocumentRetryWorkflow:
         """Release one failed document again.
 
         The release heartbeats, so an attempt on a dead worker is retried after two
-        minutes, and a cancelled one stops before it publishes.
+        minutes, and a cancelled one stops before it publishes. A cancelled release
+        is recorded as a cancelled document, and the run closes as cancelled.
         """
         queues = request.workflow_options.task_queues
         retries = request.workflow_options.retries
@@ -57,6 +60,9 @@ class DocumentRetryWorkflow:
                 )
             )
         except ActivityError as error:
+            if is_cancelled_exception(error) and workflow.patched(_DOCUMENT_CANCELLATION_PATCH):
+                await _record_document_cancellation(request)
+                raise
             error_type, _ = durable_failure(error)
             await workflow.execute_activity(
                 "harborrag.record_retry_document_failure",
@@ -94,24 +100,7 @@ class RetryFailuresWorkflow:
             for start in range(0, prepared.document_count, request.document_concurrency):
                 end = min(prepared.document_count, start + request.document_concurrency)
                 statuses = await asyncio.gather(
-                    *(
-                        workflow.execute_child_workflow(
-                            "harborrag.document_retry",
-                            RetryDocumentInput(
-                                retry_task_id=request.retry_task_id,
-                                original_task_id=request.original_task_id,
-                                tenant_id=request.tenant_id,
-                                plan_reference=prepared.plan_reference,
-                                document_index=index,
-                                workflow_options=request.workflow_options,
-                            ),
-                            id=f"harborrag-document-retry:{request.retry_task_id}:{index}",
-                            task_queue=queues.transform,
-                            result_type=DocumentIngestionOutcome,
-                            parent_close_policy=ParentClosePolicy.REQUEST_CANCEL,
-                        )
-                        for index in range(start, end)
-                    )
+                    *(_retry_document(request, prepared, index) for index in range(start, end))
                 )
                 for document_status in statuses:
                     summary = summary.add(document_status)
@@ -168,6 +157,41 @@ class RetryFailuresWorkflow:
         )
 
 
+async def _retry_document(
+    request: RetryFailuresInput, prepared: RetryPreparationResult, index: int
+) -> DocumentIngestionOutcome:
+    """Retry one document in its own workflow.
+
+    A document retry cancelled on its own, while this run was not, counts as a
+    failed document and the run carries on, as a source batch does.
+    """
+    try:
+        outcome: DocumentIngestionOutcome = await workflow.execute_child_workflow(
+            "harborrag.document_retry",
+            RetryDocumentInput(
+                retry_task_id=request.retry_task_id,
+                original_task_id=request.original_task_id,
+                tenant_id=request.tenant_id,
+                plan_reference=prepared.plan_reference,
+                document_index=index,
+                workflow_options=request.workflow_options,
+            ),
+            id=f"harborrag-document-retry:{request.retry_task_id}:{index}",
+            task_queue=request.workflow_options.task_queues.transform,
+            result_type=DocumentIngestionOutcome,
+            parent_close_policy=ParentClosePolicy.REQUEST_CANCEL,
+        )
+    except ChildWorkflowError as error:
+        if (
+            is_cancelled_exception(error)
+            and workflow.cancellation_reason() is None
+            and workflow.patched(_CANCELLED_DOCUMENT_PATCH)
+        ):
+            return DocumentIngestionOutcome.FAILED
+        raise
+    return outcome
+
+
 async def _record_cancellation(request: RetryFailuresInput) -> None:
     """Record the retry run as cancelled before Temporal closes it as cancelled.
 
@@ -177,6 +201,21 @@ async def _record_cancellation(request: RetryFailuresInput) -> None:
         "harborrag.cancel_source_ingestion",
         SourceCancellationInput(task_id=request.retry_task_id),
         task_queue=request.workflow_options.task_queues.discovery,
+        start_to_close_timeout=timedelta(minutes=2),
+        retry_policy=temporal_retry_policy(request.workflow_options.retries.discovery),
+    )
+    await asyncio.shield(recording)
+
+
+async def _record_document_cancellation(request: RetryDocumentInput) -> None:
+    """Record the document as cancelled before Temporal closes the run as cancelled.
+
+    Shielded, so a second cancel request cannot stop the recording.
+    """
+    recording = workflow.execute_activity(
+        "harborrag.record_retry_document_failure",
+        RetryDocumentFailureInput(document=request, error_type="cancelled"),
+        task_queue=request.workflow_options.task_queues.io,
         start_to_close_timeout=timedelta(minutes=2),
         retry_policy=temporal_retry_policy(request.workflow_options.retries.discovery),
     )
