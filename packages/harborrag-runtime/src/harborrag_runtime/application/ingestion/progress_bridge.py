@@ -3,8 +3,8 @@
 ``progress()`` is a point-in-time snapshot, so this bridge is the diff loop that turns
 snapshots into the ordered, replayable stream behind ``GET /v1/admin/ingestions/{id}/events``:
 ``run.status``, ``stage.progress``, ``document.failed`` and ``run.completed``.
-Its snapshot and failure cursor live in the task summary; every summary that replaces
-it must carry them over (``carried_progress_state``), or events are emitted twice.
+Its snapshot and failure cursor live in the task summary. The task store keeps them when
+a summary is replaced (``PROGRESS_STATE_KEYS``), or events would be emitted twice.
 Stored and bus event names carry a ``task.<id>.`` routing prefix that the route strips.
 The ``control`` audit events (who asked for pause, resume or cancel) are stored but never
 streamed; the status change they cause reaches the stream as ``run.status``.

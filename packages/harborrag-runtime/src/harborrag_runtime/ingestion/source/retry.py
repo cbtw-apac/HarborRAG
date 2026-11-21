@@ -1,4 +1,8 @@
-"""Artifact-first source retry service."""
+"""Artifact-first source retry service.
+
+Every summary stored here replaces the retry task's summary, so each one keeps
+the progress bridge's state.
+"""
 
 from __future__ import annotations
 
@@ -12,6 +16,7 @@ from harborrag_engine.ingestion.release.service import DocumentReleaseService
 from harborrag_engine.ingestion.source.models import PlannedDocumentRelease, SourceDispatchSummary
 
 from .documents import SourceDocumentService
+from .skips import carried_progress_state
 
 
 class SourceRetryService:
@@ -47,6 +52,7 @@ class SourceRetryService:
                 "unchanged": summary.unchanged,
                 "failed": summary.failed,
                 "removal_candidates": 0,
+                **await self._progress_state(task_id),
             },
         )
 
@@ -59,6 +65,7 @@ class SourceRetryService:
                 "stage": "PROCESSING_DOCUMENTS",
                 "discovered": selected,
                 "admitted": selected,
+                **await self._progress_state(task_id),
             },
         )
 
@@ -78,8 +85,14 @@ class SourceRetryService:
             summary={
                 "stage": "PROCESSING_DOCUMENTS",
                 "error_code": error_code,
+                **carried_progress_state(task.summary),
             },
         )
+
+    async def _progress_state(self, task_id: str) -> dict[str, object]:
+        """Return the progress bridge state a replacement of the task's summary keeps."""
+        task = await self._control.tasks.get(task_id)
+        return carried_progress_state(task.summary) if task is not None else {}
 
     async def retry_one(
         self,
