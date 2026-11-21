@@ -4,7 +4,7 @@ import asyncio
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import DateTime, text
+from sqlalchemy import DateTime, event, text
 from sqlalchemy.engine import Dialect
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -15,6 +15,23 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.types import TypeDecorator
 
 from harborrag_adapters.repositories.lifecycle import AsyncLifecycle
+
+
+def enforce_sqlite_foreign_keys(engine: AsyncEngine) -> None:
+    """Turn on foreign keys, and so ``ON DELETE CASCADE``, for each new SQLite connection.
+
+    SQLite ignores foreign keys unless every connection asks for them.
+    """
+    event.listen(engine.sync_engine, "connect", _enable_foreign_keys)
+
+
+def _enable_foreign_keys(dbapi_connection: Any, connection_record: object) -> None:
+    del connection_record
+    cursor = dbapi_connection.cursor()
+    try:
+        cursor.execute("PRAGMA foreign_keys=ON")
+    finally:
+        cursor.close()
 
 
 class UTCDateTime(TypeDecorator[datetime]):
@@ -102,6 +119,8 @@ class SQLAlchemyDBClient(AsyncLifecycle):
         if self._max_overflow is not None:
             kwargs["max_overflow"] = self._max_overflow
         self._engine = create_async_engine(self._url, **kwargs)
+        if self._url.startswith("sqlite"):
+            enforce_sqlite_foreign_keys(self._engine)
         self._sessions = async_sessionmaker(self._engine, expire_on_commit=False)
 
     async def close(self) -> None:

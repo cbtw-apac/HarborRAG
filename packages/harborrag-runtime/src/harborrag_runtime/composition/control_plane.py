@@ -210,7 +210,13 @@ class CompositionRoot:
             raise HarborConfigurationError(
                 "control-plane database probe failed; inspect the startup logs"
             )
-        engine = create_control_plane_engine(dsn)
+        engine = create_control_plane_engine(
+            dsn,
+            pool_pre_ping=True,
+            pool_recycle=1800,
+            pool_size=settings.control_db_pool_size,
+            max_overflow=settings.control_db_max_overflow,
+        )
         sessions = create_session_factory(engine)
         config_store = build_settings_store(engine)
         config_provider = build_config_provider(settings, engine=engine, store=config_store)
