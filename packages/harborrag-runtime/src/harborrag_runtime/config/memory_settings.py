@@ -84,9 +84,9 @@ class MemorySettingsMixin(BaseSettings):
     # ``expires_at`` when extraction or the rolling summary writes a memory;
     # repositories stop returning a row once it passes.
     # There is no sweeper, so expired rows stay stored until erased.
-    memory_retention_days_session: int = Field(default=90, ge=0)
-    memory_retention_days_user: int = Field(default=365, ge=0)
-    memory_retention_days_project: int = Field(default=0, ge=0)
+    memory_retention_days_session: int = Field(default=90, ge=0, le=36_500)
+    memory_retention_days_user: int = Field(default=365, ge=0, le=36_500)
+    memory_retention_days_project: int = Field(default=0, ge=0, le=36_500)
 
     @field_validator("memory_recall_scopes")
     @classmethod

@@ -280,6 +280,8 @@ def secrets_encryption_key(settings: RuntimeSettings) -> str:
 
     ``HARBORRAG_SECRETS_ENCRYPTION_KEY`` wins; otherwise the first line of the file
     ``HARBORRAG_SECRETS_ENCRYPTION_KEY_FILE`` names, such as a Docker or Kubernetes secret.
+    The file's line is stripped. The variable is used as is, with a warning when it has
+    surrounding whitespace, so keys already in use keep decrypting their secrets.
 
     Returns:
         The configured key, or the dev-only default for a SQLite control database.
@@ -294,7 +296,14 @@ def secrets_encryption_key(settings: RuntimeSettings) -> str:
     scheme = settings.control_db_url.get_secret_value().split(":", 1)[0]
     encryption_key = settings.secrets_encryption_key
     if encryption_key is not None and not is_blank_secret(encryption_key):
-        return encryption_key.get_secret_value()
+        key = encryption_key.get_secret_value()
+        if key != key.strip():
+            logger.warning(
+                "HARBORRAG_SECRETS_ENCRYPTION_KEY has leading or trailing whitespace; it is "
+                "used as is, so the same key in HARBORRAG_SECRETS_ENCRYPTION_KEY_FILE would "
+                "not decrypt the stored secrets"
+            )
+        return key
     if settings.secrets_encryption_key_file is not None:
         return _read_key_file(settings.secrets_encryption_key_file)
     if not scheme.startswith("sqlite"):
