@@ -315,6 +315,14 @@ class ConversationSessions(Protocol):
         """
         ...
 
+    async def erase_completions(self, *, tenant_id: str, user_id: str) -> int:
+        """Delete every stored completion request of one end user, returning how many.
+
+        Requests with and without a session go, stored answers included, so a key
+        the user sent before can be claimed again.
+        """
+        ...
+
 
 @dataclass(frozen=True, slots=True)
 class ConversationSummaryRow:
