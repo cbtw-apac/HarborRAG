@@ -12,6 +12,7 @@ from harborrag_core.ingestion import (
     ChangeFingerprintBuilder,
     DocumentIdentityBuilder,
     DocumentVersionCandidate,
+    DocumentVersionSnapshot,
     DocumentVersionState,
     RawDocumentReference,
     SourceAdmissionDecision,
@@ -185,6 +186,7 @@ class DocumentCaptureStages:
             if decision == SourceAdmissionDecision.UNCHANGED and not request.force_reprocess:
                 if active is None:
                     raise HarborInvariantError("active must not be None here")
+                await self._refresh_admission_change_key(active, planned.candidate)
                 _log_parse_timings(capture.document_id, candidate_id, decision, marks)
                 return PreparedDocumentStage(
                     document_id=capture.document_id,
@@ -269,6 +271,23 @@ class DocumentCaptureStages:
             artifact=reference,
         )
         return reference
+
+    async def _refresh_admission_change_key(
+        self,
+        active: DocumentVersionSnapshot,
+        candidate: DocumentVersionCandidate,
+    ) -> None:
+        """Give the active version the change key of a refetch that found nothing new.
+
+        The next run then decides the item is unchanged before fetching it again.
+        """
+        admission_change_key = candidate.fingerprints.admission_change_key
+        if active.fingerprints.admission_change_key == admission_change_key:
+            return
+        await self._dependencies.control.document_versions.refresh_admission_change_key(
+            str(active.document_version_id),
+            admission_change_key=admission_change_key,
+        )
 
     async def _without_evidence(
         self,

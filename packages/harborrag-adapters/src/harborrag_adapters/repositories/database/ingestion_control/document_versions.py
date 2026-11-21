@@ -295,6 +295,23 @@ class DocumentVersionRepository:
                 .values(verified_at=now, updated_at=now)
             )
 
+    async def refresh_admission_change_key(
+        self,
+        document_version_id: str,
+        *,
+        admission_change_key: str,
+    ) -> None:
+        """Update the key in one statement that matches the version only while it is ACTIVE."""
+        async with self._client.sessions.begin() as session:
+            await session.execute(
+                update(DOCUMENT_VERSIONS)
+                .where(
+                    DOCUMENT_VERSIONS.c.document_version_id == document_version_id,
+                    DOCUMENT_VERSIONS.c.status == DocumentVersionState.ACTIVE.value,
+                )
+                .values(admission_change_key=admission_change_key, updated_at=utc_now())
+            )
+
     async def active_versions(
         self,
         document_ids: Sequence[str],
@@ -356,7 +373,7 @@ class DocumentVersionRepository:
     async def active_relation_document_ids(
         self,
         *,
-        tenant_id: str | None = None,
+        tenant_id: str,
         processing_fingerprint: str,
         anchor_document_id: str | None = None,
         limit: int = 100_000,
@@ -364,7 +381,7 @@ class DocumentVersionRepository:
         """Select one tenant's active documents whose source edges may need endpoint repair.
 
         Args:
-            tenant_id: Tenant whose documents are selected; required despite the default.
+            tenant_id: Tenant whose documents are selected.
             processing_fingerprint: Fingerprint the active version must carry.
             anchor_document_id: Limit the selection to the scopes of this document.
             limit: Maximum documents to return, from 1 to 100000.
@@ -372,9 +389,6 @@ class DocumentVersionRepository:
         Returns:
             Document IDs in ascending order.
         """
-        # TODO: make tenant_id required once DocumentVersionPort declares it
-        if tenant_id is None:
-            raise ValueError("relation repair tenant_id is required")
         return await self._reader.active_relation_document_ids(
             tenant_id=tenant_id,
             processing_fingerprint=processing_fingerprint,

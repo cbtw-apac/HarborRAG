@@ -80,7 +80,7 @@ async def test_active_relation_document_ids_with_a_tenant_never_returns_another_
 async def test_active_relation_document_ids_without_a_tenant_is_refused(tmp_path: Path) -> None:
     control_plane = make_control_plane(tmp_path)
     async with control_plane:
-        with pytest.raises(ValueError, match="tenant_id"):
-            await control_plane.document_versions.active_relation_document_ids(
+        with pytest.raises(TypeError, match="tenant_id"):
+            await control_plane.document_versions.active_relation_document_ids(  # type: ignore[call-arg]  # the missing tenant is the case under test
                 processing_fingerprint="fingerprint"
             )
