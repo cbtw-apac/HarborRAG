@@ -7,6 +7,7 @@ from typing import Any
 from harborrag_adapters.repositories.errors import HarborStorageValidationError
 from harborrag_adapters.repositories.telemetry import traced_repository_operation
 from harborrag_adapters.repositories.vector.qdrant.client import QdrantDBClient
+from harborrag_adapters.repositories.vector.qdrant.errors import translate_qdrant_errors
 from harborrag_adapters.repositories.vector.qdrant.mapping import QdrantMapper
 from harborrag_adapters.repositories.vector.qdrant.query import QdrantQueryExecutor
 from harborrag_core.indexing import VectorIndexSpec
@@ -32,6 +33,7 @@ class QdrantCollectionMixin:
     _collection_locks: dict[tuple[str, str], asyncio.Lock]
 
     @traced_repository_operation("ensure_index")
+    @translate_qdrant_errors
     async def ensure_index(
         self,
         spec: VectorIndexSpec,
@@ -188,6 +190,7 @@ class QdrantCollectionMixin:
         )
 
     @traced_repository_operation("index_exists")
+    @translate_qdrant_errors
     async def index_exists(
         self,
         name: str,
@@ -198,6 +201,7 @@ class QdrantCollectionMixin:
         return bool(await self._database.raw.collection_exists(physical_name))
 
     @traced_repository_operation("delete_index")
+    @translate_qdrant_errors
     async def delete_index(
         self,
         name: str,
