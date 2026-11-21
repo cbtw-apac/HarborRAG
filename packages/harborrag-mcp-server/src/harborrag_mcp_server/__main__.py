@@ -42,6 +42,10 @@ from harborrag_mcp_server.server.http import (
     validate_http_bind,
     validate_local_http_settings,
 )
+from harborrag_mcp_server.server.request_limits import (
+    CredentialLimiter,
+    request_limits_from_environment,
+)
 
 if TYPE_CHECKING:
     from fastmcp import FastMCP
@@ -192,6 +196,10 @@ def _prepare_arguments(
     if arguments.path is None:
         arguments.path = os.environ.get("HARBORRAG_MCP_PATH", "/mcp")
     arguments.allowed_hosts = parse_allowed_hosts(os.environ.get("HARBORRAG_MCP_ALLOWED_HOSTS"))
+    try:
+        arguments.request_limits = request_limits_from_environment(os.environ)
+    except ValueError as exc:
+        parser.error(str(exc))
     if arguments.config is None:
         arguments.config = _default_config_path()
     arguments.audit_path = Path(os.environ.get("HARBORRAG_MCP_AUDIT_PATH", DEFAULT_AUDIT_PATH))
@@ -212,12 +220,14 @@ def _register_routes(  # noqa: PLR0913 - the launched server's parts
     configuration API stay on the reader server, so one process owns writes to
     the configuration file.
     """
+    limiter = CredentialLimiter(arguments.request_limits)
     if ui:
         register_health_route(
             transport,
             mcp_path=arguments.path,
             tool_names=_tool_names(registry, ui=True),
             service="harborrag-mcp-ui",
+            limiter=limiter,
         )
     else:
         register_http_routes(
@@ -226,6 +236,7 @@ def _register_routes(  # noqa: PLR0913 - the launched server's parts
             registry=registry,
             configuration=configuration,
             token_verifier=auth,
+            limiter=limiter,
         )
     for line in _announcement(arguments, ui=ui):
         print(line, file=sys.stderr)
