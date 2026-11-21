@@ -254,7 +254,10 @@ def create_api_key_verifier(path: str | Path) -> TokenVerifier:
 
 
 def create_postgres_api_key_verifier(service: ApiKeyVerificationService) -> TokenVerifier:
-    """Verify CLI-issued keys against the control-plane table on every request.
+    """Verify CLI-issued keys against the control-plane table.
+
+    ``service`` looks each key up on every request, except a key ID it found
+    missing in the last few seconds.
 
     The claims keep the shape the rest of this server already authorises on:
     ``role`` and a one-element ``tenants`` grant taken from the stored row, so a
