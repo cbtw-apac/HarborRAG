@@ -73,8 +73,6 @@ class MemorySettingsMixin(BaseSettings):
     # restate retrieved, untrusted content (Jira, Confluence, SharePoint), so it
     # is opt-in. Off, a project write is kept to the session it was stated in.
     memory_extraction_project_scope: bool = False
-    memory_extraction_min_importance: float = Field(default=0.3, ge=0.0, le=1.0)
-    memory_dedup_threshold: float = Field(default=0.92, ge=0.5, le=1.0)
 
     # Model selection for rewrite, extraction, and summarization.
     memory_model_profile: str = Field(default="memory", min_length=1)

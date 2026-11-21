@@ -26,27 +26,6 @@ class _BrokenAppendMemory(InMemoryConversationMemory):
         raise RuntimeError("database gone: prompt text must not be logged")
 
 
-class _BrokenQuestionAppendMemory(InMemoryConversationMemory):
-    """Reject the first append -- the question -- and accept everything after.
-
-    The two halves of a turn are written separately, so a store can lose one
-    and keep the other. Losing the question is the asymmetric case: the answer
-    lands with nothing in front of it.
-    """
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.appends = 0
-
-    async def append_messages(
-        self, identity: ConversationIdentity, messages: Sequence[ConversationMessage]
-    ) -> None:
-        self.appends += 1
-        if self.appends == 1:
-            raise RuntimeError("database gone: prompt text must not be logged")
-        await super().append_messages(identity, messages)
-
-
 def _chat_service(
     runtime: FakeRuntime, memory: InMemoryConversationMemory
 ) -> ChatApplicationService:
@@ -97,25 +76,3 @@ async def test_an_answered_turn_is_stored_once_under_the_completion_id() -> None
     assert (question.role, question.content, question.mode) == ("user", "Hello", None)
     assert answer.message_id == response.data["completion_id"]
     assert (answer.content, answer.mode, answer.trace_id) == ("Hello", "classic", "a" * 32)
-
-
-@pytest.mark.asyncio
-async def test_chat_stream_warns_when_only_the_question_append_fails() -> None:
-    """The streaming surface reports the same half-written turn as a warning."""
-
-    memory = _BrokenQuestionAppendMemory()
-    await memory.create(ConversationIdentity("ACME", "reader-1", "session-1", "reader-1"))
-    service = _chat_service(FakeRuntime(FakeChatFacade()), memory)
-
-    events = [
-        event
-        async for event in service.stream(
-            "Hello",
-            tenant_id="ACME",
-            principal_id="reader-1",
-            options=ChatExecutionOptions(session_id="session-1", user_id="reader-1"),
-        )
-    ]
-
-    assert events[-2] == {"kind": "warning", "warning": "conversation_memory_unavailable"}
-    assert events[-1]["result"]["memory_persisted"] is False

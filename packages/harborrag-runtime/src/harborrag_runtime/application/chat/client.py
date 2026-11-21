@@ -199,19 +199,3 @@ class ChatClientMixin:
             principal_id=principal_id,
             options=options,
         )
-
-    def chat_stream(
-        self,
-        query: str,
-        *,
-        tenant_id: str,
-        principal_id: str,
-        options: ChatExecutionOptions,
-    ) -> AsyncGenerator[dict[str, object], None]:
-        """Stream one completion as ``{"kind": ...}`` events."""
-        return self._chat.stream(
-            query,
-            tenant_id=tenant_id,
-            principal_id=principal_id,
-            options=options,
-        )

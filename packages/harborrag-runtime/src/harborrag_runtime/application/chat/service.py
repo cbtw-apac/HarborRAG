@@ -20,15 +20,12 @@ from harborrag_core.contracts.errors import (
     UnknownReferenceError,
 )
 from harborrag_core.domain.identity import MemoryIdentity
-from harborrag_core.models.chat import StreamEventType
 from harborrag_core.models.errors import HarborChatError
 from harborrag_core.ports.control_plane import ProjectRepositoryPort
 from harborrag_core.ports.conversation import (
     ConversationHistoryRepository,
-    ConversationMessage,
     new_message_id,
 )
-from harborrag_core.ports.memory import MemoryIndex, MemoryRepository
 from harborrag_core.ports.usage import ModelUsageRepository
 from harborrag_engine.chat.scope import ConnectionCatalog, RetrievalScope, resolve_scope
 from harborrag_memory.access import MemoryAccess
@@ -38,9 +35,6 @@ from harborrag_memory.projects import require_project
 from harborrag_memory.titles import conversation_title
 from harborrag_memory.usage import ModelCall, record_model_usage
 from harborrag_runtime.application.errors import failure_response
-from harborrag_runtime.application.memory.extraction import (
-    MemoryExtractionQueue,
-)
 from harborrag_runtime.application.schemas import AppResponse
 from harborrag_runtime.config.settings import RuntimeSettings
 
@@ -53,20 +47,9 @@ from .completion import (
     TurnCompleted,
     TurnEvent,
 )
-from .events import cited_event, error_event
 from .options import ChatExecutionOptions
 from .preparation import ChatTurnResources, PreparedTurn, RuntimeProvider, prepare_turn
-from .presenters import chat_stream_chunk_data, evidence_data
 from .query_scope import ScopeCheck, ScopeHistory, check_query_scope, scope_history
-from .stream_result import stream_result
-from .turn import (
-    DeliveredAnswer,
-    RememberedTurn,
-    StreamedAnswer,
-    record_turn_usage,
-    remember_answer,
-    remember_question,
-)
 
 if TYPE_CHECKING:
     from harborrag_core.models.chat import HarborChatResponse
@@ -74,13 +57,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("harborrag.runtime.application.chat.service")
 
-MEMORY_WARNING = "conversation_memory_unavailable"
-STREAM_ERROR = "ChatStreamError"
-"""Error name for the provider adapter's own failure, reported as an ERROR chunk, not raised.
-
-It is the one error event with no exception behind it, and the transport still has to tell
-it apart from the others.
-"""
 _MODEL_FAILURES = (HarborChatError, HarborConnectionError, HarborUnavailableError)
 
 
@@ -95,9 +71,6 @@ class ChatApplicationService:
         settings: Process settings holding the chat retrieval policy.
         memory: Conversation history store.
         projects: Project lookup; ``None`` skips project checks.
-        memories: Long-term memory store, when enabled.
-        index: Long-term memory vector index, when enabled.
-        extraction: Queue that extracts long-term memories off the request path.
         locks: Per-session locks; built over ``memory`` when omitted.
         usage: Model usage ledger, when the deployment keeps one.
         config: Runtime settings provider for per-project retrieval overrides.
@@ -111,9 +84,6 @@ class ChatApplicationService:
         *,
         memory: ConversationHistoryRepository,
         projects: ProjectRepositoryPort | None = None,
-        memories: MemoryRepository | None = None,
-        index: MemoryIndex | None = None,
-        extraction: MemoryExtractionQueue | None = None,
         locks: SessionLocks | None = None,
         usage: ModelUsageRepository | None = None,
         config: ConfigProvider | None = None,
@@ -123,14 +93,11 @@ class ChatApplicationService:
             runtime_provider=runtime_provider,
             settings=settings,
             memory=memory,
-            memories=memories,
-            index=index,
             usage=usage,
             config=config,
         )
         self._projects = projects
         self._catalog = catalog
-        self._extraction = extraction
         self._locks = locks or SessionLocks(memory)
 
     async def validate_model(self, model: str | None, *, tenant_id: str) -> None:
@@ -378,180 +345,6 @@ class ChatApplicationService:
                 "The answer could not be stored in the session's history"
             ) from exc
         await conversation_title(self._resources.memory, owner, prompt=query)
-
-    async def stream(
-        self,
-        query: str,
-        *,
-        tenant_id: str,
-        principal_id: str,
-        options: ChatExecutionOptions,
-    ) -> AsyncGenerator[dict[str, object], None]:
-        """Yield ``{"kind": ...}`` events for a transport to adapt into SSE frames.
-
-        The events are one ``citations``, many ``chunk``, at most one ``warning`` (memory
-        not persisted), and one terminal ``result`` or ``error``.
-
-        ``aclosing`` is what makes an abandoned stream recoverable: when the
-        client hangs up, ``GeneratorExit`` lands here, and closing the inner
-        generator deterministically -- rather than waiting for the garbage
-        collector -- is what lets it persist the text it already delivered,
-        still holding this session's lock.
-        """
-        try:
-            identity = _identity(tenant_id, principal_id, options)
-            await self._require_scope(identity)
-        except Exception as exc:  # noqa: BLE001 - service streams report scope failures in band
-            yield error_event(exc, "prepare chat completion stream")
-            return
-        async with self._locks.hold(identity.conversation()):
-            events = self._stream_locked(query, identity=identity, options=options)
-            async with contextlib.aclosing(events):
-                async for event in events:
-                    yield event
-
-    async def _stream_locked(
-        self,
-        query: str,
-        *,
-        identity: MemoryIdentity,
-        options: ChatExecutionOptions,
-    ) -> AsyncGenerator[dict[str, object], None]:
-        """Run the locked turn, persisting whatever text was delivered however it ends.
-
-        The provider adapter reports a failure as an ERROR chunk and then raises; the chunk
-        is treated as the single terminal error so the exception path never adds a second,
-        differently shaped frame. Headers and the citations event are already on the wire
-        after retrieval, so a later failure ends the stream as an in-band error event, and the
-        delivered text, which was still paid for, is persisted and marked partial first.
-
-        ``CancelledError`` (the transport deadline) and ``GeneratorExit`` (the client hanging
-        up) are not errors this service reports, since nothing can be yielded after either, so
-        the delivered text is persisted before they propagate. That holds on the ``aclose()``
-        path, which is how both normally arrive; under a hard cancellation of the surrounding
-        task the first write to suspend re-raises and the turn is lost. Making that durable
-        means shielding the writes and the session lock together.
-
-        The final ``_finish`` sits outside the ``try`` on purpose: yielding from inside it
-        would put the yield under the ``except BaseException`` that finishes the turn, so a
-        client leaving at exactly that frame persisted the delivered text twice.
-        """
-        try:
-            await self._require_scope(identity)
-            prepared = await prepare_turn(self._resources, query, identity, options)
-        except Exception as exc:  # noqa: BLE001 - stable application envelope
-            yield error_event(exc, "prepare chat completion stream")
-            return
-        yield {
-            "kind": "citations",
-            "citations": tuple(
-                evidence_data(index, result) for index, result in enumerate(prepared.results, 1)
-            ),
-            "session_id": options.session_id,
-            "project_id": identity.project_id,
-        }
-        question = await remember_question(self._resources, identity, query)
-        answer = StreamedAnswer()
-        provider_failed = False
-        try:
-            async for chunk in self._resources.runtime().chat.stream(
-                prepared.request,
-                prompt=options.system,
-            ):
-                answer.observe(chunk)
-                if chunk.event is StreamEventType.ERROR:
-                    logger.error(
-                        "Chat provider stream failed for tenant=%s session=%s",
-                        identity.tenant_id,
-                        identity.session_id,
-                    )
-                    provider_failed = True
-                    break
-                yield {"kind": "chunk", "chunk": chat_stream_chunk_data(chunk)}
-        except Exception as exc:  # noqa: BLE001 - stable application envelope
-            await self._finish(identity, question, prepared, answer.delivered())
-            yield error_event(exc, "generate chat completion stream")
-            return
-        except BaseException:  # noqa: BLE001 - deadline or disconnect, then re-raised
-            await self._finish(identity, question, prepared, answer.delivered())
-            raise
-        remembered = await self._finish(identity, question, prepared, answer.delivered())
-        delivered = answer.delivered()
-        if delivered.text and not provider_failed:
-            yield cited_event(delivered.text, prepared, identity, options)
-        if provider_failed:
-            yield {"kind": "error", "error": STREAM_ERROR, "error_type": STREAM_ERROR}
-            return
-        if not answer.completed:
-            yield {"kind": "error", "error": STREAM_ERROR, "error_type": STREAM_ERROR}
-            return
-        if not remembered.turn_persisted:
-            yield {"kind": "warning", "warning": MEMORY_WARNING}
-        title = await conversation_title(
-            self._resources.memory,
-            identity.conversation(),
-            prompt=query if remembered.persisted else None,
-        )
-        result = stream_result(
-            answer,
-            prepared,
-            session_id=identity.conversation().session_id,
-            project_id=identity.project_id,
-            memory_persisted=remembered.turn_persisted,
-        )
-        yield {"kind": "result", "result": {**result, "title": title}}
-
-    async def _finish(
-        self,
-        identity: MemoryIdentity,
-        question: ConversationMessage | None,
-        prepared: PreparedTurn,
-        delivered: DeliveredAnswer,
-    ) -> RememberedTurn:
-        """Persist the delivered answer and account for its tokens.
-
-        Both halves are non-fatal by design: the caller has the answer either
-        way, so a memory failure only costs the next turn its history and an
-        accounting failure only costs the ledger one row. Each swallows its own
-        ``Exception``, so no store or ledger fault reaches the caller.
-
-        ``BaseException`` is deliberately not swallowed down there -- a write
-        helper that ate ``CancelledError`` would break cancellation for every
-        caller -- so this can still raise when the surrounding task is being
-        cancelled hard. See the ``except BaseException`` handler in
-        ``_stream_locked`` for what that costs.
-        """
-        answer = await remember_answer(
-            self._resources,
-            identity,
-            delivered,
-            results=prepared.results,
-        )
-        await record_turn_usage(self._resources, identity, delivered)
-        return RememberedTurn(question, answer, empty=not delivered.text)
-
-    async def _require_scope(self, identity: MemoryIdentity) -> None:
-        """Both the session and the optional project must exist for this caller."""
-        if not await self._resources.memory.exists(identity.conversation()):
-            raise HarborNotFoundError("Conversation session was not found")
-        await require_project(self._projects, identity.project_id, tenant_id=identity.tenant_id)
-
-
-def _identity(tenant_id: str, principal_id: str, options: ChatExecutionOptions) -> MemoryIdentity:
-    """Return the identity of a streamed turn, which needs a session.
-
-    Raises:
-        HarborValidationError: The options name no session.
-    """
-    if options.session_id is None:
-        raise HarborValidationError("a streamed turn needs a session", {"field": "session_id"})
-    return MemoryIdentity.build(
-        tenant_id=tenant_id,
-        principal_id=principal_id,
-        session_id=options.session_id,
-        user_id=options.user_id,
-        project_id=options.project_ids[0] if len(options.project_ids) == 1 else None,
-    )
 
 
 def _access(identity: MemoryIdentity) -> MemoryAccess:

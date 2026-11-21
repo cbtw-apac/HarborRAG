@@ -55,7 +55,6 @@ from ..ingestion.starter import IngestionStarter
 from ..memory import (
     ConversationSessionService,
     MemoryAdminClientMixin,
-    MemoryExtractionQueue,
     conversation_memory,
     long_term_memories,
     long_term_memory_index,
@@ -82,9 +81,7 @@ class AppService(
     """Application service that keeps transport concerns outside the ingestion execution path.
 
     Each process holds a random instance ID, stable for its lifetime, that identifies it as a
-    lease holder to the ingestion progress bridge and the recovery loops. The memory
-    extraction pool runs off the request path because extraction costs a model call; the API
-    lifespan starts and drains it and the CLI never does.
+    lease holder to the ingestion progress bridge and the recovery loops.
 
     Args:
         composition: Runtime composition root that owns the repositories and gateways.
@@ -132,15 +129,6 @@ class AppService(
         usage = model_usage_records(self._composition)
         self._sessions = ConversationSessionService(memory)
         locks = SessionLocks(memory)
-        self._extraction: MemoryExtractionQueue | None = (
-            MemoryExtractionQueue(
-                runtime_provider=self._resources.runtime_sdk,
-                memories=memories,
-                index=index,
-            )
-            if self._settings.memory_extraction_enabled and memories is not None
-            else None
-        )
         self._memory_admin = MemoryAdministrationService(
             conversations=memory,
             memories=memories,
@@ -156,9 +144,6 @@ class AppService(
             memory=memory,
             locks=locks,
             projects=projects,
-            memories=memories,
-            index=index,
-            extraction=self._extraction,
             usage=usage,
             config=getattr(getattr(composition, "control_plane", None), "config", None),
             catalog=ControlPlaneConnectionCatalog(
@@ -446,10 +431,9 @@ class AppService(
         await self._composition.start()
 
     async def aclose(self) -> None:
-        """Close the connection service, memory extraction, resources and composition in turn."""
+        """Close the connection service, resources and composition in turn."""
         try:
             await self._connection_service.aclose()
-            await self.drain_memory_extraction()
         finally:
             try:
                 await self._resources.aclose()

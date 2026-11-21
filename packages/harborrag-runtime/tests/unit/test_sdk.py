@@ -30,7 +30,6 @@ from harborrag_core.topology.search import EvidenceBundle
 from harborrag_engine.retrieval import RetrievalLane
 from harborrag_runtime.chat import ChatPrompt, RuntimeChatService
 from harborrag_runtime.sdk import (
-    EvidenceFetchRequest,
     ExecutionMode,
     GraphTripletRequest,
     HarborRAG,
@@ -510,49 +509,20 @@ async def test_graph_facade_delegates_paths_and_subgraphs() -> None:
 async def test_knowledge_facade_delegates_canonical_reads() -> None:
     response = object()
     service = SimpleNamespace(
-        fetch_evidence=AsyncMock(return_value=response),
         read_evidence=AsyncMock(return_value=response),
         get_document_context=AsyncMock(return_value=response),
         list_readable_sources=AsyncMock(return_value=response),
         resolve_graph_nodes=AsyncMock(return_value=response),
-        resolve_entities=AsyncMock(return_value=response),
-        lookup_entities=AsyncMock(return_value=("mention",)),
-        find_semantic_relations=AsyncMock(return_value=response),
-        find_semantic_paths=AsyncMock(return_value=response),
     )
     owner = SimpleNamespace(_retrieval_service=AsyncMock(return_value=service))
     facade = KnowledgeFacade(owner)
     access = AccessContext(principal_id="reader", tenant_id="tenant")
-    request = SimpleNamespace(
-        access=access,
-        chunk_ids=("chunk",),
-        name="entity",
-        limit=3,
-        entity_id="entity-id",
-        predicates=("owns",),
-        direction="outgoing",
-    )
+    request = SimpleNamespace(access=access)
 
-    assert await facade.fetch_evidence(request) is response
     assert await facade.read_evidence(request) is response
     assert await facade.get_document_context(request) is response
     assert await facade.list_sources(request) is response
     assert await facade.resolve_graph_nodes(request) is response
-    assert await facade.resolve_entities(request) is response
-    assert await facade.lookup_entities(
-        access=access, entity_ids=("entity-id",), chunk_ids=("chunk",)
-    ) == ("mention",)
-    assert await facade.find_relations(request) is response
-    assert await facade.find_paths(request) is response
-
-    service.resolve_entities.assert_awaited_once_with("entity", limit=3, access=access)
-    service.find_semantic_relations.assert_awaited_once_with(
-        "entity-id",
-        predicates=("owns",),
-        direction="outgoing",
-        limit=3,
-        access=access,
-    )
 
 
 @pytest.mark.asyncio
@@ -632,7 +602,7 @@ async def test_temporal_sdk_delegates_durable_lifecycle_operations() -> None:
 @pytest.mark.asyncio
 async def test_sdk_connects_retrieval_once_and_exposes_chat_stream() -> None:
     response = object()
-    service = SimpleNamespace(fetch_evidence=AsyncMock(return_value=response), aclose=AsyncMock())
+    service = SimpleNamespace(read_evidence=AsyncMock(return_value=response), aclose=AsyncMock())
     connect = AsyncMock(return_value=service)
     stream = object()
     chat = SimpleNamespace(stream=Mock(return_value=stream), aclose=AsyncMock())
@@ -642,10 +612,10 @@ async def test_sdk_connects_retrieval_once_and_exposes_chat_stream() -> None:
         chat_runtime_factory=Mock(return_value=chat),
     )
     access = AccessContext(principal_id="reader", tenant_id="tenant")
-    request = EvidenceFetchRequest(access, ("chunk",))
+    request = SimpleNamespace(access=access)
 
-    assert await harbor.knowledge.fetch_evidence(request) is response
-    assert await harbor.knowledge.fetch_evidence(request) is response
+    assert await harbor.knowledge.read_evidence(request) is response
+    assert await harbor.knowledge.read_evidence(request) is response
     chat_request = SimpleNamespace()
     assert harbor.chat.stream(chat_request, prompt=ChatPrompt.CONCISE) is stream
     await harbor.aclose()
