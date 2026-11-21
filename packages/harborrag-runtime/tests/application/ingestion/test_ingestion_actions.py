@@ -24,13 +24,18 @@ from harborrag_engine.ingestion.operations import ACTION_WAIT_SECONDS, Ingestion
 from harborrag_runtime.application.control_plane.connection_models import ConnectionKey
 from harborrag_runtime.application.control_plane.connections import ConnectionService
 from harborrag_runtime.application.ingestion.service import IngestionApplicationService
+from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.errors import (
     WorkflowNotFoundError,
     WorkflowNotRunningError,
     WorkflowOperationError,
 )
 from harborrag_runtime.execution.task_registry import IngestionTaskRegistry
-from harborrag_runtime.testing.connection_fakes import FakeSecrets, fake_control_plane
+from harborrag_runtime.testing.connection_fakes import (
+    FakeSecrets,
+    SourceGrants,
+    fake_control_plane,
+)
 
 from ..application_fixtures import (
     FakeTemporalClient,
@@ -539,4 +544,6 @@ async def _connection_service(
         removal=lambda: None,  # type: ignore[arg-type,return-value]
         destination_policy=DestinationPolicy(),
         instance_id="test",
+        authorizer=SourceGrants(),
+        settings=RuntimeSettings(),
     )

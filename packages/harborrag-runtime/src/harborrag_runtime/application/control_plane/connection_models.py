@@ -12,6 +12,7 @@ from typing import Any, Literal, Protocol
 from harborrag_core.contracts.errors import HarborError
 from harborrag_core.domain.connection import Connection
 from harborrag_core.ingestion import IngestionTask
+from harborrag_core.security import AccessContext
 from harborrag_engine.ingestion.models import IngestionCreateCommand
 
 WriteOrigin = Literal["api", "operator"]
@@ -43,6 +44,27 @@ class ConnectionRuns(Protocol):
 
     async def progress_for_tasks(self, task_ids: Sequence[str]) -> dict[str, dict[str, int]]:
         """Return the document counts by result status for each of ``task_ids``."""
+
+    async def source_scope_ids_by_connection(
+        self, *, tenant_id: str, connection_ids: Sequence[str]
+    ) -> dict[str, list[str]]:
+        """Return the source scopes each connection, by ``source_key``, was ingested under."""
+
+
+class SourceScopeAuthorizer(Protocol):
+    """The source scopes a reader may read, and the resources behind that answer."""
+
+    async def allowed_source_scope_ids(
+        self, tenant_id: str, *, access: AccessContext, limit: int = 10000
+    ) -> tuple[str, ...]:
+        """Return every source scope ``access`` may read in ``tenant_id``.
+
+        Raises:
+            HarborConflictError: The reader may read more than ``limit`` source scopes.
+        """
+
+    async def aclose(self) -> None:
+        """Release what the authorizer holds; safe when it opened nothing."""
 
 
 class IngestionSubmitter(Protocol):

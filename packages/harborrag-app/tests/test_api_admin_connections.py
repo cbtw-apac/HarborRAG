@@ -236,6 +236,8 @@ def test_projects_and_reader_chips(
     in_use = client.delete("/v1/admin/projects/demo")
     empty = client.delete("/v1/admin/projects/hr")
     reader = {"Authorization": f"Bearer {_token('reader', ['acme'])}"}
+    app_service.world.runs.scopes["demo/demo-tickets"] = ["scope-1"]
+    app_service.world.grants.readable["u_alex"] = ("scope-1",)
     chips = client.get("/v1/projects/demo/connections", headers=reader)
     forbidden = client.get("/v1/admin/projects", headers=reader)
 

@@ -91,7 +91,7 @@ async def test_complete_chat_request_with_a_rejected_body_leaves_no_history() ->
     with pytest.raises(ValueError, match="wire model"):
         await client.complete_chat_request(
             _request(),
-            caller=CompletionCaller(TENANT, READER, READER),
+            caller=CompletionCaller(TENANT, READER, READER, READER),
             replay=replay,
             validate_body=_rejected,
         )
@@ -110,7 +110,7 @@ async def test_complete_chat_request_stores_the_body_it_validated() -> None:
 
     outcome = await client.complete_chat_request(
         _request(),
-        caller=CompletionCaller(TENANT, READER, READER),
+        caller=CompletionCaller(TENANT, READER, READER, READER),
         replay=ReplayKey("key-1", "hash-1"),
         validate_body=validated.append,
     )

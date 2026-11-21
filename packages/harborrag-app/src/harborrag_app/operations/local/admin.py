@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, get_args
 
 from harborrag_app.operations.contract import OPERATIONS
 from harborrag_app.operations.etags import etag, version_from_etag
+from harborrag_app.operations.local.chat import acl_subject
 from harborrag_app.operations.principal import Principal, authorize_role
 from harborrag_app.operations.results import Saved, Tagged
 from harborrag_app.operations.schemas.connections import (
@@ -336,18 +337,22 @@ class AdminOps:
         """List the connections the caller can search in a project, for filter chips.
 
         Args:
-            scope: Caller and tenant.
+            scope: Caller and tenant; an API key reads as its owner, as in chat.
             project_id: The project whose connections to list.
 
         Returns:
-            Each connection that is not being deleted, with its document count.
+            Each connection that is not being deleted and, under ``source_acl``, has a
+            source scope the caller may read, with its document count.
 
         Raises:
             HarborNotFoundError: The project does not exist in the tenant.
+            HarborConflictError: The caller may read more source scopes than can be listed.
         """
         scope.require(OPERATIONS["list_searchable_connections"].role)
         items = await self._app_service.connection_service.searchable(
-            tenant_id=scope.tenant_id, project_id=project_id
+            tenant_id=scope.tenant_id,
+            project_id=project_id,
+            principal_id=acl_subject(scope.principal),
         )
         return ConnectionChipPage.model_validate({"items": items})
 

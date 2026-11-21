@@ -22,10 +22,12 @@ from harborrag_runtime.application.control_plane.projects import (
 )
 from harborrag_runtime.composition import ControlPlaneRepositories
 from harborrag_runtime.config.connectors.models import ConnectionValidationError
+from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.testing.connection_fakes import (
     JIRA_WRITE,
     Removal,
     Runs,
+    SourceGrants,
     Submitter,
     fake_control_plane,
 )
@@ -51,6 +53,8 @@ def services() -> tuple[ProjectService, ConnectionService, ControlPlaneRepositor
         removal=lambda: removal,  # type: ignore[arg-type,return-value]
         destination_policy=DestinationPolicy(),
         instance_id="test",
+        authorizer=SourceGrants(),
+        settings=RuntimeSettings(),
     )
     projects = ProjectService(
         control_plane=lambda: control_plane, runs=provide_runs, connections=connections

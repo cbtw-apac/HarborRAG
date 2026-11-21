@@ -20,6 +20,7 @@ class ChatExecutionOptions:
         graph_search: Overrides ``chat_retrieval_graph_search`` for a classic turn; an
             instant turn never observes the graph.
         user_id: The end user who owns the session; defaults to the principal.
+        acl_subject: The subject the document ACL checks; defaults to the principal.
         model: A logical model already allowed for the tenant; ``None`` is the default.
         mode: ``classic`` checks the request's scope with a model call and observes the
             graph per settings; ``instant`` does neither.
@@ -33,6 +34,7 @@ class ChatExecutionOptions:
     system: ChatPrompt | None = None
     graph_search: bool | None = None
     user_id: str | None = None
+    acl_subject: str | None = None
     model: str | None = None
     mode: ChatMode = "classic"
     project_ids: tuple[str, ...] = ()

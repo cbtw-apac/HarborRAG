@@ -35,6 +35,7 @@ from ..control_plane.effect_recovery import (
 from ..control_plane.projects import ProjectService
 from ..control_plane.settings_import import SeedOutcome, SettingsImporter, seed_settings_once
 from ..control_plane.settings_service import SettingsService
+from ..control_plane.source_access import ControlSourceAuthorizer
 from ..control_plane.tenants import tenant_has_data, tenants_with_data
 from ..errors import failure_response
 from ..ingestion.client import PublicIngestionClientMixin
@@ -158,6 +159,8 @@ class AppService(
             removal=self._resources.connection_removal,
             destination_policy=DestinationPolicy.from_environ(),
             instance_id=self._instance_id,
+            authorizer=ControlSourceAuthorizer(self._settings),
+            settings=self._settings,
         )
         self._ingestion_operations = IngestionOperations(
             connections=lambda: self._control_plane().connections,

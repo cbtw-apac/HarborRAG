@@ -10,9 +10,11 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from harborrag_adapters.connectors.policies.network import DestinationPolicy
+from harborrag_core.contracts.errors import HarborConflictError
 from harborrag_core.domain.project import Project
 from harborrag_core.domain.settings import WorkspaceSettings
 from harborrag_core.ingestion import IngestionTask, IngestionTaskState, TaskDocumentPage, TaskPage
+from harborrag_core.security import AccessContext
 from harborrag_core.testing.control_plane_fakes import (
     FakeActivityRepository,
     FakeConnectionRepository,
@@ -37,6 +39,7 @@ from harborrag_runtime.application.control_plane.connection_models import (
 )
 from harborrag_runtime.application.control_plane.connections import ConnectionService
 from harborrag_runtime.composition import ControlPlaneRepositories
+from harborrag_runtime.config.settings import RuntimeSettings
 
 CONNECTION_KEY = ConnectionKey(tenant_id="acme", project_id="demo", connection_id="demo-tickets")
 JIRA_WRITE = ConnectionWrite(
@@ -60,6 +63,7 @@ class Runs:
     counts: dict[str, dict[str, int]] = field(default_factory=dict)
     progress_calls: list[str] = field(default_factory=list)
     batch_calls: list[tuple[str, ...]] = field(default_factory=list)
+    scopes: dict[str, list[str]] = field(default_factory=dict)
 
     async def latest_for_connection(self, *, tenant_id: str, connection_id: str) -> Any:
         """Return the scripted active ingestion."""
@@ -87,6 +91,14 @@ class Runs:
         self.batch_calls.append(tuple(task_ids))
         return {task_id: self.counts.get(task_id, {"published": 1}) for task_id in task_ids}
 
+    async def source_scope_ids_by_connection(
+        self, *, tenant_id: str, connection_ids: Sequence[str]
+    ) -> dict[str, list[str]]:
+        """Return the scripted source scopes of each connection, ``[]`` for none."""
+        return {
+            connection_id: self.scopes.get(connection_id, []) for connection_id in connection_ids
+        }
+
     async def list_tasks(self, **_filters: Any) -> TaskPage:
         """Return every stored task as one page."""
         return TaskPage(tuple(self.tasks.values()), has_more=False)
@@ -94,6 +106,36 @@ class Runs:
     async def document_results_page(self, task_id: str, **_filters: Any) -> TaskDocumentPage:
         """Return an empty document page."""
         return TaskDocumentPage((), has_more=False)
+
+
+@dataclass
+class SourceGrants:
+    """``SourceScopeAuthorizer`` over the source scopes scripted for each principal.
+
+    Args:
+        readable: Source scopes each principal may read.
+        over_budget: Refuse every call as the database does past its enumeration budget.
+        requests: Every access context asked about.
+        closed: Whether ``aclose`` ran.
+    """
+
+    readable: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    over_budget: bool = False
+    requests: list[AccessContext] = field(default_factory=list)
+    closed: bool = False
+
+    async def allowed_source_scope_ids(
+        self, tenant_id: str, *, access: AccessContext, limit: int = 10000
+    ) -> tuple[str, ...]:
+        """Return the principal's scripted scopes, or refuse past the budget."""
+        self.requests.append(access)
+        if self.over_budget:
+            raise HarborConflictError("authorized source enumeration exceeds the configured budget")
+        return self.readable.get(access.principal_id, ())
+
+    async def aclose(self) -> None:
+        """Remember the close."""
+        self.closed = True
 
 
 @dataclass
@@ -174,6 +216,7 @@ class ConnectionWorld:
     runs: Runs
     submitter: Submitter
     removal: Removal
+    grants: SourceGrants
 
     @property
     def operations(self) -> IngestionOperations:
@@ -209,12 +252,20 @@ def fake_control_plane(projects: list[Project], secrets: FakeSecrets) -> Control
     )
 
 
-def connection_world(projects: list[Project]) -> ConnectionWorld:
-    """Build a ``ConnectionService`` over fakes, with its doubles exposed."""
+def connection_world(
+    projects: list[Project], *, settings: RuntimeSettings | None = None
+) -> ConnectionWorld:
+    """Build a ``ConnectionService`` over fakes, with its doubles exposed.
+
+    Args:
+        projects: Projects the control plane holds.
+        settings: Settings that choose each tenant's corpus mode; the defaults when ``None``.
+    """
     secrets = FakeSecrets()
     runs = Runs()
     removal = Removal()
     submitter = Submitter(runs)
+    grants = SourceGrants()
     control_plane = fake_control_plane(projects, secrets)
 
     async def provide_runs() -> Runs:
@@ -227,5 +278,7 @@ def connection_world(projects: list[Project]) -> ConnectionWorld:
         removal=lambda: removal,  # type: ignore[arg-type,return-value]
         destination_policy=DestinationPolicy(),
         instance_id="test",
+        authorizer=grants,
+        settings=settings or RuntimeSettings(),
     )
-    return ConnectionWorld(service, control_plane, secrets, runs, submitter, removal)
+    return ConnectionWorld(service, control_plane, secrets, runs, submitter, removal, grants)

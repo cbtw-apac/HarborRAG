@@ -100,6 +100,7 @@ async def prepare_turn(
         resources.runtime(),
         context,
         identity=identity,
+        acl_subject=options.acl_subject or identity.principal_id,
         settings=resources.settings,
         observe_graph=graph_enabled,
         top_k=await chat_top_k(resources.config, identity, resources.settings),

@@ -29,6 +29,8 @@ from harborrag_core.domain.activity import ActivityEntry
 from harborrag_core.domain.connection import Connection, ConnectionStatus, require_connection_id
 from harborrag_core.domain.job import Job, JobStatus
 from harborrag_core.ingestion import IngestionTask
+from harborrag_core.schemas.ids import TenantId
+from harborrag_core.security import AccessContext
 from harborrag_core.security.secret_refs import stored_refs
 from harborrag_engine.control_plane.connection_views import (
     ingestion_view,
@@ -52,6 +54,7 @@ from harborrag_runtime.connections import (
 from harborrag_runtime.ingestion.connection_checks import ConnectionTestReport
 from harborrag_runtime.ingestion.connections import ConnectionUnavailableError
 
+from ..retrieval.access import corpus_mode_for
 from .active_runs import active_run
 from .connection_models import (
     ConnectionKey,
@@ -59,6 +62,7 @@ from .connection_models import (
     ConnectionRuns,
     ConnectionWrite,
     IngestionSubmitter,
+    SourceScopeAuthorizer,
     WriteOrigin,
 )
 from .connection_testing import run_checks
@@ -79,6 +83,7 @@ from .effect_recovery import defer_retirement, log_activity, retire_refs
 
 if TYPE_CHECKING:
     from harborrag_runtime.composition.connection_removal import ConnectionRemoval
+    from harborrag_runtime.config.settings import RuntimeSettings
 
 logger = logging.getLogger("harborrag.runtime.application.control_plane.connections")
 
@@ -96,6 +101,8 @@ class ConnectionService:
         removal: Returns the stores a connection removal clears.
         destination_policy: Hosts a connection test may reach beyond public addresses.
         instance_id: ID of this process, which names the holder of a connection sync lease.
+        authorizer: The source scopes a reader may read; closed with the service.
+        settings: Settings that choose each tenant's corpus mode.
     """
 
     def __init__(  # noqa: PLR0913 - the stores and settings the service composes
@@ -107,6 +114,8 @@ class ConnectionService:
         removal: Callable[[], ConnectionRemoval],
         destination_policy: DestinationPolicy,
         instance_id: str,
+        authorizer: SourceScopeAuthorizer,
+        settings: RuntimeSettings,
     ) -> None:
         self._control_plane = control_plane
         self._runs = runs
@@ -114,6 +123,8 @@ class ConnectionService:
         self._removal = removal
         self._destination_policy = destination_policy
         self._instance_id = instance_id
+        self._authorizer = authorizer
+        self._settings = settings
         self._background: set[asyncio.Task[None]] = set()
         self._removing: set[tuple[str, str]] = set()
 
@@ -155,11 +166,24 @@ class ConnectionService:
         views = await read_connection_views(await self._runs(), connections, batch=True)
         return views, next_cursor
 
-    async def searchable(self, *, tenant_id: str, project_id: str) -> list[dict[str, Any]]:
-        """List the connections of one project as reader filter chips.
+    async def searchable(
+        self, *, tenant_id: str, project_id: str, principal_id: str
+    ) -> list[dict[str, Any]]:
+        """List the connections of one project the reader can search, as filter chips.
+
+        Under ``source_acl`` a connection is listed only when the reader may read one of
+        its source scopes, so one never ingested is not listed. ``tenant_shared`` lists
+        every connection.
+
+        Args:
+            tenant_id: Tenant of the project.
+            project_id: Project whose connections to list.
+            principal_id: Subject the source ACL checks, such as an API key's owner.
 
         Raises:
             HarborNotFoundError: The project does not exist in the tenant.
+            HarborConflictError: The reader may read more source scopes than the
+                authorizer enumerates.
         """
         control_plane = self._control_plane()
         tenants = frozenset({tenant_id})
@@ -169,6 +193,8 @@ class ConnectionService:
             tenant_ids=tenants, project_id=project_id
         )
         runs = await self._runs()
+        live = [connection for connection in connections if connection.status != "deleting"]
+        readable = await self._readable(runs, tenant_id, principal_id, live)
         return [
             {
                 "connection_ref": connection.ref,
@@ -179,8 +205,33 @@ class ConnectionService:
                     tenant_id=tenant_id, connection_id=connection.source_key
                 ),
             }
+            for connection in readable
+        ]
+
+    async def _readable(
+        self,
+        runs: ConnectionRuns,
+        tenant_id: str,
+        principal_id: str,
+        connections: list[Connection],
+    ) -> list[Connection]:
+        """Keep the connections with a source scope the reader may read; all under ``tenant_shared``."""
+        access = AccessContext(
+            principal_id=principal_id,
+            tenant_id=TenantId(tenant_id),
+            corpus_mode=corpus_mode_for(self._settings, tenant_id),
+        )
+        if access.corpus_mode == "tenant_shared" or not connections:
+            return connections
+        allowed = set(await self._authorizer.allowed_source_scope_ids(tenant_id, access=access))
+        scopes = await runs.source_scope_ids_by_connection(
+            tenant_id=tenant_id,
+            connection_ids=[connection.source_key for connection in connections],
+        )
+        return [
+            connection
             for connection in connections
-            if connection.status != "deleting"
+            if allowed.intersection(scopes.get(connection.source_key, ()))
         ]
 
     async def put(  # noqa: PLR0913 - one body plus its preconditions
@@ -582,9 +633,12 @@ class ConnectionService:
         return await self._active_run(tenant_id, source_key) is not None
 
     async def aclose(self) -> None:
-        """Wait for background removals started by this process."""
-        if self._background:
-            await asyncio.gather(*self._background, return_exceptions=True)
+        """Wait for background removals started by this process, then close the authorizer."""
+        try:
+            if self._background:
+                await asyncio.gather(*self._background, return_exceptions=True)
+        finally:
+            await self._authorizer.aclose()
 
     async def _require(self, key: ConnectionKey) -> Connection:
         """Return the stored connection or raise not found."""

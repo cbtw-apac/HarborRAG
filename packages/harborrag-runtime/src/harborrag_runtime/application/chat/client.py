@@ -124,7 +124,7 @@ class ChatClientMixin:
             HarborConflictError: The first request with the key failed.
             HarborConnectionError: The turn ended without its answer.
         """
-        options = chat_options(request, user_id=caller.user_id)
+        options = chat_options(request, user_id=caller.user_id, acl_subject=caller.acl_subject)
         attempt = CompletionAttempt(
             self._sessions,
             caller.tenant_id,
