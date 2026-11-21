@@ -1,7 +1,9 @@
 """Authoritative source reconciliation and task finalization.
 
-Each terminal summary stored here replaces the task's summary, so each one
-keeps the discovery skip counts that status views read after the run ends.
+The terminal summary stored here replaces the task's summary, so it keeps the
+discovery skip counts that status views read after the run ends and the
+progress bridge's state. A failed attempt never ends the task: its executor
+retries it or marks the task failed.
 """
 
 from __future__ import annotations
@@ -10,7 +12,7 @@ import asyncio
 import logging
 
 from harborrag_adapters.repositories.database import IngestionControlPlaneDatabase
-from harborrag_core.ingestion import BindingKind, IngestionTaskState
+from harborrag_core.ingestion import BindingKind
 from harborrag_engine.ingestion.source.models import (
     PlannedDocuments,
     RelationRepairProgress,
@@ -20,7 +22,7 @@ from harborrag_engine.ingestion.source.models import (
 )
 
 from ..maintenance.relation_repair import GraphRelationRepairService, RelationRepairResult
-from .skips import carried_discovery_skips, run_skip_summary
+from .skips import carried_progress_state, run_skip_summary
 
 logger = logging.getLogger("harborrag.runtime.ingestion.source_finalization")
 
@@ -59,9 +61,9 @@ class SourceFinalizationService:
         """Repair relations, reconcile removals, and record the run's final outcome.
 
         The final summary replaces the task's summary and keeps the run's skip
-        counts. If repair or reconciliation fails, the task is marked failed with
-        the counts so far and the error is raised. A later attempt may finalize
-        that task again.
+        counts. If repair or reconciliation fails, the failed stage and the counts
+        so far are merged into the task's summary and the error is raised. The
+        task stays running, so a later attempt may finalize it.
         """
         summary.require_total(planned.document_count)
         logger.info(
@@ -87,6 +89,7 @@ class SourceFinalizationService:
             relation_repair.unresolved_relations if relation_repair is not None else 0
         )
         skips = await run_skip_summary(self._control, request.task_id)
+        task = await self._control.tasks.get(request.task_id)
         await self._control.tasks.finalize(
             request.task_id,
             summary.task_state(),
@@ -100,6 +103,7 @@ class SourceFinalizationService:
                 **skips,
                 "removal_candidates": len(removals),
                 "unresolved_relations": unresolved_relations,
+                **(carried_progress_state(task.summary) if task is not None else {}),
             },
         )
         outcome = SourceIngestionOutcome(
@@ -256,26 +260,21 @@ class SourceFinalizationService:
         *,
         failed_stage: str,
     ) -> None:
-        """Mark the task failed at a finalization stage, keeping its counts so far.
+        """Record the failed finalization stage and the counts so far on the task.
 
-        A later attempt may finalize the task again, and reads the discovery skip
-        counts kept here.
+        Only the summary changes. Temporal retries the attempt, and the run's
+        executor marks the task failed once it gives up, keeping what is stored here.
         """
-        task = await self._control.tasks.get(task_id)
-        carried = carried_discovery_skips(task.summary) if task is not None else {}
         discovered = planned.document_count
-        await self._control.tasks.transition(
+        await self._control.tasks.update_summary(
             task_id,
-            IngestionTaskState.FAILED,
-            summary={
-                "stage": "COMPLETED",
+            {
                 "failed_stage": failed_stage,
                 "discovered": discovered,
                 "admitted": discovered,
                 "published": summary.published,
                 "unchanged": summary.unchanged,
                 "failed": summary.failed,
-                **carried,
             },
         )
 

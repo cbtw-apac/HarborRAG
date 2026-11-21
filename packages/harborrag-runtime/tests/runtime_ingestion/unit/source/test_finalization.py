@@ -41,6 +41,7 @@ class _Recorder:
 
 
 _NO_RESULTS = TaskDocumentPage(items=(), has_more=False)
+_PARSER_REJECTED = "document_release_parser_rejected_document"
 
 
 class _PageRepair:
@@ -167,7 +168,7 @@ async def test_finalization_summary_breaks_skips_down_by_reason() -> None:
     """
     failed = TaskDocumentPage(
         items=(
-            _failed_result("doc-1", stage="ParseAndNormalize"),
+            _failed_result("doc-1", stage="ParseAndNormalize", code=_PARSER_REJECTED),
             _failed_result("doc-2", stage="FetchAndCaptureRaw"),
         ),
         has_more=False,
@@ -223,7 +224,7 @@ async def test_run_skip_summary_counts_item_load_skips_once() -> None:
         items=(
             _failed_result("doc-1", stage="FetchAndCaptureRaw", skip_reason="ACCESS_DENIED"),
             _failed_result("doc-2", stage="FetchAndCaptureRaw", skip_reason="ACCESS_DENIED"),
-            _failed_result("doc-3", stage="ParseAndNormalize"),
+            _failed_result("doc-3", stage="ParseAndNormalize", code=_PARSER_REJECTED),
         ),
         has_more=False,
     )
@@ -241,6 +242,39 @@ async def test_run_skip_summary_counts_item_load_skips_once() -> None:
     }
 
 
+@pytest.mark.asyncio
+async def test_run_skip_summary_counts_only_parser_rejections_as_extraction_skips() -> None:
+    """An outage, a missing parser or a cancel while parsing is a failure to retry, not a skip."""
+    failed = TaskDocumentPage(
+        items=(
+            _failed_result("doc-1", stage="ParseAndNormalize", code=_PARSER_REJECTED),
+            _failed_result(
+                "doc-2", stage="ParseAndNormalize", code="document_release_document_unsupported"
+            ),
+            _failed_result(
+                "doc-3", stage="ParseAndNormalize", code="document_release_parser_unavailable"
+            ),
+            _failed_result(
+                "doc-4",
+                stage="ParseAndNormalize",
+                code="document_release_parseandnormalize_clienterror",
+            ),
+            _failed_result("doc-5", stage="ParseAndNormalize", code="document_release_cancelled"),
+            _failed_result(
+                "doc-6", stage="ParseAndNormalize", code="document_release_cancellederror"
+            ),
+        ),
+        has_more=False,
+    )
+    control = SimpleNamespace(
+        tasks=_Recorder(get=SimpleNamespace(summary={}), document_results_page=failed)
+    )
+
+    summary = await run_skip_summary(cast(Any, control), "task-1")
+
+    assert summary["skipped_by_reason"] == {"EXTRACTION_FAILED": 2}
+
+
 def test_discovery_skip_summary_clears_counts_for_a_traversal_without_skips() -> None:
     assert discovery_skip_summary(cast(Any, SimpleNamespace(skipped=()))) == {
         "skipped": 0,
@@ -251,14 +285,22 @@ def test_discovery_skip_summary_clears_counts_for_a_traversal_without_skips() ->
 
 
 def _failed_result(
-    document_id: str, *, stage: str, skip_reason: str | None = None
+    document_id: str,
+    *,
+    stage: str,
+    skip_reason: str | None = None,
+    code: str = "document_release_fetchandcaptureraw_valueerror",
 ) -> StoredTaskDocumentResult:
     return StoredTaskDocumentResult(
         task_id="task-1",
         document_id=document_id,
         document_version_id=None,
         status="failed",
-        result={"failure_stage": stage, **({"skip_reason": skip_reason} if skip_reason else {})},
+        result={
+            "failure_stage": stage,
+            "safe_error_code": code,
+            **({"skip_reason": skip_reason} if skip_reason else {}),
+        },
         updated_at=datetime(2026, 1, 1, tzinfo=UTC),
     )
 

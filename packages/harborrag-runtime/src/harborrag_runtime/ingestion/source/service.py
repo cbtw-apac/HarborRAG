@@ -1,7 +1,8 @@
 """Facade for source discovery, dispatch, retry, and finalization.
 
 Every terminal summary stored here replaces the task's summary, so each one
-keeps the discovery skip counts that status views read after the run ends.
+keeps the discovery skip counts that status views read after the run ends and
+the progress bridge's state.
 """
 
 from __future__ import annotations
@@ -37,7 +38,7 @@ from .documents import SourceDocumentService
 from .finalization import SourceFinalizationService
 from .operations import SourceDocumentOperations
 from .retry import SourceRetryService
-from .skips import carried_discovery_skips
+from .skips import carried_discovery_skips, carried_progress_state
 
 logger = logging.getLogger("harborrag.runtime.ingestion.source")
 
@@ -213,7 +214,9 @@ class SourceIngestionService(SourceDocumentOperations):
         """Persist one terminal source-workflow failure without runtime details.
 
         The failed task keeps the counts of what discovery skipped, so status
-        views still show them. A task that already ended is left as it is.
+        views still show them, and the progress bridge's state. When finalization
+        recorded the stage it failed in, the task keeps that summary instead and
+        ``stage`` is ignored. A task that already ended is left as it is.
         """
         await self._control.source_scans.fail_if_started(
             source_scan_id(task_id),
@@ -235,11 +238,16 @@ class SourceIngestionService(SourceDocumentOperations):
         await self._control.tasks.transition(
             task_id,
             IngestionTaskState.FAILED,
-            summary={
-                "failed_stage": stage,
-                "error_code": error_code,
-                **carried_discovery_skips(task.summary),
-            },
+            summary=(
+                {**task.summary, "error_code": error_code}
+                if _finalization_failed(task.summary)
+                else {
+                    "failed_stage": stage,
+                    "error_code": error_code,
+                    **carried_discovery_skips(task.summary),
+                    **carried_progress_state(task.summary),
+                }
+            ),
         )
         logger.warning(
             "Source ingestion marked failed task_id=%s error_code=%s",
@@ -402,6 +410,12 @@ class SourceIngestionService(SourceDocumentOperations):
             if dimensions is None:
                 raise
             raise VectorIndexSchemaError(_schema_mismatch_message(error, *dimensions)) from error
+
+
+def _finalization_failed(summary: Mapping[str, object]) -> bool:
+    """Whether a finalization attempt recorded its failed stage and counts on the task."""
+    failed_stage = summary.get("failed_stage")
+    return isinstance(failed_stage, str) and bool(failed_stage)
 
 
 def _failure_stage(error: Exception, stage: str) -> str:

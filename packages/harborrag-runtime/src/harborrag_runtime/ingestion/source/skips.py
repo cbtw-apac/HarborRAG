@@ -1,10 +1,11 @@
-"""Per-run skip accounting for source ingestion tasks.
+"""Per-run skip accounting for source ingestion tasks, and the summary state a run keeps.
 
 Discovery skips come from the connector's ``skipped`` report and stay on the
 task under ``DISCOVERY_SKIPS_KEY``, which status views read even after the run
 ends. Per-document skips are read back from the task's document results.
-Connector and database types are imported for annotations only, so importing
-this module stays light.
+A summary that replaces the task's summary keeps both these counts and the
+progress bridge's state. Connector and database types are imported for
+annotations only, so importing this module stays light.
 """
 
 from __future__ import annotations
@@ -22,7 +23,14 @@ if TYPE_CHECKING:
 
 EXTRACTION_FAILED = "EXTRACTION_FAILED"
 _EXTRACTION_STAGE = "ParseAndNormalize"
+_EXTRACTION_FAILURE_CODES = frozenset({"parser_rejected_document", "document_unsupported"})
+"""Codes of a parser rejecting the document; other failures while parsing are not extraction skips."""
+_DOCUMENT_FAILURE_PREFIX = "document_release_"
 _RESULT_PAGE_SIZE = 200
+PROGRESS_SNAPSHOT_KEY = "_last_progress_snapshot"
+"""Summary key of the progress bridge's last status and counters snapshot."""
+FAILURE_CURSOR_KEY = "_last_failure_cursor"
+"""Summary key of the last failed document the progress bridge has reported."""
 
 
 class SkipSummary(TypedDict):
@@ -79,6 +87,18 @@ def carried_discovery_skips(summary: Mapping[str, object]) -> dict[str, object]:
     return {DISCOVERY_SKIPS_KEY: dict(stored)} if isinstance(stored, Mapping) else {}
 
 
+def carried_progress_state(summary: Mapping[str, object]) -> dict[str, object]:
+    """Return the progress bridge state that a replacement task summary must keep.
+
+    The bridge's snapshot and failure cursor let it emit each event once. A terminal
+    summary without it made the bridge emit every ``document.failed`` again when
+    the run ended. The result is empty when the bridge has not seen the run.
+    """
+    return {
+        key: summary[key] for key in (PROGRESS_SNAPSHOT_KEY, FAILURE_CURSOR_KEY) if key in summary
+    }
+
+
 async def run_skip_summary(
     control: IngestionControlPlaneDatabase,
     task_id: str,
@@ -114,7 +134,7 @@ async def run_skip_summary(
 
 
 async def _document_skips(control: IngestionControlPlaneDatabase, task_id: str) -> Counter[str]:
-    """Count failed documents that are skips: item-load skips and parse failures."""
+    """Count failed documents that are skips: item-load skips and parser rejections."""
     counts: Counter[str] = Counter()
     after_updated_at = None
     after_document_id = None
@@ -130,9 +150,23 @@ async def _document_skips(control: IngestionControlPlaneDatabase, task_id: str) 
             skip_reason = item.result.get("skip_reason")
             if isinstance(skip_reason, str) and skip_reason:
                 counts[skip_reason] += 1
-            elif item.result.get("failure_stage") == _EXTRACTION_STAGE:
+            elif _is_extraction_failure(item.result):
                 counts[EXTRACTION_FAILED] += 1
         if not page.has_more or not page.items:
             return counts
         last = page.items[-1]
         after_updated_at, after_document_id = last.updated_at, last.document_id
+
+
+def _is_extraction_failure(result: Mapping[str, object]) -> bool:
+    """Whether a parser rejected the document while parsing it.
+
+    Infrastructure errors, a missing parser and cancellations at the same stage
+    are failures to retry, not skips.
+    """
+    code = result.get("safe_error_code")
+    return (
+        result.get("failure_stage") == _EXTRACTION_STAGE
+        and isinstance(code, str)
+        and code.strip().lower().removeprefix(_DOCUMENT_FAILURE_PREFIX) in _EXTRACTION_FAILURE_CODES
+    )
