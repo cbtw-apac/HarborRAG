@@ -15,6 +15,7 @@ from harborrag_engine.tools.reader_tools import (
     GetDocumentContextTool,
     ResolveGraphNodesTool,
 )
+from harborrag_engine.tools.source_list_tool import ListSourcesTool
 
 pytestmark = pytest.mark.unit
 
@@ -52,6 +53,7 @@ class _Backend:
     resolve_graph_nodes = _fail
     list_documents = _fail
     find_entities = _fail
+    list_sources = _fail
 
 
 def _tool(tool_cls: type[BaseTool], backend: _Backend) -> BaseTool:
@@ -69,6 +71,7 @@ def _tool(tool_cls: type[BaseTool], backend: _Backend) -> BaseTool:
         (ResolveGraphNodesTool, {"selector": {"kind": "exact_title", "value": "Payments"}}),
         (ListDocumentsTool, {}),
         (FindEntitiesTool, {"query": "payments"}),
+        (ListSourcesTool, {}),
     ],
     ids=[
         "fetch_evidence",
@@ -76,6 +79,7 @@ def _tool(tool_cls: type[BaseTool], backend: _Backend) -> BaseTool:
         "resolve_graph_nodes",
         "list_documents",
         "find_entities",
+        "list_sources",
     ],
 )
 async def test_reader_tool_backend_validation_error_text_is_not_returned(
