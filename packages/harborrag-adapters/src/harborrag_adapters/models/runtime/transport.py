@@ -10,18 +10,23 @@ from pydantic import SecretStr
 
 from .security import HeaderValue, reveal_secret
 
-_SENSITIVE_HEADERS = frozenset({"authorization", "proxy-authorization", "x-api-key", "api-key"})
+_SENSITIVE_HEADER_FRAGMENTS = ("key", "token", "auth", "secret", "signature", "cookie")
+
+
+def is_sensitive_header(name: str) -> bool:
+    """Return whether a header name suggests a credential, such as ``X-Goog-Api-Key``."""
+
+    lowered = name.lower()
+    return any(fragment in lowered for fragment in _SENSITIVE_HEADER_FRAGMENTS)
 
 
 def protect_sensitive_headers(value: Any) -> Any:
-    """Wrap authentication header values so repr never renders plaintext."""
+    """Wrap credential-like header values so repr never renders plaintext."""
 
     if not isinstance(value, Mapping):
         return value
     return {
-        key: (
-            SecretStr(item) if key.lower() in _SENSITIVE_HEADERS and isinstance(item, str) else item
-        )
+        key: (SecretStr(item) if is_sensitive_header(key) and isinstance(item, str) else item)
         for key, item in value.items()
     }
 

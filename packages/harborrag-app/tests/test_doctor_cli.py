@@ -96,23 +96,22 @@ def test_doctor_ignores_variables_in_commented_out_model_config(
     assert checks["models catalog"]["status"] == "ok"
 
 
-def test_doctor_scans_model_config_the_way_the_model_loader_reads_it(
-    tmp_path: Path, monkeypatch, capsys
+@pytest.mark.parametrize("extra", ["notes: first\n", "embed:\n  default_model: primary\n"])
+def test_doctor_fails_a_model_config_the_model_loader_refuses(
+    tmp_path: Path, monkeypatch, capsys, extra: str
 ) -> None:
-    """The model loader uses yaml.safe_load, which accepts a repeated key (last wins)."""
+    """The model loader refuses an unknown top-level key and a repeated one."""
     project(tmp_path, monkeypatch, api_key="sk-test")
     models = tmp_path / "config" / "models" / "models.yaml"
-    models.write_text(
-        models.read_text(encoding="utf-8") + "notes: first\nnotes: second\n",
-        encoding="utf-8",
-    )
+    models.write_text(models.read_text(encoding="utf-8") + extra, encoding="utf-8")
     unreachable(monkeypatch)
     monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
 
     cli.main(["doctor", "-o", "json"])
 
     checks = {c["name"]: c for c in json.loads(capsys.readouterr().out)["checks"]}
-    assert checks["models catalog"]["status"] == "ok"
+    assert checks["models catalog"]["status"] == "fail"
+    assert "sk-test" not in checks["models catalog"]["detail"]
 
 
 def test_doctor_fails_the_connector_catalog_when_one_definition_is_invalid(

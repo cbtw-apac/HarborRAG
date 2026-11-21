@@ -8,7 +8,15 @@ from types import MappingProxyType
 from typing import Any, Protocol, Self, cast
 from urllib.parse import urlsplit
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SecretStr,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 
 from .security import HeaderValue, SecretReference, SecretValue, sanitize_configuration
 from .transport import protect_sensitive_headers
@@ -101,7 +109,7 @@ class DeploymentPricing(BaseModel):
 class ProviderDeploymentConfig(BaseModel):
     """Define provider model identity, credentials, transport, and routing limits."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
 
     name: str = Field(min_length=1)
     model: str = Field(min_length=1)
@@ -132,6 +140,17 @@ class ProviderDeploymentConfig(BaseModel):
     pricing: DeploymentPricing | None = None
     allow_ambient_credentials: bool = False
     extra_litellm_params: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("api_key", "model", "api_base", "deployment_name", mode="before")
+    @classmethod
+    def strip_line_padding(cls, value: Any, info: ValidationInfo) -> Any:
+        """Strip padding, such as a CRLF env file's trailing CR, and refuse inner line breaks."""
+
+        if isinstance(value, SecretStr):
+            return SecretStr(_single_line(value.get_secret_value(), field=info.field_name))
+        if isinstance(value, str):
+            return _single_line(value, field=info.field_name)
+        return value
 
     @field_validator("api_base")
     @classmethod
@@ -180,8 +199,17 @@ class ProviderDeploymentConfig(BaseModel):
         return self
 
     def validate_provider_metadata(self, metadata: ProviderMetadata) -> Self:
-        """Enforce one family registry's provider requirements."""
+        """Enforce one family registry's provider requirements.
 
+        An empty ``api_key`` is refused for every provider, because LiteLLM would
+        replace it with an ambient key such as ``OPENAI_API_KEY``.
+        """
+
+        if isinstance(self.api_key, SecretStr) and not self.api_key.get_secret_value().strip():
+            raise ValueError(
+                f"{metadata.name.value} deployment {self.name!r} has an empty api_key; "
+                "set the variable it reads"
+            )
         missing = [field for field in metadata.required_fields if not getattr(self, field)]
         if missing:
             fields = ", ".join(sorted(missing))
@@ -233,6 +261,15 @@ class ProviderExtensionParameters(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     values: dict[str, Any]
+
+
+def _single_line(value: str, *, field: str | None) -> str:
+    """Strip surrounding whitespace and refuse a line break left inside the value."""
+
+    stripped = value.strip()
+    if "\r" in stripped or "\n" in stripped:
+        raise ValueError(f"{field} must not contain line breaks")
+    return stripped
 
 
 def _contains_header_newline(value: HeaderValue) -> bool:
