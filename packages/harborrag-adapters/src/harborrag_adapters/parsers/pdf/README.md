@@ -127,10 +127,10 @@ dependencies.
 
 ## Add an engine
 
-1. Add `engines/<engine>/config.py` and `engine.py`, plus `mapping.py` when the
-   engine's output needs converting.
+1. Add `engines/<engine>/config.py` and `engine.py`, plus helper modules such as
+   Docling's `utils.py` when the engine needs them.
 2. Implement `HarborPDFEngine` without importing another engine.
-3. Convert the engine's output into a `PDFParseResult`.
+3. Convert the engine's output into a `PDFParseResult` in `engine.py`.
 4. Inject the engine into `PDFEngineRegistry`, or add it to the default construction
    policy.
 5. Test routing and fallback with a lightweight fake engine before adding tests that

@@ -34,8 +34,7 @@ provider SDK failures and normalizes them into core exception types.
 The clients need the `llm` extra (`harborrag-adapters[llm]`). The repository's
 `config/models/models.yaml` defines chat, embedding and an optional reranker at one
 OpenAI-compatible endpoint, OpenAI or a gateway, and
-`config/models/models.production.example.yaml` calls providers directly with fallbacks
-and profiles.
+`config/models/models.production.example.yaml` calls providers directly with fallbacks.
 
 ```python
 from harborrag_adapters.models.chat import HarborChatClientConfig
@@ -54,26 +53,26 @@ and that is not set fails the load, for example
 rerank client only when the catalog names a rerank model
 (`harborrag_runtime/retrieval/composition.py`). The shipped catalog names one when
 `HARBORRAG_RERANKER_MODEL` is set, so an application that leaves it unset needs no
-variable for reranking. YAML and JSON files,
-Python mappings and validated configuration objects all go through the same Pydantic
-schemas, and a configuration object is immutable once validated.
+variable for reranking. YAML and JSON files, Python mappings and validated configuration
+objects all go through the same Pydantic schemas, and a configuration object is immutable
+once validated.
 
-`${NAME}` references, `.env` handling and profile precedence are described in
-[Model configuration: environment and secret references](../../../../../docs/users/configuration/model-config.md#environment-and-secret-references)
-and
-[profiles and precedence](../../../../../docs/users/configuration/model-config.md#profiles-and-precedence).
-`from_file` takes the profile and the code overrides as keyword arguments:
+A catalog file is read strictly: a key written twice in one mapping fails the load, and a
+catalog may hold only the `chat`, `embed` and `rerank` sections at its top level, so a
+misspelled section fails instead of turning that family off.
+
+`${NAME}` references and `.env` handling are described in
+[Model configuration: environment and secret references](../../../../../docs/users/configuration/model-config.md#environment-and-secret-references).
+`from_file` and `from_dict` take code overrides as a keyword argument:
 
 ```python
 chat_config = HarborChatClientConfig.from_file(
-    "config/models/models.production.example.yaml",
-    profile="production",
+    "config/models/models.yaml",
     overrides={"timeouts": {"request_seconds": 45}},
 )
 ```
 
-Environment and secret references are resolved after the profile and the overrides
-are applied.
+Environment and secret references are resolved after the overrides are applied.
 
 ## Logical models and deployments
 
@@ -117,12 +116,33 @@ The selector strategies are `ordered`, `weighted`, `round_robin`, `least_busy` a
 `latency`. Deployments at the lowest configured `order` form the current selection
 group; an excluded or unhealthy deployment lets the next one be considered.
 
+## LiteLLM settings
+
+A client that calls LiteLLM, and the LiteLLM Router builder, run `configure_litellm()`
+from `runtime/litellm_backend.py` before they first import LiteLLM. It changes these
+process-wide LiteLLM settings:
+
+- LiteLLM reads its packaged model cost map instead of fetching one from GitHub on
+  import. An operator's own `LITELLM_LOCAL_MODEL_COST_MAP` is kept, so `false` still
+  fetches it.
+- LiteLLM prints no debug banner to stdout on a provider error, and its exceptions leave
+  out the request messages.
+- LiteLLM's default retry count is 0, and every provider call also passes
+  `max_retries=0`, so the provider SDK never retries under Harbor's own retry, failover
+  and fallback stages.
+
+LiteLLM reads its cost map once, on first import. Code that imports `litellm` before it
+builds a client should call `configure_litellm()` first. The clients register no LiteLLM
+callbacks.
+
 ## Caching
 
 Caching is off by default. A request is cached only when it opts in with
 `cacheable=True`, carries a tenant identifier (under the default policy), and is not
 marked `sensitive=True`, unless `cache_sensitive_requests` is on. Cache keys include a
-tenant partition and the canonical request semantics.
+tenant partition, the canonical request semantics and a fingerprint of the family's
+configuration, so a shared cache stops serving the previous model's answers, vectors and
+scores after the catalog changes.
 
 | `cache.backend` | Storage |
 | --- | --- |
@@ -144,12 +164,9 @@ Structured logging, Langfuse and OpenTelemetry sinks can be combined; install th
 ```python
 import logging
 
-import litellm
-
 from harborrag_adapters.models.chat import ChatClientDependencies, ChatClientFactory
 from harborrag_adapters.models.runtime import (
     LangfuseTelemetry,
-    LiteLLMTelemetryCallback,
     OpenTelemetryTelemetry,
     StructuredLoggingTelemetry,
     TelemetryDispatcher,
@@ -167,7 +184,6 @@ client = ChatClientFactory.create(
     chat_config,
     ChatClientDependencies(telemetry=telemetry),
 )
-litellm.callbacks.append(LiteLLMTelemetryCallback(telemetry))
 ```
 
 `LangfuseTelemetry()` reads its keys from the Langfuse SDK's own variables, such as
@@ -177,9 +193,6 @@ litellm.callbacks.append(LiteLLMTelemetryCallback(telemetry))
   `ChatClientDependencies(telemetry_ownership=ResourceOwnership.OWNED, ...)` when one
   client should flush and close it, or close the shared dispatcher at the application
   boundary.
-- Register `LiteLLMTelemetryCallback` once at startup to capture sanitized provider
-  completion and error events. Client construction never changes LiteLLM's global
-  state.
 - Exporter failures are isolated by default; `failure_mode: raise` is for applications
   that want strict telemetry.
 - The privacy defaults turn off prompt and response logging, hash tenant and user
@@ -218,6 +231,18 @@ deployment must set (`required_fields`) and which credentials it accepts. For ex
 `aws_region_name` and uses either ambient AWS credentials or both
 `aws_access_key_id` and `aws_secret_access_key`; `openai_compatible` and several
 self-hosted providers need `api_base`; and `custom` needs `custom_llm_provider`.
+
+A deployment's `api_key`, `model`, `api_base` and `deployment_name` lose surrounding
+whitespace, such as the carriage return a CRLF env file leaves, and a line break inside
+one is refused. Building a client refuses a deployment whose `api_key` is empty, because
+LiteLLM would otherwise send an ambient key such as `OPENAI_API_KEY` to the configured
+endpoint. Only a rerank provider that needs no key and reads no ambient credentials,
+`litellm_proxy`, `vllm` or `infinity`, may leave it empty.
+
+A header whose name contains `key`, `token`, `auth`, `secret`, `signature` or `cookie`
+counts as a credential. Its value is masked wherever a configuration or request is
+printed, and a request that sets one in `custom_headers` is refused unless the family's
+`security.allow_request_auth_headers` is on.
 
 A provider being listed does not mean every model it serves supports every feature.
 Model identifiers, cloud entitlements, regions and capability flags must match the real
@@ -289,5 +314,5 @@ In addition:
 - `extra_litellm_params` accepts only the fields the family's security policy lists. A
   custom provider also needs `allow_custom_providers: true` and an explicit
   `custom_llm_provider`.
-- In tests, load every changed profile through every configuration class it affects,
+- In tests, load every changed catalog through every configuration class it affects,
   so unsupported or ignored fields fail at once.

@@ -14,8 +14,8 @@ imports an app or MCP-server module.
 
 | Path | Owns |
 | --- | --- |
-| `chat/` | Grounded chat turns: scope, retrieval, prompting, citations and streaming results; the completion request's mode and filter refusals; `Idempotency-Key` replay |
-| `memory/` | Conversation sessions, recalled-memory context and the long-term extraction queue; messages, titles, erasure, the conversation directory, usage records, turn locks and presenters live in `harborrag-memory`, and `MemoryIdentity` in `harborrag_core.domain.identity` |
+| `chat/` | Grounded chat completions: scope, retrieval, prompting, citations and the answer events a JSON or streamed response is built from; the completion request's mode and filter refusals; `Idempotency-Key` replay |
+| `memory/` | Conversation sessions, the last three exchanges a chat turn replays, the configured memory plugins, and the service methods that forward to the conversation directory and memory administration; messages, titles, erasure, the conversation directory, administration, usage records, turn locks and presenters live in `harborrag-memory`, and `MemoryIdentity` in `harborrag_core.domain.identity` |
 | `retrieval/` | The corpus access mode that chat retrieval reads |
 | `ingestion/` | Ingestion ports, recovery, run-progress events and inline execution; presentation and the failure inbox live in `harborrag_engine.ingestion`; starting a run (`starter.py`) and following its events (`follower.py`); durable submission goes through the ingestion application service |
 | `scheduling/` | Reconciling `config/sources/schedules.yaml` into the schedule engine |

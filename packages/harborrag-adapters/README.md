@@ -33,8 +33,10 @@ filesystem and in-memory repositories. Everything else is an extra:
 | `chunking-code` | tree-sitter and its language grammars | splitting code at syntax boundaries |
 | `chunking-tokens` | `tiktoken` | exact token counts with `TiktokenTokenCounter` |
 | `chunking` | LangChain text splitters | the `recursive` refiner |
-| `qdrant`, `falkordb`, `redis`, `postgres`, `s3` | one storage client each | that storage provider |
+| `qdrant`, `falkordb`, `s3` | one storage client each | that storage provider |
 | `control-plane` | SQLAlchemy, Alembic, `cryptography` | the migrated control-plane database |
+| `postgres` | `asyncpg` | the databases on PostgreSQL instead of SQLite |
+| `redis` | the Redis client | the model clients' Redis cache, routing state and single-flight |
 | `tables` | `pyarrow` | stored table artifacts |
 
 Parsers for Office files, images and PDFs have their own extras, such as `parsers`,
@@ -105,7 +107,7 @@ picks a parser family, and the family picks the engine.
 | `harborrag_adapters.parsers` | `HarborParserFactory` and eight parser families: `text`, `markup`, `structured`, `spreadsheet`, `document`, `presentation`, `image` and `pdf` | [Parsers](https://github.com/cbtw-apac/HarborRAG/blob/main/packages/harborrag-adapters/src/harborrag_adapters/parsers/README.md), [PDF parsers](https://github.com/cbtw-apac/HarborRAG/blob/main/packages/harborrag-adapters/src/harborrag_adapters/parsers/pdf/README.md) |
 | `harborrag_adapters.chunking` | `build_text_refiner`, which splits an oversized unit of a document at code, Markdown or sentence boundaries, plus `MarkdownChunker` and `RecursiveTextRefiner` | [Chunking configuration](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/configuration/chunking-config.md#refiner) |
 | `harborrag_adapters.models` | chat, embedding and reranking clients behind the model contracts of `harborrag-core` | [Model adapters](https://github.com/cbtw-apac/HarborRAG/blob/main/packages/harborrag-adapters/src/harborrag_adapters/models/README.md), [Chat adapter](https://github.com/cbtw-apac/HarborRAG/blob/main/packages/harborrag-adapters/src/harborrag_adapters/models/chat/README.md) |
-| `harborrag_adapters.repositories` | tenant-isolated vector, graph, cache, object, database and workflow-state storage | Repositories, below |
+| `harborrag_adapters.repositories` | tenant-isolated vector, graph and object storage, and the control-plane and ingestion-control databases | Repositories, below |
 | `harborrag_adapters.topology` | `LLMEntityExtractor`, the model adapter that extracts entities for the knowledge graph | [Graph build configuration](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/configuration/graph-build-config.md) |
 
 Each family keeps its own registry or factory: connectors, parsers, model providers and
@@ -150,13 +152,16 @@ tenant IDs into keys themselves.
 | --- | --- | --- | --- |
 | Vector | `HarborVectorDBClient` | `qdrant` | Collections, point CRUD, scan, dense and hybrid search |
 | Graph | `HarborGraphDBClient` | `falkordb` | Node and edge CRUD, bounded subgraph expansion |
-| Cache | `HarborCacheDBClient` | `memory`, `redis` | JSON values, tags, counters, compare-and-set, fenced locks |
 | Object store | `HarborObjectStoreDBClient` | `memory`, `filesystem`, `s3` | Streaming bodies, metadata, list and delete, presigned reads |
-| Database | `HarborDatabaseClient` | `sqlite`, `postgresql` | Document and chunk unit of work, transactional outbox |
-| Workflow state | `HarborStateDBClient` | `sqlite`, `redis` | Versioned state, checkpoints, leases, fencing tokens |
 
 Use a family client to build a backend by name, or construct a backend class directly
 when its configuration is already typed.
+
+The relational state lives in two SQLAlchemy databases under
+`harborrag_adapters.repositories.database`. `control_plane` holds projects, connections,
+API keys, conversations and runtime settings, with the Alembic migrations for both
+databases. `ingestion_control` holds source scans, document versions, ingestion tasks and
+publication. The database URL selects SQLite or PostgreSQL.
 
 ## Advanced usage
 
@@ -186,7 +191,7 @@ uv run pytest packages/harborrag-adapters/tests
 The [adapter test index](https://github.com/cbtw-apac/HarborRAG/blob/main/packages/harborrag-adapters/tests/README.md)
 lists every test folder and the package-wide coverage gate, and
 [Repository smoke checks](https://github.com/cbtw-apac/HarborRAG/blob/main/packages/harborrag-adapters/tests/repositories/smoke/README.md)
-run against live Redis, FalkorDB, PostgreSQL, Qdrant and SQLite.
+run against live Qdrant and FalkorDB services.
 
 ## License
 

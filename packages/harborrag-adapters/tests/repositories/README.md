@@ -1,13 +1,14 @@
 # Repository adapter tests
 
-These tests cover the vector, graph, cache, object-store, database and workflow-state
-repositories, the provider map, repository lifecycle and repository telemetry.
+These tests cover the vector, graph and object-store repositories, the control-plane and
+ingestion-control databases, the provider map, repository lifecycle and repository
+telemetry.
 
 | Folder | What it covers |
 | --- | --- |
 | `unit/` | Provider behaviour with in-memory, temporary local or fake SDK dependencies |
 | `integration/` | Control-plane migrations and SQLAlchemy repositories over a temporary local SQLite database |
-| `smoke/` | Standalone scripts that run real SQLite, PostgreSQL, Redis, Qdrant and FalkorDB operations |
+| `smoke/` | Standalone scripts that run real Qdrant and FalkorDB operations |
 
 Run the default selection from the repository root:
 
@@ -28,7 +29,7 @@ uv run pytest packages/harborrag-adapters/tests/repositories/integration -m inte
 
 `harborrag_adapters.repositories` must stay at 90% line and branch coverage. Measure it with the
 unit and integration tests together, because the SQL repositories are covered only by the
-integration tests; the unit tests alone reach about 79%:
+integration tests; the unit tests alone reach about 76%:
 
 ```bash
 uv run pytest -n 0 packages/harborrag-adapters/tests/repositories -m "not e2e and not smoke" \
