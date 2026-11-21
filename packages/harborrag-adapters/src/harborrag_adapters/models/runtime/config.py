@@ -238,7 +238,6 @@ class ModelClientConfig(BaseModel):
         cls,
         data: Mapping[str, Any],
         *,
-        profile: str | None = None,
         overrides: Mapping[str, Any] | None = None,
         secret_resolver: SecretResolver | None = None,
     ) -> Self:
@@ -247,7 +246,6 @@ class ModelClientConfig(BaseModel):
         prepared = prepare_config_section(
             data,
             section=cls.config_section,
-            profile=profile,
             overrides=overrides,
         )
         expanded = expand_environment(prepared)
@@ -259,7 +257,6 @@ class ModelClientConfig(BaseModel):
         cls,
         path: str | Path,
         *,
-        profile: str | None = None,
         overrides: Mapping[str, Any] | None = None,
         secret_resolver: SecretResolver | None = None,
     ) -> Self:
@@ -267,7 +264,6 @@ class ModelClientConfig(BaseModel):
 
         return cls.from_dict(
             load_config_document(path),
-            profile=profile,
             overrides=overrides,
             secret_resolver=secret_resolver,
         )

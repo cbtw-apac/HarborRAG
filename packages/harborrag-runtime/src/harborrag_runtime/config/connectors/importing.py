@@ -1,4 +1,4 @@
-"""Import connections from YAML and export them back.
+"""Import connections from YAML.
 
 A legacy entry's key becomes its ``source_key`` (and ``connection_id`` when the
 key is a valid id), so documents ingested before the upgrade keep their ids. An
@@ -49,7 +49,6 @@ from .schemas import ConnectorDefinition
 logger = logging.getLogger("harborrag.runtime.config.connectors.importing")
 
 DEFAULT_PROJECT_ID = "default"
-EXPORT_VERSION = 2
 IMPORT_MARKER_KEY = "connections_import"
 IMPORT_ACTOR = "import"
 _RUNNING, _DONE, _FAILED = "running", "done", "failed"
@@ -112,7 +111,7 @@ class ImportResult:
 
 
 class ConnectionImportService:
-    """Plan, apply and export connection documents for one tenant at a time."""
+    """Plan and apply connection documents for one tenant at a time."""
 
     def __init__(
         self,
@@ -242,31 +241,6 @@ class ConnectionImportService:
                     project_id,
                     exc_info=True,
                 )
-
-    # TODO: expose through the CLI; the old `source export` command was removed in v2.0.0.
-    async def export(self, *, tenant_id: str, project_id: str) -> str:
-        """Return a project's connections as an importable YAML document.
-
-        Secrets read back as their ``secret_ref`` when they point outside
-        HarborRAG, and as their status when HarborRAG stores the value.
-        """
-        connections, _ = await self._connections.list(
-            tenant_ids=frozenset({tenant_id}), project_id=project_id
-        )
-        entries = [
-            {
-                "project_id": connection.project_id,
-                "connection_id": connection.connection_id,
-                "source_key": connection.source_key,
-                "source_type": connection.source_type,
-                "name": connection.name,
-                "credentials": _exported_credentials(connection.credentials),
-                "config": dict(connection.config),
-                "tuning": dict(connection.tuning),
-            }
-            for connection in connections
-        ]
-        return yaml.safe_dump({"version": EXPORT_VERSION, "connections": entries}, sort_keys=False)
 
     def _from_legacy(
         self, raw: Mapping[str, Any], tenant_id: str, base_directory: Path
@@ -635,17 +609,3 @@ def _secret_free(credentials: Mapping[str, Any]) -> dict[str, Any]:
         key: stored.ref.value if (stored := StoredSecret.from_json(value)) is not None else value
         for key, value in credentials.items()
     }
-
-
-def _exported_credentials(credentials: Mapping[str, Any]) -> dict[str, Any]:
-    """Secrets as ``{secret_ref}`` when external, as their status when stored."""
-    exported: dict[str, Any] = {}
-    for key, value in credentials.items():
-        stored = StoredSecret.from_json(value)
-        if stored is None:
-            exported[key] = value
-        elif stored.ref.is_stored:
-            exported[key] = stored.status()
-        else:
-            exported[key] = {REFERENCE_KEY: stored.ref.value}
-    return exported

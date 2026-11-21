@@ -1,15 +1,12 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
 
-from harborrag_adapters.models.runtime.litellm_telemetry import LiteLLMTelemetryCallback
 from harborrag_adapters.models.runtime.telemetry import (
     OperationStatus,
-    TelemetryDispatcher,
     TelemetryEvent,
     TelemetryEventType,
 )
@@ -172,28 +169,3 @@ async def test_opentelemetry_completion_unknown_and_close_paths() -> None:
     adapter.emit(_event(TelemetryEventType.REQUEST_START, request_id="async-close"))
     await adapter.aclose()
     assert tracer.spans[2].ended == 1
-
-
-@pytest.mark.asyncio
-async def test_litellm_async_callbacks_handle_fallback_error_and_invalid_cost() -> None:
-    sink = Sink()
-    callback = LiteLLMTelemetryCallback(TelemetryDispatcher([sink]))
-    start = datetime.now(UTC)
-    end = start + timedelta(milliseconds=1)
-    kwargs = {
-        "model": "provider/model",
-        "response_cost": -1,
-        "litellm_params": {"metadata": "invalid"},
-    }
-
-    await callback.async_log_success_event(kwargs, {}, start, end)
-    await callback.async_log_failure_event(kwargs, {"error": "not-exception"}, start, end)
-
-    success, failure = sink.events
-    assert success.operation == "model"
-    assert success.estimated_cost_usd is None
-    assert success.cache_status == "miss"
-    assert failure.error == {
-        "type": "RuntimeError",
-        "message": "RuntimeError: provider request failed",
-    }

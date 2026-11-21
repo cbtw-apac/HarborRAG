@@ -1,4 +1,4 @@
-"""Importing connectors.yaml into connections, once, and exporting them back."""
+"""Importing connectors.yaml into connections, once."""
 
 from __future__ import annotations
 
@@ -174,18 +174,6 @@ async def test_an_imported_entry_ingests_under_its_old_key(stores: Any) -> None:
     )
 
     assert (prepared.connector_name, prepared.connection_id) == ("jira-main", "jira-main")
-
-
-@pytest.mark.asyncio
-async def test_export_round_trips_and_never_carries_a_value(stores: Any) -> None:
-    service = _service(stores)
-    await service.apply(await service.plan(_LEGACY, tenant_id="DEFAULT"))
-
-    exported = await service.export(tenant_id="DEFAULT", project_id="default")
-    replanned = await service.plan(exported, tenant_id="DEFAULT")
-
-    assert "secret_ref: env:JIRA_TOKEN" in exported
-    assert replanned.summary() == {"unchanged": 2}
 
 
 @pytest.mark.asyncio

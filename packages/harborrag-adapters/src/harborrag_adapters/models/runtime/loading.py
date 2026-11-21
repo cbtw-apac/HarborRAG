@@ -12,7 +12,6 @@ from yaml.nodes import MappingNode
 from yaml.resolver import BaseResolver
 
 _MODEL_SECTIONS = frozenset({"chat", "embed", "rerank"})
-_CATALOG_KEYS = _MODEL_SECTIONS | {"profiles"}
 
 
 class _UniqueKeyLoader(yaml.SafeLoader):
@@ -55,8 +54,8 @@ def load_config_document(path: str | Path) -> Mapping[str, Any]:
     """Load one YAML or JSON configuration document.
 
     A duplicate key is refused. A catalog with a ``chat``, ``embed`` or ``rerank``
-    section may hold only those sections and ``profiles`` at the top level, so a
-    misspelled section fails instead of turning that family off.
+    section may hold only those sections at the top level, so a misspelled section
+    fails instead of turning that family off.
     """
 
     file_path = Path(path)
@@ -71,7 +70,7 @@ def load_config_document(path: str | Path) -> Mapping[str, Any]:
     if not isinstance(raw, Mapping):
         raise ValueError("configuration document must be a mapping")
     if _MODEL_SECTIONS.intersection(raw):
-        unknown = sorted(str(key) for key in raw if key not in _CATALOG_KEYS)
+        unknown = sorted(str(key) for key in raw if key not in _MODEL_SECTIONS)
         if unknown:
             raise ValueError(
                 "model configuration has unknown top-level key(s): " + ", ".join(unknown)
@@ -100,28 +99,15 @@ def prepare_config_section(
     document: Mapping[str, Any],
     *,
     section: str,
-    profile: str | None,
     overrides: Mapping[str, Any] | None,
 ) -> dict[str, Any]:
-    """Extract and layer a model-family section, profile, and explicit overrides."""
+    """Extract a model-family section and layer explicit overrides on it."""
 
     raw = deepcopy(dict(document))
     base = raw.get(section, raw)
     if not isinstance(base, Mapping):
         raise ValueError(f"{section} configuration must be a mapping")
     merged = deepcopy(dict(base))
-    if profile:
-        profiles = raw.get("profiles", {})
-        if not isinstance(profiles, Mapping) or profile not in profiles:
-            raise ValueError(f"unknown configuration profile: {profile}")
-        selected = profiles[profile]
-        if isinstance(selected, Mapping) and section in selected:
-            selected = selected[section]
-        elif isinstance(selected, Mapping) and _MODEL_SECTIONS.intersection(selected):
-            selected = {}
-        if not isinstance(selected, Mapping):
-            raise ValueError(f"profile {profile!r} must be a mapping")
-        merged = merge_config_mappings(merged, selected)
     if overrides:
         merged = merge_config_mappings(merged, overrides)
     return merged

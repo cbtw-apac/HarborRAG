@@ -103,7 +103,7 @@ def test_environment_expansion(monkeypatch):
     assert config.models["primary"].deployments[0].api_key.get_secret_value() == "super-secret"
 
 
-def test_profile_and_programmatic_override():
+def test_programmatic_override():
     config = HarborChatClientConfig.from_dict(
         {
             "chat": {
@@ -117,9 +117,7 @@ def test_profile_and_programmatic_override():
                     }
                 },
             },
-            "profiles": {"production": {"chat": {"timeouts": {"request_seconds": 20}}}},
         },
-        profile="production",
         overrides={"timeouts": {"request_seconds": 10}},
     )
     assert config.timeouts.request_seconds == 10
