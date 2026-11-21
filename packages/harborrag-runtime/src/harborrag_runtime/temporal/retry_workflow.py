@@ -27,14 +27,23 @@ from .schemas import (
 )
 
 _CANCELLATION_PATCH = "harborrag-retry-records-cancellation"
+_HEARTBEAT_TIMEOUT_PATCH = "harborrag-retry-heartbeat-timeout"
 
 
 @workflow.defn(name="harborrag.document_retry")
 class DocumentRetryWorkflow:
     @workflow.run
     async def run(self, request: RetryDocumentInput) -> DocumentIngestionOutcome:
+        """Release one failed document again.
+
+        The release heartbeats, so an attempt on a dead worker is retried after two
+        minutes, and a cancelled one stops before it publishes.
+        """
         queues = request.workflow_options.task_queues
         retries = request.workflow_options.retries
+        heartbeat_timeout = (
+            timedelta(minutes=2) if workflow.patched(_HEARTBEAT_TIMEOUT_PATCH) else None
+        )
         try:
             return DocumentIngestionOutcome(
                 await workflow.execute_activity(
@@ -42,6 +51,7 @@ class DocumentRetryWorkflow:
                     request,
                     task_queue=queues.io,
                     start_to_close_timeout=timedelta(minutes=60),
+                    heartbeat_timeout=heartbeat_timeout,
                     retry_policy=temporal_retry_policy(retries.document),
                     result_type=DocumentIngestionOutcome,
                 )
