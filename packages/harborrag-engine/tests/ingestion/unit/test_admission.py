@@ -135,7 +135,7 @@ def test_admission_policy_distinguishes_skip_metadata_and_content_changes() -> N
     )
 
 
-def test_local_root_and_mtime_do_not_change_canonical_version_identity() -> None:
+def test_local_root_does_not_change_canonical_version_identity() -> None:
     planner = CanonicalVersionPlanner()
     source_identity = SourceIdentity(
         tenant_id="DEFAULT",
@@ -171,7 +171,7 @@ def test_local_root_and_mtime_do_not_change_canonical_version_identity() -> None
         )
 
     first = plan("/mnt/one", datetime(2026, 1, 1, tzinfo=UTC))
-    moved = plan("/srv/two", datetime(2026, 7, 1, tzinfo=UTC))
+    moved = plan("/srv/two", datetime(2026, 1, 1, tzinfo=UTC))
 
     assert first.candidate.document_id == moved.candidate.document_id
     assert first.candidate.document_version_id == moved.candidate.document_version_id

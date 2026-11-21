@@ -23,6 +23,7 @@ from harborrag_core.ingestion import (
     ProcessingProfile,
     SourceAdmissionDecision,
     SourceIdentity,
+    VectorPayload,
 )
 from harborrag_core.schemas.ids import DocumentId, DocumentVersionId
 
@@ -52,22 +53,39 @@ _RETRIEVAL_METADATA_FIELDS = frozenset(
         "subtasks",
     }
 )
+_PAYLOAD_SOURCE_FIELDS = frozenset(VectorPayload.model_fields) | frozenset(
+    {"issue_type", "source_created_at", "source_updated_at"}
+)
 
 
 def _projected_source_fields(
     document: Document,
     source_identity: SourceIdentity,
 ) -> dict[str, object]:
-    """Return the document fields the chunk factory copies onto every chunk.
+    """Return the document fields that chunks carry into their vector payloads.
 
     They are not in the evidence text, so they are hashed here. Otherwise a
-    change to only the update time would be classified UNCHANGED, and the active
-    payload would keep the old value. Only SharePoint copies fields this way, so
-    other connectors' fingerprints stay as they are.
+    change to only an assignee or an update time would be UNCHANGED, and the
+    active payloads would keep the old value.
+
+    For every connector this is each provenance field named like a payload
+    field, or like ``issue_type`` or a ``source_*_at`` time the payload falls
+    back to, and the document's creation and update times. A strategy that
+    copies fewer of them onto its chunks only gets an extra METADATA_CHANGED
+    version, whose evidence vectors are reused. SharePoint also hashes the
+    fields the chunk factory copies from its document.
     """
-    if source_identity.connector_type != ConnectorType.SHAREPOINT:
-        return {}
-    return {"sharepoint_chunk_fields": sharepoint_chunk_fields(document)}
+    provenance = document.provenance
+    fields: dict[str, object] = {
+        "payload_fields": to_jsonable_python(
+            {key: value for key, value in provenance.extra.items() if key in _PAYLOAD_SOURCE_FIELDS}
+        ),
+        "created_at": to_jsonable_python(provenance.created_at),
+        "updated_at": to_jsonable_python(provenance.updated_at),
+    }
+    if source_identity.connector_type == ConnectorType.SHAREPOINT:
+        fields["sharepoint_chunk_fields"] = sharepoint_chunk_fields(document)
+    return fields
 
 
 class SourceAdmissionPolicy:
@@ -252,7 +270,7 @@ class CanonicalVersionPlanner:
 
         Returns:
             Title, source, URL, tags, relations, selected metadata, table
-            captions, and any fields the chunk factory copies from the document.
+            captions, and the document fields chunks carry into vector payloads.
         """
         provenance = document.provenance
         extra = {
