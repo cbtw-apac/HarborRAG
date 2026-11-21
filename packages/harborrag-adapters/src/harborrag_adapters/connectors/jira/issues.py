@@ -98,11 +98,8 @@ class JiraIssueAPI:
         )
         issues = list(response.get("issues") or [])
         next_offset = start_at + len(issues)
-        total = response.get("total")
-        done = (
-            not issues
-            or (total is not None and next_offset >= int(total))
-            or len(issues) < provider_limit
+        done = _is_last_offset_page(
+            response, page_count=len(issues), next_offset=next_offset, requested=provider_limit
         )
         return issues, None if done else f"offset:{next_offset}"
 
@@ -198,9 +195,12 @@ class JiraIssueAPI:
             if truncated:
                 return comments
             start_at += len(values)
-            if total is not None and start_at >= int(total):
-                return comments
-            if len(values) < self.config.page_size:
+            if _is_last_offset_page(
+                response,
+                page_count=len(values),
+                next_offset=start_at,
+                requested=self.config.page_size,
+            ):
                 return comments
 
     def fetch_changelog(self, issue_key: str) -> list[dict[str, Any]]:
@@ -229,10 +229,12 @@ class JiraIssueAPI:
             if truncated:
                 return histories
             start_at += len(values)
-            total = response.get("total")
-            if total is not None and start_at >= int(total):
-                return histories
-            if len(values) < self.config.page_size:
+            if _is_last_offset_page(
+                response,
+                page_count=len(values),
+                next_offset=start_at,
+                requested=self.config.page_size,
+            ):
                 return histories
 
     def issue_expand(self) -> tuple[str, ...]:
@@ -302,11 +304,45 @@ class JiraIssueAPI:
             yield from issues
 
             start_at += len(issues)
-            total = response.get("total")
-            if total is not None and start_at >= int(total):
+            if _is_last_offset_page(
+                response,
+                page_count=len(issues),
+                next_offset=start_at,
+                requested=self.config.page_size,
+            ):
                 return
-            if len(issues) < self.config.page_size:
-                return
+
+
+def _is_last_offset_page(
+    response: dict[str, Any],
+    *,
+    page_count: int,
+    next_offset: int,
+    requested: int,
+) -> bool:
+    """Return whether an offset-paged Jira response is the last page.
+
+    Jira's ``total`` decides when it is present. Otherwise a page shorter than the
+    ``maxResults`` Jira answered with is the last one; a server cap can lower that
+    below ``requested``.
+    """
+    if page_count == 0:
+        return True
+    total = _page_integer(response.get("total"))
+    if total is not None:
+        return next_offset >= total
+    served = _page_integer(response.get("maxResults"))
+    return page_count < (served if served is not None and served > 0 else requested)
+
+
+def _page_integer(value: object) -> int | None:
+    """Return integer paging metadata, or None for a boolean or non-number."""
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        return None
 
 
 def _cursor_value(cursor: str | None, *, expected_kind: str) -> str | None:

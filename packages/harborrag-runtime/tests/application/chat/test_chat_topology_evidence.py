@@ -194,11 +194,8 @@ class _TopologyRetrieval(FakeRetrievalFacade):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("stream", [False, True])
 @pytest.mark.parametrize("graph_search", [False, True])
-async def test_chat_mode_wiring_and_original_only_citations(
-    stream: bool, graph_search: bool
-) -> None:
+async def test_chat_mode_wiring_and_original_only_citations(graph_search: bool) -> None:
     chat = FakeChatFacade(answer=f"Grounded in {citation_marker(1, _result())}.")
     retrieval = _TopologyRetrieval()
     runtime = FakeRuntime(chat, retrieval)
@@ -209,29 +206,11 @@ async def test_chat_mode_wiring_and_original_only_citations(
         ),
     )
     options = replace(await _options(service), graph_search=graph_search)
-    if stream:
-        events = [
-            event
-            async for event in service.chat_stream(
-                "Why?", tenant_id="ACME", principal_id="reader-1", options=options
-            )
-        ]
-        assert events[0]["citations"] == (
-            {
-                "document_id": "doc-1",
-                "chunk_id": "chunk-1",
-                "score": 0.9,
-                "marker": "[1]",
-                "content": "According to Alice, A may not depend on B after 2025 if the pilot "
-                "succeeds.",
-            },
-        )
-    else:
-        response = await service.chat_completion(
-            "Why?", tenant_id="ACME", principal_id="reader-1", options=options
-        )
-        assert response.ok
-        assert [(c["n"], c["chunk_id"]) for c in response.data["citations"]] == [(1, "chunk-1")]
+    response = await service.chat_completion(
+        "Why?", tenant_id="ACME", principal_id="reader-1", options=options
+    )
+    assert response.ok
+    assert [(c["n"], c["chunk_id"]) for c in response.data["citations"]] == [(1, "chunk-1")]
     assert retrieval.request.mode == (
         RetrievalMode.LOCAL_SEMANTIC if graph_search else RetrievalMode.FLAT
     )

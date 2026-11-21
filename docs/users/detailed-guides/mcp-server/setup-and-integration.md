@@ -303,6 +303,21 @@ To serve another name, such as a reverse proxy's, list it in
 `HARBORRAG_MCP_ALLOWED_HOSTS`, separated by commas. A name that is not
 loopback is accepted only with reader keys (`HARBORRAG_MCP_AUTH_MODE=api_key`).
 
+### Request limits
+
+Each credential, the owner token or a reader key, may send at most
+`HARBORRAG_MCP_RATE_LIMIT` requests per second (default `10`, also the burst)
+and have at most `HARBORRAG_MCP_MAX_INFLIGHT` running at once (default `4`).
+Both limits count `/mcp` and `/api/tools` together. A request over a limit is
+refused at once: `/mcp` answers with JSON-RPC error `-32000`, and `/api/tools`
+with `429` and a `Retry-After` header. stdio, `/healthz` and the status page
+are not limited, and each server process, such as the Explorer server, keeps
+its own budgets.
+
+To raise a limit, set its variable in `env/.env.mcp` and restart the server;
+`0` turns that limit off, and any value that is not `0` or a positive integer
+stops the launcher.
+
 ### Connect an HTTP client
 
 Give the client the MCP URL and, as its bearer token, the value of
@@ -417,10 +432,10 @@ uv run harborrag auth keys revoke --tenant engineering --owner user-alex --reaso
 - A key is bound to the environment it was issued in and refused elsewhere.
   `mcp.sh` starts the server with the API's `HARBORRAG_ENV` from `env/.env.api`
   for that reason.
-- The server looks the key up on **every** request and caches nothing, so a
-  key created or revoked by the CLI takes effect on the next call, on every
-  replica, without a restart. If the database cannot be reached, the request
-  is refused.
+- The server looks the key up on **every** request and caches only a key ID
+  it found missing, for 5 seconds, so a key created or revoked by the CLI takes
+  effect on the next call, on every replica, without a restart. If the
+  database cannot be reached, the request is refused.
 - The tenant comes from the stored key, never from the client: a call naming
   another `tenant_id` is refused. In the status UI a reader key can load and
   run its own tenant's tools; the configuration editor and API stay
@@ -591,8 +606,10 @@ description and comments) carries the issue's typed custom fields under
   again, without reprocessing its attachments.
 - The key is the field's display name in snake case (`Story Points` ->
   `story_points`, `Budget ($)` -> `budget`). A name that collides with
-  another or with a reserved runtime key falls back to the field ID
-  (`fields.customfield_10042`).
+  another or with a reserved runtime key, or is longer than 128 characters in
+  snake case, falls back to the field ID (`fields.customfield_10042`). An issue
+  keeps at most 128 fields, the first in key order; the rest are left out with
+  a warning in the worker log.
 - Free-text custom fields are left out; they are searchable as evidence
   instead.
 

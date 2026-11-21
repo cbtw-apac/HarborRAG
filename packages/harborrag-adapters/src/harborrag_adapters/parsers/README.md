@@ -127,8 +127,9 @@ Inside this folder:
   types and extensions, and defines its engine contract in `<family>/base.py`. The
   factory then registers it.
 - A new engine goes under `<family>/engines/<engine>/`: `config.py` holds its settings,
-  `engine.py` integrates only that engine, and `mapping.py` converts its output when
-  needed. The family's router receives the engine through dependency injection.
+  and `engine.py` integrates only that engine and converts its output. A larger engine
+  keeps helper modules beside them, such as `pdf/engines/docling/utils.py`. The family's
+  router receives the engine through dependency injection.
 - An engine's `config.py` checks its option values with the rules in
   `common/option_rules.py`, so the YAML catalog loader can run the checks without
   importing the engine's library.
@@ -139,7 +140,15 @@ Inside this folder:
 ## Logging and tests
 
 Parsers log under `harborrag.adapters.parsers`. A family logs engine selection and
-failures, never the extracted document text.
+failures, never the extracted document text. A file name can name a person, so parser
+logs label an input by a digest instead of its file name or path: the first 12 hex
+characters of the SHA-256 of its file name, or of its path when it has no file name,
+plus its suffix and size. To match a log line to a file you suspect, hash its name the
+same way:
+
+```bash
+printf '%s' 'technical-report.pdf' | sha256sum | cut -c1-12
+```
 
 Tests live in `packages/harborrag-adapters/tests/parsers/`, in `unit/` (which includes
 the family architecture tests), `failure/`, `security/`, `performance/` and `smoke/`.

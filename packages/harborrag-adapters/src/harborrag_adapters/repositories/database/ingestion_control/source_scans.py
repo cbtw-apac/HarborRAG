@@ -16,9 +16,10 @@ from harborrag_core.ingestion import (
     SourceScanState,
     StoredSourceItem,
 )
+from harborrag_core.ingestion.identity import legacy_identity_for_source
 
 from .removal_reconciliation import SourceRemovalReconciler
-from .schema import SOURCE_ITEMS, SOURCE_SCANS, SOURCE_SCOPES
+from .schema import DOCUMENTS, SOURCE_ITEMS, SOURCE_SCANS, SOURCE_SCOPES
 from .source_catalog import SourceCatalogReader
 from .source_item_mapping import (
     registration_from_existing,
@@ -154,7 +155,17 @@ class SourceScanRepository(SourceCatalogReader):
         scan_id: str,
         items: Sequence[DiscoveredSourceItem],
     ) -> tuple[SourceItemRegistration, ...]:
-        """Record a bounded discovery batch in one scan transaction."""
+        """Record a bounded discovery batch in one scan transaction.
+
+        A stored item whose document ID is the one 2.0.0a2 and earlier gave it is
+        re-keyed to the current ID and registered as new. Those releases failed such
+        items before storing a document, so nothing is published under the old ID.
+
+        Raises:
+            HarborConflictError: An item belongs to another scope, its stored document
+                ID is neither the current nor the legacy one, or a document is stored
+                under its legacy ID.
+        """
 
         if not items:
             return ()
@@ -179,6 +190,7 @@ class SourceScanRepository(SourceCatalogReader):
                     existing is not None
                     and existing["last_seen_scan_sequence"] == scan["scan_sequence"]
                 )
+                previous = await _registered_row(session, existing, item)
                 values = {
                     "document_id": str(item.document_id),
                     "source_version": item.source_version,
@@ -200,16 +212,12 @@ class SourceScanRepository(SourceCatalogReader):
                         )
                     )
                 else:
-                    if existing["document_id"] != str(item.document_id):
-                        raise HarborConflictError(
-                            "source identity resolved to a different document identity"
-                        )
                     await session.execute(
                         update(SOURCE_ITEMS).where(*key_condition).values(**values)
                     )
                 if not already_seen:
                     newly_seen += 1
-                registrations.append(registration_from_existing(existing, item))
+                registrations.append(registration_from_existing(previous, item))
             if newly_seen:
                 await session.execute(
                     update(SOURCE_SCANS)
@@ -363,3 +371,27 @@ class SourceScanRepository(SourceCatalogReader):
         if scan["status"] != SourceScanState.STARTED.value:
             raise HarborConflictError("source scan is no longer accepting discovery records")
         return cast(Mapping[str, object], scan)
+
+
+async def _registered_row(
+    session: AsyncSession,
+    existing: Mapping[str, object] | None,
+    item: DiscoveredSourceItem,
+) -> Mapping[str, object] | None:
+    """Return the stored row ``item`` is registered against, or None for a re-keyed one.
+
+    Raises:
+        HarborConflictError: The stored document ID is neither the current nor the
+            legacy one, or a document is stored under the legacy ID.
+    """
+    if existing is None or existing["document_id"] == str(item.document_id):
+        return existing
+    legacy_document_id = str(legacy_identity_for_source(item.source_identity))
+    if existing["document_id"] != legacy_document_id:
+        raise HarborConflictError("source identity resolved to a different document identity")
+    stored = await session.execute(
+        select(DOCUMENTS.c.document_id).where(DOCUMENTS.c.document_id == legacy_document_id)
+    )
+    if stored.scalar_one_or_none() is not None:
+        raise HarborConflictError("a document is stored under the legacy source identity")
+    return None

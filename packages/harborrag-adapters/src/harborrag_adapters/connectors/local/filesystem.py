@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import logging
 import os
 from collections.abc import Iterator
@@ -23,11 +24,12 @@ from .filters import file_paths_from_query
 from .mappers import build_source_record
 from .secure_read import LocalFileSnapshot, SecureReadScope, read_snapshot_beneath
 from .selection import LocalFileSelector
-from .skips import LocalSkipReport
+from .skips import LocalSkipReport, path_digest
 
 logger = logging.getLogger("harborrag.adapters.connectors.local")
 
 _READ_CHUNK_SIZE = 1024 * 1024
+_SKIPPED_LISTING_ERRNOS = frozenset({errno.EACCES, errno.EPERM, errno.ENOENT})
 
 
 class LocalFileSystem:
@@ -86,7 +88,7 @@ class LocalFileSystem:
             return
 
         start_path = self.start_path(query)
-        logger.info("Discovering local files under %s", start_path)
+        logger.info("Discovering local files under path_digest=%s", path_digest(start_path))
         for path, is_symlink in self.iter_files(start_path, query=query):
             if self.should_process_file(path, query):
                 yield path, is_symlink
@@ -109,7 +111,9 @@ class LocalFileSystem:
         seen_dirs = seen_dirs or set()
         directory_key = resolve_path(start_path)
         if directory_key in seen_dirs:
-            logger.debug("Skipping already visited local directory %s", start_path)
+            logger.debug(
+                "Skipping already visited local directory path_digest=%s", path_digest(start_path)
+            )
             return
         seen_dirs.add(directory_key)
 
@@ -127,16 +131,33 @@ class LocalFileSystem:
             self.skips.out_of_scope(path)
             return False
         if not path.is_file() and not path.is_dir():
-            raise DocumentProcessingError(f"Local path is not a file or directory: {path}")
+            raise DocumentProcessingError(
+                f"Local path is not a file or directory: path_digest={path_digest(path)}"
+            )
         return True
 
     def _directory_entries(self, path: Path) -> list[Path] | None:
+        """List a directory, or skip one that is denied or already gone.
+
+        Any other listing failure raises, so a scan that missed part of the tree
+        is never taken as complete and the files below are not retired.
+
+        Raises:
+            FetchError: The listing failed for another reason, or any listing failed
+                with ``fail_on_error`` set.
+        """
         try:
             return sorted(path.iterdir(), key=lambda item: item.name.lower())
         except OSError as exc:
-            if self.config.fail_on_error:
-                raise FetchError(f"Could not list local directory {path}: {exc}") from exc
-            self.skips.unreadable(path, error=exc)
+            if self.config.fail_on_error or exc.errno not in _SKIPPED_LISTING_ERRNOS:
+                raise FetchError(
+                    f"Could not list local directory path_digest={path_digest(path)}: "
+                    f"{type(exc).__name__}"
+                ) from None
+            if exc.errno == errno.ENOENT:
+                self.skips.deleted(path)
+            else:
+                self.skips.unreadable(path, error=exc)
             return None
 
     def _walk_entry(
@@ -186,7 +207,7 @@ class LocalFileSystem:
             return
         if size > self.config.max_file_size_bytes:
             raise DocumentProcessingError(
-                f"Local file {path} size {size} exceeds "
+                f"Local file path_digest={path_digest(path)} size {size} exceeds "
                 f"max_file_size_bytes {self.config.max_file_size_bytes}"
             )
 
@@ -242,7 +263,8 @@ class LocalFileSystem:
                 digest.update(chunk)
                 if limit is not None and len(buffer) > limit:
                     raise DocumentProcessingError(
-                        f"Local file {path} exceeds max_file_size_bytes {limit}"
+                        f"Local file path_digest={path_digest(path)} exceeds "
+                        f"max_file_size_bytes {limit}"
                     )
         return LocalFileSnapshot(
             content=bytes(buffer),
@@ -294,12 +316,12 @@ class LocalFileSystem:
             candidate = self.root_path / candidate
         if not self.config.follow_symlinks and self.has_symlink_component(candidate):
             raise DocumentProcessingError(
-                f"Local symlinks are disabled for source scope {self.root_path}: {value}"
+                f"Local symlinks are disabled: path_digest={path_digest(value)}"
             )
         resolved = resolve_path(candidate)
         if not self.within_source_scope(resolved):
             raise DocumentProcessingError(
-                f"Local path is outside configured source scope {self.root_path}: {value}"
+                f"Local path is outside the configured source scope: path_digest={path_digest(value)}"
             )
         return resolved
 

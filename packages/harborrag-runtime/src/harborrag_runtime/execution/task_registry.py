@@ -24,6 +24,7 @@ from harborrag_core.ingestion import (
 )
 from harborrag_core.ingestion.run_contracts import PreparedSourceSubmission
 from harborrag_core.invariants import HarborInvariantError
+from harborrag_core.security import AccessContext
 from harborrag_engine.ingestion.source.tasks import pending_source_task, source_scan_id
 from harborrag_runtime.composition.resources import build_ingestion_control
 from harborrag_runtime.config.settings import RuntimeSettings
@@ -140,6 +141,18 @@ class IngestionTaskRegistry:
         """The source scopes each connection has been ingested under, in one read."""
         return await self._control.connection_records.source_scope_ids_by_connection(
             tenant_id=tenant_id, connection_ids=connection_ids
+        )
+
+    async def allowed_source_scope_ids(
+        self, tenant_id: str, *, access: AccessContext, limit: int = 10000
+    ) -> tuple[str, ...]:
+        """The source scopes ``access`` may read, from the permission snapshots.
+
+        Raises:
+            HarborConflictError: The reader may read more than ``limit`` source scopes.
+        """
+        return await self._control.topology.allowed_source_scope_ids(
+            tenant_id, access=access, limit=limit
         )
 
     async def published_connection_ids(

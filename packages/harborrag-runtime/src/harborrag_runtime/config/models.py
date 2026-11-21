@@ -53,7 +53,8 @@ def has_rerank_model(path: str | Path) -> bool:
 
     The loader's errors propagate: ``OSError`` for an unreadable file,
     ``yaml.YAMLError`` for malformed YAML, ``ValueError`` for a document that is
-    not a mapping or a ``model`` that reads an unset variable with no default.
+    not a mapping, a duplicate key, an unknown top-level section or a ``model``
+    that reads an unset variable with no default.
 
     Args:
         path: YAML or JSON model catalog.
@@ -63,9 +64,10 @@ def has_rerank_model(path: str | Path) -> bool:
 
     Raises:
         ValueError: A named rerank model's provider requires an API key, and its
-            ``api_key`` reads a variable that is empty, so every rerank call would
-            be refused. A provider that needs no key, such as ``vllm`` or
-            ``litellm_proxy``, may leave it empty.
+            ``api_key`` reads a variable that is empty, so the rerank client would
+            refuse it. A provider whose registry entry needs no key, such as
+            ``vllm``, ``infinity`` or ``litellm_proxy``, may leave it empty, and the
+            rerank client accepts that.
     """
     from harborrag_adapters.models.runtime import expand_environment, load_config_document
 

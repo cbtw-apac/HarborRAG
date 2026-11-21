@@ -6,7 +6,7 @@ BaseTokenVerifier seam.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import jwt
 
@@ -20,7 +20,7 @@ from harborrag_core.domain.member import ROLE_ORDER
 class HmacTokenVerifier(BaseTokenVerifier):
     """Verify HS256-signed JWTs carrying `sub` and `role` claims."""
 
-    secret: str
+    secret: str = field(repr=False)
     algorithm: str = "HS256"
     issuer: str = "harborrag"
     audience: str = "harborrag-api"

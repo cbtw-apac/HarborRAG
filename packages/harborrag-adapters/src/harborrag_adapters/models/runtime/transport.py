@@ -8,20 +8,18 @@ from urllib.parse import urlparse
 
 from pydantic import SecretStr
 
-from .security import HeaderValue, reveal_secret
+from harborrag_core.models.headers import is_sensitive_header
 
-_SENSITIVE_HEADERS = frozenset({"authorization", "proxy-authorization", "x-api-key", "api-key"})
+from .security import HeaderValue, reveal_secret
 
 
 def protect_sensitive_headers(value: Any) -> Any:
-    """Wrap authentication header values so repr never renders plaintext."""
+    """Wrap credential-like header values so repr never renders plaintext."""
 
     if not isinstance(value, Mapping):
         return value
     return {
-        key: (
-            SecretStr(item) if key.lower() in _SENSITIVE_HEADERS and isinstance(item, str) else item
-        )
+        key: (SecretStr(item) if is_sensitive_header(key) and isinstance(item, str) else item)
         for key, item in value.items()
     }
 

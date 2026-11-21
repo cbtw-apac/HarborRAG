@@ -36,6 +36,12 @@ from harborrag_mcp_server.server.http_responses import (
     configuration_response,
     error_response,
 )
+from harborrag_mcp_server.server.request_limits import (
+    CredentialLimiter,
+    RequestLimits,
+    limit_mcp_requests,
+    limit_requests,
+)
 from harborrag_mcp_server.server.server import is_caller_correctable
 
 if TYPE_CHECKING:
@@ -234,8 +240,15 @@ def register_http_routes(
     registry: McpServer,
     configuration: McpConfigurationStore,
     token_verifier: TokenVerifier,
+    limiter: CredentialLimiter | None = None,
 ) -> None:
-    """Attach human-readable status and machine-readable health routes."""
+    """Attach the status, health, configuration and tool routes, and limit tool traffic.
+
+    ``limiter`` bounds each credential's requests on ``/mcp`` and ``/api/tools``
+    together; without one, the default ``RequestLimits`` apply.
+    """
+    limiter = limiter or CredentialLimiter(RequestLimits())
+    limit_mcp_requests(server, limiter)
     tool_names = [spec.name for spec in registry.list_tools()]
     server.custom_route("/", methods=["GET"], include_in_schema=False)(
         _status_handler(mcp_path, tool_names)
@@ -253,10 +266,10 @@ def register_http_routes(
         _reload_configuration_handler(configuration, token_verifier)
     )
     server.custom_route("/api/tools", methods=["GET"], include_in_schema=False)(
-        _list_tools_handler(registry, token_verifier)
+        _list_tools_handler(registry, token_verifier, limiter)
     )
     server.custom_route("/api/tools/call", methods=["POST"], include_in_schema=False)(
-        _call_tool_handler(registry, token_verifier)
+        _call_tool_handler(registry, token_verifier, limiter)
     )
 
 
@@ -266,8 +279,14 @@ def register_health_route(
     mcp_path: str,
     tool_names: list[str],
     service: str,
+    limiter: CredentialLimiter | None = None,
 ) -> None:
-    """Attach only the unauthenticated health route, for the Explorer UI server."""
+    """Attach only the unauthenticated health route, for the Explorer UI server.
+
+    ``limiter`` bounds each credential's requests on ``/mcp``; without one, the
+    default ``RequestLimits`` apply.
+    """
+    limit_mcp_requests(server, limiter or CredentialLimiter(RequestLimits()))
     server.custom_route("/healthz", methods=["GET"], include_in_schema=False)(
         _health_handler(mcp_path, tool_names, service=service)
     )
@@ -375,6 +394,7 @@ def _reload_configuration_handler(
 def _list_tools_handler(
     registry: McpServer,
     token_verifier: TokenVerifier,
+    limiter: CredentialLimiter,
 ) -> Callable[[Request], Awaitable[Response]]:
     """Build the route that lists a caller's tool catalog.
 
@@ -388,6 +408,7 @@ def _list_tools_handler(
     """
 
     @reader_or_owner(token_verifier)
+    @limit_requests(limiter)
     async def list_tools(request: Request, principal_id: str) -> JSONResponse:
         tenant_value = request.query_params.get("tenant_id")
         tenant_id = tenant_value.strip() if tenant_value is not None else None
@@ -427,6 +448,7 @@ def _list_tools_handler(
 def _call_tool_handler(
     registry: McpServer,
     token_verifier: TokenVerifier,
+    limiter: CredentialLimiter,
 ) -> Callable[[Request], Awaitable[Response]]:
     """Build the route that runs one tool for the Tool Playground.
 
@@ -439,6 +461,7 @@ def _call_tool_handler(
     """
 
     @reader_or_owner(token_verifier)
+    @limit_requests(limiter)
     async def call_tool(request: Request, principal_id: str) -> JSONResponse:
         try:
             name, arguments = await _tool_call(request)

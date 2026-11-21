@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, get_args
 
 from harborrag_app.operations.contract import OPERATIONS
 from harborrag_app.operations.etags import etag, version_from_etag
+from harborrag_app.operations.local.chat import acl_subject
 from harborrag_app.operations.principal import Principal, authorize_role
 from harborrag_app.operations.results import Saved, Tagged
 from harborrag_app.operations.schemas.connections import (
@@ -22,6 +23,7 @@ from harborrag_app.operations.schemas.connections import (
     ProjectOut,
     ProjectPage,
     ProjectWriteRequest,
+    SourceTypeName,
     SourceTypePage,
 )
 from harborrag_app.operations.schemas.me import MeOut, MePrincipal
@@ -116,12 +118,15 @@ class AdminOps:
 
         Returns:
             One page and the cursor of the next, ``None`` on the last page.
+
+        Raises:
+            HarborValidationError: ``source_type`` is not a source type name.
         """
         scope.require(OPERATIONS["list_connections"].role)
         items, next_cursor = await self._app_service.connection_service.list_page(
             tenant_id=scope.tenant_id,
             project_id=project_id,
-            source_type=source_type,
+            source_type=_source_type(source_type),
             status=status,
             limit=limit,
             cursor=cursor,
@@ -332,18 +337,22 @@ class AdminOps:
         """List the connections the caller can search in a project, for filter chips.
 
         Args:
-            scope: Caller and tenant.
+            scope: Caller and tenant; an API key reads as its owner, as in chat.
             project_id: The project whose connections to list.
 
         Returns:
-            Each connection that is not being deleted, with its document count.
+            Each connection that is not being deleted and, under ``source_acl``, has a
+            source scope the caller may read, with its document count.
 
         Raises:
             HarborNotFoundError: The project does not exist in the tenant.
+            HarborConflictError: The caller may read more source scopes than can be listed.
         """
         scope.require(OPERATIONS["list_searchable_connections"].role)
         items = await self._app_service.connection_service.searchable(
-            tenant_id=scope.tenant_id, project_id=project_id
+            tenant_id=scope.tenant_id,
+            project_id=project_id,
+            principal_id=acl_subject(scope.principal),
         )
         return ConnectionChipPage.model_validate({"items": items})
 
@@ -357,6 +366,16 @@ def _category(value: str | None) -> Category | None:
             return category  # type: ignore[no-any-return]  # get_args yields the Literal's members
     raise HarborValidationError(
         f"category must be one of {', '.join(get_args(Category))}", {"field": "category"}
+    )
+
+
+def _source_type(value: str | None) -> str | None:
+    """Accept only the source type names the HTTP route takes; ``None`` stays ``None``."""
+    names = get_args(SourceTypeName)
+    if value is None or value in names:
+        return value
+    raise HarborValidationError(
+        f"source_type must be one of {', '.join(names)}", {"field": "source_type"}
     )
 
 

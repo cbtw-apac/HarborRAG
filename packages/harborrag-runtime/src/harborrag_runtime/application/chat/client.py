@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import AsyncGenerator, Callable
 
 from harborrag_core.contracts.errors import (
@@ -43,7 +42,7 @@ class ChatClientMixin:
     ) -> AppResponse:
         """Create a chat session scoped to ``project_id`` for its whole life.
 
-        ``user_id`` owns the new conversation and defaults to the principal. The transport
+        ``user_id`` owns the new conversation; ``None`` is the shared ``DEFAULT_USER``. The transport
         must pass the same end-user identity it later puts on
         ``ChatExecutionOptions``: the session is keyed by it, so creating as
         the credential and completing as the human would make every turn look
@@ -110,8 +109,9 @@ class ChatClientMixin:
             caller: Who asks, from verified claims.
             replay: The idempotency key and the hash of the request body.
             validate_body: Checks the completion JSON against the transport's response model
-                and raises when it does not fit; the key is then recorded as failed instead of
-                completed, and the error propagates.
+                and raises when it does not fit. It runs before a session stores the exchange,
+                so a rejected answer leaves no history; the key is recorded as failed instead
+                of completed, and the error propagates.
 
         Returns:
             The completion as JSON, and whether it was replayed.
@@ -124,7 +124,7 @@ class ChatClientMixin:
             HarborConflictError: The first request with the key failed.
             HarborConnectionError: The turn ended without its answer.
         """
-        options = chat_options(request, user_id=caller.user_id)
+        options = chat_options(request, user_id=caller.user_id, acl_subject=caller.acl_subject)
         attempt = CompletionAttempt(
             self._sessions,
             caller.tenant_id,
@@ -141,14 +141,10 @@ class ChatClientMixin:
                 tenant_id=caller.tenant_id,
                 principal_id=caller.principal_id,
                 options=options,
+                validate=lambda answered: validate_body(answered.body()),
             )
         )
-        body = json.dumps(completion.data(), ensure_ascii=False, separators=(",", ":"))
-        try:
-            validate_body(body)
-        except BaseException:
-            await attempt.finish()
-            raise
+        body = completion.body()
         await attempt.finish(body, session_id=completion.session_id)
         return CompletionOutcome(body, replayed=False)
 
@@ -198,22 +194,6 @@ class ChatClientMixin:
     ) -> AsyncGenerator[TurnEvent, None]:
         """Run one turn as events; see ``ChatApplicationService.answer``."""
         return self._chat.answer(
-            query,
-            tenant_id=tenant_id,
-            principal_id=principal_id,
-            options=options,
-        )
-
-    def chat_stream(
-        self,
-        query: str,
-        *,
-        tenant_id: str,
-        principal_id: str,
-        options: ChatExecutionOptions,
-    ) -> AsyncGenerator[dict[str, object], None]:
-        """Stream one completion as ``{"kind": ...}`` events."""
-        return self._chat.stream(
             query,
             tenant_id=tenant_id,
             principal_id=principal_id,

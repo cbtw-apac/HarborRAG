@@ -35,6 +35,7 @@ from .schemas import (
     ScheduledSourcePreparationInput,
     SourceBatchInput,
     SourceCancellationInput,
+    SourceCancellationResult,
     SourceContinuation,
     SourceDiscoveryResult,
     SourceFailureInput,
@@ -52,6 +53,9 @@ _RUN_FAILURE_STATUS_PATCH = "run-failure-status"
 _PAUSE_PERSISTENCE_PATCH = "harborrag-source-pause-persistence"
 _PAUSE_RELAY_TEARDOWN_PATCH = "harborrag-source-pause-relay-teardown"
 _SIGNAL_ONLY_BATCH_PAUSE_PATCH = "harborrag-source-signal-only-batch-pause"
+_RECORDS_CANCELLATION_PATCH = "harborrag-source-records-cancellation"
+_GUARDED_DISCOVERY_STOP_PATCH = "harborrag-source-guarded-discovery-stop"
+_CANCEL_CLOSED_BATCH_PATCH = "harborrag-source-cancel-closed-batch"
 
 
 @workflow.defn(name="harborrag.scheduled_source_ingestion")
@@ -229,16 +233,23 @@ class SourceIngestionWorkflow:
         self,
         request: SourceIngestionInput,
     ) -> SourceIngestionResult:
-        """Run the source ingestion."""
+        """Run the source ingestion.
+
+        A pause or cancel that arrives during discovery is handled once discovery
+        ends, inside the run's failure and cancellation recording.
+        """
         self._task_id = request.task_id
         self._status = "RUNNING"
         discovery, start_index = await self._initial_state(request)
         self._discovered = discovery.document_count
         self._skipped_by_reason = dict(discovery.skipped_by_reason)
-        if await self._stop_requested(request):
+        guarded_stop = not workflow.in_workflow() or workflow.patched(_GUARDED_DISCOVERY_STOP_PATCH)
+        if not guarded_stop and await self._stop_requested(request):
             return await self._cancelled_result(request, discovery)
         completed_in_run = 0
         try:
+            if guarded_stop and await self._stop_requested(request):
+                return await self._cancelled_result(request, discovery)
             for start in range(
                 start_index,
                 discovery.document_count,
@@ -300,6 +311,9 @@ class SourceIngestionWorkflow:
             await self._record_hard_cancellation(request)
             raise
         except (ActivityError, ChildWorkflowError) as error:
+            if is_cancelled_exception(error) and workflow.patched(_RECORDS_CANCELLATION_PATCH):
+                await self._record_hard_cancellation(request)
+                raise
             await self._record_run_failure(request, error)
             raise
         self._status = result.status
@@ -395,10 +409,28 @@ class SourceIngestionWorkflow:
                 with contextlib.suppress(asyncio.CancelledError):
                     await cancel_future
                 return cast(DocumentDispatchSummary, await batch_future), False
-            await handle.signal("request_graceful_cancel")
+            await self._cancel_batch(handle)
             return cast(DocumentDispatchSummary, await batch_future), True
         finally:
             await self._stop_pause_relay(pause_relay)
+
+    @staticmethod
+    async def _cancel_batch(
+        handle: workflow.ChildWorkflowHandle[Any, DocumentDispatchSummary],
+    ) -> None:
+        """Ask the batch child to stop gracefully.
+
+        A batch that closed before this workflow saw it finish rejects the signal.
+        Its result still stands, and the run is cancelled with it.
+        """
+        try:
+            await handle.signal("request_graceful_cancel")
+        except FailureError as error:
+            if is_cancelled_exception(error) or not workflow.patched(_CANCEL_CLOSED_BATCH_PATCH):
+                raise
+            workflow.logger.info(
+                "Graceful cancel skipped for closed batch workflow_id=%s", handle.id
+            )
 
     async def _stop_pause_relay(self, pause_relay: asyncio.Task[None]) -> None:
         """End the batch's pause relay without failing the run.
@@ -553,6 +585,9 @@ class SourceIngestionWorkflow:
                 ),
             )
         except ActivityError as error:
+            if is_cancelled_exception(error) and workflow.patched(_RECORDS_CANCELLATION_PATCH):
+                await self._record_hard_cancellation(request)
+                raise
             if workflow.patched(_DISCOVER_FAILURE_STATUS_PATCH):
                 self._status = "FAILED"
             error_code, _ = durable_failure(error)
@@ -615,13 +650,21 @@ class SourceIngestionWorkflow:
         request: SourceIngestionInput,
         discovery: SourceDiscoveryResult,
     ) -> SourceIngestionResult:
-        await workflow.execute_activity(
+        """Record the graceful cancel and return the run's counts, with every skip so far.
+
+        A cancel activity from before it returned skips, or its result in an older
+        history, leaves the discovery skips in place.
+        """
+        cancelled: SourceCancellationResult | None = await workflow.execute_activity(
             "harborrag.cancel_source_ingestion",
             SourceCancellationInput(task_id=request.task_id),
             task_queue=request.workflow_options.task_queues.discovery,
             start_to_close_timeout=timedelta(minutes=2),
             retry_policy=temporal_retry_policy(request.workflow_options.retries.discovery),
+            result_type=SourceCancellationResult,
         )
+        if cancelled is not None:
+            self._skipped_by_reason = dict(cancelled.skipped_by_reason)
         await self._cleanup_source(request)
         self._status = "CANCELLED"
         return SourceIngestionResult(

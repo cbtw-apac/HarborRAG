@@ -4,6 +4,8 @@ from collections.abc import Collection, Mapping
 from enum import StrEnum
 from typing import Any, Protocol
 
+from harborrag_core.models.headers import is_sensitive_header
+
 from .provider import ProviderDeploymentConfig, ProviderMetadata
 from .security import HeaderValue, SecretReference
 from .transport import validate_base_url
@@ -32,8 +34,6 @@ PROVIDER_RESERVED_EXTRA_PARAMS = frozenset(
         "vertex_project",
     }
 )
-
-_AUTH_HEADERS = frozenset({"authorization", "proxy-authorization", "x-api-key", "api-key"})
 
 
 class ProviderSecurityPolicy(Protocol):
@@ -158,7 +158,7 @@ def validate_request_headers(
     invalid_values = [name for name, value in headers.items() if _header_newline(value)]
     if invalid_values:
         raise ValueError("request header values cannot contain newlines")
-    authentication = {name for name in headers if name.lower() in _AUTH_HEADERS}
+    authentication = {name for name in headers if is_sensitive_header(name)}
     if authentication and not allow_auth_headers:
         raise ValueError(
             "request-level authentication headers are disabled: "

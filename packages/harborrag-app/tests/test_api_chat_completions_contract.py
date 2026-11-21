@@ -146,7 +146,7 @@ def test_usage_adds_up_every_model_call_of_the_turn(
     assert instant["usage"]["cost_usd"] == pytest.approx(0.001)  # type: ignore[index]
 
 
-def test_every_answer_marker_has_a_citation_and_every_citation_a_marker(
+def test_every_citation_has_a_marker_and_an_unknown_number_stays_as_written(
     client: TestClient,
 ) -> None:
     session_id = _session(client)
@@ -157,10 +157,11 @@ def test_every_answer_marker_has_a_citation_and_every_citation_a_marker(
     citations = body["citations"]
     assert isinstance(citations, list)
     markers = {int(number) for number in MARKER.findall(answer)}
-    assert markers == {citation["n"] for citation in citations} == {1, 2}
+    assert {citation["n"] for citation in citations} == {1, 2}
+    assert markers == {1, 2, 9}
     assert (
         answer
-        == "Two runbooks match: DEMO-2 [1] and DEMO-1 [2]; see also. DEMO-2 [1] covers rollback."
+        == "Two runbooks match: DEMO-2 [1] and DEMO-1 [2]; see also [9]. DEMO-2 [1] covers rollback."
     )
     first, second = citations
     assert (first["n"], first["chunk_id"], first["document_id"]) == (1, "chk_2", "doc_2")

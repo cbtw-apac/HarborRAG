@@ -19,6 +19,7 @@ from harborrag_adapters.repositories.vector.qdrant.collections import (
     QdrantCollectionMixin,
 )
 from harborrag_adapters.repositories.vector.qdrant.config import QdrantVectorConfig
+from harborrag_adapters.repositories.vector.qdrant.errors import translate_qdrant_errors
 from harborrag_adapters.repositories.vector.qdrant.health import qdrant_health
 from harborrag_adapters.repositories.vector.qdrant.mapping import QdrantMapper
 from harborrag_adapters.repositories.vector.qdrant.query import QdrantQueryExecutor
@@ -46,6 +47,8 @@ except ImportError:  # pragma: no cover - optional dependency
     qm = None
 else:
     qm = _qm
+
+_UPSERT_BATCH_POINTS = 128
 
 
 class QdrantVectorRepository(QdrantCollectionMixin, HarborVectorRepository):
@@ -106,6 +109,7 @@ class QdrantVectorRepository(QdrantCollectionMixin, HarborVectorRepository):
         return await qdrant_health(self._database, self._config)
 
     @traced_repository_operation("upsert_records")
+    @translate_qdrant_errors
     async def upsert_records(
         self,
         index_name: str,
@@ -113,6 +117,11 @@ class QdrantVectorRepository(QdrantCollectionMixin, HarborVectorRepository):
         *,
         context: StorageOperationContext,
     ) -> None:
+        """Upsert in requests of at most 128 points, below Qdrant's 32 MiB request limit.
+
+        A failure can leave earlier requests written; upserts are idempotent, so a retry
+        completes the set.
+        """
         spec = await self._queries.require_spec(index_name, context)
         qdrant_points = []
         for point in records:
@@ -166,13 +175,16 @@ class QdrantVectorRepository(QdrantCollectionMixin, HarborVectorRepository):
                     qm,
                 )
             )
-        await self._database.raw.upsert(
-            collection_name=self._queries.collection_name(index_name, context),
-            points=qdrant_points,
-            wait=True,
-        )
+        collection_name = self._queries.collection_name(index_name, context)
+        for start in range(0, len(qdrant_points), _UPSERT_BATCH_POINTS):
+            await self._database.raw.upsert(
+                collection_name=collection_name,
+                points=qdrant_points[start : start + _UPSERT_BATCH_POINTS],
+                wait=True,
+            )
 
     @traced_repository_operation("get_records")
+    @translate_qdrant_errors
     async def get_records(
         self,
         index_name: str,
@@ -183,6 +195,7 @@ class QdrantVectorRepository(QdrantCollectionMixin, HarborVectorRepository):
         return await self._queries.get(index_name, ids, context=context)
 
     @traced_repository_operation("delete_records")
+    @translate_qdrant_errors
     async def delete_records(
         self,
         index_name: str,
@@ -207,6 +220,7 @@ class QdrantVectorRepository(QdrantCollectionMixin, HarborVectorRepository):
         )
 
     @traced_repository_operation("scan_records")
+    @translate_qdrant_errors
     async def scan_records(
         self,
         index_name: str,
@@ -225,6 +239,7 @@ class QdrantVectorRepository(QdrantCollectionMixin, HarborVectorRepository):
         )
 
     @traced_repository_operation("distinct_values")
+    @translate_qdrant_errors
     async def distinct_values(
         self,
         index_name: str,
@@ -239,6 +254,7 @@ class QdrantVectorRepository(QdrantCollectionMixin, HarborVectorRepository):
         )
 
     @traced_repository_operation("indexed_payload_fields")
+    @translate_qdrant_errors
     async def indexed_payload_fields(
         self,
         index_name: str,
@@ -253,6 +269,7 @@ class QdrantVectorRepository(QdrantCollectionMixin, HarborVectorRepository):
         )
 
     @traced_repository_operation("search")
+    @translate_qdrant_errors
     async def search(
         self,
         query: VectorSearchQuery,
@@ -262,6 +279,7 @@ class QdrantVectorRepository(QdrantCollectionMixin, HarborVectorRepository):
         return await self._queries.search(query, context=context)
 
     @traced_repository_operation("sparse_search")
+    @translate_qdrant_errors
     async def sparse_search(
         self,
         query: SparseSearchQuery,
@@ -271,6 +289,7 @@ class QdrantVectorRepository(QdrantCollectionMixin, HarborVectorRepository):
         return await self._queries.sparse_search(query, context=context)
 
     @traced_repository_operation("hybrid_search")
+    @translate_qdrant_errors
     async def hybrid_search(
         self,
         query: HybridSearchQuery,

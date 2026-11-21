@@ -176,8 +176,10 @@ def test_parser_registry_logs_route_and_result(caplog):
     started = next(record for record in caplog.records if record.msg.startswith("Parsing"))
     finished = next(record for record in caplog.records if record.msg.startswith("Parsed"))
     assert started.name == "harborrag.adapters.parsers.registry"
-    assert started.getMessage() == ("Parsing doc.fake with fake via mime_type=application/x-fake")
-    assert finished.getMessage() == ("Parsed doc.fake with parser fake content_chars=5 elements=1")
+    label = "input=f69223567f3a suffix=.fake size=5"
+    assert started.getMessage() == f"Parsing {label} with fake via mime_type=application/x-fake"
+    assert finished.getMessage() == f"Parsed {label} with parser fake content_chars=5 elements=1"
+    assert "doc.fake" not in caplog.text
 
 
 @pytest.mark.graybox
@@ -198,9 +200,10 @@ def test_parser_log_extra_uses_safe_metadata_only():
     assert extra == {
         "harbor_parser": "markdown",
         "harbor_parser_engine": "python/regex",
-        "harbor_input": "doc.md",
+        "harbor_input": "input=07d30049577a suffix=.md size=11",
         "harbor_suffix": ".md",
         "harbor_content_type": "text/markdown",
         "harbor_content_chars": 11,
     }
     assert "secret body" not in repr(extra)
+    assert "doc.md" not in repr(extra)

@@ -1,15 +1,27 @@
+"""S3 object reads, writes, listing and deletion, with botocore errors translated.
+
+Endpoint outages, timeouts and 5xx, 429 or 400 responses become HarborRAG storage
+errors. Any other botocore error passes through. A translated error names no bucket
+or key, because keys can carry file names.
+"""
+
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
+from dataclasses import replace
 from datetime import UTC, datetime
-from typing import Any
+from functools import wraps
+from typing import Any, cast
 
 from harborrag_adapters.repositories.errors import (
     HarborStorageAlreadyExistsError,
+    HarborStorageError,
     HarborStorageNotFoundError,
     HarborStorageValidationError,
     StorageErrorContext,
+    StorageFailure,
+    storage_failure_error,
 )
 from harborrag_adapters.repositories.object_store.keys import (
     logical_object_key,
@@ -32,6 +44,68 @@ from harborrag_core.schemas.object_store import (
     PutObjectRequest,
 )
 from harborrag_core.storage import StorageOperationContext
+
+_TIMEOUT_ERRORS: tuple[type[Exception], ...]
+_CONNECTION_ERRORS: tuple[type[Exception], ...]
+_RESPONSE_ERRORS: tuple[type[Exception], ...]
+try:
+    from botocore.exceptions import (  # type: ignore[import-untyped]  # no stubs
+        ClientError as BotoClientError,
+    )
+    from botocore.exceptions import (
+        ConnectionError as BotoConnectionError,
+    )
+    from botocore.exceptions import (
+        ConnectTimeoutError,
+        ReadTimeoutError,
+    )
+except ImportError:  # pragma: no cover - optional dependency
+    _TIMEOUT_ERRORS = _CONNECTION_ERRORS = _RESPONSE_ERRORS = ()
+else:
+    _TIMEOUT_ERRORS = (ConnectTimeoutError, ReadTimeoutError)
+    _CONNECTION_ERRORS = (BotoConnectionError,)
+    _RESPONSE_ERRORS = (BotoClientError,)
+_VENDOR_ERRORS = (*_TIMEOUT_ERRORS, *_CONNECTION_ERRORS, *_RESPONSE_ERRORS)
+_SERVER_ERROR = 500
+_RATE_LIMITED = 429
+_BAD_REQUEST = 400
+
+
+def _s3_failure(error: Exception) -> tuple[StorageFailure, int | None] | None:
+    """The kind of backend failure a botocore error stands for, with its HTTP status."""
+    if isinstance(error, _TIMEOUT_ERRORS):
+        return StorageFailure.TIMEOUT, None
+    if isinstance(error, _CONNECTION_ERRORS):
+        return StorageFailure.UNAVAILABLE, None
+    response = getattr(error, "response", None) or {}
+    status = (response.get("ResponseMetadata") or {}).get("HTTPStatusCode")
+    if not isinstance(status, int):
+        return None
+    if status >= _SERVER_ERROR:
+        return StorageFailure.UNAVAILABLE, status
+    if status == _RATE_LIMITED:
+        return StorageFailure.RATE_LIMITED, status
+    if status == _BAD_REQUEST:
+        return StorageFailure.REJECTED, status
+    return None
+
+
+def _translate_s3_errors[Operation: Callable[..., Awaitable[Any]]](
+    operation: Operation,
+) -> Operation:
+    """Translate the botocore errors an object-store operation raises."""
+
+    @wraps(operation)
+    async def translated(self: Any, *args: Any, **kwargs: Any) -> Any:
+        try:
+            return await operation(self, *args, **kwargs)
+        except _VENDOR_ERRORS as error:
+            storage_error = self._s3_storage_error(operation.__name__, error, kwargs["context"])
+            if storage_error is None:
+                raise
+            raise storage_error from error
+
+    return cast(Operation, translated)
 
 
 class S3ObjectOperationsMixin(S3BodySpoolMixin, S3ObjectMetadataMixin):
@@ -65,7 +139,19 @@ class S3ObjectOperationsMixin(S3BodySpoolMixin, S3ObjectMetadataMixin):
     async def _run_sync(self, function: Any, *args: Any) -> Any:
         return await asyncio.to_thread(function, *args)
 
+    def _s3_storage_error(
+        self, operation: str, error: Exception, context: StorageOperationContext
+    ) -> HarborStorageError | None:
+        """Return the storage error a botocore error stands for, or ``None`` to keep it."""
+        failure = _s3_failure(error)
+        if failure is None:
+            return None
+        kind, status = failure
+        error_context = replace(self._error_context(operation, "", "", context), resource_name=None)
+        return storage_failure_error(kind, error_context, status_code=status)
+
     @traced_repository_operation("put")
+    @_translate_s3_errors
     async def put(
         self,
         request: PutObjectRequest,
@@ -169,6 +255,7 @@ class S3ObjectOperationsMixin(S3BodySpoolMixin, S3ObjectMetadataMixin):
         return common
 
     @traced_repository_operation("get_bytes")
+    @_translate_s3_errors
     async def get_bytes(
         self,
         bucket: str,
@@ -198,16 +285,23 @@ class S3ObjectOperationsMixin(S3BodySpoolMixin, S3ObjectMetadataMixin):
         context: StorageOperationContext,
     ) -> AsyncIterator[bytes]:
         async with self._telemetry.operation("iter_bytes", context):
-            await self._authorize(bucket, key, context)
-            response = await self.client.get_object(
-                Bucket=bucket,
-                Key=physical_object_key(context.tenant_id, key, self._config.namespace_prefix),
-            )
-            async with response["Body"] as stream:
-                while chunk := await stream.read(chunk_size):
-                    yield chunk
+            try:
+                await self._authorize(bucket, key, context)
+                response = await self.client.get_object(
+                    Bucket=bucket,
+                    Key=physical_object_key(context.tenant_id, key, self._config.namespace_prefix),
+                )
+                async with response["Body"] as stream:
+                    while chunk := await stream.read(chunk_size):
+                        yield chunk
+            except _VENDOR_ERRORS as error:
+                storage_error = self._s3_storage_error("iter_bytes", error, context)
+                if storage_error is None:
+                    raise
+                raise storage_error from error
 
     @traced_repository_operation("head")
+    @_translate_s3_errors
     async def head(
         self,
         bucket: str,
@@ -237,6 +331,7 @@ class S3ObjectOperationsMixin(S3BodySpoolMixin, S3ObjectMetadataMixin):
         )
 
     @traced_repository_operation("exists")
+    @_translate_s3_errors
     async def exists(
         self,
         bucket: str,
@@ -251,6 +346,7 @@ class S3ObjectOperationsMixin(S3BodySpoolMixin, S3ObjectMetadataMixin):
             return False
 
     @traced_repository_operation("delete")
+    @_translate_s3_errors
     async def delete(
         self,
         bucket: str,
@@ -269,6 +365,7 @@ class S3ObjectOperationsMixin(S3BodySpoolMixin, S3ObjectMetadataMixin):
         return True
 
     @traced_repository_operation("list")
+    @_translate_s3_errors
     async def list(
         self,
         bucket: str,
@@ -308,6 +405,7 @@ class S3ObjectOperationsMixin(S3BodySpoolMixin, S3ObjectMetadataMixin):
         return output
 
     @traced_repository_operation("presign_download")
+    @_translate_s3_errors
     async def presign_download(
         self,
         bucket: str,

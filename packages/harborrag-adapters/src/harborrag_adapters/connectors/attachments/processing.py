@@ -289,9 +289,9 @@ class AttachmentProcessor:
         except Exception as exc:  # noqa: BLE001 - attachment boundary
             safe_reason = redact_secrets(str(exc))
             self.logger.warning(
-                "Failed to process attachment %s: %s",
+                "Failed to process attachment %s error_type=%s",
                 attachment_id,
-                safe_reason,
+                type(exc).__name__,
             )
             if self.fail_on_error:
                 raise FetchError(safe_reason) from exc

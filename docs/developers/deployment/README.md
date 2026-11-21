@@ -89,6 +89,10 @@ AOF. The separate Redis service keeps AOF persistence.
 Compose. Change the example passwords before using the stack outside an isolated developer
 machine.
 
+Every port is published on `HARBORRAG_DATA_BIND_ADDRESS`, `127.0.0.1` by default. Keep it on
+loopback: Qdrant, Redis and FalkorDB run without authentication, so anyone who reaches their
+ports can read and change the stored data.
+
 The database stack owns the `harborrag-data-network`, and it is the only Compose file that
 creates it: every other stack declares it `external: true`. Application containers and the
 Temporal worker join it. Temporal control-plane services also sit on their own Compose project
@@ -114,9 +118,10 @@ and `api` starts the API with `--no-deps`. `dev.sh up --no-worker` omits the wor
 `dev.sh down` stops the topology in reverse order.
 
 `up` and `worker` take `--device cpu|gpu` to choose the CPU or the GPU worker image, and
-`down --volumes` passes `--volumes` to Compose, which removes the stack's named volumes. `dev.sh sharepoint-login [--logout]
-[--device cpu|gpu]` signs the worker in for a SharePoint connection with
-`auth_mode: device_code` and keeps the token in the `harborrag-sharepoint-tokens` volume; see
+`down --volumes` passes `--volumes` to Compose, which removes the stack's named volumes.
+`dev.sh sharepoint-login [--logout] [--device cpu|gpu]` signs the worker in for a SharePoint
+connection with `auth_mode: device_code` and keeps the token in the
+`harborrag-sharepoint-tokens` volume; see
 [Delegated sign-in](../../users/configuration/connector-config.md#delegated-sign-in).
 
 The API and worker commands reuse Compose's existing local `harborrag-api-api` and
@@ -135,7 +140,8 @@ non-loopback published address. Authentication and CORS values belong in the ign
 
 The API's ops port `9465`, which serves `/metrics`, is published on loopback only. `dev.sh api`
 and `dev.sh up` generate the metrics scrape token, `HARBORRAG_METRICS_SCRAPE_TOKEN`, in
-`env/.env.api` when it is blank; `/metrics` answers only to that bearer token.
+`env/.env.api` when it is blank; `/metrics` answers only to that bearer token. Outside
+`dev.sh`, a blank token refuses every scrape with `401`.
 
 The API receives the model credentials from `env/.env.models` for chat completions and
 synchronous vector retrieval, while connector credentials stay with the ingestion workers.
@@ -287,10 +293,12 @@ and database settings and network-reachable data services. Its writable JSONL au
 
 Use `scripts/deployment/mcp.sh --http` for the authenticated loopback HTTP transport and the
 local status page. Its container joins `harborrag-data-network`, and Docker publishes the
-port on `127.0.0.1` only. The wrapper runs `harborrag-mcp --http --preflight` before it starts the
-server, so a missing setting is one line and not a restart loop. Remote MCP needs TLS and a
-production JWT/JWKS verifier,
-and the local container command intentionally does not provide it.
+port on `127.0.0.1` only. The container starts only while `HARBORRAG_ENV` is `dev`, the
+Compose default, because its listener beyond loopback and its plaintext links to the data
+services are development-only acknowledgements. The wrapper runs
+`harborrag-mcp --http --preflight` before it starts the server, so a missing setting is one
+line and not a restart loop. Remote MCP needs TLS and a production JWT/JWKS verifier, and
+the local container command intentionally does not provide it.
 
 The MCP image records the commit it was built from in its
 `org.opencontainers.image.revision` label. The wrapper passes it when it builds, compares it
@@ -303,12 +311,13 @@ The Explorer MCP UI server is optional and separate. `scripts/deployment/mcp-ui.
 `8011`. Its audit path is the same, inside its own `harborrag-mcp-ui-audit` volume. The MCP
 image and `mcp.sh` never include or start it.
 
-## Model download and warmup scripts
+## Local model smoke script
 
-`scripts/models/` contains helpers for Docling and FastEmbed downloads, warmup and local-model
-smoke checks. Inspect each script before use: provider and model downloads may need network
-access, substantial disk space and platform-specific runtimes. Keep caches outside container
-layers when they need an independent lifecycle.
+`scripts/models/smoke_test_local_models.py` sends one chat request, one streamed chat request
+and one embedding request to models served by vLLM on your machine, and prints each
+response. Its endpoints, `http://localhost:8000/v3` for chat and `http://localhost:8001/v3`
+for embeddings, and its model names are fixed in the script; port `8000` is also the API's
+default, so edit them to match your servers before you run it.
 
 ## Temporal and cloud directories
 

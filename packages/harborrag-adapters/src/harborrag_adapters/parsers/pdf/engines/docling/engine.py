@@ -71,7 +71,7 @@ class DoclingPDFEngine(DoclingConfigurationMixin, HarborPDFEngine):
             try:
                 result = converter.convert(path, **self._convert_kwargs())
             except Exception as exc:  # noqa: BLE001 - external parser boundary
-                raise ParseError(f"Docling could not parse PDF: {exc}") from exc
+                raise ParseError(f"Docling could not parse PDF: {type(exc).__name__}") from exc
 
         document = getattr(result, "document", result)
         content = self._export_document(document)

@@ -451,25 +451,34 @@ def _local_file(source_path: str) -> Connection:
 
 
 class _StoredConnections:
-    """The one stored connection ``--inline`` resolves."""
+    """The one stored connection ``--inline`` resolves, busy when it has an active run."""
 
-    def __init__(self, connection: Connection) -> None:
+    def __init__(self, connection: Connection, *, busy: bool = False) -> None:
         self.connection = connection
+        self.busy = busy
         self.keys: list[ConnectionKey] = []
 
     async def stored(self, key: ConnectionKey) -> Connection:
         self.keys.append(key)
         return self.connection
 
+    async def connection_busy(self, tenant_id: str, source_key: str) -> bool:
+        assert (tenant_id, source_key) == (self.connection.tenant_id, self.connection.source_key)
+        return self.busy
+
 
 def _inline_service(
-    connection: Connection, *, final_status: str = "completed", response: AppResponse | None = None
+    connection: Connection,
+    *,
+    final_status: str = "completed",
+    response: AppResponse | None = None,
+    busy: bool = False,
 ) -> type[MockAppService]:
     class Service(MockAppService):
         def __init__(self) -> None:
             super().__init__()
             self.direct_final_status = final_status
-            self.connection_service = _StoredConnections(connection)
+            self.connection_service = _StoredConnections(connection, busy=busy)
 
         async def run_ingestion(self, **kwargs: Any) -> AppResponse:
             if response is not None:
@@ -578,6 +587,18 @@ def test_inline_accepts_a_local_file_connection_that_names_one_file(
 
     assert code == 0
     assert len(built[0].direct_runs) == 1
+
+
+def test_inline_refuses_a_connection_with_an_active_run_like_the_api(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    built = _built(monkeypatch, _inline_service(_local_file(str(tmp_path)), busy=True))
+
+    code, out, err = _run(capsys, "ingestions", "start", _REF, "--inline", "--yes", "-o", "json")
+
+    assert (code, out) == (4, "")
+    assert json.loads(err)["error"]["code"] == "already_running"
+    assert built[0].direct_runs == []
 
 
 def test_an_inline_run_that_fails_to_run_is_one_error_envelope(

@@ -5,6 +5,7 @@ from typing import Any
 
 from harborrag_adapters.models.runtime.connections import SharedConnectionLifecycle
 from harborrag_adapters.models.runtime.lifecycle import ResourceOwnership
+from harborrag_adapters.models.runtime.litellm_backend import configure_litellm
 
 from ..backend_config import ChatBackendType
 from .base import BaseLiteLLMChatBackend
@@ -27,6 +28,7 @@ class LiteLLMDirectBackend(BaseLiteLLMChatBackend):
         """Bind injected functions or current LiteLLM completion entrypoints."""
 
         if completion is None or acompletion is None:
+            configure_litellm()
             import litellm
 
             completion = completion or litellm.completion

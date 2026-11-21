@@ -8,7 +8,7 @@ Start from: DocumentVersionTransitionPolicy, PublicationPolicy, IngestionFailure
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from harborrag_core.contracts.errors import (
     HarborConflictError,
@@ -286,7 +286,18 @@ class IngestionFailureClassifier:
         self._known_failures = (*known_failures, *_SIMPLE_FAILURES)
 
     def classify(self, stage: str, error: Exception) -> SafeFailure:
-        """Return the safe category, retry flag and code for ``error`` raised in ``stage``."""
+        """Return the safe category, retry flag and code for ``error`` raised in ``stage``.
+
+        An error whose own ``retryable`` flag is ``False``, such as a model error for a
+        rejected request, is never retried. The flag never makes a failure retryable.
+        """
+        failure = self._classify(stage, error)
+        if failure.retryable and getattr(error, "retryable", None) is False:
+            return replace(failure, retryable=False)
+        return failure
+
+    def _classify(self, stage: str, error: Exception) -> SafeFailure:
+        """Classify ``error`` by its type and stage alone."""
         for error_type, category, retryable, code in self._known_failures:
             if isinstance(error, error_type):
                 return SafeFailure(category, retryable, code)

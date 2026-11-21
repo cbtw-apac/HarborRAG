@@ -131,7 +131,7 @@ async def test_a_session_turn_reads_top_k_at_the_sessions_project_level() -> Non
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("answer", ["", "  ", "[9]"])
+@pytest.mark.parametrize("answer", ["", "  "])
 async def test_an_empty_answer_is_an_unavailable_model_and_stores_nothing(answer: str) -> None:
     service, memory, _ = await _service(FakeChatFacade(answer=answer))
 

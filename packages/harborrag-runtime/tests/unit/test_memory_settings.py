@@ -37,8 +37,6 @@ def test_defaults_match_the_approved_policy() -> None:
     # Entity linking is on: memory is joined to the graph by id, never written into it.
     assert settings.memory_entity_linking is True
     assert settings.memory_extraction_enabled is True
-    assert settings.memory_extraction_min_importance == pytest.approx(0.3)
-    assert settings.memory_dedup_threshold == pytest.approx(0.92)
     assert settings.memory_model_profile == "memory"
     assert settings.memory_embed_profile is None
 
@@ -119,8 +117,6 @@ def test_verbatim_tail_may_equal_the_window() -> None:
         ("memory_block_budget_fraction", 0.0),
         ("memory_type_affinity_weight", -0.1),
         ("memory_type_affinity_weight", 2.1),
-        ("memory_extraction_min_importance", 1.2),
-        ("memory_dedup_threshold", 0.2),
         ("memory_retention_days_user", -1),
         ("memory_model_profile", ""),
     ],

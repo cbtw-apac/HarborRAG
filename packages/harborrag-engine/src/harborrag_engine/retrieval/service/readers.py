@@ -171,11 +171,8 @@ class ReaderRetrieval:
         sources = await topology.authorized_source_scope_ids(
             str(access.tenant_id), source_ids, access=access
         )
-        tenant_visible = bool(documents or sources)
         return tuple(
-            node
-            for node in nodes
-            if _node_visible(node, documents, sources, tenant_visible, tenant_readable)
+            node for node in nodes if _node_visible(node, documents, sources, tenant_readable)
         )
 
 
@@ -183,18 +180,18 @@ def _node_visible(
     node: GraphNodeRecord,
     documents: set[str],
     sources: set[str],
-    tenant_visible: bool,
     tenant_readable: bool,
 ) -> bool:
     """Decide whether a node is visible to the caller.
 
-    A shared external stub is visible to anyone who can read the tenant: its
-    ``source_scope_id`` is only the declarer projected last, so checking it would
-    flip the stub with ingestion order. This is the rule of
-    ``graph_visibility._record_authorized`` and the FalkorDB access predicate.
+    A tenant-owned node and a shared external stub are visible to anyone who can
+    read the tenant, whatever else the batch holds. A stub's ``source_scope_id`` is
+    only the declarer projected last, so checking it would flip the stub with
+    ingestion order. This is the rule of ``graph_visibility._record_authorized``
+    and the FalkorDB access predicate.
     """
     if node.ownership_scope == GraphOwnershipScope.TENANT:
-        return tenant_visible
+        return tenant_readable
     if node.document_id is not None:
         return str(node.document_id) in documents
     if node.node_key.startswith(_EXTERNAL_STUB_KEY_PREFIX):

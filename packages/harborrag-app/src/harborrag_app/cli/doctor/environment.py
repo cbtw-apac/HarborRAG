@@ -181,7 +181,8 @@ def models_check(path: Path) -> Check:
     The loader expands ``${VAR}`` eagerly but accepts an empty value, which would only surface as an
     authentication failure mid-ingestion. Name the blank variable now. Scan the parsed values, not
     the raw text: a `${VAR}` in a commented-out example section is never expanded, so it must not
-    fail the check. safe_load matches the model loader, which the catalog has just passed.
+    fail the check. safe_load is laxer than the model loader, which refuses duplicate keys and
+    unknown sections, but it reads the same values once that loader has accepted the catalog.
 
     The file can change or vanish between the two reads.
     """

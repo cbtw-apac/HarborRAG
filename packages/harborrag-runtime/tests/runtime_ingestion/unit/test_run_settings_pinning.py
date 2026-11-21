@@ -224,7 +224,8 @@ async def test_scheduled_preparation_pins_settings(
     provider = _MutableProvider(_snapshot(4, {"chunking.max_tokens": 256}))
     runtime = SimpleNamespace(
         control=SimpleNamespace(
-            source_scans=SimpleNamespace(has_running_scan=AsyncMock(return_value=False))
+            source_scans=SimpleNamespace(has_running_scan=AsyncMock(return_value=False)),
+            connection_records=SimpleNamespace(active_task=AsyncMock(return_value=None)),
         ),
         source_plans=None,
         connection_resolver=ConnectionResolver(

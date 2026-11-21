@@ -68,20 +68,6 @@ async def test_omitting_the_model_leaves_the_request_unchanged() -> None:
 
 
 @pytest.mark.asyncio
-async def test_a_streamed_turn_carries_the_chosen_model_too() -> None:
-    chat = FakeChatFacade()
-    service, options = await _service_and_options(chat, model="tenant-fast")
-
-    async for _event in service.chat_stream(
-        "Hello", tenant_id="ACME", principal_id="reader-1", options=options
-    ):
-        pass
-
-    assert chat.request is not None
-    assert chat.request.logical_model == "tenant-fast"
-
-
-@pytest.mark.asyncio
 async def test_a_model_the_tenant_may_not_use_is_refused_before_any_call() -> None:
     chat = FakeChatFacade()
     service, options = await _service_and_options(chat, model="tenant-fast")

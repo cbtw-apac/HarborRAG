@@ -3,9 +3,10 @@
 Choose whether an ingestion skips the records it already indexed (`incremental`) or
 fetches and evaluates every record again (`force`). An ingestion is one run that reads a
 connection's source; a connection is one configured data source, such as a Jira project
-or a local folder. Both terms are defined in [Connections](connections.md#terms-used-on-this-page).
-The mode never changes what a connection reads: paths, queries, credentials, attachments
-and comments stay in the connection's stored configuration.
+or a local folder. Both terms are defined in
+[Connections](connections.md#terms-used-on-this-page). The mode never changes what a
+connection reads: paths, queries, credentials, attachments and comments stay in the
+connection's stored configuration.
 
 ## Set the mode where you start a run
 
@@ -60,9 +61,16 @@ authoritative source scan, and compares each record with the active document ver
 
 - New source record: process and publish it.
 - Changed source or canonical content: create and publish a new immutable version.
-- Changed retrieval metadata: update the version and rebuild the required projections.
+- Changed retrieval metadata only, such as a Jira assignee, priority or status
+  category, or a local file's modification time under the default
+  `checksum_mode: stat`: create a new version that reuses the
+  stored evidence vectors and carries the new payload values.
 - Changed processing fingerprint: reprocess it, even in incremental mode.
 - Unchanged record: keep the active version and skip the expensive downstream work.
+  When the record had to be fetched to find that out, the change key the source
+  reports is stored, so the next run skips it before fetching.
+- Record that no longer yields any text, such as an emptied file: retire the active
+  version, so its old text leaves search, and report the document as skipped.
 - Missing record: apply the consecutive-miss policy before retiring it.
 
 So `incremental` still detects removals, and it works with connectors whose change
@@ -106,7 +114,8 @@ identity.
 Force mode is idempotent. If the resulting content, retrieval metadata and processing
 fingerprint match the active version, that version stays active and its completed
 projections are not rewritten. If any of them changed, the normal version, projection,
-verification and publication pipeline runs.
+verification and publication pipeline runs; when only the retrieval metadata changed,
+the new version reuses the stored evidence vectors instead of embedding the text again.
 
 Force mode does not:
 
@@ -153,4 +162,5 @@ Three details of that setup are not covered there:
 
 Starting a run while the connection is already ingesting answers `409 already_running`,
 with `details.ingestion_id` naming the running ingestion; no `Idempotency-Key` is
-needed.
+needed. `harborrag ingestions start --inline` refuses such a connection the same way,
+with exit 4.

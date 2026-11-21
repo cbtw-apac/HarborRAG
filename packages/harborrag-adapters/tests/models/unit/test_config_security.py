@@ -102,35 +102,22 @@ def test_config_document_rejects_invalid_files(tmp_path: Path) -> None:
         load_config_document(invalid)
 
 
-def test_profile_and_override_merging() -> None:
+def test_override_merging() -> None:
     document = {
         "chat": {
             "timeouts": {"request_seconds": 10},
             "routing": {"strategy": "ordered"},
         },
-        "profiles": {
-            "prod": {"chat": {"timeouts": {"request_seconds": 20}}},
-            "embed-only": {"embed": {"default_model": "x"}},
-        },
     }
     prepared = prepare_config_section(
         document,
         section="chat",
-        profile="prod",
         overrides={"routing": {"strategy": "weighted"}},
     )
-    assert prepared["timeouts"]["request_seconds"] == 20
+    assert prepared["timeouts"]["request_seconds"] == 10
     assert prepared["routing"]["strategy"] == "weighted"
-    assert (
-        prepare_config_section(document, section="chat", profile="embed-only", overrides=None)[
-            "timeouts"
-        ]["request_seconds"]
-        == 10
-    )
-    with pytest.raises(ValueError, match="unknown"):
-        prepare_config_section(document, section="chat", profile="missing", overrides=None)
     with pytest.raises(ValueError, match="mapping"):
-        prepare_config_section({"chat": []}, section="chat", profile=None, overrides=None)
+        prepare_config_section({"chat": []}, section="chat", overrides=None)
 
 
 def test_merge_config_mappings_is_recursive_and_non_mutating() -> None:

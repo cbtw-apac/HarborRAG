@@ -46,7 +46,6 @@ class MockAppService(
         self.memory_store = FakeMemoryStore()
         self.memory_index = FakeMemoryIndex()
         self.conversations = InMemoryConversationMemory()
-        self._extraction = None
         self.pending_effects = FakePendingEffectRepository()
         self._memory_admin = MemoryAdministrationService(
             conversations=self.conversations,

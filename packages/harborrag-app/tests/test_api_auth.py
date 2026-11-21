@@ -13,9 +13,7 @@ from app_test_auth import MockTokenVerifier
 from fastapi.testclient import TestClient
 
 from harborrag_app.api.app import create_fastapi_app
-from harborrag_app.api.auth.dependencies import authorize_tenant
 from harborrag_app.api.settings import ApiSettings
-from harborrag_app.operations.principal import Principal
 from harborrag_core.contracts.errors import HarborAuthError, HarborCapabilityError
 
 SECRET = "test-secret-at-least-32-bytes-long-for-hs256"
@@ -238,19 +236,6 @@ def test_disabled_auth_on_a_network_interface_needs_the_explicit_opt_in() -> Non
     with TestClient(app, base_url="http://192.0.2.10") as client:
         response = client.post(PROTECTED)
     assert response.status_code == 404
-
-
-def test_tenant_authorization_is_independent_of_global_role() -> None:
-    principal = Principal(
-        subject="admin-1",
-        role="owner",
-        tenant_ids=frozenset({"tenant-a"}),
-    )
-
-    authorize_tenant(principal, "tenant-a")
-    with pytest.raises(HarborAuthError, match="does not hold this tenant") as raised:
-        authorize_tenant(principal, "tenant-b")
-    assert raised.value.error_code == "tenant_forbidden"
 
 
 @pytest.mark.whitebox

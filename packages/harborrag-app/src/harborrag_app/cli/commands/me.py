@@ -2,16 +2,13 @@
 
 from __future__ import annotations
 
-import os
-import sys
-
 from harborrag_app.cli.globals import (
     ConfigOption,
     OutputOption,
     ProfileOption,
     TenantOption,
     YesOption,
-    resolve_globals,
+    current_globals,
 )
 from harborrag_app.cli.invoke import run_operation
 from harborrag_app.operations.local import LocalOperations
@@ -26,14 +23,8 @@ def command(
     yes: YesOption = False,
 ) -> None:
     """Show the principal, role and tenants the CLI acts with."""
-    resolved = resolve_globals(
-        tenant=tenant,
-        output=output,
-        profile=profile,
-        config=config,
-        yes=yes,
-        environ=os.environ,
-        stdout_is_tty=sys.stdout.isatty(),
+    resolved = current_globals(
+        tenant=tenant, output=output, profile=profile, config=config, yes=yes
     )
     run_operation("me", _me, globals=resolved)
 

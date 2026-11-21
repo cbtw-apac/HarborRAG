@@ -7,11 +7,9 @@ from datetime import UTC, datetime
 import pytest
 
 from harborrag_core.domain.identity import MemoryIdentity
-from harborrag_core.domain.retrieval import RetrievalResult
 from harborrag_core.ports.conversation import ConversationMessage
 from harborrag_core.ports.memory import Memory, MemoryOwner, MemoryScope, MemoryType
 from harborrag_engine.chat.memory_block import memory_block
-from harborrag_runtime.application.chat.presenters import citation_marker
 from harborrag_runtime.application.chat.prompting import (
     build_chat_request,
     history_messages,
@@ -53,15 +51,6 @@ def _message(role: str, content: str, *, message_id: str = "msg-1") -> Conversat
         role=role,  # type: ignore[arg-type]
         content=content,
         created_at=NOW,
-    )
-
-
-def _result(text: str, *, chunk_id: str = "chunk-1") -> RetrievalResult:
-    return RetrievalResult(
-        id=chunk_id,
-        text=text,
-        score=0.9,
-        metadata={"document_id": "document:handbook"},
     )
 
 
@@ -118,19 +107,8 @@ def test_blank_summary_is_dropped_but_memories_still_render() -> None:
     assert "Prefers Confluence links." in block
 
 
-def test_prompt_text_puts_memory_before_context_and_question() -> None:
-    text = prompt_text(
-        "Who owns it?",
-        [_result("The Platform team owns releases.")],
-        summary="Earlier: the release policy was discussed.",
-    )
-
-    assert text.index("<conversation_memory") < text.index("Retrieved context:")
-    assert text.index("Retrieved context:") < text.index("Question: Who owns it?")
-
-
 def test_prompt_text_without_results_still_carries_memory() -> None:
-    text = prompt_text("Who owns it?", [], summary="Earlier: releases were discussed.")
+    text = prompt_text("Who owns it?", summary="Earlier: releases were discussed.")
 
     assert "<conversation_memory" in text
     assert text.rstrip().endswith("Who owns it?")
@@ -145,7 +123,7 @@ def test_prompt_text_injects_no_memory_block_when_there_is_no_memory() -> None:
     from a grounded one.
     """
 
-    text = prompt_text("Hello", [])
+    text = prompt_text("Hello")
 
     assert "<conversation_memory" not in text
     assert text.rstrip().endswith("Question: Hello")
@@ -173,7 +151,6 @@ def test_request_records_the_rewritten_retrieval_query() -> None:
     request = build_chat_request(
         "Who owns it?",
         identity=IDENTITY,
-        results=[_result("The Platform team owns releases.")],
         context=_context(
             standalone_query="Who owns the release policy?",
             rewritten=True,
@@ -191,7 +168,6 @@ def test_request_replays_the_window_and_injects_the_summary() -> None:
     request = build_chat_request(
         "Who owns it?",
         identity=IDENTITY,
-        results=[_result("The Platform team owns releases.")],
         context=_context(
             messages=(
                 _message("user", "What is the release policy?", message_id="m1"),
@@ -211,7 +187,6 @@ def test_request_falls_back_to_the_raw_query_for_retrieval_metadata() -> None:
     request = build_chat_request(
         "Hello",
         identity=IDENTITY,
-        results=(),
     )
 
     assert request.metadata.retrieval_query == "Hello"
@@ -256,27 +231,6 @@ def test_memory_block_keeps_injection_safety_without_outranking_the_conversation
     assert "authoritative" in block
 
 
-def test_prompt_text_does_not_scope_the_answer_to_retrieved_sources() -> None:
-    """Retrieved context is evidence, not the only place an answer may come from.
-
-    The old instruction -- "Use the retrieved context below to answer the
-    question. If it is insufficient, say so instead of guessing." -- made
-    every question a document lookup, so a conversational question was
-    refused whenever the corpus happened not to match it.
-
-    The sources are offered, and flagged as possibly beside the point. The routing rule is what
-    makes a conversational question answerable. Question stays last, closest to the instructions
-    that govern it.
-    """
-
-    text = prompt_text("What is my name?", [_result("The activity timeout is 30 seconds.")])
-
-    assert "Use the retrieved context below to answer the question" not in text
-    assert "may be irrelevant" in text
-    assert "conversation" in text
-    assert text.rstrip().endswith("Question: What is my name?")
-
-
 def test_prompt_text_without_results_still_routes_instead_of_going_bare() -> None:
     """No match is not the same as no guidance.
 
@@ -285,59 +239,8 @@ def test_prompt_text_without_results_still_routes_instead_of_going_bare() -> Non
     caller could not tell that from a grounded answer.
     """
 
-    text = prompt_text("What is my name?", [])
+    text = prompt_text("What is my name?")
 
     assert text != "What is my name?"
     assert "conversation" in text
     assert text.rstrip().endswith("Question: What is my name?")
-
-
-def _titled(title: str, section: list[str], text: str, doc: str) -> RetrievalResult:
-    return RetrievalResult(
-        id=f"chunk-{doc}",
-        text=text,
-        score=0.9,
-        metadata={"document_id": doc, "document_title": title, "section_path": section},
-    )
-
-
-def test_sources_are_labelled_by_title_so_near_duplicates_stay_distinct() -> None:
-    """Two similar pages must not read as one source.
-
-    An FE and a BE onboarding checklist retrieved together were merged into
-    a single list, because each was identified only by an opaque hash. The
-    title is what lets the model attribute rather than blend.
-
-    And the model is told they may be different things.
-    """
-
-    text = prompt_text(
-        "What accounts do I need?",
-        [
-            _titled("FE Onboarding Checklist", [], "Required Accounts: Figma, GitLab", "d1"),
-            _titled("BE Onboarding checklist", [], "Required Accounts: GitLab", "d2"),
-        ],
-    )
-
-    assert "FE Onboarding Checklist" in text
-    assert "BE Onboarding checklist" in text
-    assert "different documents" in text
-    assert "bracketed number" in text
-
-
-def test_a_section_trail_is_shown_when_the_chunk_has_one() -> None:
-    text = prompt_text(
-        "How do we estimate?",
-        [_titled("Estimation & Sprint Planning", ["Estimation", "Key Features"], "...", "d3")],
-    )
-
-    assert "Estimation > Key Features" in text
-
-
-def test_an_untitled_source_still_renders_with_its_document_id() -> None:
-    """Chunks ingested before titles were surfaced must still be citable."""
-
-    text = prompt_text("Anything?", [_result("Some text.")])
-
-    assert citation_marker(1, _result("Some text.")) in text
-    assert "Some text." in text

@@ -10,6 +10,7 @@ from local_test_helpers import config, write_file
 from harborrag_adapters.connectors import LocalFileConnector
 from harborrag_adapters.connectors.exceptions import DocumentProcessingError
 from harborrag_adapters.connectors.local.filesystem_paths import guess_mime_type
+from harborrag_adapters.connectors.local.skips import path_digest
 from harborrag_core.ingestion.connector_contracts import ConnectorQuery
 
 pytestmark = [pytest.mark.unit, pytest.mark.blackbox]
@@ -94,21 +95,22 @@ def test_discover_rejects_paths_outside_source_scope(tmp_path: Path):
     outside = write_file(tmp_path / "outside.md")
     connector = LocalFileConnector(config(source_root))
 
-    with pytest.raises(DocumentProcessingError, match="outside configured source scope"):
+    with pytest.raises(DocumentProcessingError, match="outside the configured source scope"):
         list(connector.discover(ConnectorQuery(filters={"file_paths": [str(outside)]})))
 
 
-def test_out_of_scope_path_names_the_root(tmp_path: Path):
+def test_out_of_scope_path_is_named_by_digest_only(tmp_path: Path):
     source_root = tmp_path / "scope"
     source_root.mkdir()
-    outside = write_file(tmp_path / "outside.md")
+    outside = write_file(tmp_path / "Alex_Example_CV.md")
     connector = LocalFileConnector(config(source_root))
 
     with pytest.raises(DocumentProcessingError) as raised:
         list(connector.discover(ConnectorQuery(filters={"file_paths": [str(outside)]})))
 
-    assert "outside configured source scope" in str(raised.value)
-    assert str(source_root.resolve()) in str(raised.value)
+    assert f"path_digest={path_digest(str(outside))}" in str(raised.value)
+    assert "Alex_Example_CV" not in str(raised.value)
+    assert str(tmp_path) not in str(raised.value)
 
 
 def test_discover_rejects_direct_symlink_when_symlinks_disabled(tmp_path: Path, monkeypatch):

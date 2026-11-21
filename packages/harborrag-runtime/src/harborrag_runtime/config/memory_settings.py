@@ -73,8 +73,6 @@ class MemorySettingsMixin(BaseSettings):
     # restate retrieved, untrusted content (Jira, Confluence, SharePoint), so it
     # is opt-in. Off, a project write is kept to the session it was stated in.
     memory_extraction_project_scope: bool = False
-    memory_extraction_min_importance: float = Field(default=0.3, ge=0.0, le=1.0)
-    memory_dedup_threshold: float = Field(default=0.92, ge=0.5, le=1.0)
 
     # Model selection for rewrite, extraction, and summarization.
     memory_model_profile: str = Field(default="memory", min_length=1)
@@ -84,9 +82,9 @@ class MemorySettingsMixin(BaseSettings):
     # ``expires_at`` when extraction or the rolling summary writes a memory;
     # repositories stop returning a row once it passes.
     # There is no sweeper, so expired rows stay stored until erased.
-    memory_retention_days_session: int = Field(default=90, ge=0)
-    memory_retention_days_user: int = Field(default=365, ge=0)
-    memory_retention_days_project: int = Field(default=0, ge=0)
+    memory_retention_days_session: int = Field(default=90, ge=0, le=36_500)
+    memory_retention_days_user: int = Field(default=365, ge=0, le=36_500)
+    memory_retention_days_project: int = Field(default=0, ge=0, le=36_500)
 
     @field_validator("memory_recall_scopes")
     @classmethod

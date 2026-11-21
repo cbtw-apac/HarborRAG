@@ -164,6 +164,16 @@ class InMemoryConversationMemory:
             self._completion_claimed_at.pop(identity, None)
             self._completion_sessions.pop(identity, None)
 
+    async def erase_completions(self, *, tenant_id: str, user_id: str) -> int:
+        """Drop every completion claim of one end user, with or without a session."""
+        async with self._lock:
+            owned = [key for key in self._completion_claims if key[:2] == (tenant_id, user_id)]
+            for key in owned:
+                del self._completion_claims[key]
+                self._completion_claimed_at.pop(key, None)
+                self._completion_sessions.pop(key, None)
+            return len(owned)
+
     async def create(
         self,
         identity: ConversationIdentity,

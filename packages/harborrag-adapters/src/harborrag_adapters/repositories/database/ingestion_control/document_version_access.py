@@ -191,12 +191,15 @@ class DocumentVersionReader:
     async def active_relation_document_ids(
         self,
         *,
+        tenant_id: str,
         processing_fingerprint: str,
         anchor_document_id: str | None = None,
         limit: int = 100_000,
     ) -> tuple[str, ...]:
-        """Select active documents whose source edges may need endpoint repair."""
+        """Select one tenant's active documents whose source edges may need endpoint repair."""
 
+        if not tenant_id.strip():
+            raise ValueError("relation repair tenant_id must be non-empty")
         if not processing_fingerprint.strip():
             raise ValueError("processing fingerprint must be non-empty")
         if not 1 <= limit <= 100_000:
@@ -209,6 +212,7 @@ class DocumentVersionReader:
                 DOCUMENT_VERSIONS.c.document_version_id == DOCUMENTS.c.active_document_version_id,
             )
             .where(
+                DOCUMENTS.c.tenant_id == tenant_id,
                 SOURCE_ITEMS.c.is_active.is_(True),
                 DOCUMENT_VERSIONS.c.processing_fingerprint == processing_fingerprint,
             )

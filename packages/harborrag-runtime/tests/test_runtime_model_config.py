@@ -7,8 +7,12 @@ import pytest
 from harborrag_adapters.models.chat import HarborChatClientConfig
 from harborrag_adapters.models.embed import HarborEmbedClient, HarborEmbedClientConfig
 from harborrag_adapters.models.rerank import HarborRerankClientConfig
+from harborrag_adapters.models.rerank.validation import validate_rerank_configuration
 from harborrag_core.models.embed import EmbeddingPurpose
-from harborrag_core.models.errors import HarborEmbedConfigurationError
+from harborrag_core.models.errors import (
+    HarborEmbedConfigurationError,
+    HarborRerankConfigurationError,
+)
 from harborrag_runtime.config.models import has_rerank_model
 
 pytestmark = pytest.mark.unit
@@ -106,6 +110,7 @@ def test_repository_catalog_leaves_the_reranker_key_to_the_endpoint(
     monkeypatch.setenv("HARBORRAG_RERANKER_MODEL", "rerank-test")
 
     assert has_rerank_model(MODELS_YAML) is True
+    validate_rerank_configuration(HarborRerankClientConfig.from_file(MODELS_YAML))
 
 
 def _catalog_with_an_optional_key(tmp_path: Path, provider: str) -> Path:
@@ -131,8 +136,10 @@ def test_rerank_provider_that_needs_no_key_accepts_an_empty_one(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, provider: str
 ) -> None:
     monkeypatch.delenv("RERANK_TEST_KEY", raising=False)
+    catalog = _catalog_with_an_optional_key(tmp_path, provider)
 
-    assert has_rerank_model(_catalog_with_an_optional_key(tmp_path, provider)) is True
+    assert has_rerank_model(catalog) is True
+    validate_rerank_configuration(HarborRerankClientConfig.from_file(catalog))
 
 
 @pytest.mark.parametrize("provider", ["cohere", "${RERANK_TEST_PROVIDER:-cohere}"])
@@ -141,9 +148,12 @@ def test_rerank_provider_that_needs_a_key_refuses_an_empty_one(
 ) -> None:
     monkeypatch.delenv("RERANK_TEST_KEY", raising=False)
     monkeypatch.delenv("RERANK_TEST_PROVIDER", raising=False)
+    catalog = _catalog_with_an_optional_key(tmp_path, provider)
 
     with pytest.raises(ValueError, match="RERANK_TEST_KEY is empty"):
-        has_rerank_model(_catalog_with_an_optional_key(tmp_path, provider))
+        has_rerank_model(catalog)
+    with pytest.raises(HarborRerankConfigurationError, match="empty api_key"):
+        validate_rerank_configuration(HarborRerankClientConfig.from_file(catalog))
 
 
 def test_rerank_provider_that_needs_a_key_accepts_a_set_one(

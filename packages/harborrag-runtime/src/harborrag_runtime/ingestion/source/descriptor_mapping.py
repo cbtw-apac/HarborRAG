@@ -116,7 +116,7 @@ class SourceDescriptorMapper:
             return source.id
         if not str(relative_path).strip():
             raise ValueError("source relative_path must be non-empty when provided")
-        value = str(relative_path).strip().replace("\\", "/")
+        value = str(relative_path).replace("\\", "/")
         if value.startswith(("/", "../")) or "/../" in f"/{value}/":
             raise ValueError("source relative_path must stay inside its source scope")
         return value

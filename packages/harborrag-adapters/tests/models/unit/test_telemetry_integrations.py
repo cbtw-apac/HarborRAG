@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -10,7 +9,6 @@ from harborrag_adapters.models.runtime.config import (
     ObservabilityConfig,
     TelemetryFailureMode,
 )
-from harborrag_adapters.models.runtime.litellm_telemetry import LiteLLMTelemetryCallback
 from harborrag_adapters.models.runtime.security import PrivacyConfig
 from harborrag_adapters.models.runtime.telemetry import (
     OperationStatus,
@@ -19,7 +17,6 @@ from harborrag_adapters.models.runtime.telemetry import (
     TelemetryEvent,
     TelemetryEventType,
     disabled_telemetry,
-    litellm_telemetry_metadata,
 )
 from harborrag_adapters.models.runtime.telemetry_adapters import (
     LangfuseTelemetry,
@@ -286,7 +283,7 @@ def test_opentelemetry_complete_error_and_close_paths() -> None:
     assert tracer.spans[2].ended == 1
 
 
-def test_structured_logging_and_litellm_callback(
+def test_structured_logging(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     logger = logging.getLogger("test.structured")
@@ -294,23 +291,3 @@ def test_structured_logging_and_litellm_callback(
     with caplog.at_level(logging.INFO, logger="test.structured"):
         adapter.emit(event(TelemetryEventType.REQUEST_START))
     assert "harborrag.model.request_start" in caplog.text
-    sink = RecordingSink()
-    callback = LiteLLMTelemetryCallback(TelemetryDispatcher((sink,)))
-    start = datetime.now(UTC)
-    end = start + timedelta(milliseconds=5)
-    kwargs = {
-        "model": "gpt",
-        "response_cost": 0.02,
-        "cache_hit": True,
-        "litellm_params": {
-            "metadata": litellm_telemetry_metadata(
-                request_id="r", operation="chat", logical_model="primary"
-            )
-        },
-    }
-    callback.log_success_event(kwargs, None, start, end)
-    callback.log_failure_event(kwargs, RuntimeError("raw secret"), start, end)
-    assert sink.events[0].event_type is TelemetryEventType.PROVIDER_COMPLETE
-    assert sink.events[0].latency_ms == 5
-    assert sink.events[1].event_type is TelemetryEventType.PROVIDER_ERROR
-    assert "raw secret" not in sink.events[1].error["message"]

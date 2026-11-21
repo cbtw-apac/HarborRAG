@@ -28,7 +28,7 @@ The ranges below are the effective values of the shipped
 
 | Tool | Required arguments | Optional arguments | Returns |
 | --- | --- | --- | --- |
-| `vector_search` | `query`, `tenant_id` | `top_k` (1–20, default 5), `lane` (`dense`/`sparse`/`hybrid`, default `hybrid`), `mode` (`flat`/`local_semantic`, default `flat`), `filters`, `observe_graph` (default false), `include_content` (default true), `score_threshold` (0.0–1.0) | Matching chunks, retrieval diagnostics and cost availability |
+| `vector_search` | `query`, `tenant_id` | `top_k` (1–20, default 5), `lane` (`dense`/`sparse`/`hybrid`, default `hybrid`), `mode` (`flat`/`local_semantic`, default `flat`), `filters`, `observe_graph` (default false; see [below](#observe_graph-returns-an-empty-observation)), `include_content` (default true), `score_threshold` (0.0–1.0) | Matching chunks, retrieval diagnostics and cost availability |
 | `fetch_evidence` | `tenant_id`, `items[].chunk_id` (1–10 items) | Expected document and version IDs per item | Canonical text, a citation locator, and `available`/`unavailable`/`output_limit` per item |
 | `get_document_context` | `tenant_id`, `document_id` | Expected version, one anchor (chunk or section path), `cursor`, `limit` (1–10), `include_outline` | `document_title`, ordered chunks, and a cursor bound to the tenant, principal and version |
 | `list_sources` | `tenant_id` | Source IDs, connector types, `cursor`, `limit` (1–20) | Only the source scopes the caller may read, with freshness metadata; never connection configuration |
@@ -59,7 +59,7 @@ guide to which tool fits which question.
 Each deployment sets tool defaults and limits in
 [`config/mcp/server.yaml`](../../../../config/mcp/server.yaml); see
 [Tool configuration](setup-and-integration.md#tool-configuration). The shipped
-file sets `vector_search` `top_k` to 5 and leaves graph observation off. To see
+file sets `vector_search` `top_k` to 5 and leaves `observe_graph` off. To see
 the values a tenant actually gets, read `GET /api/tools?tenant_id=<tenant>` on
 the server's HTTP transport.
 
@@ -79,6 +79,9 @@ the server's HTTP transport.
 Over HTTP, tool calls accept `reader` and `owner` tokens that hold the tenant.
 Changing the server's configuration needs the `owner` token; see
 [Tenant-bound reader keys](setup-and-integration.md#tenant-bound-reader-keys-and-shared-corpus-access).
+Each credential may also send at most 10 requests per second and run 4 at once,
+by default; a request over a limit is refused before any tool runs. See
+[Request limits](setup-and-integration.md#request-limits).
 
 ## Evidence and graph workflow
 
@@ -127,17 +130,18 @@ ontology properties describe the declared contract, not a promise that every
 node or relation stores them. Selector rules, traversal limits and defaults
 belong to each tool's input schema. The tool takes no arguments.
 
-## `observe_graph` is diagnostics, not evidence
+## `observe_graph` returns an empty observation
 
-`vector_search` with `observe_graph: true` adds a shallow provenance
-observation under the response's `diagnostics` field. It starts from up to ten
-of the returned `chunk_id`s, walks two hops in both directions, and summarizes
-the counts, documents and sections it touched.
+`vector_search` accepts `observe_graph: true`, but in this release it adds
+nothing: the server's retrieval service runs no graph observer, because the
+observer is wired only into a service without the semantic topology store, and
+the server always has one. The graph fields under the response's `diagnostics`
+stay empty, with no nodes, relations or documents, and the search results are
+the same as without it.
 
-It never loads the content of a newly found chunk and never ranks neighbouring
-evidence. A graph failure leaves an empty observation instead of failing the
-search. Treat it as context for the results you already have, not as a way to
-retrieve more evidence for a model.
+To let the graph widen the results, set `mode` to `local_semantic`, which adds
+passages found by a bounded graph expansion. To navigate the graph itself, use
+the graph tools.
 
 ## Policy and audit status
 

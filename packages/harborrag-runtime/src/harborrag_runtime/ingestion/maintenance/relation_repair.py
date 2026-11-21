@@ -244,6 +244,7 @@ class GraphRelationRepairService:
         """Restore active source edges after retired target nodes are cleaned."""
         fingerprint = self._fingerprints.processing_fingerprint(profile=processing)
         document_ids = await self._control.document_versions.active_relation_document_ids(
+            tenant_id=tenant_id,
             processing_fingerprint=fingerprint,
             anchor_document_id=anchor_document_id,
             limit=limit,

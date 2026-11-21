@@ -21,7 +21,7 @@ from harborrag_app.operations.schemas.ingestions import (
 router = APIRouter(
     prefix="/admin/failures",
     tags=["Failures"],
-    dependencies=[Depends(require_api_capacity)],
+    dependencies=[Depends(require_api_capacity, scope="function")],
 )
 
 _ERROR_RESPONSES = documented_error_responses(

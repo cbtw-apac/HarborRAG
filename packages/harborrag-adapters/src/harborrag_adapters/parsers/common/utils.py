@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import logging
 from typing import Any
 
@@ -7,6 +8,7 @@ from harborrag_adapters.parsers.common.resources import parse_input_suffix
 from harborrag_core.domain.parser import ParseInput
 
 PARSER_LOGGER_NAME = "harborrag.adapters.parsers"
+_NAME_DIGEST_CHARS = 12
 
 
 def _install_null_handler(logger: logging.Logger) -> None:
@@ -67,9 +69,22 @@ def parser_log_extra(
 
 
 def input_label(input: ParseInput) -> str:
-    """Return a short provenance label for parser log messages."""
-    if input.filename:
-        return input.filename
-    if input.path:
-        return str(input.path)
-    return "<memory>"
+    """Return a log label for parser input: a digest of its name, its suffix and its size.
+
+    A file name can name a person, so neither the name nor the path appears. The size
+    counts bytes, or characters for text content, and is ``unknown`` for a path input.
+    """
+    name = input.filename or (str(input.path) if input.path is not None else "")
+    digest = name_digest(name) if name else "memory"
+    suffix = parse_input_suffix(input) or "none"
+    size = "unknown" if input.content is None else str(len(input.content))
+    return f"input={digest} suffix={suffix} size={size}"
+
+
+def name_digest(name: str) -> str:
+    """Return a short digest that names a file in logs without revealing its name.
+
+    It is the first 12 hex characters of the SHA-256 of the name, so an operator can
+    match a suspected file with ``sha256sum``.
+    """
+    return hashlib.sha256(name.encode("utf-8")).hexdigest()[:_NAME_DIGEST_CHARS]

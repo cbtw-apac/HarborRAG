@@ -158,7 +158,7 @@ class IngestionOps:
         return await self._act(scope, ingestion_id, "pause")
 
     async def resume_ingestion(self, scope: Scope, ingestion_id: str) -> IngestionOut:
-        """Resume a paused run.
+        """Resume a paused run, or a running one whose pause has not been applied yet.
 
         Raises:
             IngestionNotFoundError: No such run in the tenant.

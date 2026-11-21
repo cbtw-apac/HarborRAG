@@ -25,7 +25,7 @@ class ModelConfigCli:
         parser = _parser()
         args = parser.parse_args(argv)
         try:
-            config = _load_config(args.family, args.file, args.profile)
+            config = _load_config(args.family, args.file)
             if args.command == "validate":
                 print(f"valid {args.family} configuration: {args.file}")
                 return 0
@@ -54,20 +54,19 @@ def _parser() -> argparse.ArgumentParser:
         command = subcommands.add_parser(name)
         command.add_argument("file", type=Path)
         command.add_argument("--family", choices=("chat", "embed", "rerank"), required=True)
-        command.add_argument("--profile")
         if name == "render":
             command.add_argument("--format", choices=("json", "yaml"), default="yaml")
             command.add_argument("--output", type=Path)
     return parser
 
 
-def _load_config(family: str, path: Path, profile: str | None) -> SupportedConfig:
+def _load_config(family: str, path: Path) -> SupportedConfig:
     types: dict[str, type[SupportedConfig]] = {
         "chat": HarborChatClientConfig,
         "embed": HarborEmbedClientConfig,
         "rerank": HarborRerankClientConfig,
     }
-    return types[family].from_file(path, profile=profile)
+    return types[family].from_file(path)
 
 
 def _write_rendered(config: SupportedConfig, *, output: Path | None, format_name: str) -> None:
