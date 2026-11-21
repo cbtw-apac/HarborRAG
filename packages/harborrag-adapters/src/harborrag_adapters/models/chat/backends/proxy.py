@@ -5,6 +5,7 @@ from typing import Any
 
 from harborrag_adapters.models.runtime.connections import SharedConnectionLifecycle
 from harborrag_adapters.models.runtime.lifecycle import ResourceOwnership
+from harborrag_adapters.models.runtime.litellm_backend import configure_litellm
 from harborrag_adapters.models.runtime.security import reveal_secret
 from harborrag_adapters.models.runtime.transport import reveal_headers
 
@@ -57,6 +58,7 @@ class LiteLLMProxyBackend(BaseLiteLLMChatBackend):
         """Store proxy credentials and bind LiteLLM's proxy-compatible entrypoints."""
 
         if completion is None or acompletion is None:
+            configure_litellm()
             import litellm
 
             completion = completion or litellm.completion

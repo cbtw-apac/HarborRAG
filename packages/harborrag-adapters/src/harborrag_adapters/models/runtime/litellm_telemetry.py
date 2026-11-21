@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from .errors import safe_provider_error_message
+from .litellm_backend import configure_litellm
 from .telemetry import (
     OperationStatus,
     TelemetryDispatcher,
@@ -15,6 +16,7 @@ if TYPE_CHECKING:
     from litellm.integrations.custom_logger import CustomLogger as LiteLLMCustomLogger
 else:
     try:
+        configure_litellm()
         from litellm.integrations.custom_logger import (
             CustomLogger as LiteLLMCustomLogger,
         )

@@ -6,6 +6,7 @@ import math
 from collections.abc import Mapping
 from typing import Any
 
+from harborrag_adapters.models.runtime.litellm_backend import configure_litellm
 from harborrag_adapters.models.runtime.responses import (
     coerce_sdk_mapping,
     sdk_hidden_parameters,
@@ -43,6 +44,7 @@ def response_cost(raw: Any, *, deployment: HarborChatProviderConfig) -> float | 
     ):
         return None
     try:
+        configure_litellm()
         from litellm import completion_cost
 
         provider = (

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import Any, Literal
 
 from .config import RoutingStrategy
@@ -14,15 +15,36 @@ type LiteLLMRoutingStrategy = Literal[
 ]
 
 
+def configure_litellm() -> None:
+    """Import LiteLLM with its packaged cost map, no stdout banner and no SDK retries.
+
+    LiteLLM reads its cost map once, on first import, so call this before any other
+    LiteLLM import. An operator's own ``LITELLM_LOCAL_MODEL_COST_MAP`` is kept.
+    Exceptions leave out request messages, and SDK retries stay off because
+    Harbor's routing executor owns retries.
+    """
+
+    os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "true")
+    import litellm
+
+    litellm.suppress_debug_info = True
+    litellm.redact_messages_in_exceptions = True
+    litellm.DEFAULT_MAX_RETRIES = 0  # type: ignore[misc]  # read per embedding call, as `max_retries or DEFAULT_MAX_RETRIES`
+
+
 def build_provider_params(
     deployment: ProviderDeploymentConfig,
     *,
     litellm_provider: str | None,
     model: str | None = None,
 ) -> dict[str, Any]:
-    """Translate shared deployment fields into LiteLLM keyword arguments."""
+    """Translate shared deployment fields into LiteLLM keyword arguments.
 
-    params: dict[str, Any] = {"model": model or deployment.model}
+    ``max_retries`` is 0 so the provider SDK never retries under Harbor's own
+    retry and fallback policy.
+    """
+
+    params: dict[str, Any] = {"model": model or deployment.model, "max_retries": 0}
     optional = {
         "api_key": reveal_secret(deployment.api_key),
         "api_base": deployment.api_base,
