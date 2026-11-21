@@ -27,7 +27,6 @@ from harborrag_runtime.testing.connection_fakes import (
     JIRA_WRITE,
     Removal,
     Runs,
-    SourceGrants,
     Submitter,
     fake_control_plane,
 )
@@ -53,7 +52,6 @@ def services() -> tuple[ProjectService, ConnectionService, ControlPlaneRepositor
         removal=lambda: removal,  # type: ignore[arg-type,return-value]
         destination_policy=DestinationPolicy(),
         instance_id="test",
-        authorizer=SourceGrants(),
         settings=RuntimeSettings(),
     )
     projects = ProjectService(

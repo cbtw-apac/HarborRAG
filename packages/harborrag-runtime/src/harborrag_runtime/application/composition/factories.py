@@ -8,6 +8,7 @@ from typing import Protocol
 
 from harborrag_core.ingestion import IngestionTask, IngestionTaskState
 from harborrag_core.ports.events import EventBusPort
+from harborrag_core.security import AccessContext
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.events import InProcessEventBus
 from harborrag_runtime.execution.gateway import (
@@ -58,6 +59,11 @@ class TaskRegistry(PublicTaskStore, Protocol):
         self, *, tenant_id: str, connection_ids: Sequence[str]
     ) -> dict[str, list[str]]:
         """Return the source scope IDs each of ``connection_ids`` was ingested under."""
+
+    async def allowed_source_scope_ids(
+        self, tenant_id: str, *, access: AccessContext, limit: int = 10000
+    ) -> tuple[str, ...]:
+        """Return every source scope ``access`` may read in ``tenant_id``."""
 
     async def published_connection_ids(
         self, *, tenant_id: str, connection_ids: Sequence[str]

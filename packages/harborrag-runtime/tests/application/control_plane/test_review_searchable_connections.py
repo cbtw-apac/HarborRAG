@@ -31,7 +31,7 @@ async def _three_connections(world: ConnectionWorld) -> None:
             actor="u_alex",
         )
     world.runs.scopes = {"demo/demo-tickets": ["scope-tickets"], "demo/demo-wiki": ["scope-wiki"]}
-    world.grants.readable[_READER] = ("scope-tickets",)
+    world.runs.readable[_READER] = ("scope-tickets",)
 
 
 async def test_searchable_under_source_acl_lists_only_readable_ingested_connections() -> None:
@@ -43,7 +43,7 @@ async def test_searchable_under_source_acl_lists_only_readable_ingested_connecti
     )
 
     assert [chip["connection_ref"] for chip in chips] == ["demo/demo-tickets"]
-    assert [(access.principal_id, access.corpus_mode) for access in world.grants.requests] == [
+    assert [(access.principal_id, access.corpus_mode) for access in world.runs.grant_requests] == [
         (_READER, "source_acl")
     ]
 
@@ -73,21 +73,13 @@ async def test_searchable_under_tenant_shared_lists_every_connection_without_ask
         "demo/demo-tickets",
         "demo/demo-wiki",
     ]
-    assert world.grants.requests == []
+    assert world.runs.grant_requests == []
 
 
 async def test_searchable_past_the_enumeration_budget_fails_closed() -> None:
     world = connection_world(_PROJECTS)
     await _three_connections(world)
-    world.grants.over_budget = True
+    world.runs.over_budget = True
 
     with pytest.raises(HarborConflictError, match="enumeration exceeds"):
         await world.service.searchable(tenant_id="acme", project_id="demo", principal_id=_READER)
-
-
-async def test_closing_the_service_closes_its_authorizer() -> None:
-    world = connection_world(_PROJECTS)
-
-    await world.service.aclose()
-
-    assert world.grants.closed is True

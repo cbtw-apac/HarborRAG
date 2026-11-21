@@ -33,7 +33,6 @@ from harborrag_runtime.errors import (
 from harborrag_runtime.execution.task_registry import IngestionTaskRegistry
 from harborrag_runtime.testing.connection_fakes import (
     FakeSecrets,
-    SourceGrants,
     fake_control_plane,
 )
 
@@ -544,6 +543,5 @@ async def _connection_service(
         removal=lambda: None,  # type: ignore[arg-type,return-value]
         destination_policy=DestinationPolicy(),
         instance_id="test",
-        authorizer=SourceGrants(),
         settings=RuntimeSettings(),
     )

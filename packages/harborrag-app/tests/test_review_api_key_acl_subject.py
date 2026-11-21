@@ -157,7 +157,7 @@ def test_api_key_lists_the_connections_its_owner_may_search(
     world = connection_world([Project(id="demo", name="DEMO", collection="demo", tenant_id="acme")])
     asyncio.run(_two_connections(world))
     world.runs.scopes = {"demo/demo-tickets": ["scope-tickets"], "demo/demo-wiki": ["scope-wiki"]}
-    world.grants.readable = {_OWNER: ("scope-tickets",), _KEY_ID: ("scope-wiki",)}
+    world.runs.readable = {_OWNER: ("scope-tickets",), _KEY_ID: ("scope-wiki",)}
     service.connection_service = world.service  # type: ignore[attr-defined]
 
     by_key = client.get(

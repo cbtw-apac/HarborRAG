@@ -50,10 +50,6 @@ class ConnectionRuns(Protocol):
     ) -> dict[str, list[str]]:
         """Return the source scopes each connection, by ``source_key``, was ingested under."""
 
-
-class SourceScopeAuthorizer(Protocol):
-    """The source scopes a reader may read, and the resources behind that answer."""
-
     async def allowed_source_scope_ids(
         self, tenant_id: str, *, access: AccessContext, limit: int = 10000
     ) -> tuple[str, ...]:
@@ -62,9 +58,6 @@ class SourceScopeAuthorizer(Protocol):
         Raises:
             HarborConflictError: The reader may read more than ``limit`` source scopes.
         """
-
-    async def aclose(self) -> None:
-        """Release what the authorizer holds; safe when it opened nothing."""
 
 
 class IngestionSubmitter(Protocol):

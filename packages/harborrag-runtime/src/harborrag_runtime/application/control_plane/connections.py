@@ -62,7 +62,6 @@ from .connection_models import (
     ConnectionRuns,
     ConnectionWrite,
     IngestionSubmitter,
-    SourceScopeAuthorizer,
     WriteOrigin,
 )
 from .connection_testing import run_checks
@@ -96,12 +95,11 @@ class ConnectionService:
 
     Args:
         control_plane: Returns the control-plane repositories.
-        runs: Returns the run registry of connections.
+        runs: Returns the run registry of connections, which also answers source ACLs.
         ingestions: Starts ingestions and settles runs that ended unrecorded.
         removal: Returns the stores a connection removal clears.
         destination_policy: Hosts a connection test may reach beyond public addresses.
         instance_id: ID of this process, which names the holder of a connection sync lease.
-        authorizer: The source scopes a reader may read; closed with the service.
         settings: Settings that choose each tenant's corpus mode.
     """
 
@@ -114,7 +112,6 @@ class ConnectionService:
         removal: Callable[[], ConnectionRemoval],
         destination_policy: DestinationPolicy,
         instance_id: str,
-        authorizer: SourceScopeAuthorizer,
         settings: RuntimeSettings,
     ) -> None:
         self._control_plane = control_plane
@@ -123,7 +120,6 @@ class ConnectionService:
         self._removal = removal
         self._destination_policy = destination_policy
         self._instance_id = instance_id
-        self._authorizer = authorizer
         self._settings = settings
         self._background: set[asyncio.Task[None]] = set()
         self._removing: set[tuple[str, str]] = set()
@@ -183,7 +179,7 @@ class ConnectionService:
         Raises:
             HarborNotFoundError: The project does not exist in the tenant.
             HarborConflictError: The reader may read more source scopes than the
-                authorizer enumerates.
+                permission store enumerates.
         """
         control_plane = self._control_plane()
         tenants = frozenset({tenant_id})
@@ -223,7 +219,7 @@ class ConnectionService:
         )
         if access.corpus_mode == "tenant_shared" or not connections:
             return connections
-        allowed = set(await self._authorizer.allowed_source_scope_ids(tenant_id, access=access))
+        allowed = set(await runs.allowed_source_scope_ids(tenant_id, access=access))
         scopes = await runs.source_scope_ids_by_connection(
             tenant_id=tenant_id,
             connection_ids=[connection.source_key for connection in connections],
@@ -633,12 +629,9 @@ class ConnectionService:
         return await self._active_run(tenant_id, source_key) is not None
 
     async def aclose(self) -> None:
-        """Wait for background removals started by this process, then close the authorizer."""
-        try:
-            if self._background:
-                await asyncio.gather(*self._background, return_exceptions=True)
-        finally:
-            await self._authorizer.aclose()
+        """Wait for background removals started by this process."""
+        if self._background:
+            await asyncio.gather(*self._background, return_exceptions=True)
 
     async def _require(self, key: ConnectionKey) -> Connection:
         """Return the stored connection or raise not found."""

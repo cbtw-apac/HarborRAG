@@ -56,7 +56,13 @@ JIRA_WRITE = ConnectionWrite(
 
 @dataclass
 class Runs:
-    """In-memory ingestion runs keyed by connection."""
+    """In-memory ingestion runs keyed by connection, with scripted source grants.
+
+    Args:
+        readable: Source scopes each principal may read.
+        over_budget: Refuse every grant read as the store does past its enumeration budget.
+        grant_requests: Every access context a grant read asked about.
+    """
 
     active: IngestionTask | None = None
     tasks: dict[str, IngestionTask] = field(default_factory=dict)
@@ -64,6 +70,18 @@ class Runs:
     progress_calls: list[str] = field(default_factory=list)
     batch_calls: list[tuple[str, ...]] = field(default_factory=list)
     scopes: dict[str, list[str]] = field(default_factory=dict)
+    readable: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    over_budget: bool = False
+    grant_requests: list[AccessContext] = field(default_factory=list)
+
+    async def allowed_source_scope_ids(
+        self, tenant_id: str, *, access: AccessContext, limit: int = 10000
+    ) -> tuple[str, ...]:
+        """Return the principal's scripted scopes, or refuse past the budget."""
+        self.grant_requests.append(access)
+        if self.over_budget:
+            raise HarborConflictError("authorized source enumeration exceeds the configured budget")
+        return self.readable.get(access.principal_id, ())
 
     async def latest_for_connection(self, *, tenant_id: str, connection_id: str) -> Any:
         """Return the scripted active ingestion."""
@@ -106,36 +124,6 @@ class Runs:
     async def document_results_page(self, task_id: str, **_filters: Any) -> TaskDocumentPage:
         """Return an empty document page."""
         return TaskDocumentPage((), has_more=False)
-
-
-@dataclass
-class SourceGrants:
-    """``SourceScopeAuthorizer`` over the source scopes scripted for each principal.
-
-    Args:
-        readable: Source scopes each principal may read.
-        over_budget: Refuse every call as the database does past its enumeration budget.
-        requests: Every access context asked about.
-        closed: Whether ``aclose`` ran.
-    """
-
-    readable: dict[str, tuple[str, ...]] = field(default_factory=dict)
-    over_budget: bool = False
-    requests: list[AccessContext] = field(default_factory=list)
-    closed: bool = False
-
-    async def allowed_source_scope_ids(
-        self, tenant_id: str, *, access: AccessContext, limit: int = 10000
-    ) -> tuple[str, ...]:
-        """Return the principal's scripted scopes, or refuse past the budget."""
-        self.requests.append(access)
-        if self.over_budget:
-            raise HarborConflictError("authorized source enumeration exceeds the configured budget")
-        return self.readable.get(access.principal_id, ())
-
-    async def aclose(self) -> None:
-        """Remember the close."""
-        self.closed = True
 
 
 @dataclass
@@ -216,7 +204,6 @@ class ConnectionWorld:
     runs: Runs
     submitter: Submitter
     removal: Removal
-    grants: SourceGrants
 
     @property
     def operations(self) -> IngestionOperations:
@@ -265,7 +252,6 @@ def connection_world(
     runs = Runs()
     removal = Removal()
     submitter = Submitter(runs)
-    grants = SourceGrants()
     control_plane = fake_control_plane(projects, secrets)
 
     async def provide_runs() -> Runs:
@@ -278,7 +264,6 @@ def connection_world(
         removal=lambda: removal,  # type: ignore[arg-type,return-value]
         destination_policy=DestinationPolicy(),
         instance_id="test",
-        authorizer=grants,
         settings=settings or RuntimeSettings(),
     )
-    return ConnectionWorld(service, control_plane, secrets, runs, submitter, removal, grants)
+    return ConnectionWorld(service, control_plane, secrets, runs, submitter, removal)
