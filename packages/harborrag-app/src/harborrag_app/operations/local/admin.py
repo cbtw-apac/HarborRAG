@@ -22,6 +22,7 @@ from harborrag_app.operations.schemas.connections import (
     ProjectOut,
     ProjectPage,
     ProjectWriteRequest,
+    SourceTypeName,
     SourceTypePage,
 )
 from harborrag_app.operations.schemas.me import MeOut, MePrincipal
@@ -116,12 +117,15 @@ class AdminOps:
 
         Returns:
             One page and the cursor of the next, ``None`` on the last page.
+
+        Raises:
+            HarborValidationError: ``source_type`` is not a source type name.
         """
         scope.require(OPERATIONS["list_connections"].role)
         items, next_cursor = await self._app_service.connection_service.list_page(
             tenant_id=scope.tenant_id,
             project_id=project_id,
-            source_type=source_type,
+            source_type=_source_type(source_type),
             status=status,
             limit=limit,
             cursor=cursor,
@@ -357,6 +361,16 @@ def _category(value: str | None) -> Category | None:
             return category  # type: ignore[no-any-return]  # get_args yields the Literal's members
     raise HarborValidationError(
         f"category must be one of {', '.join(get_args(Category))}", {"field": "category"}
+    )
+
+
+def _source_type(value: str | None) -> str | None:
+    """Accept only the source type names the HTTP route takes; ``None`` stays ``None``."""
+    names = get_args(SourceTypeName)
+    if value is None or value in names:
+        return value
+    raise HarborValidationError(
+        f"source_type must be one of {', '.join(names)}", {"field": "source_type"}
     )
 
 

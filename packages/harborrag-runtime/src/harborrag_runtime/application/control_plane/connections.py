@@ -37,7 +37,11 @@ from harborrag_engine.control_plane.connection_views import (
 )
 from harborrag_engine.ingestion.models import IngestionCreateCommand
 from harborrag_runtime.composition import ControlPlaneRepositories
-from harborrag_runtime.config.connectors.models import ConnectionValidationError, source_types
+from harborrag_runtime.config.connectors.models import (
+    ConnectionValidationError,
+    FieldIssue,
+    source_types,
+)
 from harborrag_runtime.config.connectors.models.builder import validate_connection
 from harborrag_runtime.connections import (
     CredentialSecretWriter,
@@ -117,8 +121,10 @@ class ConnectionService:
         """Return a connection's view and version.
 
         Raises:
+            ConnectionValidationError: ``connection_id`` is malformed.
             HarborNotFoundError: No such connection in the tenant.
         """
+        _require_connection_id(key)
         connection = await self._require(key)
         return await self._view(connection), connection.version
 
@@ -213,15 +219,17 @@ class ConnectionService:
 
         Raises:
             HarborNotFoundError: The project does not exist in the tenant.
-            ConnectionValidationError: The type is unknown, a field fails its schema,
-                an endpoint changed while a stored secret would be kept, or an ``api``
-                write sets a new ``env:`` reference or changes an operator-only field.
+            ConnectionValidationError: ``connection_id`` is malformed, the type is unknown,
+                a field fails its schema, an endpoint changed while a stored secret would
+                be kept, or an ``api`` write sets a new ``env:`` reference or changes an
+                operator-only field.
             HarborImmutableFieldError: The connection exists with another source type.
             HarborPreconditionFailedError: ``If-Match`` or ``If-None-Match`` does not hold.
             HarborConflictError: Without either, another write landed twice in a row
                 between reading the connection and saving it.
             ConnectionUnavailableError: The connection is being deleted.
         """
+        _require_connection_id(key)
         guarded = expected_version is None and not create_only
         for attempt in range(2 if guarded else 1):
             try:
@@ -260,7 +268,6 @@ class ConnectionService:
         """
         control_plane = self._control_plane()
         await self._require_project(key)
-        require_connection_id(key.connection_id)
         spec = source_types.get(write.source_type)
         existing = await control_plane.connections.get(
             tenant_id=key.tenant_id, project_id=key.project_id, connection_id=key.connection_id
@@ -342,11 +349,12 @@ class ConnectionService:
 
         Raises:
             HarborNotFoundError: No body and no saved connection, or the project is missing.
-            ConnectionValidationError: The values fail the source type's schema, change an
-                endpoint while a stored secret would be kept, name a stored secret the
-                field does not hold, or, from ``api``, set a new ``env:`` reference or
-                change an operator-only field.
+            ConnectionValidationError: ``connection_id`` is malformed, or the values fail
+                the source type's schema, change an endpoint while a stored secret would be
+                kept, name a stored secret the field does not hold, or, from ``api``, set a
+                new ``env:`` reference or change an operator-only field.
         """
+        _require_connection_id(key)
         control_plane = self._control_plane()
         existing = await control_plane.connections.get(
             tenant_id=key.tenant_id, project_id=key.project_id, connection_id=key.connection_id
@@ -466,9 +474,11 @@ class ConnectionService:
         """Start removing a connection in the background and return the job id.
 
         Raises:
+            ConnectionValidationError: ``connection_id`` is malformed.
             HarborNotFoundError: No such connection in the tenant.
             HarborAlreadyRunningError: An ingestion of the connection is running.
         """
+        _require_connection_id(key)
         control_plane = self._control_plane()
         connection = await self._require(key)
         active = await self._active_run(key.tenant_id, connection.source_key)
@@ -669,6 +679,18 @@ class ConnectionService:
         task = asyncio.ensure_future(work)
         self._background.add(task)
         task.add_done_callback(self._background.discard)
+
+
+def _require_connection_id(key: ConnectionKey) -> None:
+    """Refuse a malformed ``connection_id`` before any lookup, as the HTTP path pattern does.
+
+    Raises:
+        ConnectionValidationError: The id does not match the ``connection_id`` pattern.
+    """
+    try:
+        require_connection_id(key.connection_id)
+    except ValueError as error:
+        raise ConnectionValidationError([FieldIssue("connection_id", str(error))]) from error
 
 
 def _finished(job: Job, status: JobStatus, error: str | None = None) -> Job:
