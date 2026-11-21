@@ -33,6 +33,10 @@ class HarborRAGConfig(BaseModel):
         runtime = values.get("runtime", {})
         if not isinstance(runtime, dict):
             raise ValueError("HarborRAG runtime configuration must be a mapping")
+        unknown_runtime = set(runtime) - set(RuntimeSettings.model_fields)
+        if unknown_runtime:
+            names = ", ".join(sorted(str(name) for name in unknown_runtime))
+            raise ValueError(f"Unknown HarborRAG runtime configuration fields: {names}")
         return cls(
             execution_mode=values.get("execution_mode", ExecutionMode.DIRECT),
             discover_plugins=values.get("discover_plugins", False),
