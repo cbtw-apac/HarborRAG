@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import logging
 import os
 from collections.abc import Iterator
@@ -28,6 +29,7 @@ from .skips import LocalSkipReport, path_digest
 logger = logging.getLogger("harborrag.adapters.connectors.local")
 
 _READ_CHUNK_SIZE = 1024 * 1024
+_SKIPPED_LISTING_ERRNOS = frozenset({errno.EACCES, errno.EPERM, errno.ENOENT})
 
 
 class LocalFileSystem:
@@ -131,15 +133,27 @@ class LocalFileSystem:
         return True
 
     def _directory_entries(self, path: Path) -> list[Path] | None:
+        """List a directory, or skip one that is denied or already gone.
+
+        Any other listing failure raises, so a scan that missed part of the tree
+        is never taken as complete and the files below are not retired.
+
+        Raises:
+            FetchError: The listing failed for another reason, or any listing failed
+                with ``fail_on_error`` set.
+        """
         try:
             return sorted(path.iterdir(), key=lambda item: item.name.lower())
         except OSError as exc:
-            if self.config.fail_on_error:
+            if self.config.fail_on_error or exc.errno not in _SKIPPED_LISTING_ERRNOS:
                 raise FetchError(
                     f"Could not list local directory path_digest={path_digest(path)}: "
                     f"{type(exc).__name__}"
                 ) from None
-            self.skips.unreadable(path, error=exc)
+            if exc.errno == errno.ENOENT:
+                self.skips.deleted(path)
+            else:
+                self.skips.unreadable(path, error=exc)
             return None
 
     def _walk_entry(

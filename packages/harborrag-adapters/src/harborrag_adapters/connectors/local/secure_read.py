@@ -93,7 +93,10 @@ def _read_via_dir_fd(
 ) -> LocalFileSnapshot:
     """Open every component without following links and read the bound inode.
 
-    Requires `dir_fd`/`openat()` support (POSIX only, see `SUPPORTS_DIR_FD`).
+    Requires `dir_fd`/`openat()` support (POSIX only, see `SUPPORTS_DIR_FD`). The
+    file opens non-blocking, so a FIFO swapped in after discovery is refused as
+    not a regular file instead of blocking the worker. A regular file is read in
+    blocking mode.
     """
 
     directory_fd = os.dup(root_fd)
@@ -109,13 +112,19 @@ def _read_via_dir_fd(
             next_fd = os.open(component, directory_flags, dir_fd=directory_fd)
             os.close(directory_fd)
             directory_fd = next_fd
-        file_flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+        file_flags = (
+            os.O_RDONLY
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_NONBLOCK", 0)
+        )
         file_fd = os.open(relative.parts[-1], file_flags, dir_fd=directory_fd)
         descriptor_stat = os.fstat(file_fd)
         if not stat_module.S_ISREG(descriptor_stat.st_mode):
             raise DocumentProcessingError(
                 f"Local path is not a regular file: path_digest={path_digest(path)}"
             )
+        os.set_blocking(file_fd, True)
         enforce_size_limit(path, descriptor_stat.st_size)
         return read_descriptor(path, file_fd, descriptor_stat)
     except OSError as exc:
