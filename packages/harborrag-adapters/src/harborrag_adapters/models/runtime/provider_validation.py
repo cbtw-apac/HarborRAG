@@ -4,9 +4,11 @@ from collections.abc import Collection, Mapping
 from enum import StrEnum
 from typing import Any, Protocol
 
+from harborrag_core.models.headers import is_sensitive_header
+
 from .provider import ProviderDeploymentConfig, ProviderMetadata
 from .security import HeaderValue, SecretReference
-from .transport import is_sensitive_header, validate_base_url
+from .transport import validate_base_url
 
 PROVIDER_RESERVED_EXTRA_PARAMS = frozenset(
     {

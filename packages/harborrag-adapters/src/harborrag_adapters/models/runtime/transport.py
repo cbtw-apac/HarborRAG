@@ -8,16 +8,9 @@ from urllib.parse import urlparse
 
 from pydantic import SecretStr
 
+from harborrag_core.models.headers import is_sensitive_header
+
 from .security import HeaderValue, reveal_secret
-
-_SENSITIVE_HEADER_FRAGMENTS = ("key", "token", "auth", "secret", "signature", "cookie")
-
-
-def is_sensitive_header(name: str) -> bool:
-    """Return whether a header name suggests a credential, such as ``X-Goog-Api-Key``."""
-
-    lowered = name.lower()
-    return any(fragment in lowered for fragment in _SENSITIVE_HEADER_FRAGMENTS)
 
 
 def protect_sensitive_headers(value: Any) -> Any:

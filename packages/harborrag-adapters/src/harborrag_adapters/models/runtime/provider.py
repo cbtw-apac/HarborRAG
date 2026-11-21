@@ -201,11 +201,15 @@ class ProviderDeploymentConfig(BaseModel):
     def validate_provider_metadata(self, metadata: ProviderMetadata) -> Self:
         """Enforce one family registry's provider requirements.
 
-        An empty ``api_key`` is refused for every provider, because LiteLLM would
-        replace it with an ambient key such as ``OPENAI_API_KEY``.
+        An empty ``api_key`` is refused as ``_refuses_empty_api_key`` says, because
+        LiteLLM would replace it with an ambient key such as ``OPENAI_API_KEY``.
         """
 
-        if isinstance(self.api_key, SecretStr) and not self.api_key.get_secret_value().strip():
+        if (
+            isinstance(self.api_key, SecretStr)
+            and not self.api_key.get_secret_value().strip()
+            and self._refuses_empty_api_key(metadata)
+        ):
             raise ValueError(
                 f"{metadata.name.value} deployment {self.name!r} has an empty api_key; "
                 "set the variable it reads"
@@ -233,6 +237,12 @@ class ProviderDeploymentConfig(BaseModel):
                 f"{metadata.name.value} deployment {self.name!r} requires api_key credentials"
             )
         return self
+
+    def _refuses_empty_api_key(self, metadata: ProviderMetadata) -> bool:
+        """Whether an empty ``api_key`` is refused; every chat and embedding provider refuses it."""
+
+        del metadata
+        return True
 
     def has_explicit_credentials_for(self, metadata: ProviderMetadata) -> bool:
         """Return whether one provider's complete explicit credential set is configured."""

@@ -4,7 +4,7 @@ from enum import StrEnum
 from typing import Any, Self
 from urllib.parse import urlsplit
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 
 from harborrag_adapters.models.runtime.security import (
     HeaderValue,
@@ -45,7 +45,7 @@ class ProxyMetadataConfig(BaseModel):
 class LiteLLMProxyConfig(BaseModel):
     """Configure one authenticated LiteLLM Proxy endpoint shared by chat models."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
 
     api_base: str
     api_key: SecretValue
@@ -68,6 +68,24 @@ class LiteLLMProxyConfig(BaseModel):
         if parsed.query or parsed.fragment:
             raise ValueError("proxy api_base must not contain query or fragment data")
         return value.rstrip("/")
+
+    @field_validator("api_key")
+    @classmethod
+    def require_api_key(cls, value: SecretValue) -> SecretValue:
+        """Strip padding, such as a CRLF env file's trailing CR, and refuse an empty key.
+
+        As for model deployments, an empty key fails when the config loads, not at the
+        first call, and LiteLLM never falls back to an ambient key.
+        """
+
+        if not isinstance(value, SecretStr):
+            return value
+        key = value.get_secret_value().strip()
+        if not key:
+            raise ValueError("proxy api_key is empty; set the variable it reads")
+        if "\r" in key or "\n" in key:
+            raise ValueError("proxy api_key must not contain line breaks")
+        return SecretStr(key)
 
     @field_validator("headers", mode="before")
     @classmethod
