@@ -23,8 +23,7 @@ The `config/models/` folder holds:
   one OpenAI-compatible endpoint for chat, embedding and optional reranking: OpenAI by
   default, or a gateway;
 - [`models.production.example.yaml`](../../../config/models/models.production.example.yaml),
-  a catalog that calls providers directly, with routing, fallbacks, reranking and
-  profiles.
+  a catalog that calls providers directly, with routing, fallbacks and reranking.
 
 `HARBORRAG_MODEL_CONFIG_PATH` selects another catalog file.
 
@@ -76,10 +75,10 @@ with `harborrag ingestions start default/harborrag-workspace --mode force`.
 Set `HARBORRAG_URL` to the endpoint's base URL, the address that its
 `/chat/completions` and `/embeddings` paths follow. Put that endpoint's key and model
 name in each family's variables. The model names are the ones the endpoint lists at
-its `/models` path, without a provider prefix such as `openai/`. A LiteLLM proxy gateway is such an endpoint: a server that offers
-many model providers behind one OpenAI-compatible API. HarborRAG does not run a
-gateway; LiteLLM explains how to run one in
-[LiteLLM Proxy Server](https://docs.litellm.ai/docs/simple_proxy).
+its `/models` path, without a provider prefix such as `openai/`. A LiteLLM proxy
+gateway is such an endpoint: a server that offers many model providers behind one
+OpenAI-compatible API. HarborRAG does not run a gateway; LiteLLM explains how to run
+one in [LiteLLM Proxy Server](https://docs.litellm.ai/docs/simple_proxy).
 
 ```text
 HARBORRAG_URL=https://gateway.example.com
@@ -115,12 +114,12 @@ HARBORRAG_RERANKER_API_KEY=<gateway key>
 ```
 
 Set the key whenever the gateway needs one. The shipped catalog's `litellm_proxy`
-provider can run without a key, so the services start without it. A gateway that
-requires a key then refuses each rerank call, and chat fails while `retrieval.rerank` is
-on. A catalog of your own whose rerank provider
-always needs a key, such as `cohere`, stops at start-up instead and names the empty
-variable. The three keys may be the same gateway key. Restart the API, the worker and
-the MCP server after you change `env/.env.models`.
+provider needs no key, so the services start without it. A gateway that requires a key
+then refuses each rerank call, and chat fails while `retrieval.rerank` is on. A catalog
+of your own whose rerank provider always needs a key, such as `cohere`, is refused
+instead, with an error that names the empty variable. The three keys may be the same
+gateway key. Restart the API, the worker and the MCP server after you change
+`env/.env.models`.
 
 ### Optional memory model
 
@@ -145,9 +144,8 @@ the endpoint's name for that model:
 ```
 
 The memory model calls the same endpoint as the `primary` chat model, with the same URL
-and key.
-`HARBORRAG_MEMORY_PROVIDER` and `HARBORRAG_MEMORY_API_KEY` belong to a catalog that
-calls a provider directly.
+and key. `HARBORRAG_MEMORY_PROVIDER` and `HARBORRAG_MEMORY_API_KEY` belong to a catalog
+that calls a provider directly.
 
 Extraction and summarization need schema-constrained answers, so the deployment must
 declare `structured_output` and `json_mode`. `HARBORRAG_MEMORY_MODEL_PROFILE` names the
@@ -157,11 +155,11 @@ layer falls back to the default chat model.
 ## Call a provider directly
 
 To call a provider through its own API instead of an OpenAI-compatible endpoint,
-write deployments that name the provider itself. Get the
-provider's key from its own documentation, list the provider in the family's
-`security.allowed_providers`, and keep the key in an environment variable. Every
-family the application uses needs a section: chat for answers, `embed` for ingestion
-and retrieval, and `rerank` only for reranking.
+write deployments that name the provider itself. Get the provider's key from its own
+documentation, list the provider in the family's `security.allowed_providers`, and
+keep the key in an environment variable. Every family the application uses needs a
+section: `chat` for answers, `embed` for ingestion and retrieval, and `rerank` only
+for reranking.
 
 <details markdown="1">
 <summary>OpenAI</summary>
@@ -192,12 +190,12 @@ chat:
 </details>
 
 <details markdown="1">
-<summary>Azure OpenAI, with fallbacks and profiles</summary>
+<summary>Azure OpenAI, with fallbacks</summary>
 
 [`models.production.example.yaml`](../../../config/models/models.production.example.yaml)
 routes chat across two Azure OpenAI deployments with an Anthropic fallback, embeds
-with Azure OpenAI, reranks with Amazon Bedrock with a Cohere fallback, and defines
-`development` and `production` profiles. One of its chat deployments:
+with Azure OpenAI, and reranks with Amazon Bedrock with a Cohere fallback. One of its
+chat deployments:
 
 ```yaml
         - name: azure-east
@@ -232,24 +230,44 @@ export the variables, pass the file with `uv run --env-file`, or use a secret ma
 
 A validated configuration can also come from a Python mapping with `from_dict(...)`,
 and a secret manager can provide a `SecretResolver` instead of plaintext values.
+`from_file` and `from_dict` also take `overrides`, a mapping merged over the family's
+section: nested mappings merge recursively, and lists and scalar values replace the
+catalog's value.
 
-## Profiles and precedence
+## What the catalog refuses
 
-When the file has a top-level `profiles` mapping, pass `profile="name"` to
-`from_file`, or `--profile` to the commands below. A family's configuration is layered
-as:
+The loader and the model clients refuse values that would otherwise fail silently or
+send a credential where it does not belong:
 
-```text
-family base < selected profile < code overrides < request fields
-```
-
-Nested mappings merge recursively; lists and scalar values replace the lower-precedence
-value.
+- **Duplicate and unknown keys.** A key written twice in one mapping is refused, in
+  YAML and JSON. A catalog with a `chat`, `embed` or `rerank` section may hold no other
+  top-level key, so a misspelled section fails instead of turning its family off. The
+  `profiles:` section of earlier releases is refused the same way:
+  `model configuration has unknown top-level key(s): profiles`.
+- **Padding and line breaks.** `api_key`, `model`, `api_base` and `deployment_name`
+  lose surrounding whitespace, such as the trailing carriage return of an env file with
+  Windows line endings. A line break inside one is refused, and the error names the
+  field. A model name that is blank after trimming fails when the catalog loads.
+- **Blank keys.** A deployment whose `api_key` is empty or only whitespace is refused
+  when its client is built, with
+  `openai_compatible deployment 'openai-compatible-chat' has an empty api_key; set the variable it reads`.
+  Otherwise LiteLLM would send an ambient key, such as `OPENAI_API_KEY`, to the
+  configured endpoint. Only a rerank provider that needs no key and reads no ambient
+  credentials may leave it empty, such as `litellm_proxy`, `vllm` or `infinity`. The
+  `litellm_proxy` chat backend's own key, `chat.backend.proxy.api_key`, is trimmed the
+  same way and must not be empty either; it fails when the catalog loads.
+- **Credential headers.** A header whose name contains `key`, `token`, `auth`,
+  `secret`, `signature` or `cookie`, in any case, counts as a credential: its value is
+  masked in printed and rendered configuration. A request's own headers with such a
+  name, for example `X-Goog-Api-Key`, `Idempotency-Key` or `X-CSRF-Token`, are refused
+  unless `security.allow_request_auth_headers` is on, and the `litellm_proxy` chat
+  backend refuses them always.
 
 ## Check a catalog before you use it
 
 These commands check structure and variable resolution without calling a provider.
-They do not prove that a key or model name works.
+They do not prove that a key or model name works, and they do not build a client, so
+they accept a blank key.
 
 ```bash
 uv run --env-file env/.env.models \
@@ -262,9 +280,12 @@ You should see:
 valid chat configuration: config/models/models.yaml
 ```
 
-Run it with `--family embed` and `--family rerank` too. `explain` prints the resolved
-configuration of one family as JSON, and `render` prints a sanitized copy as JSON or
-YAML (`--format`, `--output`):
+Run it with `--family embed` too. Check `--family rerank` only once
+`HARBORRAG_RERANKER_MODEL` is set: with reranking off, the shipped rerank section names
+no model, so `validate` exits 2 with `String should have at least 1 character`.
+
+`explain` prints the resolved configuration of one family as JSON, and `render` prints
+a sanitized copy as JSON or YAML (`--format`, `--output`):
 
 ```bash
 uv run --env-file env/.env.models \
@@ -275,8 +296,10 @@ AWS_REGION=us-east-1 COHERE_API_KEY=placeholder \
     config/models/models.production.example.yaml --family rerank --format yaml
 ```
 
-`harborrag doctor` also loads the catalog: its `models catalog` check fails and names
-any variable the catalog references that is blank.
+`harborrag doctor` also loads the catalog: its `models catalog` check fails on a
+catalog the loader refuses, and names each `${NAME}` reference whose variable is
+blank. A reference with a default, such as `${HARBORRAG_RERANKER_API_KEY:-}`, is not
+checked.
 
 ## How the application uses the catalog
 

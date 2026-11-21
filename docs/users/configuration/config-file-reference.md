@@ -28,14 +28,20 @@ service reads in a repository checkout.
 | `HARBORRAG_SETTINGS_SEED_PATH` | `config/settings.yaml` | Runtime settings seed file ([Runtime Settings](runtime-settings.md#seed-file-and-drift)) |
 | `HARBORRAG_SCHEDULE_CONFIG_PATH` | `config/sources/schedules.yaml` | Declarative schedules the API syncs at startup; the API image sets `/app/config/sources/schedules.yaml` ([Scheduled Ingestion](../scheduled-ingestion.md)) |
 | `HARBORRAG_CONTROL_DB_URL` | `sqlite+aiosqlite:///./harborrag_control.db` | Control database, where connections, runs and settings live; must not be SQLite unless `HARBORRAG_ENV=dev` |
+| `HARBORRAG_CONTROL_DB_POOL_SIZE` | `40` | Connections each Postgres control-database pool keeps, 1 to 100 |
+| `HARBORRAG_CONTROL_DB_MAX_OVERFLOW` | `32` | Extra connections each pool opens under load, 0 to 200 |
 | `HARBORRAG_SECRETS_ENCRYPTION_KEY` | None | Encrypts stored connector credentials; with a control database that is not SQLite, every process that opens them (API, worker, checkout CLI) needs it, with the same value |
+| `HARBORRAG_TEMPORAL_TARGET` | `localhost:7233` | Temporal frontend |
+| `HARBORRAG_TEMPORAL_ALLOW_INSECURE_REMOTE` | `false` | Development-only acknowledgement for Temporal without TLS that is not on loopback; ignored outside `dev`, like `connection.allow_insecure_remote` in `config/temporal.yaml` |
 | `HARBORRAG_OBJECT_STORE_ENDPOINT_URL` | `http://localhost:9000` | S3-compatible object store |
 | `HARBORRAG_OBJECT_STORE_ALLOW_INSECURE_REMOTE` | `false` | Development-only acknowledgement for plaintext object storage that is not on loopback; ignored outside `dev` |
 | `HARBORRAG_QDRANT_URL` | `http://localhost:6333` | Qdrant, the vector store |
+| `HARBORRAG_QDRANT_ALLOW_INSECURE_REMOTE` | `false` | Development-only acknowledgement for plain-HTTP Qdrant that is not on loopback; ignored outside `dev` |
 | `HARBORRAG_FALKORDB_HOST` | `localhost` | FalkorDB, the graph store |
 | `HARBORRAG_FALKORDB_PORT` | `6379` | FalkorDB port |
 | `HARBORRAG_FALKORDB_GRAPH` | `harborrag` | Graph name |
 | `HARBORRAG_FALKORDB_MAX_CONNECTIONS` | `32` | FalkorDB connection pool size |
+| `HARBORRAG_FALKORDB_ALLOW_INSECURE_REMOTE` | `false` | Development-only acknowledgement for FalkorDB without SSL that is not on loopback; ignored outside `dev` |
 | `HARBORRAG_GRAPH_RELATION_REPAIR_CONCURRENCY` | `8` | Concurrent graph relation repairs |
 | `HARBORRAG_RETIRED_VERSION_RETENTION_DAYS` | `30` | Days a retired document version keeps its object-store artifacts after projection cleanup; `0` purges at once, `off` keeps them |
 | `HARBORRAG_RETIRED_VERSION_PURGE_INTERVAL_HOURS` | `24` | How often each ingestion worker sweeps every scope for expired retired versions; `0` disables the sweep, and the purge after each source run still applies |
@@ -46,8 +52,17 @@ service reads in a repository checkout.
 | `HARBORRAG_EMBEDDING_DIMENSIONS` | None | Vector size, when the catalog does not settle it |
 
 Database URLs, API keys, object-store credentials and FalkorDB passwords are secret.
-`RuntimeSettings` masks them; supply them through the protected deployment
-environment, never through checked-in files.
+`RuntimeSettings` masks them, and a failed settings check does not print the values it
+refused. Supply them through the protected deployment environment, never through
+checked-in files.
+
+Outside `dev`, the `*_ALLOW_INSECURE_REMOTE` switches are ignored, so a remote Qdrant
+needs HTTPS, a remote FalkorDB SSL, and a remote Temporal TLS.
+
+The pool size and overflow apply to each pool, and one process can open several pools
+on the same database. Size Postgres `max_connections` for every pool of every API
+replica, worker and checkout CLI. A worker refuses to start when the activities it runs
+at once across its task queues exceed one pool's size plus overflow.
 
 `HARBORRAG_EMBEDDING_MODEL` is not the endpoint's model name, which
 `HARBORRAG_EMBED_MODEL` sets below.
@@ -62,6 +77,8 @@ Only the API reads these (`ApiSettings`).
 | `HARBORRAG_API_REQUESTS_PER_MINUTE` | `60` | Requests per minute per authenticated principal |
 | `HARBORRAG_API_MAX_INFLIGHT_PER_PRINCIPAL` | `4` | Concurrent requests per principal |
 | `HARBORRAG_API_REQUEST_TIMEOUT_SECONDS` | `120` | Time limit of one request handler |
+| `HARBORRAG_OPS_PORT` | `9465` | Second port, which serves only Prometheus `/metrics`; must differ from `HARBORRAG_PORT` |
+| `HARBORRAG_METRICS_SCRAPE_TOKEN` | None | Bearer token that `/metrics` requires. Unset, blank or only whitespace, `/metrics` answers `401` to every request, so give Prometheus a non-empty token |
 
 ## Model endpoint environment
 
@@ -78,11 +95,13 @@ from one file, and references these protected values:
 | `HARBORRAG_URL` | Optional. Base URL of another OpenAI-compatible endpoint for every family, such as a LiteLLM proxy gateway; the default is `https://api.openai.com/v1` |
 | `HARBORRAG_EMBED_PROVIDER` | Optional. `cohere` when the embedding model is a Cohere model, so HarborRAG sends its `input_type`; the default is `openai_compatible`, and `openai` means the same |
 | `HARBORRAG_RERANKER_MODEL` | Optional. The endpoint's name for a rerank model; set, it makes `retrieval.rerank` available |
-| `HARBORRAG_RERANKER_API_KEY` | API key for reranking; needed with `HARBORRAG_RERANKER_MODEL` |
+| `HARBORRAG_RERANKER_API_KEY` | Optional. API key for reranking, when the endpoint needs one |
 
-The first four are required. The model values are names the endpoint serves, as its
-`/models` path lists them. Changing `HARBORRAG_EMBED_MODEL` or
-`HARBORRAG_EMBED_PROVIDER` needs a re-index; see
+The first four are required, and a blank chat or embedding key is refused when its
+client is built; see [What the catalog refuses](model-config.md#what-the-catalog-refuses).
+The model values are names the endpoint serves, as its `/models` path lists them.
+Surrounding whitespace, such as a trailing carriage return, is trimmed. Changing
+`HARBORRAG_EMBED_MODEL` or `HARBORRAG_EMBED_PROVIDER` needs a re-index; see
 [The shipped catalog](model-config.md#the-shipped-catalog).
 
 Keep the populated values in the git-ignored `env/.env.models` file or a secret
@@ -104,6 +123,14 @@ The MCP server keeps transport and tool policy separate from model policy:
 | `HARBORRAG_MCP_ALLOW_INSECURE_BIND` | `false` | `true` accepts a bind beyond loopback, where tokens travel over plain HTTP. Honoured only with `HARBORRAG_ENV=dev` and with `HARBORRAG_MCP_ALLOWED_HOSTS` set. The Compose launcher sets it for its container, whose port Docker publishes on loopback |
 | `HARBORRAG_MCP_PORT` | `8010` | Local HTTP and status UI port |
 | `HARBORRAG_MCP_PATH` | `/mcp` | Streamable HTTP MCP path |
+| `HARBORRAG_MCP_RATE_LIMIT` | `10` | Requests per second each credential may send to `/mcp` and `/api/tools` together, which is also its burst; `0` turns the limit off |
+| `HARBORRAG_MCP_MAX_INFLIGHT` | `4` | Requests one credential may have running at once on those two paths; `0` turns the limit off |
+
+A request over either limit is refused at once: `/mcp` answers with JSON-RPC error
+`-32000`, and `/api/tools` with `429` and a `Retry-After` header. Each server process
+keeps its own budgets, so the reader server and the Explorer server count separately.
+stdio, `/healthz` and the status page are not limited. A limit that is not `0` or a
+positive integer stops the launcher.
 
 `scripts/deployment/dev.sh bootstrap` creates `env/.env.mcp` with a generated bearer
 token. Reader keys, the status UI and the tool settings are covered in

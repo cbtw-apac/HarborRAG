@@ -307,7 +307,7 @@ These routes need the `editor` role, except the reader list.
 | `GET /v1/admin/projects/{project_id}/connections/{connection_id}` | One connection. Secrets come back as their status, never the value. The `ETag` header is the version. |
 | `PUT /v1/admin/projects/{project_id}/connections/{connection_id}` | Creates or overwrites the connection. `config` is replaced whole, and so is `advanced` unless it is left out. Send `If-Match` with the `ETag` you read to fail with `412` if someone changed it since, `If-Match: *` to update only, or `If-None-Match: *` to create only. `source_type` cannot change (`409 immutable_field`, `details` `{"field": "source_type"}`). A `PUT` that changes nothing stores nothing: the `ETag` and `updated_at` stay the same. Saving never starts an ingestion. |
 | `DELETE /v1/admin/projects/{project_id}/connections/{connection_id}` | Answers `202` with a `job_id`. In the background, the connection's documents leave Qdrant and the graph, then its stored secrets are deleted, then the row. `purge=true` also drops its Postgres history. |
-| `GET /v1/projects/{project_id}/connections` | Role `reader`: the project's connections, for filter chips. |
+| `GET /v1/projects/{project_id}/connections` | Role `reader`: the project's connections, for filter chips. Under `source_acl` it lists only connections with a source the caller may read, so a connection never ingested, which has no source yet, is hidden; a caller who may read more than 10,000 sources gets `409 invalid_state`. Under `tenant_shared` it lists every connection. Each item's `documents` counts all of the connection's documents, not only the readable ones. |
 
 ## Start and control ingestions
 
@@ -347,17 +347,26 @@ One run: `ingestion_id`, `tenant_id`, `project_id`, `connection_id`, `mode`, `st
 `counters` (`discovered`, `processed`, `skipped`, `failed`), `stages` (empty),
 `error_category`, `triggered_by`, `settings_revision`, `workflow_id`, `run_id`,
 `trace_id`, `links` (`temporal`, `grafana`, `langfuse`), `created_at`, `finished_at`.
-Items skipped at discovery, such as files outside a local connection's
-`allowed_extensions`, count in both `counters.discovered` and `counters.skipped`.
+
+`counters.processed` counts the documents the run published. `counters.skipped` counts
+three kinds:
+
+- documents that were unchanged;
+- documents skipped during the run, such as one that no longer yields any text (see
+  [`GET /v1/admin/ingestions/{ingestion_id}/documents`](#get-v1adminingestionsingestion_iddocuments));
+- items skipped at discovery, such as files outside a local connection's
+  `allowed_extensions`, which also count in `counters.discovered`.
 
 ### `POST /v1/admin/ingestions/{ingestion_id}/pause`, `/resume`, `/cancel`
 
 These answer `200` with the run after waiting for the new status: up to 10 s for pause
 and resume, 30 s for cancel. If the wait ends first, the answer is the run as it stands.
 
-- `pause` is allowed from `queued` or `running`, `resume` from `paused`, and `cancel`
-  from `queued`, `running` or `paused`. Any other state is `409 invalid_state`, and the
-  run is unchanged.
+- `pause` is allowed from `queued` or `running`, and `cancel` from `queued`, `running`
+  or `paused`. `resume` is allowed from `paused`, and from `running` while the workflow
+  holds a pause it has not applied yet, such as one sent during discovery; resuming
+  takes that pause back. Any other state, including `running` with no pending pause,
+  is `409 invalid_state`, and the run is unchanged.
 - A retry run, started by `retry-failures` or `POST /v1/admin/failures/retry`, can be
   cancelled but not paused or resumed: `pause` and `resume` on it are
   `409 invalid_state`.
@@ -409,6 +418,13 @@ or `failed`), `stage` (`capture`, `interpret`, `commit`, `derive` or `publish`),
 `error_category` and `duration_ms` (`null` for now). Filter with `status=all` (default),
 `succeeded`, `skipped` or `failed`; page with `limit` (default 20, 1 to 100) and
 `cursor`.
+
+`skipped` covers an unchanged document and one the run skipped, with `stage` `publish`
+and `error_category` `null`. A document that stops yielding any text, such as a file
+emptied at the source or an attachment replaced by an image-only scan, is `skipped`
+too: its previous version is retired, so its old text leaves search. The run stores
+the reason `no_indexable_content` with the document's result, but this route does not
+return it yet.
 
 ## Review and retry failures
 
@@ -509,7 +525,7 @@ where it finally goes.
 | `requests_per_minute` | Jira, Confluence, SharePoint, GitHub | 60 (Jira, Confluence), 120 (SharePoint, GitHub) |
 | `page_size` | Jira, Confluence, SharePoint | 50 (Jira), 25 (Confluence), 100 (SharePoint) |
 | `request_timeout_seconds` | Jira, Confluence, SharePoint, GitHub | 30, 60 for SharePoint |
-| `max_retries` | Jira, Confluence, SharePoint, GitHub | 3 |
+| `max_retries` | Jira, Confluence, SharePoint, GitHub | 3; at most 10 |
 | `backoff_factor` | Jira, Confluence, SharePoint, GitHub | 0.5 |
 
 Local files have no advanced settings. `advanced` stays on the connection; the settings
@@ -522,8 +538,12 @@ store holds only the keys of [Runtime settings](configuration/runtime-settings.m
 | `"advanced": {}` | Every field uses the connector default. |
 | `"advanced": {"page_size": null}` | That field uses the connector default. |
 
-Jira, Confluence and SharePoint accept a `page_size` from 1 to 100. Settings
-imported from `connectors.yaml`, such as `requests_per_minute: 600`, show up here.
+Jira, Confluence and SharePoint accept a `page_size` from 1 to 100, and every type a
+`max_retries` from 0 to 10. A larger `max_retries` is refused: a `PUT` answers
+`422 validation_error`, a `connectors.yaml` entry is imported with status `error`, and
+starting a run of a stored connection that still holds one answers
+`422 validation_error` until you lower it. Settings imported from `connectors.yaml`,
+such as `requests_per_minute: 600`, show up here.
 
 ## File type filters
 
@@ -611,6 +631,10 @@ link out of it is refused too.
   `config.source_path`, since any file the workers can read would otherwise be accepted.
   `config/sources/connectors.yaml` and the `harborrag connections` commands can still add
   them.
+- With the default `config.checksum_mode`, `stat`, a file whose modification time
+  changes gets a new document version even when its bytes are the same; the version
+  reuses the stored vectors. See
+  [Connector configuration: Local files](configuration/connector-config.md#local-files).
 
 ## Connection status
 

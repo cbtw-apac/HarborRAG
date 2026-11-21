@@ -83,6 +83,7 @@ would leave out:
 ```bash
 python -m pip install -e packages/harborrag-core
 python -m pip install -e "packages/harborrag-adapters[control-plane]"
+python -m pip install -e packages/harborrag-memory
 python -m pip install -e packages/harborrag-engine
 python -m pip install -e "packages/harborrag-runtime[production]"
 python -m pip install -e "packages/harborrag-app[api]"
@@ -91,9 +92,11 @@ python -m pip install -e packages/harborrag
 python -m pip install -e ".[dev]"
 ```
 
-`harborrag-app` depends on `harborrag-memory`, so conversation memory is installed with the
-CLI. `make bootstrap` installs no Temporal client, so `harborrag ingestions start` and the
-other commands that reach Temporal also need the `temporal` extra of `harborrag-runtime`:
+`harborrag-runtime` and `harborrag-app` depend on `harborrag-memory`, the conversation
+memory package, so it is installed from the checkout before them; otherwise pip would look
+for that version on PyPI. `make bootstrap` installs no Temporal client, so
+`harborrag ingestions start` and the other commands that reach Temporal also need the
+`temporal` extra of `harborrag-runtime`:
 
 ```bash
 python -m pip install -e "packages/harborrag-runtime[production,temporal]"
@@ -276,7 +279,8 @@ It prints the names the public facade exports, such as `HarborRAG` and `Retrieva
   prerequisites that backend documents.
 - Model configuration fails with `environment variable <NAME> is not set`: every `${NAME}` in
   `config/models/models.yaml` is expanded when the file loads, so each one must be set. A set
-  but blank value loads and fails later at the provider; `harborrag doctor` reports it as blank.
+  but blank value is refused too: a blank model name when the catalog loads, and a blank key
+  when the model's client is built. `harborrag doctor` names each blank `${NAME}` reference.
 - uv uses an unwritable global cache in a restricted environment: set `UV_CACHE_DIR` to a
   writable project or temporary directory.
 
