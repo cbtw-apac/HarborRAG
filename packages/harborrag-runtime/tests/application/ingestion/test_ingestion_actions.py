@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -31,10 +32,8 @@ from harborrag_runtime.errors import (
     WorkflowOperationError,
 )
 from harborrag_runtime.execution.task_registry import IngestionTaskRegistry
-from harborrag_runtime.testing.connection_fakes import (
-    FakeSecrets,
-    fake_control_plane,
-)
+from harborrag_runtime.ingestion_contracts import IngestionExecutionStatus
+from harborrag_runtime.testing.connection_fakes import FakeSecrets, fake_control_plane
 
 from ..application_fixtures import (
     FakeTemporalClient,
@@ -172,11 +171,53 @@ async def test_resume_on_a_paused_run_answers_with_the_running_run(
 
 
 @pytest.mark.asyncio
+async def test_resume_on_a_running_run_takes_back_a_pause_it_has_not_applied(
+    service_resources: _Resources,
+) -> None:
+    _, _, temporal = service_resources
+    task_id = await _start(service_resources)
+    temporal.get_status = AsyncMock(  # type: ignore[attr-defined]
+        return_value=IngestionExecutionStatus(
+            task_id=task_id, status="PAUSED", paused=True, cancel_requested=False
+        )
+    )
+
+    view = await _operations(service_resources, _Clock()).act(
+        tenant_id=_TENANT, ingestion_id=task_id, action="resume", actor="u_alex"
+    )
+
+    assert view["status"] == "running"
+    assert temporal.resumed == [task_id]
+
+
+@pytest.mark.asyncio
+async def test_resume_on_a_running_run_without_a_pending_pause_is_an_invalid_state(
+    service_resources: _Resources,
+) -> None:
+    _, control, temporal = service_resources
+    task_id = await _start(service_resources)
+    temporal.get_status = AsyncMock(  # type: ignore[attr-defined]
+        return_value=IngestionExecutionStatus(
+            task_id=task_id, status="RUNNING", paused=False, cancel_requested=False
+        )
+    )
+
+    with pytest.raises(IngestionActionStateError) as raised:
+        await _operations(service_resources, _Clock()).act(
+            tenant_id=_TENANT, ingestion_id=task_id, action="resume", actor="u_alex"
+        )
+
+    assert raised.value.error_code == "invalid_state"
+    assert temporal.resumed == []
+    stored = await control.tasks.get(task_id)
+    assert stored is not None and stored.status is IngestionTaskState.RUNNING
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("action", "state"),
     [
         ("pause", IngestionTaskState.PAUSED),
-        ("resume", IngestionTaskState.RUNNING),
         ("cancel", IngestionTaskState.CANCELLED),
     ],
 )

@@ -13,7 +13,6 @@ from harborrag_core.contracts.errors import (
     IngestionActionStateError,
     IngestionAlreadyCompletedError,
     IngestionAlreadyPausedError,
-    IngestionAlreadyRunningError,
     IngestionIdempotencyConflictError,
     IngestionNotFoundError,
     IngestionRetryConflictError,
@@ -318,9 +317,9 @@ class IngestionApplicationService:
 
         Raises:
             IngestionNotFoundError: No such run.
-            IngestionActionStateError: The run is a retry run, which can only be cancelled.
+            IngestionActionStateError: The run is a retry run, which can only be cancelled,
+                or it is running with no pause pending.
             IngestionAlreadyCompletedError: The run already ended.
-            IngestionAlreadyRunningError: The run is running with no pause pending.
             HarborConnectionError: The workflow service could not take the request.
         """
         store = await self._task_store_provider()
@@ -329,7 +328,7 @@ class IngestionApplicationService:
         if task.status in TERMINAL_STATES:
             raise IngestionAlreadyCompletedError("The ingestion task is already complete.")
         if task.status is IngestionTaskState.RUNNING and not await self._pause_pending(task_id):
-            raise IngestionAlreadyRunningError("The ingestion task is already running.")
+            raise IngestionActionStateError("cannot resume an ingestion that is running")
         try:
             await (await self._client_provider()).resume(task_id)
         except WorkflowOperationError as error:

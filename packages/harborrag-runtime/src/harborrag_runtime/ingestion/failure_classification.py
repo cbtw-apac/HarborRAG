@@ -10,6 +10,7 @@ from harborrag_adapters.repositories.errors import (
     HarborStorageConnectionError,
     HarborStorageRateLimitError,
     HarborStorageTimeoutError,
+    HarborStorageValidationError,
 )
 from harborrag_core.ingestion import FailureCategory, IngestionFailureClassifier
 
@@ -49,7 +50,8 @@ def ingestion_failure_classifier() -> IngestionFailureClassifier:
     A pinned PDF parser the worker cannot build is ``parser_unavailable``, the code the
     Temporal parse activity records, so direct and Temporal runs report it alike. A
     connector request to a private address the operator has not allowed is
-    ``destination_blocked`` and is not retried.
+    ``destination_blocked`` and is not retried. A request a store rejects, such as a
+    Qdrant or S3 400, is ``storage_request_rejected`` and is not retried either.
     """
     from harborrag_runtime.ingestion.document.run_tools import (  # noqa: PLC0415 - the document package imports this module
         ParserUnavailableError,
@@ -69,6 +71,12 @@ def ingestion_failure_classifier() -> IngestionFailureClassifier:
                 FailureCategory.INVALID_CONFIGURATION,
                 False,
                 "destination_blocked",
+            ),
+            (
+                HarborStorageValidationError,
+                FailureCategory.INVALID_CONFIGURATION,
+                False,
+                "storage_request_rejected",
             ),
         ),
     )
