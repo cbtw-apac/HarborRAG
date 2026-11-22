@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import mimetypes
 import os
 from datetime import UTC, datetime
@@ -50,6 +51,22 @@ def relative_path(path: Path, root_path: Path) -> str:
         return path.relative_to(root_path).as_posix()
     except ValueError:
         return path.as_posix()
+
+
+LOCAL_RECORD_ID_PREFIX = "local://"
+
+
+def local_record_id(relative: str) -> str:
+    """Return the stable source-record id for a file at ``relative`` (POSIX, root-relative).
+
+    Domain ids must contain no whitespace, but file names on shared drives and
+    SharePoint libraries routinely do, so the id is the SHA-256 of the UTF-8
+    relative path rather than the path itself. The readable path stays available
+    in ``locator`` and ``metadata["relative_path"]``. Two mounts of the same tree
+    therefore still yield the same id, and renaming a file changes it.
+    """
+    digest = hashlib.sha256(relative.encode("utf-8")).hexdigest()
+    return f"{LOCAL_RECORD_ID_PREFIX}{digest}"
 
 
 def is_hidden_path(path: Path, root_path: Path) -> bool:
