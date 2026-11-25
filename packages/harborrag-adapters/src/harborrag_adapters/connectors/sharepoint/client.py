@@ -116,12 +116,20 @@ class _RequestsGraphClient:
         return payload
 
     def get_bytes(self, endpoint: str) -> bytes:
-        """GET a Graph endpoint that returns file bytes, capped by size limit."""
+        """GET a Graph endpoint that returns file bytes, capped by size limit.
+
+        Raises:
+            RefusedResponseError: The body is larger than the configured size limit.
+            FetchError: The connection broke or the body ended early after the
+                headers arrived. It is retryable and names no URL.
+        """
         response = self._request("GET", self._api_url(endpoint), headers={"Accept": "*/*"})
         try:
             return read_capped_content(response, self.config.max_file_size_bytes)
         except ResponseTooLargeError as exc:
             raise RefusedResponseError(str(exc)) from exc
+        except requests.RequestException as exc:
+            raise FetchError(f"Microsoft Graph download failed: {type(exc).__name__}") from None
 
     def _request(
         self,
@@ -197,8 +205,9 @@ class _RequestsGraphClient:
         """Whether Graph asks for a longer wait than one retry may sleep.
 
         Retrying before ``Retry-After`` only earns another throttle, so such a
-        response ends the request instead and the item is skipped for a later
-        run.
+        response ends the request at once with its typed error instead of
+        retrying early. A listing then fails, so discovery is retried later
+        rather than finishing with files unseen.
         """
         if response.status_code not in _RETRYABLE_STATUS:
             return False
