@@ -27,7 +27,7 @@ def source_from_task(task: IngestionTask) -> PreparedSourceSubmission:
     filters = query.get("filters")
     limit = query.get("limit")
     run_settings = RunSettings.from_json(request.get("run_settings"))
-    # TODO: restore the boot knob and an explicit --document-concurrency on recovery.
+    # TODO: store each run's resolved document_concurrency so recovery stops falling back to 8.
     concurrency = run_settings.document_concurrency if run_settings else None
     return PreparedSourceSubmission(
         task_id=task.task_id,

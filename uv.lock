@@ -740,15 +740,6 @@ wheels = [
 ]
 
 [[package]]
-name = "cloudpickle"
-version = "3.1.2"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/27/fb/576f067976d320f5f0114a8d9fa1215425441bb35627b1993e5afd8111e5/cloudpickle-3.1.2.tar.gz", hash = "sha256:7fda9eb655c9c230dab534f1983763de5835249750e85fbcef43aaa30a9a2414", size = 22330, upload-time = "2025-11-03T09:25:26.604Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/88/39/799be3f2f0f38cc727ee3b4f1445fe6d5e4133064ec2e4115069418a5bb6/cloudpickle-3.1.2-py3-none-any.whl", hash = "sha256:9acb47f6afd73f60dc1df93bb801b472f05ff42fa6c84167d25cb206be1fbf4a", size = 22228, upload-time = "2025-11-03T09:25:25.534Z" },
-]
-
-[[package]]
 name = "cobble"
 version = "0.1.4"
 source = { registry = "https://pypi.org/simple" }
@@ -2300,6 +2291,7 @@ api = [
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "pyjwt", extra = ["crypto"] },
+    { name = "redis" },
     { name = "sse-starlette" },
     { name = "uvicorn", extra = ["standard"] },
     { name = "websockets" },
@@ -2330,6 +2322,7 @@ requires-dist = [
     { name = "pyjwt", extras = ["crypto"], marker = "extra == 'api'", specifier = ">=2.8" },
     { name = "python-dotenv", specifier = ">=1,<2" },
     { name = "pyyaml", specifier = ">=6.0,<7" },
+    { name = "redis", marker = "extra == 'api'", specifier = ">=5,<6" },
     { name = "rich", specifier = ">=14,<16" },
     { name = "sse-starlette", marker = "extra == 'api'", specifier = ">=2.1" },
     { name = "typer", specifier = ">=0.24,<0.25" },
@@ -2428,7 +2421,6 @@ dependencies = [
     { name = "harborrag-core" },
     { name = "harborrag-engine" },
     { name = "harborrag-memory" },
-    { name = "jsonschema" },
     { name = "opentelemetry-api" },
     { name = "prometheus-client" },
     { name = "pydantic" },
@@ -2450,13 +2442,11 @@ reader = [
     { name = "harborrag-adapters", extra = ["control-plane", "falkordb", "llm", "postgres", "qdrant", "s3"] },
 ]
 temporal = [
-    { name = "cloudpickle" },
     { name = "temporalio" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "cloudpickle", marker = "extra == 'temporal'", specifier = ">=3.1,<4" },
     { name = "harborrag-adapters", editable = "packages/harborrag-adapters" },
     { name = "harborrag-adapters", extras = ["chunking", "chunking-code", "control-plane", "falkordb", "langfuse", "llm", "opentelemetry", "parsers", "pdf-liteparse", "postgres", "qdrant", "redis", "s3", "tables"], marker = "extra == 'production'", editable = "packages/harborrag-adapters" },
     { name = "harborrag-adapters", extras = ["control-plane", "falkordb", "llm", "postgres", "qdrant", "s3"], marker = "extra == 'reader'", editable = "packages/harborrag-adapters" },
@@ -2464,7 +2454,6 @@ requires-dist = [
     { name = "harborrag-core", editable = "packages/harborrag-core" },
     { name = "harborrag-engine", editable = "packages/harborrag-engine" },
     { name = "harborrag-memory", editable = "packages/harborrag-memory" },
-    { name = "jsonschema", specifier = ">=4.26,<5" },
     { name = "opentelemetry-api", specifier = ">=1.45.2,<2" },
     { name = "prometheus-client", specifier = ">=0.19,<1" },
     { name = "pydantic", specifier = ">=2.13,<3" },

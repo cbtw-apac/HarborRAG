@@ -11,7 +11,6 @@ dependencies = [
     "harborrag-engine==2.0.0a2",
     "harborrag-memory==2.0.0a2",
     "harborrag-adapters==2.0.0a2",
-    "jsonschema>=4.26,<5",
     "PyYAML>=6.0.0",
     "pydantic>=2.13,<3",
     "pydantic-settings>=2.2",
@@ -24,7 +23,6 @@ reader = ["harborrag-adapters[control-plane,falkordb,llm,postgres,qdrant,s3]==2.
 chat = ["harborrag-adapters[llm]==2.0.0a2"]
 temporal = [
     "temporalio>=1.30,<2",
-    "cloudpickle>=3.1,<4",
 ]
 production = [
     "harborrag-adapters[chunking,chunking-code,control-plane,falkordb,langfuse,llm,opentelemetry,parsers,pdf-liteparse,postgres,qdrant,redis,s3,tables]==2.0.0a2",

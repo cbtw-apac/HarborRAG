@@ -33,7 +33,7 @@ services:
       - harborrag-data-network
 
   redis:
-    image: redis:7-alpine
+    image: redis:7.4.11-alpine
     restart: unless-stopped
     command:
       - redis-server

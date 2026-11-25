@@ -30,6 +30,7 @@ api = [
     "pydantic>=2.7",
     "pydantic-settings>=2.2",
     "pyjwt[crypto]>=2.8",
+    "redis>=5,<6",
     "sse-starlette>=2.1",
     "websockets>=12",
 ]

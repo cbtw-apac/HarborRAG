@@ -231,7 +231,7 @@ def _stored_answer(outcome: CompletionOutcome) -> ChatCompletionResponse:
         ) from None
 
 
-# TODO: stream the answer as it is generated, with the Story 5 event names (Task 7).
+# TODO: send response.output_text.delta frames as the model generates, not one after it ends.
 async def _completion_frames(
     answer: ChatCompletionResponse, *, replayed: bool
 ) -> AsyncGenerator[bytes, None]:
