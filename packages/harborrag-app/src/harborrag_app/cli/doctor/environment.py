@@ -23,6 +23,7 @@ from harborrag_runtime.config.connectors.models.local_file import (
     LOCAL_SOURCE_ROOT_VARIABLE,
     local_source_root,
 )
+from harborrag_runtime.config.models import has_rerank_model
 from harborrag_runtime.config.settings import RuntimeSettings
 
 from .checks import Check
@@ -183,8 +184,10 @@ def models_check(path: Path) -> Check:
     the raw text: a `${VAR}` in a commented-out example section is never expanded, so it must not
     fail the check. safe_load is laxer than the model loader, which refuses duplicate keys and
     unknown sections, but it reads the same values once that loader has accepted the catalog.
+    A named reranker whose key variable is empty fails too, as the MCP server and the API refuse
+    it; a ``${VAR:-}`` default hides that reference from the blank-variable scan.
 
-    The file can change or vanish between the two reads.
+    The file can change or vanish between the reads.
     """
     try:
         summary = describe_model_catalog(path)
@@ -208,6 +211,11 @@ def models_check(path: Path) -> Check:
     )
     if blank:
         detail = f"{', '.join(blank)} is blank"
+        return Check("models catalog", "config", "fail", detail, hint=_models_hint())
+    try:
+        has_rerank_model(path)
+    except (ValueError, OSError, yaml.YAMLError) as exc:
+        detail = f"{path}: {check_error_detail(exc)}"
         return Check("models catalog", "config", "fail", detail, hint=_models_hint())
     detail = f"chat={summary.chat_default} embed={summary.embed_default}"
     return Check("models catalog", "config", "ok", detail)
