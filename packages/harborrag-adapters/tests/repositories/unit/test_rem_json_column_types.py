@@ -16,6 +16,7 @@ _JSON_IN_DATABASE = (
     ("providers", "config_json"),
     ("routing_rules", "rule_json"),
     ("workspace_settings", "data"),
+    ("memories", "metadata_json"),
 )
 _JSONB_IN_DATABASE = (
     ("sources", "credentials"),
@@ -34,7 +35,7 @@ def _postgres_type(table: str, column: str) -> str:
 
 
 @pytest.mark.parametrize(("table", "column"), _JSON_IN_DATABASE)
-def test_a_column_the_baseline_created_as_json_is_json_on_postgres(table: str, column: str) -> None:
+def test_a_column_its_revision_created_as_json_is_json_on_postgres(table: str, column: str) -> None:
     assert _postgres_type(table, column) == "JSON"
 
 
