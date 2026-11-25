@@ -208,6 +208,13 @@ each field issue of a validation error and the first eight characters of the tra
 error 404 not_found: connection 'no-such' not found (trace 3877634d…)
 ```
 
+A project that cannot be used is reported the same way, as `internal_error` with exit
+code 1: no project found, a `--project` directory without `harborrag.yaml`, or an
+unknown key under `runtime:`. The CLI finds this before it parses the command, so it
+takes the format from the last `-o`, then `HARBORRAG_OUTPUT`, then the terminal default,
+and never from a profile. In table mode the error is the plain line
+`harborrag: MESSAGE`; see [Run from a repository checkout](#run-from-a-repository-checkout).
+
 A usage error is reported before any operation runs, as Click's usage message in every
 output format, and exits 2. That covers an unknown option, a malformed ref, a body file
 that does not validate, a profile that cannot be used, and a write into an empty tenant
@@ -250,10 +257,25 @@ notice; it is logged at `INFO` instead, so `HARBORRAG_LOG_LEVEL=INFO` shows it. 
 relative file path you type, such as `-f body.yaml`, `settings import FILE`,
 `settings export --file` or `--config`, still names the file in the directory you ran
 the command in. Outside a checkout and without a project directory, every command
-except `doctor` stops with exit 1; `doctor` reports the missing project instead.
+except `doctor` stops with exit 1; `doctor` reports the missing project instead. In a
+terminal, or with `-o table`, the command prints:
 
 ```text
 harborrag: no project found. Run it inside a HarborRAG repository checkout, or pass --project DIR for a directory containing harborrag.yaml.
+```
+
+With `-o json` or `-o yaml`, with `HARBORRAG_OUTPUT`, or when stdout is not a terminal,
+such as in a pipe, it prints the error envelope instead:
+
+```json
+{
+  "error": {
+    "code": "internal_error",
+    "message": "no project found. Run it inside a HarborRAG repository checkout, or pass --project DIR for a directory containing harborrag.yaml.",
+    "details": null,
+    "trace_id": "b22e4257e1e54f35a8a86ba36035f489"
+  }
+}
 ```
 
 In a checkout, the CLI reads `env/.env.connector`, `env/.env.parser` and
@@ -299,7 +321,8 @@ defaults.
 Every key under `runtime:` must be a runtime setting, such as `tenant_id` or
 `control_db_url`. The CLI exports these keys as `HARBORRAG_*` variables, so it compares
 them without regard to case. Any other key, a typo such as `contol_db_url` included,
-stops every command with exit 1 and names it:
+stops every command with exit 1 and names it, in a terminal or with `-o table` as this
+line, and elsewhere as the error envelope with `internal_error`:
 
 ```text
 harborrag: /path/to/project/harborrag.yaml: unknown 'runtime' settings: contol_db_url
@@ -641,9 +664,10 @@ needs an explicit `--tenant`, so a mistyped or forgotten tenant cannot mint a li
 in the wrong tenant, and `revoke` needs `--key-id` alone, or `--owner` together with an
 explicit `--tenant`, so revoking every key of an owner cannot hit a default tenant by
 accident; both refuse with exit 2. `--secret-output -` is refused, because the secret
-goes only to a file. The
-operator notices of `auth keys` print on stderr only when the command succeeds, so a
-failure's stderr is the error envelope alone; the exception is the warning that the
+goes only to a file.
+
+The operator notices of `auth keys` print on stderr only when the command succeeds, so
+a failure's stderr is the error envelope alone. The exception is the warning that the
 control database is the local SQLite default, which prints at once so a failure on the
 wrong database carries its hint.
 

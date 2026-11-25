@@ -117,7 +117,8 @@ HARBORRAG_RERANKER_API_KEY=<gateway key>
 The key is required, even for a gateway that accepts rerank calls without one. The
 shipped catalog reranks through LiteLLM's Cohere route, which always sends a key: given
 a blank one, it would send an ambient `COHERE_API_KEY`, `CO_API_KEY` or
-`LITELLM_PROXY_API_KEY` to the gateway instead. With the model set and the key blank,
+`LITELLM_PROXY_API_KEY` to the gateway instead. The shipped rerank deployment reads its
+key from `HARBORRAG_RERANKER_API_KEY`, so with the model set and the key blank,
 retrieval refuses to connect with
 `HARBORRAG_RERANKER_API_KEY is empty, and the rerank model needs it`. The MCP server
 then stops at startup, and the API fails each search and chat request. The three keys
@@ -264,10 +265,22 @@ send a credential where it does not belong:
   Otherwise LiteLLM would send an ambient key, such as `OPENAI_API_KEY` or
   `COHERE_API_KEY`, to the configured endpoint. Every chat, embedding and rerank
   provider refuses it, `litellm_proxy`, `vllm` and `infinity` included. A rerank
-  model's key is also checked when retrieval connects and by `harborrag doctor`, and
-  that error names the empty variable, such as `HARBORRAG_RERANKER_API_KEY`. The
-  `litellm_proxy` chat backend's own key, `chat.backend.proxy.api_key`, is trimmed the
-  same way and must not be empty either. It fails when the catalog loads.
+  model's key is also checked when retrieval connects, by `harborrag doctor` and by
+  `validate --family rerank`, and that error names the empty variable, such as
+  `HARBORRAG_RERANKER_API_KEY`. The `litellm_proxy` chat backend's own key,
+  `chat.backend.proxy.api_key`, is trimmed the same way and must not be empty either.
+  It fails when the catalog loads.
+- **Absent keys.** A deployment of `openai_compatible`, `litellm_proxy`, `vllm`,
+  `infinity`, `ollama` or `custom` that leaves `api_key` out, as one for a server that
+  takes no key does, sends the fixed, public placeholder `harborrag-no-api-key`, so
+  LiteLLM never sends an ambient key such as `OPENAI_API_KEY`, `HOSTED_VLLM_API_KEY` or
+  `LITELLM_PROXY_API_KEY` there. A keyless server ignores the placeholder, and a server
+  that needs a key answers `401`: set its `api_key`. Providers that take ambient
+  credentials, such as `bedrock`, are not changed, so a `custom` deployment that
+  reaches Amazon Bedrock uses the `bedrock` provider. LiteLLM's Ollama model lookup
+  still sends `OLLAMA_API_KEY` to `OLLAMA_API_BASE` (`http://localhost:11434` unless
+  set), which no deployment setting reaches, so leave `OLLAMA_API_KEY` unset for the
+  API, the workers and the MCP server.
 - **Credential headers.** A header whose name contains `key`, `token`, `auth`,
   `secret`, `signature` or `cookie`, in any case, counts as a credential: its value is
   masked in printed and rendered configuration. A request's own headers with such a
@@ -278,8 +291,11 @@ send a credential where it does not belong:
 ## Check a catalog before you use it
 
 These commands check structure and variable resolution without calling a provider.
-They do not prove that a key or model name works, and they do not build a client, so
-they accept a blank key.
+They do not prove that a key or model name works. `validate` also refuses what
+`harborrag doctor` refuses, within the family it checks and with the same message: a
+`${NAME}` reference whose variable is blank, such as `HARBORRAG_CHAT_API_KEY is blank`,
+and with `--family rerank` a named rerank model whose key is blank. It then prints
+`configuration error: <message>` and exits 2. `explain` and `render` accept a blank key.
 
 ```bash
 uv run --env-file env/.env.models \

@@ -121,7 +121,8 @@ connector checks, answers `422` naming the field.
   [Using Personal Access Tokens](https://confluence.atlassian.com/enterprise/using-personal-access-tokens-1026032365.html).
   A server inside your network also needs [Network access](#network-access).
 - **What to read**: Jira reads the issues that `jql` or the `project_keys`,
-  `issue_types`, `statuses` and `labels` filters select. Confluence reads one
+  `issue_types`, `statuses` and `labels` filters select, and leaves out comments
+  limited to a role or group. Confluence reads one
   `space_key` and the `content_types` you list (`page`, `blogpost`). Every field is in
   the type's `config_schema` and in
   [Connector configuration](configuration/connector-config.md).
@@ -214,7 +215,8 @@ The answer is `200` for any valid input. When the values work, `ok` is `true`, e
 entry of `checks` (`schema`, `auth`, `reachable`, `permissions`, `preview`) has
 `"ok": true`, and `preview.sample` lists up to five items a sync would read. When a
 check fails, `ok` is `false`, the failing check carries a `message`, and
-`error_category` says why: `auth_invalid`, `auth_expired`, `forbidden`, `unreachable`,
+`error_category` says why: `auth_invalid`, `auth_expired`, `forbidden` (also when the
+source refuses the request itself, such as with a `400` or `422`), `unreachable`,
 `rate_limited` (also for a GitHub secondary rate limit, which answers `403`), or
 `secret_unavailable` when a token is an `env:` reference that only the worker can read.
 A test gives up after 15 seconds. Without a body, the call tests the saved connection.
@@ -425,7 +427,9 @@ and `error_category` `null`. A document that stops yielding any text, such as a 
 emptied at the source or an attachment replaced by an image-only scan, is `skipped`
 too: its previous version is retired, so its old text leaves search. The run stores
 the reason `no_indexable_content` with the document's result, but this route does not
-return it yet.
+return it yet. Such an item, and one whose last attempt the parser rejected, has no
+active version, so every later run fetches and parses it again instead of counting it
+as unchanged.
 
 ## Review and retry failures
 

@@ -45,6 +45,7 @@ Follow the [upgrade guide](docs/users/upgrading.md) before upgrading; entries ma
 - `DocumentVersionPort.refresh_admission_change_key` stores the change key a source reports on an active version whose content has not changed
 - Runtime settings registry: `retrieval.top_k`, `retrieval.rerank`, `parsing.pdf_parser`, `chunking.max_tokens`, `ingestion.concurrency` and `models.embedding`, with tenant, project and connection levels
 - `RetrievalRequest.rerank` asks retrieval to rerank its passages with the model catalog's `rerank` model
+- `GraphAccessScope.document_access` says how a graph access scope admits a document's records: `listed`, the default, admits the documents in `document_ids`, and `by_source_scope` admits every document of the readable source scopes, for a reader with too many documents to list
 
 #### harborrag-engine
 
@@ -70,6 +71,7 @@ Follow the [upgrade guide](docs/users/upgrading.md) before upgrading; entries ma
 - `mcp.sh --http` checks the configuration before it starts the server and names model variables that no env file sets
 - The MCP launchers say when the image is older than the source
 - CI builds the MCP image and runs its handshake
+- `scripts/deployment/dev.sh mcp-access` creates or refreshes the MCP server's read-only accounts, the Postgres role `harborrag_mcp` and the MinIO user `harborrag-mcp`, with the passwords `dev.sh bootstrap` and `up` write to `env/.env.database` as `POSTGRES_MCP_PASSWORD` and `MINIO_MCP_PASSWORD`; a new Postgres volume creates the role at its first start, without a password, so it can log in only once `mcp-access` has run
 
 ### Changed
 
@@ -89,6 +91,8 @@ Follow the [upgrade guide](docs/users/upgrading.md) before upgrading; entries ma
 - **Breaking:** SharePoint discovery fails, and Temporal retries it from its checkpoint, when a folder listing or a selected item answers `429` or a `5xx`, or times out, instead of skipping the folder and retiring its files after the next full scans; only denied and deleted items are skipped. Local discovery skips a directory it may not read or that was removed while it ran, with the new skip reason `deleted`, and fails on any other listing error
 - Requests that cannot succeed on retry are not retried: an HTTP `4xx` other than `408` and `429`, an oversized response, a redirect to an untrusted origin, a chained redirect and a URL outside the configured origin (the new `RefusedResponseError`), a GitHub `404`, recorded as `document_release_source_item_not_found`, a GitHub permission `403`, recorded as `document_release_authorization_failed` instead of a `StreamConsumedError`, and an embedding request the provider rejects with `400` or `401`. A GitHub secondary rate limit and a body that is not JSON are still retried
 - The Qdrant, FalkorDB and S3 adapters raise HarborRAG storage errors: an outage, a timeout or a `5xx` answer is a transient error and is retried, a `429` is a rate limit, and a `400` or `422` is a validation error that is not retried. The API answers `503 dependency_unavailable` for a Qdrant gRPC or S3 outage, where it answered `500`
+- A chat, embedding or rerank deployment with no `api_key` reaches a keyless server: an `openai_compatible` deployment failed with `Missing credentials` unless an environment key was set, and `vllm`, `infinity` and `ollama` deployments sent `fake-api-key`, `Bearer None` or no key; each now sends the placeholder `harborrag-no-api-key`, see the Security entry
+- A filesystem object store whose root is relative logs one warning per process that the root resolves against the working directory and that `HARBORRAG_OBJECT_STORE_ROOT` should be absolute; the warning does not name the path
 
 #### harborrag-app
 
@@ -146,6 +150,7 @@ Follow the [upgrade guide](docs/users/upgrading.md) before upgrading; entries ma
 #### harborrag-core
 
 - **Breaking:** `DocumentVersionPort.active_relation_document_ids` takes a required `tenant_id`, and code that implements the port must add `refresh_admission_change_key`
+- **Breaking:** a source failure that is not retried because the source refused the request, such as an HTTP `400`, `410` or `422` or a refused response, is stored with the category `INVALID_CONFIGURATION` instead of `TRANSIENT` in the control database's `document_failures.failure_category`. Its code stays `source_unavailable`, so the API's `error_category` does not change, and rows stored before keep `TRANSIENT`; update queries and dashboards that read the stored category, see the [upgrade guide](docs/users/upgrading.md#ingestions-and-failures)
 
 #### harborrag-engine
 
@@ -164,6 +169,7 @@ Follow the [upgrade guide](docs/users/upgrading.md) before upgrading; entries ma
 - **Breaking:** the MCP HTTP server refuses a request addressed to a host name other than loopback, or sent from another origin
 - The MCP HTTP server answers extra host names, such as a reverse proxy's, when they are listed; a development container may listen beyond loopback when it acknowledges that
 - The MCP status page walks through connecting, choosing a tenant that holds content, picking a tool and running it, in one window
+- A preflight failure raised from another error ends with that error's class, never its message, such as `settings store is unreachable (cause: InvalidPasswordError)` for a refused database login
 
 #### harborrag-memory
 
@@ -190,6 +196,7 @@ Follow the [upgrade guide](docs/users/upgrading.md) before upgrading; entries ma
 - A scheduled firing is skipped while its connection has a pending, running or paused run, not only while its scan runs
 - A request to a private address the operator has not allowed fails as `document_release_destination_blocked`, and a write that Qdrant or S3 rejects with `400` as `document_release_storage_request_rejected`; both are invalid configuration and are not retried in the run. A failure-inbox retry still includes `document_release_storage_request_rejected`, for after the configuration is fixed
 - A run's `EXTRACTION_FAILED` skip count covers only parser rejections (`parser_rejected_document` and `document_unsupported`), no longer outages, a missing parser or cancellations at the parse stage
+- **Breaking:** a connection test whose source answers a `4xx` that is not retried, other than `401`, `403`, `404`, `408` and `429`, such as a `400` or `422`, fails its `permissions` check with `error_category` `forbidden` and `the source refused the request`, instead of `unreachable`; a refused response is still `unreachable`
 
 #### Deployment
 
@@ -201,6 +208,8 @@ Follow the [upgrade guide](docs/users/upgrading.md) before upgrading; entries ma
 - `config/temporal.example.yaml`, `config/models.example.yaml` and `config/harborrag.example.yaml` are removed
 - `env-example/.env.models.example` sets a model name and a key for chat and for embedding, and keeps the direct-provider and other-proxy examples commented out
 - **Breaking:** the MCP containers join the data network and publish their port on loopback; Docker Desktop host networking is no longer needed, and the data services must be started first, except for `mcp.sh --check`. The containers start only when `HARBORRAG_ENV=dev`, because the data services they reach use no TLS
+- Compose pins Redis to `redis:7.4.11-alpine` (was `redis:7-alpine`) and Postgres to `postgres:15.19-alpine` (was `postgres:15-alpine`), and mounts the MCP role script into Postgres; the next `dev.sh up` or `dev.sh data` pulls both images and recreates the two containers, and their volumes are kept
+- Dependencies match the imports: `harborrag-app` declares `sqlalchemy>=2,<3`, and its `api` extra `redis>=5,<6` for the Redis rate and capacity limiters; `harborrag-adapters` and `harborrag-runtime` declare `python-dotenv>=1,<2`. Each arrived only through another package before. `harborrag-runtime` drops `jsonschema` and its `temporal` extra drops `cloudpickle`, which nothing imports, and `harborrag-mcp-server` gets `python-dotenv` through `harborrag-runtime` instead of declaring it
 
 ### Removed
 
@@ -211,6 +220,8 @@ Follow the [upgrade guide](docs/users/upgrading.md) before upgrading; entries ma
 - **Breaking:** storage code with no production caller: `harborrag_adapters.repositories.cache`, `harborrag_adapters.repositories.state` and `harborrag_adapters.repositories.database.{sqlalchemy,postgresql,sqlite,client,base}`. `harborrag_adapters.repositories.database` no longer exports `ChunkRepository`, `DocumentRepository`, `HarborDatabaseBackend`, `HarborUnitOfWork`, `HarborUnitOfWorkFactory`, `OutboxRepository`, `HarborDatabaseClient` or the `PostgreSQLDatabase*` and `SQLiteDatabase*` classes. Their tables were never in the migrations, so the database does not change
 - **Breaking:** `harborrag_adapters.models.runtime.litellm_telemetry` and `LiteLLMTelemetryCallback`, which no client registered
 - **Breaking:** the `HarborParserEngineRegistry` alias of `HarborParserRegistry`, and the `harborrag_adapters.parsers.pdf.engines.<engine>.mapping` modules, which re-exported helpers of `harborrag_adapters.parsers.pdf.normalization`
+- **Breaking:** the direct-load helpers `LocalFileConnector.load_by_paths`, `GitHubConnector.load_by_paths`, `SharePointConnector.load_by_ids` and `ConfluenceConnector.load_by_ids`, with `LocalFileSystem.record_for_path`, `GitHubRepositoryAPI.record_for_path` and `SharePointDriveAPI.record_for_item_id`; select the items with `discover` and a filter, then `load` each record, as the [upgrade guide](docs/users/upgrading.md#removed-symbols-and-their-replacements) shows
+- **Breaking:** `HTTPRequestError` of `harborrag_adapters.connectors.exceptions` (catch `FetchError`), and `HarborStorageAuthenticationError`, `HarborStorageTransactionError`, `HarborStorageMigrationError`, `HarborStorageSerializationError` and `HarborStorageIntegrityError` of `harborrag_adapters.repositories.errors` (catch `HarborStorageError`), which nothing raised
 
 #### harborrag-app
 
@@ -221,10 +232,21 @@ Follow the [upgrade guide](docs/users/upgrading.md) before upgrading; entries ma
 #### harborrag-core
 
 - **Breaking:** `HarborEmbedCapabilities.max_input_tokens`, which nothing read; a catalog that sets it is refused
+- **Breaking:** public symbols with no caller:
+    - the aggregate ports `SummaryRepositoryPort` and `TopologyRepositoryPort`; type against the focused ports they combined
+    - `TopologyObservationRepositoryPort`; use `harborrag_core.topology.search.TopologySearchPort`, which has the same `active_mentions` and `active_assertions`
+    - `ToolInvokerPort` of `harborrag_core.ports.tools`
+    - the `ProjectRepositoryProvider`, `ConnectionRepositoryProvider`, `JobRepositoryProvider`, `ActivityRepositoryProvider`, `SettingsRepositoryProvider`, `ProviderRepositoryProvider`, `MemberRepositoryProvider` and `GraphConflictRepositoryProvider` aliases; write `TenantScopedRepositoryProvider[<Port>]`
+    - the constants `SUMMARY_CARD_MAX_CHARS`, `EMBEDDING_CONTEXT_MAX_CHARS` and `EMBEDDING_CONTEXT_MAX_WORDS`
+    - `HarborImportError` and `HarborNotSupportedError` (catch `HarborError`), `HarborChatBudgetExceededError` and `HarborChatCancelledError` (catch `HarborChatError`), `HarborEmbedCancelledError` (catch `HarborEmbedError`) and `HarborRerankCancelledError` (catch `HarborRerankError`)
 
 #### harborrag-engine
 
 - **Breaking:** `harborrag_engine.retrieval.service.knowledge` and the `RuntimeRetrievalService` methods `fetch_evidence`, `resolve_entities`, `lookup_entities`, `find_semantic_relations` and `find_semantic_paths`
+
+#### harborrag-mcp-server
+
+- **Breaking:** `authenticated_owner` of `harborrag_mcp_server.server.http_auth`; call `authenticated_principal(request, token_verifier, roles=OWNER_ROLES)`
 
 #### harborrag-runtime
 
@@ -233,6 +255,7 @@ Follow the [upgrade guide](docs/users/upgrading.md) before upgrading; entries ma
 - **Breaking:** the memory extraction queue, which nothing fed: `harborrag_runtime.application.memory.extraction` (`MemoryExtractionQueue`, `submit_exchange`, `drain_extraction_queue`, `dropped_extractions`) and `AppService.start_memory_extraction` and `drain_memory_extraction`. `HARBORRAG_MEMORY_EXTRACTION_MIN_IMPORTANCE` and `HARBORRAG_MEMORY_DEDUP_THRESHOLD` are ignored, and refused under `runtime:`; `HarborRAG().memory.extract` and `HARBORRAG_MEMORY_EXTRACTION_ENABLED` stay
 - **Breaking:** the `harborrag_runtime.ingestion.connector_metrics`, `discovery_metrics` and `observability_types` modules; import from `harborrag_runtime.observability.<module>`
 - **Breaking:** `ConnectionImportService.export` and `EXPORT_VERSION` of `harborrag_runtime.config.connectors.importing`, which had no caller since the `source export` command was removed
+- **Breaking:** `WorkflowNotRetryableError` of `harborrag_runtime.errors` (catch `WorkflowOperationError`), and `CHUNKING_CONFIG_VERSION` of `harborrag_runtime.config.chunking`, which nothing read
 
 #### Development
 
@@ -260,7 +283,7 @@ Follow the [upgrade guide](docs/users/upgrading.md) before upgrading; entries ma
 - A SharePoint `tenant_id` that is not a GUID or a domain name is refused: `connections create`, `update` and `test` answer a field error on `credentials.tenant_id`, and a connector config built in Python raises `ValueError`, instead of failing when the first token is requested
 - A very large document no longer exceeds Qdrant's 32 MiB request limit: upserts go in requests of at most 128 points
 - Jira Data Center search, comment and changelog paging read every page when the server lowers `maxResults`
-- A local file swapped for a FIFO after discovery is refused instead of hanging the worker
+- A local file swapped for a FIFO, a socket or a device after discovery is refused instead of hanging the worker, and fails as an unsupported document (`document_unsupported`) that is not retried
 - A Jira custom field whose normalized name is longer than 128 characters, or an issue with more than 128 typed fields, no longer fails the issue: such a field is filterable as `fields.customfield_<id>`, and the fields past the first 128 are left out with a warning
 - A model error that was already a HarborRAG error is no longer raised from itself, so Temporal records its failure code instead of failing to encode it
 - One connection row that fails validation, such as a row that still holds a raw secret, no longer fails the connection listing of the whole install: the listing skips the row and logs its ID
@@ -271,8 +294,13 @@ Follow the [upgrade guide](docs/users/upgrading.md) before upgrading; entries ma
 - A local file whose access time changed, for example because a backup, `grep` or HarborRAG's own fetch read it, is no longer fetched and parsed again: its stored discovery record leaves the access time out, and records that earlier releases stored with it are compared without it
 - The completion-request purge on Postgres deletes at most its batch of 100 expired rows per claim. It reads the batch's keys once and deletes only those, where a subquery the planner ran again for each row could delete every expired row at once
 - S3 object-store requests honour their connect and read timeouts, 10 s and 30 s, which were ignored, and are tried at most twice, so a stalled object store raises a retryable storage timeout
-- GitHub (`403` or `429`) and Atlassian (`429`) rate limits that outlast the retries carry their HTTP status and stay retryable, and a connection test reports them as `rate_limited` with that status in its message
+- GitHub (`403` or `429`) and Atlassian (`429`) rate limits that outlast the retries carry their HTTP status and stay retryable, also in a connector's credential check, which reported a GitHub secondary limit (`403`) as an authorization failure, and a connection test reports them as `rate_limited` with that status in its message
 - A SharePoint download cut off after its headers arrived is a retryable fetch error instead of a raw `requests` exception
+- The S3 object store's bucket checks at start-up, `ensure_buckets` and `validate_buckets`, raise `HarborStorageTimeoutError` or `HarborStorageConnectionError` for a timeout, an unreachable endpoint or a `5xx` answer, as every other object operation does, instead of a raw botocore error; a missing or unreadable bucket is still a `RuntimeError`
+- With a Redis routing backend, an asynchronous model call no longer makes a blocking Redis read on the event loop when it selects a deployment
+- `python -m harborrag_adapters.models validate` refuses, within the family it checks, what `harborrag doctor` refuses, with the same message: a `${VARIABLE}` that is blank, such as `HARBORRAG_CHAT_API_KEY is blank`, and with `--family rerank` a named rerank model whose key is blank. It prints `configuration error: <message>` and exits `2`, where it exited `0`
+- The control-plane models declare the payload columns that the migrations create as `JSON` as `sa.JSON` instead of `JSONB`, and the index `ix_ingestion_tasks_tenant_submitted` ascending, as its migration creates it, so `alembic check` on Postgres reports no new upgrade operations; the database does not change
+- The FalkorDB graph ACL admits the documents of the reader's readable source scopes when the graph access scope is `by_source_scope`; see the harborrag-engine entry
 
 #### harborrag-app
 
@@ -295,12 +323,14 @@ Follow the [upgrade guide](docs/users/upgrading.md) before upgrading; entries ma
 - `harborrag me` reports the tenant the other commands use, including the tenant in `env/.env.api`
 - The failure inbox routes release their API capacity when the handler returns, as the other routes do
 - `harborrag doctor` fails its `models catalog` check when a named rerank model's key variable is blank, as the API and the MCP server refuse it; a `${HARBORRAG_RERANKER_API_KEY:-}` reference hid it from the check before
+- **Breaking:** a missing or unusable project prints as the error envelope, `internal_error` with exit `1`, under `-o json` or `-o yaml`, under `HARBORRAG_OUTPUT`, and when stdout is not a terminal, where it printed a plain `harborrag: …` line: no project found outside a checkout, a `--project` directory without `harborrag.yaml`, a marker that cannot be read or is unsafe, and an unknown key under `runtime:`. With `-o table`, or in a terminal, the line is unchanged; see the [upgrade guide](docs/users/upgrading.md#cli-dependencies-and-temporal)
 
 #### harborrag-core
 
 - Local and GitHub files with spaces in their file or folder name are ingested instead of failing
 - Files whose paths differ only in spacing, such as a trailing or no-break space, stay separate documents
 - A connection that ingested files whose paths hold a double space, a tab or a no-break space, or start or end with a space, on 2.0.0a1 or 2.0.0a2 no longer fails every run: its first scan moves those source items to the document ID this release gives them
+- **Breaking:** files whose names differ only in Unicode form, such as `café.md` written with a composed and a decomposed `é`, stay separate documents and graph nodes. A name that is not in Unicode NFC, common for files copied from macOS, gets a new document ID: the first run after the upgrade processes it once as new, and its old document is retired once the connection's full scans miss it, after two by default. Reindex skips a document still stored under the old ID, logging only its ID, and the next scan replaces it. NFC names keep their IDs; see the [upgrade guide](docs/users/upgrading.md#files-with-decomposed-accents-are-processed-once-again)
 
 #### harborrag-engine
 
@@ -308,6 +338,8 @@ Follow the [upgrade guide](docs/users/upgrading.md) before upgrading; entries ma
 - SharePoint folders with spaces or accents in their name appear in the graph under that name instead of its URL encoding
 - Local files whose relative paths differ only in spaces at their start or end stay separate documents and graph nodes, and reindex no longer fails on such a path
 - A document fetched again and found unchanged stores the change key its source reports, so the next run skips it instead of fetching and parsing it on every run
+- Semantic retrieval no longer falls back to flat results once a few hundred documents have derived products: the contextual lane lists its manifests per artifact kind, so other kinds no longer count against its budget, and a contextual-lane failure keeps the graph candidates and logs the tenant and request IDs
+- Graph search, paths, subgraphs and node resolution no longer fail for a reader of more than 10,000 documents. Past that budget the graph is filtered by the reader's readable source scopes, as vector search already is, and each returned document is still checked, so an explicit deny on one document still applies. In that state a graph selector must be a node key: title, logical-ID and provider-ID selectors are refused with `AUTHORIZATION_UNAVAILABLE`, as `fields.*` filters already are on the vector path; see [Known limitations](docs/users/upgrading.md#known-limitations)
 
 #### harborrag-mcp-server
 
@@ -343,8 +375,9 @@ Follow the [upgrade guide](docs/users/upgrading.md) before upgrading; entries ma
 - Chat no longer fails on every request when `HARBORRAG_METRICS_PORT` is already in use, for example by the worker; retrieval logs one warning and runs without its metrics exporter
 - A pause sent during discovery answers within about 25 s instead of about 44 s, and a pause that a resume takes back answers `200` with the run instead of `503`
 - A Temporal cancel during discovery stops the walk when it next records a batch, without logging an ERROR `immutable_artifact_conflict`
-- A retried finalization no longer waits behind the relation repairs of the attempt that failed: the first failed repair cancels the others
-- The document fetch heartbeats before it reads the run's plan, so a stalled object store fails with its own storage timeout instead of a heartbeat timeout
+- A retried finalization no longer waits behind the relation repairs of the attempt that failed: the first failed repair cancels the others. Within one document's repair, the first failed link-target lookup cancels the others and is reported as itself, and the lookups stay within the repair concurrency limit
+- Every document stage, the fetch, the parse, the nine release stages and a retried document release, heartbeats before it reads the run's plan, so a stalled object store fails the stage with its own storage timeout instead of a heartbeat timeout
+- The hint for an unreachable Qdrant also says to check `HARBORRAG_QDRANT_GRPC_PORT`, the usual cause when Qdrant answers on its REST port but not on gRPC
 
 #### Deployment
 
@@ -365,7 +398,11 @@ Follow the [upgrade guide](docs/users/upgrading.md) before upgrading; entries ma
 - SharePoint and Atlassian request failures no longer carry the underlying request error, whose text can hold a signed download URL
 - The destination policy refuses the `fec0::/10`, `3fff::/20` and `5f00::/16` IPv6 ranges, which are not public
 - Control-plane database engines, the migration engine included, no longer print SQL parameters in errors or logs, as a migration lock timeout did
-- A first SharePoint delegated sign-in creates each missing directory of its token cache path, `~/.harborrag` included, with mode `0700`, where `~/.harborrag` got the umask default, such as `0755`; an existing directory keeps its mode
+- A first SharePoint delegated sign-in creates each missing directory of its token cache path, `~/.harborrag` included, with mode `0700` whatever the umask, where `~/.harborrag` got the umask default, such as `0755`. The reader-tool audit log, the SQLite backend and the filesystem object store create the missing directories above their files or root the same way. An existing directory keeps its mode
+- Parser errors for DOCX, ODT, PPTX, XLSX, XLS, DOC and PPT files name the library error's class instead of its text, which could quote a path or the file's first bytes. An archive-bomb error no longer names the archive member, and a path input that cannot be opened is reported without the path, in the message and in the chained cause
+- MinerU failure messages show `<path>` in place of the temporary input and output directories, and a MinerU timeout no longer carries the MinerU command line, with its `--api-url` and extra arguments
+- **Breaking:** a chat, embedding or rerank deployment of `openai_compatible`, `litellm_proxy`, `vllm`, `infinity`, `ollama` or `custom` with no `api_key` sends the fixed, public placeholder `harborrag-no-api-key`, where LiteLLM sent an environment key such as `OPENAI_API_KEY`, `LITELLM_PROXY_API_KEY` or `COHERE_API_KEY` to the configured endpoint. A keyless server ignores the placeholder, and a server that needs a key answers `401`: give such a deployment an `api_key`, as the [upgrade guide](docs/users/upgrading.md#check-the-settings-that-are-now-refused) shows. A blank `api_key` is still refused
+- Jira comments limited to a role or group are no longer indexed: their text, metadata, elements, raw payload and change snapshot leave them out, so a reader of the issue no longer reads them. Issues indexed with such a comment are fetched again on the next full run; see the [upgrade guide](docs/users/upgrading.md#run-each-jira-connection-once-in-full)
 
 #### harborrag-app
 
@@ -384,6 +421,7 @@ Follow the [upgrade guide](docs/users/upgrading.md) before upgrading; entries ma
 #### harborrag-mcp-server
 
 - Each credential gets at most `HARBORRAG_MCP_RATE_LIMIT` requests per second (default 10) and `HARBORRAG_MCP_MAX_INFLIGHT` requests at once (default 4), shared by `/mcp` and `/api/tools`; `0` turns a limit off, and a value that is not `0` or a positive whole number stops the launcher. A refused `/mcp` request gets the JSON-RPC error `-32000`, and `/api/tools` answers `429` with `Retry-After`. Each server process keeps its own budget, and the status page, `/healthz` and stdio are not limited
+- **Breaking:** `harborrag-mcp --local-stack-root` and `harborrag-mcp-ui --local-stack-root` connect with the read-only accounts, `harborrag_mcp` with `POSTGRES_MCP_PASSWORD` and `harborrag-mcp` with `MINIO_MCP_PASSWORD`, instead of the Postgres owner and the MinIO root keys; they refuse to serve without both passwords, and ignore the `HARBORRAG_CONTROL_DB_URL` line of `env/.env.database`, which is the host CLI's owner URL
 
 #### harborrag-memory
 
@@ -397,9 +435,17 @@ Follow the [upgrade guide](docs/users/upgrading.md) before upgrading; entries ma
 - An ingestion activity failure no longer carries the original error into Temporal history; it keeps the failure's safe code
 - The control-database probe at startup no longer prints SQL parameters in errors or logs
 
+#### Deployment
+
+- **Breaking:** the Compose MCP server and Explorer UI server no longer get the Postgres owner or the MinIO root credentials. They connect as `harborrag_mcp`, a role that may only `SELECT` the corpus tables, `mcp_api_keys` and the settings tables, in read-only sessions, and read MinIO as `harborrag-mcp`, which may only read `harborrag-artifacts`. Run `scripts/deployment/dev.sh mcp-access` after `dev.sh up`, after every upgrade and after `dev.sh down --volumes`; until `env/.env.database` holds both passwords, every `mcp.sh` and `mcp-ui.sh` command stops. See the [upgrade guide](docs/users/upgrading.md#upgrade-the-services-in-order)
+
 ### Known limitations
 
-- Vector and graph indexing still fail together: while the graph store is down, documents fail even when the vector store is healthy, and the cleanup of a failed document removes the vectors it had just written. Separate outcomes are planned for 2.1
+- Vector and graph indexing still fail together: while the graph store is down, documents fail even when the vector store is healthy, and the cleanup of a failed document removes the vectors it had just written
+- An item whose last attempt was a permanent rejection, such as a file the parser rejects or one that yields no text, has no active version, so every run fetches and parses it again instead of skipping it
+- Temporal cannot replay a batch workflow that 2.0.0a1 recorded and closed after one of its document workflows failed, so a query or a reset of such a closed run fails. A run that is still open cannot be in that state
+- For a reader of more than 10,000 documents, a graph path search can return no path when every shortest path crosses a document the reader may not read, although a longer readable path exists, and each graph call lists the reader's documents again before it falls back to source scopes. MCP graph tools report a refused selector as `graph retrieval backend failed`, with an error and its traceback in the server log
+- `retry-failures` and the failure inbox's retry select failures by code, so they also retry a document the source refused, stored as `INVALID_CONFIGURATION` with the code `source_unavailable`
 
 ## [2.0.0a2] - 2026-10-26
 

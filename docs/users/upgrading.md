@@ -44,6 +44,12 @@ what behaves differently afterwards and what scripts and clients must change.
 - Give the API the environment variables `config/sources/connectors.yaml` names, for
   example `JIRA_BASE_URL` or `LOCAL_SOURCE_PATH`. The one-time import reads non-secret
   values from the API's environment.
+- With the Compose stack, let Docker pull two images. The data stack now pins Redis to
+  `redis:7.4.11-alpine` and Postgres to `postgres:15.19-alpine`, the same major
+  versions, and Postgres also mounts the script that creates the MCP server's read-only
+  role. The next `scripts/deployment/dev.sh up` (or `dev.sh data`) pulls the images and
+  recreates both containers. Their volumes are kept, so stored data stays, and the role
+  script does not run on an existing volume.
 
 ### Move the configuration files
 
@@ -263,6 +269,31 @@ start the new release.
   Spaces around `api_key`, `model`, `api_base`, `deployment_name` and `embedding_space`,
   such as the CR at the end of a line in a CRLF env file, are removed, and a line break
   inside one is refused.
+- **A model deployment with no `api_key` no longer borrows an environment key.** A chat,
+  embedding or rerank deployment of `openai_compatible`, `litellm_proxy`, `vllm`,
+  `infinity`, `ollama` or `custom` that leaves `api_key` out now sends the fixed
+  placeholder `harborrag-no-api-key`. Before, LiteLLM read a key from the environment,
+  such as `OPENAI_API_KEY`, `HOSTED_VLLM_API_KEY`, `INFINITY_API_KEY`, `OLLAMA_API_KEY`,
+  `LITELLM_PROXY_API_KEY`, `COHERE_API_KEY` or `CO_API_KEY`, and sent it to the
+  configured endpoint. A server that takes no key ignores the placeholder; one that
+  needs a key now answers `401`. In a catalog of your own, give each such deployment
+  the variable it relied on, for example `api_key: ${OPENAI_API_KEY}`. A `custom`
+  deployment that reaches Amazon Bedrock must use the `bedrock` provider. LiteLLM's
+  Ollama model lookup still sends `OLLAMA_API_KEY` to `OLLAMA_API_BASE`
+  (`http://localhost:11434` unless set), so leave `OLLAMA_API_KEY` unset for the API,
+  the workers and the MCP server. The shipped catalog sets every `api_key` and is not
+  affected.
+- **The MCP server needs its own read-only accounts.** The Compose MCP server and
+  Explorer UI server no longer get the Postgres owner or the MinIO root credentials.
+  They connect as the `harborrag_mcp` role and the `harborrag-mcp` MinIO user, with
+  `POSTGRES_MCP_PASSWORD` and `MINIO_MCP_PASSWORD` from `env/.env.database`. Until that
+  file holds both, every `mcp.sh` and `mcp-ui.sh` command stops, `down` included, with
+  `run scripts/deployment/dev.sh mcp-access to set POSTGRES_MCP_PASSWORD`. Create the
+  accounts as step 5 of
+  [Upgrade the services in order](#upgrade-the-services-in-order) shows.
+  `harborrag-mcp --local-stack-root` uses the same accounts, refuses to serve without
+  both passwords, and no longer reads the `HARBORRAG_CONTROL_DB_URL` line of
+  `env/.env.database`, which is the host CLI's owner URL.
 - **The chat proxy key must be set.** A catalog of your own whose chat `backend.type` is
   `litellm_proxy` needs a non-empty `backend.proxy.api_key`; an empty one is refused when
   the catalog loads. The shipped catalog calls chat with `direct_sdk` and is not
@@ -318,7 +349,11 @@ start the new release.
   such as 0755. Run `chmod 700` on the directory the message names, or set
   `HARBORRAG_MCP_AUDIT_PATH` to a file in an owner-only directory. HarborRAG now
   creates a missing `~/.harborrag` with mode 0700, but never changes the mode of an
-  existing one.
+  existing one. The same goes for the missing directories above
+  `HARBORRAG_OBJECT_STORE_ROOT`, the reader-tool audit file and a SQLite database file:
+  each is created with mode 0700 whatever the umask, and an existing one keeps its
+  mode. A relative `HARBORRAG_OBJECT_STORE_ROOT` resolves against the process's working
+  directory and logs one warning per process; set an absolute path.
 
 ### Upgrade the services in order
 
@@ -365,7 +400,10 @@ Upgrade in this order:
    the MCP servers and every worker. Other runs in progress stay in Temporal and go on
    when the workers return. Do not start an inline run
    (`harborrag ingestions start --inline`) until the upgrade is done: it migrates the
-   database as the API does.
+   database as the API does. In a checkout, stop the MCP servers with
+   `scripts/deployment/mcp.sh down` and `scripts/deployment/mcp-ui.sh down` before you
+   pull the new release: from then on, every `mcp.sh` command stops until the MCP
+   passwords exist.
 2. Back up the control database. `0044`, `0045` and `0049` delete data that a downgrade
    does not bring back.
 3. Start one API replica of the new release, and nothing else. Give its start-up and
@@ -380,14 +418,32 @@ Upgrade in this order:
    document retry workflow gives its release a 2-minute heartbeat timeout, and an older
    `harborrag-io` worker never heartbeats, so every attempt times out. The shipped
    Compose worker serves every queue.
-5. Start the MCP servers and the other API replicas.
+5. Create the MCP server's read-only accounts, now that the database is migrated. With
+   the Compose stack, run:
+
+    ```bash
+    scripts/deployment/dev.sh mcp-access
+    ```
+
+    It writes `POSTGRES_MCP_PASSWORD` and `MINIO_MCP_PASSWORD` to `env/.env.database`
+    when they are blank, then creates or refreshes the `harborrag_mcp` role and the
+    `harborrag-mcp` MinIO user with them. Run it again after every later upgrade and
+    after `dev.sh down --volumes`. Elsewhere, create the accounts as
+    [Read-only database and object-store accounts](detailed-guides/mcp-server/setup-and-integration.md#read-only-database-and-object-store-accounts)
+    shows.
+6. Start the MCP servers, rebuilt, and the other API replicas. In a checkout, run
+   `scripts/deployment/mcp.sh --build --http`, and
+   `scripts/deployment/mcp-ui.sh --build --http` if you use the Explorer. A preflight line
+   that ends in `(cause: InvalidPasswordError)` means `mcp-access` has not run.
 
 Runs started before the upgrade replay on the new workers: the changed workflow code sits
 behind seven Temporal patch IDs, `harborrag-source-records-cancellation`,
 `harborrag-document-records-cancellation`, `harborrag-source-guarded-discovery-stop`,
 `harborrag-source-cancel-closed-batch`, `harborrag-retry-heartbeat-timeout`,
 `harborrag-document-retry-records-cancellation` and
-`harborrag-retry-counts-cancelled-document`.
+`harborrag-retry-counts-cancelled-document`. A batch workflow that 2.0.0a1 closed after
+one of its document workflows failed does not replay; see
+[Known limitations](#known-limitations).
 
 ### After the upgrade
 
@@ -395,7 +451,7 @@ Once every service runs the new release, fix the connections first: set cleared
 credentials and folder settings again, as the first two steps below show. Then start the
 `force` re-ingest of every connection that
 [Re-index when the embedding model changes](#re-index-when-the-embedding-model-changes)
-asks for; it also covers the SharePoint step.
+asks for; it also covers the SharePoint and Jira steps.
 
 #### Set cleared credentials again
 
@@ -465,6 +521,27 @@ The `force` re-ingest of every connection that
 [Re-index when the embedding model changes](#re-index-when-the-embedding-model-changes)
 asks for covers this step.
 
+#### Run each Jira connection once in full
+
+Jira comments limited to a role or group are no longer indexed, so a reader of the issue
+no longer reads them, also under `tenant_shared`. Comments indexed before the upgrade
+leave the index on the next full run of each Jira connection: one started without
+`updated_after`, from a schedule or by hand. An issue that holds such a comment gets a
+new change key, so that run fetches it again without `force` mode:
+
+```bash
+harborrag ingestions start engineering/jira-main --wait
+```
+
+A re-index alone does not remove them. The versions the run replaces keep the comment
+text in their stored artifacts until the retention purge removes them, 30 days after
+they are retired by default (`HARBORRAG_RETIRED_VERSION_RETENTION_DAYS`). Comments that
+Jira Service Management marks internal, with no role or group, stay indexed.
+
+The `force` re-ingest of every connection that
+[Re-index when the embedding model changes](#re-index-when-the-embedding-model-changes)
+asks for covers this step.
+
 #### Expect a larger first run
 
 Earlier releases left metadata out of the change check. A Jira issue whose assignee,
@@ -507,6 +584,17 @@ No action is needed. A connection that ingested files whose paths hold a double 
 tab or a no-break space, or start or end with a space, on 2.0.0a1 or 2.0.0a2, no longer
 fails every run. Its first scan moves those source items to the document ID 2.0.0 gives
 them.
+
+#### Files with decomposed accents are processed once again
+
+No action is needed. 2.0.0 gives a file whose name is not in Unicode NFC, such as
+`café.md` with its `é` written as an `e` and a combining accent, its own document ID,
+so it no longer shares one with the composed spelling of the same name. Files copied
+from macOS often have such names. After the upgrade, each of them is ingested once more
+under its new ID. Until a later full run retires the old copy, search can return both,
+and that run counts the old copies as removals. Two full runs settle it. Names already
+in NFC keep their IDs, and reindex skips a document still stored under its old ID until
+the next scan replaces it.
 
 ### Update scripts for CLI v2.0.0
 
@@ -625,6 +713,10 @@ codes changed:
 `connections test` exits 8 when the check reports `"ok": false` and 0 when it passes. It
 prints the same body either way, although the route answers `200`; `source test` exited 1
 on a failed check.
+
+A project the CLI cannot use, including no project found outside a checkout, follows the
+same rule: without a terminal it prints the error envelope with `internal_error` and
+exits 1; see [CLI, dependencies and Temporal](#cli-dependencies-and-temporal).
 
 #### Update scripts that read `auth keys` output
 
@@ -800,6 +892,18 @@ connection with `"method": "api_token"` and the `email`; the stored token is kep
   a warning instead of failing the issue.
 - **SQLite development databases enforce foreign keys.** Deleting a connection now
   removes its document versions too. Rows that an earlier release left behind stay.
+- **Jira comments limited to a role or group are left out of the index**, with their
+  text, metadata and stored raw payload. See
+  [Run each Jira connection once in full](#run-each-jira-connection-once-in-full).
+- **A connection test reports a refused request as a permissions failure.** When the
+  source answers a `4xx` that is not retried, other than `401`, `403`, `404`, `408` and
+  `429`, such as a `400` or `422`, the `permissions` check fails with `error_category`
+  `forbidden` and `the source refused the request`. Before, the check that met it failed
+  with `unreachable`. Check the connection's settings and the account's permissions
+  rather than the network.
+- **A local file replaced by a FIFO, a socket or a device fails as unsupported.** After
+  discovery, such a path fails as `document_unsupported` and no retry is offered, where
+  it failed as a transient error.
 - **Removed:** `GET /v1/connections` and `/api/v1/sources*` answer `404`.
 
 #### Parser configuration
@@ -827,8 +931,22 @@ connection with `"method": "api_token"` and the `email`; the stored token is kep
 #### CLI, dependencies and Temporal
 
 - **The CLI runs from a checkout.** Outside a checkout or a project directory, every
-  command except `doctor` stops with `harborrag: no project found. …`. The command
-  changes are in [Update scripts for CLI v2.0.0](#update-scripts-for-cli-v200).
+  command except `doctor` stops with exit 1. In a terminal, or with `-o table`, it
+  prints `harborrag: no project found. …`. The command changes are in
+  [Update scripts for CLI v2.0.0](#update-scripts-for-cli-v200).
+- **A project error is the error envelope away from a terminal.** **Breaking:** no
+  project found, a `--project` directory without `harborrag.yaml`, a marker the CLI
+  cannot read or does not trust, and an unknown key under `runtime:` print as the JSON
+  or YAML error envelope, with `"code": "internal_error"` and exit 1, under `-o json` or
+  `-o yaml`, under `HARBORRAG_OUTPUT`, and when stdout is not a terminal, such as in a
+  pipe, in CI or with `docker run` without `-t`. Before, each printed a plain
+  `harborrag: …` line. A script that reads that line from stderr passes `-o table`, or
+  reads `error.message` from the envelope.
+- **Dependencies match the imports.** `harborrag-runtime[temporal]` no longer installs
+  `cloudpickle`, and `harborrag-runtime` no longer depends on `jsonschema`; code of your
+  own that imports either must install it. `harborrag-app` declares `sqlalchemy`, its
+  `api` extra declares `redis>=5,<6`, and `harborrag-adapters` and `harborrag-runtime`
+  declare `python-dotenv`, which each came through another package before.
 - **`harborrag ingestions pause|resume|cancel` use the HTTP rules.** An action the run's
   status does not allow exits 4 with the `invalid_state` error and sends nothing to
   Temporal: pausing a paused run, pausing or resuming a retry run, resuming a running
@@ -907,6 +1025,12 @@ connection with `"method": "api_token"` and the `email`; the stored token is kep
   signed download URL; it keeps the failure's safe code. A PDF or OCR engine failure
   that a library raised is named by its exception class instead of the library's
   message.
+- **Parser errors name the library's error class.** DOCX, ODT, PPTX, XLSX, XLS, DOC and
+  PPT parser errors end with the class of the library error, such as `BadZipFile`,
+  instead of its text, which could quote a path or the file's first bytes. A log search
+  or alert rule that matched the old text misses the new lines. Archive-bomb errors no
+  longer name the archive member, and MinerU failures show `<path>` in place of their
+  temporary directories.
 
 #### Python import paths and service methods
 
@@ -986,6 +1110,40 @@ raises `ModuleNotFoundError`, `ImportError` or `AttributeError`.
 Code that implements `DocumentVersionPort` must add `refresh_admission_change_key`, and
 a caller of `active_relation_document_ids` must pass `tenant_id`.
 
+#### Removed symbols and their replacements
+
+These public symbols had no caller in HarborRAG and are removed. Code of your own that
+used one switches to the replacement. `ConnectorQuery` is in
+`harborrag_core.ingestion.connector_contracts`.
+
+| Removed | Use instead |
+| --- | --- |
+| `LocalFileConnector.load_by_paths(paths)` and `LocalFileSystem.record_for_path` | `discover(ConnectorQuery(filters={"file_paths": [...]}))`, or `ConnectorQuery(path=...)` for one file or folder, then `load(record)` for each record |
+| `GitHubConnector.load_by_paths(paths)` and `GitHubRepositoryAPI.record_for_path` | `discover(ConnectorQuery(filters={"file_paths": [...]}))` (`paths` and `files` work too), then `load(record)` |
+| `SharePointConnector.load_by_ids(ids)` and `SharePointDriveAPI.record_for_item_id` | `discover(ConnectorQuery(filters={"item_ids": [...]}))` (`drive_item_ids` and `file_ids` work too), then `load(record)` |
+| `ConfluenceConnector.load_by_ids(ids)` | `discover(ConnectorQuery(filters={"content_ids": [...], "include_children": False}))` (`page_ids` works too), then `load(record)`; without `include_children` set to `False`, discovery also returns the pages' children |
+| `HTTPRequestError` of `harborrag_adapters.connectors.exceptions` | `FetchError` |
+| `HarborStorageAuthenticationError`, `HarborStorageTransactionError`, `HarborStorageMigrationError`, `HarborStorageSerializationError` and `HarborStorageIntegrityError` of `harborrag_adapters.repositories.errors` | `HarborStorageError` |
+| `SummaryRepositoryPort` of `harborrag_core.ports.summary_projection` and `TopologyRepositoryPort` of `harborrag_core.ports.topology` | The focused ports each one combined, such as `SummaryReaderPort` or `TopologyJobRepositoryPort` |
+| `TopologyObservationRepositoryPort` of `harborrag_core.ports.topology` | `harborrag_core.topology.search.TopologySearchPort`, with the same `active_mentions` and `active_assertions` |
+| `ProjectRepositoryProvider`, `ConnectionRepositoryProvider`, `JobRepositoryProvider`, `ActivityRepositoryProvider`, `SettingsRepositoryProvider`, `ProviderRepositoryProvider`, `MemberRepositoryProvider` and `GraphConflictRepositoryProvider` | `TenantScopedRepositoryProvider[<Port>]`, such as `TenantScopedRepositoryProvider[ProjectRepositoryPort]` |
+| `HarborImportError` and `HarborNotSupportedError` | `HarborError` |
+| `HarborChatBudgetExceededError` and `HarborChatCancelledError` | `HarborChatError` |
+| `HarborEmbedCancelledError` | `HarborEmbedError` |
+| `HarborRerankCancelledError` | `HarborRerankError` |
+| `authenticated_owner(request, verifier)` of `harborrag_mcp_server.server.http_auth` | `authenticated_principal(request, verifier, roles=OWNER_ROLES)` |
+| `WorkflowNotRetryableError` of `harborrag_runtime.errors` | `WorkflowOperationError` |
+| `ToolInvokerPort`, `SUMMARY_CARD_MAX_CHARS`, `EMBEDDING_CONTEXT_MAX_CHARS`, `EMBEDDING_CONTEXT_MAX_WORDS` and `harborrag_runtime.config.chunking.CHUNKING_CONFIG_VERSION` | Nothing; nothing read them |
+
+Local discovery applies the connection's filters that `load_by_paths` skipped: hidden
+files, include and exclude paths and globs, file types and the size limit.
+
+`validate_buckets` and `ensure_buckets` of the S3 object store now raise
+`HarborStorageTimeoutError` or `HarborStorageConnectionError` for a timeout, an
+unreachable endpoint or a `5xx` answer, instead of a raw botocore error. Both derive from
+`RuntimeError`, as before, and a missing or unreadable bucket is still a plain
+`RuntimeError`.
+
 #### MCP server built in Python
 
 `harborrag-mcp` and `python -m harborrag_mcp_server` read `HARBORRAG_MCP_AUDIT_PATH` once
@@ -1014,6 +1172,15 @@ environment variables and their effect do not change.
 
 #### MCP server
 
+- **The MCP server reads with read-only accounts.** The Compose MCP server and Explorer
+  UI server connect to Postgres as `harborrag_mcp`, which may only `SELECT` the corpus
+  tables, `mcp_api_keys` and the settings tables, in read-only sessions, and to MinIO as
+  `harborrag-mcp`, which may only read `harborrag-artifacts`. Neither gets the Postgres
+  owner or the MinIO root credentials any more. A preflight failure now ends with the
+  class of the error behind it, such as
+  `settings store is unreachable (cause: InvalidPasswordError)`: run
+  `scripts/deployment/dev.sh mcp-access`, then start the server again. See
+  [Read-only database and object-store accounts](detailed-guides/mcp-server/setup-and-integration.md#read-only-database-and-object-store-accounts).
 - **MCP tools answer with empty results until `env/.env.mcp` shares the corpus.**
   The shipped template now sets `HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared` and
   `HARBORRAG_CORPUS_SHARED_TENANT_ID=DEFAULT`, as the API and worker templates do.
@@ -1190,7 +1357,17 @@ reads and lists everything, as before.
       another origin and a chained redirect fail without retry;
     - the `EXTRACTION_FAILED` count of a run's `skipped_by_reason` covers only parser
       rejections (`parser_rejected_document` and `document_unsupported`), no longer
-      outages, a missing parser or cancellations at the parse stage.
+      outages, a missing parser or cancellations at the parse stage;
+    - a local file replaced by a FIFO, a socket or a device after discovery fails as
+      `document_unsupported`, which is not retried.
+- **A refused source request is stored as a configuration failure.** A source failure
+  that is not retried because the source refused the request, such as an HTTP `400`,
+  `410` or `422` or a refused response, is stored with the category
+  `INVALID_CONFIGURATION` instead of `TRANSIENT` in the control database's
+  `document_failures.failure_category`. Its code stays `source_unavailable`, so the
+  API's `error_category` does not change. Rows stored before the upgrade keep
+  `TRANSIENT`, so a query or dashboard that groups by the stored category sees the
+  same failure under two categories.
 - **Failure inbox contract:** `GET /v1/admin/failures` leaves out `total` unless you
   send `include_total=true`, instead of answering `null`.
   `POST /v1/admin/failures/retry` answers `409 invalid_state` when no failure matches,
@@ -1385,9 +1562,32 @@ reprocesses them once more.
   both its vectors and its graph data are written. While the graph store is down,
   documents fail even when the vector store is healthy, and the cleanup of a failed
   document removes the vectors it had just written. Retry the failures once the graph
-  store is back. Separate outcomes are planned for 2.1.
+  store is back.
 - `item_refs` on `POST /v1/admin/ingestions` answers `501 not_supported`.
 - Project IDs are unique across tenants.
+- **An item with no active version is fetched every run.** When an item's last attempt
+  was a permanent rejection, such as a file the parser rejects or one that yields no
+  text, it has no active version, so every run fetches and parses it again instead of
+  skipping it.
+- **A refused source request is still retried in bulk.** `retry-failures` and
+  `POST /v1/admin/failures/retry` with a filter select failures by their code, so they
+  include a document the source refused, stored as `INVALID_CONFIGURATION` with the
+  code `source_unavailable`.
+- **Some closed 2.0.0a1 runs cannot be replayed.** Temporal cannot replay a batch
+  workflow that 2.0.0a1 recorded and closed after one of its document workflows failed,
+  so a query or a reset of such a run, for example from the Temporal UI, fails. A run
+  that is still open cannot be in that state.
+- **Graph reads for a reader of more than 10,000 documents are narrower.** Under
+  `source_acl`, past that budget the graph is filtered by the reader's readable source
+  scopes, and each returned document is checked again. In that state:
+    - a graph selector must be a node key; a title, logical-ID or provider-ID selector
+      is refused with `AUTHORIZATION_UNAVAILABLE`, which the MCP graph tools report as
+      `graph retrieval backend failed`, with an error and its traceback in the server
+      log;
+    - a path search returns no path when every shortest path crosses a document the
+      reader may not read, although a longer readable path exists;
+    - each graph call lists the reader's documents again before it falls back to source
+      scopes.
 
 ## 2.0.0a1 to 2.0.0a2
 

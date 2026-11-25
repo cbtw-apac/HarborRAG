@@ -17,16 +17,17 @@ to start, stop and rebuild one service at a time, see
 ## Prepare the environment files
 
 `scripts/deployment/dev.sh bootstrap` creates seven protected files in `env/` from the
-templates in `env-example/`, with mode `0600`, and mints the local MCP bearer token. Prefer it
-to copying templates by hand. Each service reads these files:
+templates in `env-example/`, with mode `0600`. It also generates the secrets encryption key,
+the local MCP bearer token and the passwords of the MCP server's read-only accounts. Prefer
+it to copying templates by hand. Each service reads these files:
 
 | Service | Reads |
 | --- | --- |
 | Data services (`docker-compose.database.yml`) | `env/.env.database` |
 | Temporal server and worker (`docker-compose.temporal.yml`) | `env/.env.database` and `env/.env.temporal`; the worker also receives `env/.env.connector`, `env/.env.parser` and `env/.env.models` |
 | API (`docker-compose.yml`) | `env/.env.database`, `env/.env.temporal`, `env/.env.connector`, `env/.env.models` and `env/.env.api`; the container itself receives only `env/.env.api` and `env/.env.models` |
-| MCP server (`scripts/deployment/mcp.sh`) | `env/.env.database`, `env/.env.mcp` (required) and `env/.env.models`; from `env/.env.api` only `HARBORRAG_ENV`, so it accepts the reader keys the API's environment issued |
-| Host `harborrag` command in a checkout | `env/.env.connector`, `env/.env.parser` and `env/.env.models`; from `env/.env.database` only the MinIO credentials, `HARBORRAG_LOCAL_SOURCE_ROOT` and an uncommented `HARBORRAG_CONTROL_DB_URL` line with its encryption key; from `env/.env.api` only `HARBORRAG_CORPUS_ACCESS_MODE` and `HARBORRAG_CORPUS_SHARED_TENANT_ID` |
+| MCP server (`scripts/deployment/mcp.sh`) | `env/.env.mcp` (required) and `env/.env.models`; from `env/.env.database` only `POSTGRES_DB` and the passwords of its read-only accounts, `POSTGRES_MCP_PASSWORD` and `MINIO_MCP_PASSWORD`, never the Postgres owner or the MinIO root credentials; from `env/.env.api` only `HARBORRAG_ENV`, so it accepts the reader keys the API's environment issued |
+| Host `harborrag` command in a checkout | `env/.env.connector`, `env/.env.parser` and `env/.env.models`; from `env/.env.database` only the MinIO credentials, `HARBORRAG_LOCAL_SOURCE_ROOT` and an uncommented `HARBORRAG_CONTROL_DB_URL` line with its encryption key; from `env/.env.api` only `HARBORRAG_CORPUS_ACCESS_MODE`, `HARBORRAG_CORPUS_SHARED_TENANT_ID` and `HARBORRAG_TENANT_ID`, the last as its default tenant |
 
 `HARBORRAG_SECRETS_ENCRYPTION_KEY` in `env/.env.database` encrypts stored connector credentials
 in the control database, and the API and the Temporal worker must read the same value. The
@@ -50,6 +51,11 @@ When upgrading an existing checkout:
 
 - Add `HARBORRAG_SECRETS_ENCRYPTION_KEY`, `POSTGRES_PASSWORD` and `MINIO_ROOT_PASSWORD` to the
   existing protected `env/.env.database` before the next start.
+- After `scripts/deployment/dev.sh up`, run `scripts/deployment/dev.sh mcp-access` before you
+  start the MCP server. It writes `POSTGRES_MCP_PASSWORD` and `MINIO_MCP_PASSWORD` to
+  `env/.env.database` when they are blank, and creates or refreshes the read-only accounts the
+  server connects with. Run it after every upgrade and after `dev.sh down --volumes`; see
+  [Read-only database and object-store accounts](../../users/detailed-guides/mcp-server/setup-and-integration.md#read-only-database-and-object-store-accounts).
 - Monitoring uses a separate `env/.env.monitoring`. Create it from
   `env-example/.env.monitoring.example` and set `GRAFANA_ADMIN_PASSWORD`, as in
   [Run the monitoring stack](#run-the-monitoring-stack).
@@ -264,8 +270,10 @@ there read-only to deploy a different catalog.
 The CLI image uses `harborrag` as its entry point, and its default command is
 `doctor -o json`, which runs without a project. Every other command needs a project
 directory: the image's working directory, `/var/lib/harborrag`, holds no `harborrag.yaml`
-and is not inside a checkout, so without one the command stops with
-`harborrag: no project found. …` and exit 1. Mount a directory that holds a
+and is not inside a checkout, so without one the command stops with exit 1. Without `-t`,
+stdout is not a terminal, so it prints the error envelope with `internal_error` and the
+message `no project found. …`; with `-t` or `-o table` it prints
+`harborrag: no project found. …`. Mount a directory that holds a
 `harborrag.yaml`, which may be empty, and name it with `HARBORRAG_PROJECT`; the image's
 `HARBORRAG_*_CONFIG_PATH` variables keep the catalogs at `/app/config`.
 
@@ -288,8 +296,8 @@ docker run --rm \
 
 The MCP image uses `python -m harborrag_mcp_server` as its entry point and defaults to stdio.
 An MCP client must keep stdin attached with `-i`; real tool calls also need protected model
-and database settings and network-reachable data services. Its writable JSONL audit path is
-`/var/lib/harborrag/.harborrag/mcp-audit.jsonl`.
+settings, a read-only role's database URL and object-store keys, and network-reachable data
+services. Its writable JSONL audit path is `/var/lib/harborrag/.harborrag/mcp-audit.jsonl`.
 
 Use `scripts/deployment/mcp.sh --http` for the authenticated loopback HTTP transport and the
 local status page. Its container joins `harborrag-data-network`, and Docker publishes the

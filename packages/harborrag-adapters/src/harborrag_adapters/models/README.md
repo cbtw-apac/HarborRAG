@@ -239,6 +239,16 @@ a deployment whose `api_key` is empty, for every provider, because LiteLLM would
 otherwise send an ambient key such as `OPENAI_API_KEY` or `COHERE_API_KEY` to the
 configured endpoint.
 
+A deployment that leaves `api_key` out is different: when its provider neither requires
+a key nor accepts ambient credentials (`requires_api_key` and
+`supports_ambient_credentials` are both off in its `ProviderMetadata`), as for
+`openai_compatible`, `litellm_proxy`, `vllm`, `infinity`, `ollama` and `custom`,
+`build_provider_params` in `runtime/litellm_backend.py` sends `NO_API_KEY_PLACEHOLDER`,
+the fixed, public string `harborrag-no-api-key`. LiteLLM then never reads a key from
+the environment for it. A keyless server ignores the placeholder, and a server that
+needs a key answers `401`. LiteLLM's Ollama model lookup still reads `OLLAMA_API_KEY`
+and `OLLAMA_API_BASE` itself, outside any parameter HarborRAG passes.
+
 LiteLLM's Cohere rerank route, which serves `cohere` and `litellm_proxy`, appends a
 version and `/rerank` to `api_base`. `rerank/parameters.py` drops one trailing `/v1`
 first, so a base such as `https://api.openai.com/v1` posts to `/v1/rerank`.

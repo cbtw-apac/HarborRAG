@@ -202,8 +202,10 @@ section of the documentation.
 | `harborrag-mcp-ui` | `harborrag-mcp-server` | `harborrag-mcp-server[ui]` |
 
 A PyPI install puts these on your `PATH`. `harborrag --help` works anywhere, but the other
-`harborrag` commands run only inside a repository checkout; elsewhere they stop with
-`harborrag: no project found. Run it inside a HarborRAG repository checkout, ...`.
+`harborrag` commands run only inside a repository checkout. Elsewhere they exit 1, and in a
+terminal, or with `-o table`, they print
+`harborrag: no project found. Run it inside a HarborRAG repository checkout, ...`; in a pipe
+or a script they print the same message in a JSON error envelope.
 
 In a repository checkout, `uv sync --all-packages` installs the console scripts into the
 workspace environment, so prefix them with `uv run`:
@@ -280,7 +282,8 @@ It prints the names the public facade exports, such as `HarborRAG` and `Retrieva
 - Model configuration fails with `environment variable <NAME> is not set`: every `${NAME}` in
   `config/models/models.yaml` is expanded when the file loads, so each one must be set. A set
   but blank value is refused too: a blank model name when the catalog loads, and a blank key
-  when the model's client is built. `harborrag doctor` names each blank `${NAME}` reference.
+  when the model's client is built. `harborrag doctor` names each blank `${NAME}` reference,
+  and `python -m harborrag_adapters.models validate` does too for the family it checks.
 - uv uses an unwritable global cache in a restricted environment: set `UV_CACHE_DIR` to a
   writable project or temporary directory.
 

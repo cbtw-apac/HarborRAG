@@ -141,7 +141,9 @@ Discovery skips a directory it is not allowed to list, with reason `unreadable`,
 one removed between being found and being listed, with reason `deleted`. Any other
 error while listing a directory fails discovery instead, so a scan that missed part of
 the tree is never taken as complete and the files below are not retired; Temporal
-retries discovery from its last checkpoint.
+retries discovery from its last checkpoint. A file that a FIFO, a socket or a device
+replaces after discovery fails as `document_unsupported` when it is read, and no retry
+is offered.
 
 `checksum_mode` decides how a changed file is detected: `stat`, the default, compares
 the file's size and modification time, and `sha256` its content. In `stat` mode a file
@@ -195,7 +197,7 @@ the pages of `space_key`. The shipped file takes both from the environment, and
 | `space_key` | Confluence | Space to read |
 | `content_types` | Confluence | `page`, `blogpost` or both; default `[page]` |
 | `deployment_type` | both | `cloud` or `datacenter`; when left out, a host ending in `.atlassian.net` means `cloud` |
-| `include_comments` | both | Read comments; default `true` for Jira, `false` for Confluence |
+| `include_comments` | both | Read comments; default `true` for Jira, `false` for Confluence. Jira comments limited to a role or group are always left out |
 | `include_attachments` | both | Read attachments as documents of their own; default `false` |
 
 `GET /v1/admin/source-types` lists every other option with its default; see
@@ -517,10 +519,9 @@ is bounded. What decides whether it finishes is outside the code:
   `cancelled_at_safe_boundary` was cancelled on request; it was not a timeout.
 
 HTTP connectors validate timeouts, retry counts (`max_retries` is at most 10), backoff,
-page sizes, request rates and source-specific collection and size limits. A
-connector's configuration is read
-when it is built, so build a new connector after changing settings. For credentialed
-checks against real systems, see
+page sizes, request rates and source-specific collection and size limits. A connector's
+configuration is read when it is built, so build a new connector after changing
+settings. For credentialed checks against real systems, see
 [Real-system smoke checks](../../developers/testing/README.md#real-system-smoke-checks).
 
 ## Load and build
