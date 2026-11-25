@@ -23,6 +23,7 @@ from harborrag_core.ingestion import (
     SourceIdentity,
     identity_for_source,
 )
+from harborrag_core.ingestion.identity import legacy_identity_for_source
 from harborrag_core.ingestion.limits import validate_reindex_limit
 from harborrag_core.schemas.ids import DocumentId
 from harborrag_core.storage import StorageOperationContext
@@ -186,6 +187,13 @@ class DocumentReindexService:
         )
         source_identity = source_identity_from_canonical(canonical)
         if str(identity_for_source(source_identity)) != document_id:
+            if str(legacy_identity_for_source(source_identity)) == document_id:
+                logger.info(
+                    "Reindex skipped a document stored under its legacy ID; "
+                    "its next scan replaces it document_id=%s",
+                    document_id,
+                )
+                return False
             raise ValueError("canonical source identity does not match document")
         current_processing = processing_profile_from_canonical(
             canonical.provenance.extra.get("processing_profile")
