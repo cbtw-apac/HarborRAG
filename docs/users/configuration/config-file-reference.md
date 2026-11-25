@@ -35,7 +35,9 @@ service reads in a repository checkout.
 | `HARBORRAG_TEMPORAL_ALLOW_INSECURE_REMOTE` | `false` | Development-only acknowledgement for Temporal without TLS that is not on loopback; ignored outside `dev`, like `connection.allow_insecure_remote` in `config/temporal.yaml` |
 | `HARBORRAG_OBJECT_STORE_ENDPOINT_URL` | `http://localhost:9000` | S3-compatible object store |
 | `HARBORRAG_OBJECT_STORE_ALLOW_INSECURE_REMOTE` | `false` | Development-only acknowledgement for plaintext object storage that is not on loopback; ignored outside `dev` |
-| `HARBORRAG_QDRANT_URL` | `http://localhost:6333` | Qdrant, the vector store |
+| `HARBORRAG_QDRANT_URL` | `http://localhost:6333` | Qdrant, the vector store, at its REST port |
+| `HARBORRAG_QDRANT_PREFER_GRPC` | `true` | Send Qdrant calls over gRPC; `false` keeps them on the REST port of `HARBORRAG_QDRANT_URL` |
+| `HARBORRAG_QDRANT_GRPC_PORT` | None | gRPC port of the same Qdrant, 1 to 65535; unset, gRPC goes to `6334` on the URL's host. Required while gRPC is preferred and the URL names a port other than `6333` |
 | `HARBORRAG_QDRANT_ALLOW_INSECURE_REMOTE` | `false` | Development-only acknowledgement for plain-HTTP Qdrant that is not on loopback; ignored outside `dev` |
 | `HARBORRAG_FALKORDB_HOST` | `localhost` | FalkorDB, the graph store |
 | `HARBORRAG_FALKORDB_PORT` | `6379` | FalkorDB port |
@@ -58,6 +60,15 @@ checked-in files.
 
 Outside `dev`, the `*_ALLOW_INSECURE_REMOTE` switches are ignored, so a remote Qdrant
 needs HTTPS, a remote FalkorDB SSL, and a remote Temporal TLS.
+
+The Qdrant client reads the REST port from `HARBORRAG_QDRANT_URL` but takes its gRPC
+port from `HARBORRAG_QDRANT_GRPC_PORT`. When the URL names a port other than `6333`
+and gRPC is preferred, the API, the worker, the MCP server and the checkout CLI refuse
+to start until you set `HARBORRAG_QDRANT_GRPC_PORT` or
+`HARBORRAG_QDRANT_PREFER_GRPC=false`. Without that check, a mapped port such as
+`16333` would still send vectors to port `6334`, which can belong to another Qdrant.
+The first time a process opens the vector store, it logs where vectors go, such as
+`Vector store target=Qdrant gRPC localhost:16334`.
 
 The pool size and overflow apply to each pool, and one process can open several pools
 on the same database. Size Postgres `max_connections` for every pool of every API

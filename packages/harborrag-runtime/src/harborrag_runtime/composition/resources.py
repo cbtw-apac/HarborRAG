@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from typing import Any
 from urllib.parse import urlsplit
@@ -21,13 +22,18 @@ from harborrag_adapters.repositories.vector import (
 from harborrag_adapters.repositories.vector.qdrant import QdrantVectorConfig
 from harborrag_core.ports.storage import ObjectStorePort, VectorRepositoryPort
 
-from ..config.settings import RuntimeSettings
+from ..config.settings import QDRANT_DEFAULT_GRPC_PORT, RuntimeSettings
 from ..errors import RuntimeConfigurationError
 from .storage_providers import (
     RuntimeKnowledgeGraphPort,
     RuntimeTopologyPort,
     storage_providers,
 )
+
+logger = logging.getLogger("harborrag.runtime.composition")
+
+_logged_vector_targets: set[str] = set()
+"""Vector store targets this process already logged; repositories are built many times."""
 
 
 def build_ingestion_control(
@@ -165,19 +171,27 @@ def resource_targets(settings: RuntimeSettings) -> dict[str, str]:
         )
     else:
         object_store = f"object store ({settings.object_store_provider})"
-    origin = _origin(settings.qdrant_url)
-    if origin is None:
-        vector = "Qdrant (configured URL)"
-    elif settings.qdrant_prefer_grpc:
-        vector = f"Qdrant gRPC {origin[1]}:6334"
-    else:
-        vector = f"Qdrant {_display_url(settings.qdrant_url)}"
     return {
         "control": control,
         "object_store": object_store,
-        "vector": vector,
+        "vector": _qdrant_target(settings),
         "graph": f"FalkorDB {settings.falkordb_host}:{settings.falkordb_port}",
     }
+
+
+def _qdrant_target(settings: RuntimeSettings) -> str:
+    """Credential-free Qdrant endpoint the client dials: the gRPC port when gRPC is preferred."""
+    origin = _origin(settings.qdrant_url)
+    if origin is None:
+        return "Qdrant (configured URL)"
+    if settings.qdrant_prefer_grpc:
+        port = (
+            QDRANT_DEFAULT_GRPC_PORT
+            if settings.qdrant_grpc_port is None
+            else settings.qdrant_grpc_port
+        )
+        return f"Qdrant gRPC {origin[1]}:{port}"
+    return f"Qdrant {_display_url(settings.qdrant_url)}"
 
 
 def resource_hints(settings: RuntimeSettings) -> dict[str, str]:
@@ -260,15 +274,25 @@ def build_vector_repository(
     if settings.vector_provider != "qdrant":
         return storage_providers.vector_repository(settings)
 
+    _log_vector_target(_qdrant_target(settings))
     return HarborVectorDBClient.default().create_from_config(
         QdrantVectorConfig(
             url=settings.qdrant_url,
             api_key=settings.qdrant_api_key,
             prefer_grpc=settings.qdrant_prefer_grpc,
+            grpc_port=settings.qdrant_grpc_port,
             namespace_prefix=settings.storage_namespace_prefix,
             allow_insecure_remote=settings.env == "dev" and settings.qdrant_allow_insecure_remote,
         )
     )
+
+
+def _log_vector_target(target: str) -> None:
+    """Log the endpoint vectors go to, once per target and process."""
+    if target in _logged_vector_targets:
+        return
+    _logged_vector_targets.add(target)
+    logger.info("Vector store target=%s", target)
 
 
 def build_knowledge_graph(

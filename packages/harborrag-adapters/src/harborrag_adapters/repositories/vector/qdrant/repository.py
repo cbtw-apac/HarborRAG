@@ -76,6 +76,7 @@ class QdrantVectorRepository(QdrantCollectionMixin, HarborVectorRepository):
             api_key=config.api_key.get_secret_value() if config.api_key else None,
             prefer_grpc=config.prefer_grpc,
             operation_timeout_seconds=config.operation_timeout_seconds,
+            grpc_port=config.grpc_port,
         )
         self._specs: dict[tuple[str, str], VectorIndexSpec] = {}
         self._collection_locks = {}
