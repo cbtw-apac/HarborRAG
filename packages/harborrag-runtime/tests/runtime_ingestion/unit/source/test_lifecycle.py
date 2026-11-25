@@ -214,7 +214,13 @@ async def test_graceful_cancellation_converges_task_state(
         task = await control.tasks.get("task-cancel")
         assert task is not None
         assert task.status == IngestionTaskState.CANCELLED
-        assert task.summary == {**discovered.summary, "cancelled_at_safe_boundary": True}
+        assert task.summary == {
+            **discovered.summary,
+            "skipped": 0,
+            "skipped_by_reason": {},
+            DISCOVERY_SKIPS_KEY: {},
+            "cancelled_at_safe_boundary": True,
+        }
 
 
 @pytest.mark.asyncio

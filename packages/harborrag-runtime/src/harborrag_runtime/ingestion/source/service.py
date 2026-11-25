@@ -38,7 +38,7 @@ from .documents import SourceDocumentService
 from .finalization import SourceFinalizationService
 from .operations import SourceDocumentOperations
 from .retry import SourceRetryService
-from .skips import carried_discovery_skips, carried_progress_state
+from .skips import carried_discovery_skips, carried_progress_state, run_skip_summary
 
 logger = logging.getLogger("harborrag.runtime.ingestion.source")
 
@@ -166,7 +166,8 @@ class SourceIngestionService(SourceDocumentOperations):
         """Converge a graceful workflow cancellation on durable task state.
 
         The open scan is cancelled first, so a cancel during discovery cannot
-        block later scans of the scope. The task keeps its summary.
+        block later scans of the scope. The task keeps its summary, with the
+        skips counted so far at discovery and per document.
         """
         if await self._control.source_scans.cancel_if_started(source_scan_id(task_id)):
             logger.info("Open source scan cancelled task_id=%s", task_id)
@@ -190,7 +191,11 @@ class SourceIngestionService(SourceDocumentOperations):
         await self._control.tasks.transition(
             task_id,
             IngestionTaskState.CANCELLED,
-            summary={**task.summary, "cancelled_at_safe_boundary": True},
+            summary={
+                **task.summary,
+                **await run_skip_summary(self._control, task_id),
+                "cancelled_at_safe_boundary": True,
+            },
         )
         logger.info("Source ingestion cancelled task_id=%s", task_id)
 
