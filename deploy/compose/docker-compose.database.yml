@@ -55,7 +55,7 @@ services:
       - harborrag-data-network
 
   postgres:
-    image: postgres:15-alpine
+    image: postgres:15.19-alpine
     restart: unless-stopped
     # Three worker replicas at 36 control-database connections each, plus Temporal,
     # the API and MCP, exceed the stock limit of 100.

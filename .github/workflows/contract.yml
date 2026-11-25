@@ -127,5 +127,4 @@ jobs:
           path: |
             clients/typescript
             !clients/typescript/node_modules
-      # TODO(M0 follow-up): `npm publish` to the internal registry on tags,
-      # version pinned to the backend package version (plan ST10 item 4).
+      # TODO: npm publish the generated client to the internal registry on tags, versioned like the backend packages.
