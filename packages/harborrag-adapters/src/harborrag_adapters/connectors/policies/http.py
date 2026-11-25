@@ -18,7 +18,7 @@ from urllib.parse import ParseResult, urlparse
 
 from harborrag_core.security.redaction import redact_secrets
 
-from ..exceptions import AuthenticationError, AuthorizationError, FetchError
+from ..exceptions import AuthenticationError, AuthorizationError, FetchError, RateLimitError
 
 DEFAULT_MAX_RETRY_DELAY_SECONDS = 300.0
 _ALLOWED_SCHEMES = frozenset({"http", "https"})
@@ -122,8 +122,10 @@ def verify_credentials(probe: Callable[[], object], *, provider: str) -> None:
 
     A rejected credential is reported as an authentication failure. A 403,
     including a bare 403 `FetchError`, means the credential is valid but lacks
-    permission, so it is reported as an authorization failure. Each message
-    starts with the provider name, so every connector reports failures alike.
+    permission, so it is reported as an authorization failure. A rate limit stays
+    a retryable `RateLimitError` whatever its status, since GitHub answers a
+    secondary limit with 403. Each message starts with the provider name, so every
+    connector reports failures alike.
 
     Args:
         probe: Callable that sends one authenticated request to the provider.
@@ -132,7 +134,7 @@ def verify_credentials(probe: Callable[[], object], *, provider: str) -> None:
     Raises:
         AuthenticationError: The provider rejected the credential.
         AuthorizationError: The credential lacks permission for the probed resource.
-        FetchError: The probe failed for any other reason.
+        FetchError: The probe failed for any other reason, a rate limit included.
     """
     try:
         probe()
@@ -153,7 +155,7 @@ def verify_credentials(probe: Callable[[], object], *, provider: str) -> None:
             status_code=exc.status_code,
         ) from exc
     except FetchError as exc:
-        if exc.status_code == 403:
+        if exc.status_code == 403 and not isinstance(exc, RateLimitError):
             raise AuthorizationError(
                 _with_status_code(
                     f"{provider} authorization failed: {summarize_provider_error(exc)}",
