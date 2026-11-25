@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from harborrag_core.invariants import HarborInvariantError
-from harborrag_mcp_server.audit import DEFAULT_AUDIT_PATH, McpAuditLog
+from harborrag_mcp_server.audit import DEFAULT_AUDIT_PATH, McpAuditLog, prepare_audit_directory
 from harborrag_mcp_server.configuration import McpConfigurationStore
 from harborrag_mcp_server.configuration.launch import load_launch_environment
 from harborrag_mcp_server.preflight import describe_startup_failure, start_and_stop
@@ -203,6 +203,10 @@ def _prepare_arguments(
     if arguments.config is None:
         arguments.config = _default_config_path()
     arguments.audit_path = Path(os.environ.get("HARBORRAG_MCP_AUDIT_PATH", DEFAULT_AUDIT_PATH))
+    try:
+        prepare_audit_directory(arguments.audit_path)
+    except OSError as exc:
+        parser.error(f"HARBORRAG_MCP_AUDIT_PATH: {exc}")
 
 
 def _register_routes(  # noqa: PLR0913 - the launched server's parts
