@@ -17,6 +17,7 @@ from model_runtime_support import embed_config, rerank_config
 
 from harborrag_adapters.models.chat.backends import LiteLLMDirectBackend
 from harborrag_adapters.models.embed import (
+    EmbedProviderRegistry,
     HarborEmbedClient,
     HarborEmbedProvider,
     HarborEmbedProviderConfig,
@@ -79,7 +80,9 @@ def _router() -> object:
     return build_litellm_router(
         embed_config(),
         embed_config().models,
-        provider_resolver=lambda _deployment: "openai",
+        provider_resolver=lambda deployment: EmbedProviderRegistry.default().get(
+            deployment.provider
+        ),
         router_factory=lambda **kwargs: kwargs,
     )
 

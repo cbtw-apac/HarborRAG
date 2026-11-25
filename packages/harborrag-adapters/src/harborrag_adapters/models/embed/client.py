@@ -309,6 +309,6 @@ class HarborEmbedClient(
         router = build_litellm_router(
             config,
             config.models,
-            provider_resolver=lambda deployment: registry.get(deployment.provider).litellm_provider,
+            provider_resolver=lambda deployment: registry.get(deployment.provider),
         )
         return LiteLLMEmbeddingRouterInvocation(router)

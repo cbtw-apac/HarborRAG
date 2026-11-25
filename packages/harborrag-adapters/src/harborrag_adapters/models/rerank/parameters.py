@@ -7,6 +7,7 @@ from uuid import uuid4
 from pydantic import ValidationError
 
 from harborrag_adapters.models.runtime.litellm_backend import build_provider_params
+from harborrag_adapters.models.runtime.provider import ProviderMetadata
 from harborrag_adapters.models.runtime.transport import reveal_headers
 from harborrag_core.models.errors import (
     HarborRerankConfigurationError,
@@ -183,7 +184,7 @@ def build_litellm_parameters(
     *,
     timeout: float,
     model_override: str | None = None,
-    litellm_provider: str | None = None,
+    metadata: ProviderMetadata,
 ) -> dict[str, Any]:
     """Translate one provider-neutral rerank request into LiteLLM parameters."""
 
@@ -198,7 +199,7 @@ def build_litellm_parameters(
         )
     parameters = build_provider_params(
         deployment,
-        litellm_provider=litellm_provider,
+        metadata=metadata,
         model=model_override,
     )
     api_base = parameters.get("api_base")

@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 from model_runtime_support import chat_config
 from pydantic import SecretStr
 
-from harborrag_adapters.models.chat.configs import GenerationDefaults, HarborChatModelConfig
+from harborrag_adapters.models.chat.configs import (
+    GenerationDefaults,
+    HarborChatModelConfig,
+    HarborChatProviderConfig,
+)
 from harborrag_adapters.models.chat.parameters import (
     apply_generation_defaults,
     build_chat_request,
@@ -13,7 +19,7 @@ from harborrag_adapters.models.chat.parameters import (
     ensure_request_id,
     prepare_chat_request,
 )
-from harborrag_adapters.models.chat.registry import HarborProvider
+from harborrag_adapters.models.chat.registry import HarborProvider, ProviderRegistry
 from harborrag_core.models.chat import (
     HarborChatMessage,
     HarborChatRequest,
@@ -33,6 +39,13 @@ from harborrag_core.models.errors import (
 from .conftest import deployment
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
+
+
+def _litellm_parameters(
+    deployment: HarborChatProviderConfig, request: HarborChatRequest, **options: Any
+) -> dict[str, Any]:
+    metadata = ProviderRegistry.default().get(deployment.provider)
+    return build_litellm_parameters(deployment, request, metadata=metadata, **options)
 
 
 def test_build_chat_request_exclusivity_and_model_override() -> None:
@@ -125,7 +138,7 @@ def test_litellm_parameter_rendering_merges_headers_and_options() -> None:
         custom_headers={"X-Request": SecretStr("two")},
         extra_params={"frequency_penalty": 0.1},
     )
-    params = build_litellm_parameters(deployment(), request, timeout=5, stream=True)
+    params = _litellm_parameters(deployment(), request, timeout=5, stream=True)
     assert params["model"] == "openai/gpt-test"
     assert params["extra_headers"] == {"X-Deploy": "one", "X-Request": "two"}
     assert params["stream_options"] == {"include_usage": True}
@@ -134,7 +147,7 @@ def test_litellm_parameter_rendering_merges_headers_and_options() -> None:
     assert params["messages"][2]["tool_calls"][0]["function"]["name"] == "lookup"
     assert params["frequency_penalty"] == 0.1
     with pytest.raises(HarborChatInvalidRequestError):
-        build_litellm_parameters(
+        _litellm_parameters(
             deployment(),
             request.model_copy(update={"extra_params": {"model": "bad"}}),
             timeout=1,
@@ -149,8 +162,8 @@ def test_reasoning_opt_out_is_sent_only_when_the_deployment_supports_it() -> Non
     unsupported = deployment(capabilities={"tools": True})
     supported = deployment(capabilities={"tools": True, "reasoning_effort": True})
 
-    assert "reasoning_effort" not in build_litellm_parameters(unsupported, request, timeout=1)
-    assert build_litellm_parameters(supported, request, timeout=1)["reasoning_effort"] == "none"
+    assert "reasoning_effort" not in _litellm_parameters(unsupported, request, timeout=1)
+    assert _litellm_parameters(supported, request, timeout=1)["reasoning_effort"] == "none"
 
 
 def test_azure_parameter_model_uses_deployment_name() -> None:
@@ -166,4 +179,4 @@ def test_azure_parameter_model_uses_deployment_name() -> None:
         logical_model="primary",
         metadata={"request_id": "r"},
     )
-    assert build_litellm_parameters(azure, request, timeout=1)["model"] == "azure/production"
+    assert _litellm_parameters(azure, request, timeout=1)["model"] == "azure/production"

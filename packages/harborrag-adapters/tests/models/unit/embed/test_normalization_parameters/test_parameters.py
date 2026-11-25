@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 from model_runtime_support import embed_config
 from pydantic import SecretStr
 
-from harborrag_adapters.models.embed.configs import HarborEmbedDefaults
+from harborrag_adapters.models.embed.configs import HarborEmbedDefaults, HarborEmbedProviderConfig
 from harborrag_adapters.models.embed.parameters import (
     apply_embed_defaults,
     build_embed_request,
@@ -15,7 +17,7 @@ from harborrag_adapters.models.embed.parameters import (
     normalize_embedding_inputs,
     prepare_embed_request,
 )
-from harborrag_adapters.models.embed.registry import HarborEmbedProvider
+from harborrag_adapters.models.embed.registry import EmbedProviderRegistry, HarborEmbedProvider
 from harborrag_core.models.capabilities import HarborEmbedCapabilities
 from harborrag_core.models.embed import (
     EmbeddingEncodingFormat,
@@ -31,6 +33,13 @@ from harborrag_core.models.errors import (
 from .conftest import deployment
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
+
+
+def _litellm_parameters(
+    deployment: HarborEmbedProviderConfig, request: HarborEmbedRequest, **options: Any
+) -> dict[str, Any]:
+    metadata = EmbedProviderRegistry.default().get(deployment.provider)
+    return build_litellm_parameters(deployment, request, metadata=metadata, **options)
 
 
 def test_embedding_input_normalization_variants_and_errors() -> None:
@@ -94,12 +103,11 @@ def test_embedding_parameters_batch_limits_and_purpose_mapping() -> None:
         batch_size=5,
     )
     cohere = deployment(provider=HarborEmbedProvider.COHERE, model="cohere/embed")
-    params = build_litellm_parameters(
+    params = _litellm_parameters(
         cohere,
         request,
         inputs=litellm_inputs(request),
         timeout=5,
-        litellm_provider="cohere",
     )
     assert params["input_type"] == "search_query"
     assert params["extra_headers"] == {"X-Deploy": "one", "X-Request": "two"}
@@ -113,10 +121,10 @@ def test_embedding_parameters_batch_limits_and_purpose_mapping() -> None:
         (HarborEmbedProvider.OPENAI, None, None),
     ]:
         item = deployment(provider=provider, model=f"{provider.value}/embed")
-        rendered = build_litellm_parameters(item, request, inputs=["a"], timeout=1)
+        rendered = _litellm_parameters(item, request, inputs=["a"], timeout=1)
         assert (rendered.get(key) if key else None) == value
     with pytest.raises(HarborEmbedInvalidRequestError):
-        build_litellm_parameters(
+        _litellm_parameters(
             deployment(),
             request.model_copy(update={"extra_params": {"model": "bad"}}),
             inputs=["a"],

@@ -277,7 +277,7 @@ class ChatStreamExecution:
             timeout=self.config.timeouts.stream_seconds or self.config.timeouts.request_seconds,
             stream=True,
             model_override=override,
-            litellm_provider=descriptor.litellm_provider,
+            metadata=descriptor,
         )
         parameters["caching"] = False
         parameters["metadata"] = litellm_telemetry_metadata(

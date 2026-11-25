@@ -5,6 +5,7 @@ from typing import Any
 import pytest
 
 from harborrag_adapters.models.embed import HarborEmbedClientConfig
+from harborrag_adapters.models.embed.configs import HarborEmbedProviderConfig
 from harborrag_adapters.models.embed.parameters import (
     apply_embed_defaults,
     build_embed_request,
@@ -15,6 +16,7 @@ from harborrag_adapters.models.embed.parameters import (
     normalize_embedding_inputs,
     prepare_embed_request,
 )
+from harborrag_adapters.models.embed.registry import EmbedProviderRegistry
 from harborrag_core.models.embed import (
     EmbeddingEncodingFormat,
     EmbeddingPurpose,
@@ -27,6 +29,13 @@ from harborrag_core.models.errors import (
 )
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
+
+
+def _litellm_parameters(
+    deployment: HarborEmbedProviderConfig, request: HarborEmbedRequest, **options: Any
+) -> dict[str, Any]:
+    metadata = EmbedProviderRegistry.default().get(deployment.provider)
+    return build_litellm_parameters(deployment, request, metadata=metadata, **options)
 
 
 def _config(
@@ -163,7 +172,7 @@ def test_litellm_parameters_merge_headers_identity_and_azure_model() -> None:
         metadata=HarborEmbedMetadata(user_id="metadata-user"),
     )
     inputs = litellm_inputs(request)
-    parameters = build_litellm_parameters(
+    parameters = _litellm_parameters(
         deployment,
         request,
         inputs=inputs,
@@ -176,7 +185,7 @@ def test_litellm_parameters_merge_headers_identity_and_azure_model() -> None:
     assert parameters["user"] == "metadata-user"
     assert parameters["extra_headers"] == {"X-Deployment": "one", "X-Request": "two"}
 
-    override = build_litellm_parameters(
+    override = _litellm_parameters(
         deployment,
         request,
         inputs=inputs,
@@ -187,7 +196,7 @@ def test_litellm_parameters_merge_headers_identity_and_azure_model() -> None:
 
     conflicting = request.model_copy(update={"extra_params": {"model": "unsafe"}})
     with pytest.raises(HarborEmbedInvalidRequestError, match="normalized parameters"):
-        build_litellm_parameters(deployment, conflicting, inputs=inputs, timeout=4)
+        _litellm_parameters(deployment, conflicting, inputs=inputs, timeout=4)
 
 
 @pytest.mark.parametrize(
@@ -206,7 +215,7 @@ def test_provider_purpose_parameter_mapping(
     config = _config(provider)
     deployment = config.models["primary"].deployments[0]
     request = HarborEmbedRequest(inputs=("one",), purpose=purpose)
-    parameters = build_litellm_parameters(deployment, request, inputs=["one"], timeout=1)
+    parameters = _litellm_parameters(deployment, request, inputs=["one"], timeout=1)
     for key, value in expected.items():
         assert parameters[key] == value
     if not expected:

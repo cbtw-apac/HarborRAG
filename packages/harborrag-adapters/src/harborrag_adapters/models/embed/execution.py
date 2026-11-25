@@ -328,7 +328,7 @@ class EmbedExecution(EmbedExecutionContextMixin):
             inputs=inputs,
             timeout=self.config.timeouts.request_seconds,
             model_override=override,
-            litellm_provider=descriptor.litellm_provider,
+            metadata=descriptor,
         )
         cache_params = self.cache.provider_parameters(decision)
         if "preset_cache_key" in cache_params:
