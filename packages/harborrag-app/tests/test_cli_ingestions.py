@@ -43,6 +43,7 @@ pytestmark = pytest.mark.unit
 _STAMP = datetime(2026, 11, 10, tzinfo=UTC)
 _REF = "default/harborrag-workspace"
 _STACK_SOURCE_PATH = "/data/sources"
+_ACTIVE_RUN = "3f6c2a1e-run-active"
 _LINE = re.compile(
     r"^ing_1  (\w+)  discovered=\d+ processed=\d+ skipped=\d+ failed=(\d+)$", re.MULTILINE
 )
@@ -466,6 +467,13 @@ class _StoredConnections:
         assert (tenant_id, source_key) == (self.connection.tenant_id, self.connection.source_key)
         return self.busy
 
+    async def refuse_if_running(self, tenant_id: str, source_key: str) -> None:
+        assert (tenant_id, source_key) == (self.connection.tenant_id, self.connection.source_key)
+        if self.busy:
+            raise HarborAlreadyRunningError(
+                "an ingestion is already running", details={"ingestion_id": _ACTIVE_RUN}
+            )
+
 
 def _inline_service(
     connection: Connection,
@@ -597,7 +605,9 @@ def test_inline_refuses_a_connection_with_an_active_run_like_the_api(
     code, out, err = _run(capsys, "ingestions", "start", _REF, "--inline", "--yes", "-o", "json")
 
     assert (code, out) == (4, "")
-    assert json.loads(err)["error"]["code"] == "already_running"
+    error = json.loads(err)["error"]
+    assert error["code"] == "already_running"
+    assert error["details"] == {"ingestion_id": _ACTIVE_RUN}
     assert built[0].direct_runs == []
 
 

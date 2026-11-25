@@ -481,17 +481,17 @@ class ConnectionService:
             tenant_id=connection.tenant_id,
         )
         runs = await self._runs()
-        await self._refuse_if_running(key.tenant_id, connection.source_key)
+        await self.refuse_if_running(key.tenant_id, connection.source_key)
         lease = f"connection-sync:{key.tenant_id}:{connection.source_key}"
         holder = f"{self._instance_id}:{uuid4().hex}"
         if not await self._control_plane().leases.try_acquire(
             lease, holder, ttl_seconds=SYNC_LEASE_TTL_SECONDS
         ):
-            await self._refuse_if_running(key.tenant_id, connection.source_key)
+            await self.refuse_if_running(key.tenant_id, connection.source_key)
             raise HarborAlreadyRunningError(
                 "an ingestion is starting for this connection", details={"ingestion_id": None}
             )
-        await self._refuse_if_running(key.tenant_id, connection.source_key)
+        await self.refuse_if_running(key.tenant_id, connection.source_key)
         accepted = await self._ingestions.submit(
             IngestionCreateCommand(
                 tenant_id=key.tenant_id,
@@ -610,8 +610,12 @@ class ConnectionService:
             )
         return len(connections)
 
-    async def _refuse_if_running(self, tenant_id: str, source_key: str) -> None:
-        """Raise ``already_running`` naming the connection's active ingestion, if any."""
+    async def refuse_if_running(self, tenant_id: str, source_key: str) -> None:
+        """Refuse a new ingestion of a connection that has a pending, running or paused one.
+
+        Raises:
+            HarborAlreadyRunningError: An ingestion is active; ``details.ingestion_id`` names it.
+        """
         active = await self._active_run(tenant_id, source_key)
         if active is not None:
             raise HarborAlreadyRunningError(

@@ -56,6 +56,16 @@ logger = logging.getLogger("harborrag.runtime.temporal.client")
 
 # TODO: drop once temporalio's WorkflowExecutionStatus knows PAUSED (absent through 1.35.0).
 _NATIVE_EXECUTION_STATUSES = {8: "paused"}
+_PAUSE_SETTLE_SECONDS = 15.0
+"""How long a pause waits for the run to take it. The HTTP action then waits up to 10 s
+for the paused state, so a pause request answers before a 30 s proxy timeout.
+"""
+_PAUSE_POLL_SECONDS = 0.1
+
+
+def _resumed(status: SourceIngestionStatus) -> bool:
+    """Whether the run holds no pause and no cancel, as after a resume took a pause back."""
+    return not status.paused and not status.cancel_requested
 
 
 def _failure_message(label: str, code: str) -> str:
@@ -236,15 +246,17 @@ class IngestionTemporalClient:
     async def pause(self, task_id: str) -> None:
         """Signal a source run to pause and wait for the run to take the pause.
 
-        Returns once the relay applies the pause, or after about 30 s with the pause
-        still pending at the next batch boundary, as during discovery or finalization.
-        The run is not natively paused: Temporal 1.31 never dispatches a workflow task
-        that was scheduled when a native pause landed, so the run would hang.
+        Returns once the relay applies the pause, or once a resume takes it back. After
+        15 s it returns with the pause still pending at the next batch boundary, as during
+        discovery or finalization. The run is not natively paused: Temporal 1.31 never
+        dispatches a workflow task that was scheduled when a native pause landed, so the
+        run would hang.
 
         Raises:
             WorkflowNotRunningError: The run's workflow already closed.
             WorkflowNotFoundError: The run has no workflow.
-            WorkflowOperationError: Temporal could not be reached, or the pause did not settle.
+            WorkflowOperationError: Temporal could not be reached, or the run never showed
+                the pause.
         """
         # TODO: pause natively again on Temporal server >= 1.32 with temporalio >= 1.35.
         await self._signal(task_id, "pause")
@@ -381,10 +393,14 @@ class IngestionTemporalClient:
         The workflow applies a pause at its next batch boundary, or through the
         relay while a batch runs. During discovery or finalization neither happens
         for minutes, but the signal is recorded and the run will honour it, so the
-        request is accepted rather than reported as an outage.
+        request is accepted rather than reported as an outage. A resume that takes the
+        pause back ends the wait as well. The wait is bounded by the clock, not by a
+        number of queries, so slow queries cannot stretch it.
         """
-        status = None
-        for _ in range(300):
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + _PAUSE_SETTLE_SECONDS
+        seen_pause = False
+        while True:
             status = await self.get_status(task_id)
             if status.pause_applied:
                 return
@@ -393,8 +409,14 @@ class IngestionTemporalClient:
                     f"Could not pause ingestion task {task_id!r}: "
                     f"the task already finished ({status.status})"
                 )
-            await asyncio.sleep(0.1)
-        if status is not None and status.paused and not status.cancel_requested:
+            if seen_pause and _resumed(status):
+                logger.info("Ingestion pause taken back by a resume task_id=%s", task_id)
+                return
+            seen_pause = seen_pause or status.paused
+            if loop.time() >= deadline:
+                break
+            await asyncio.sleep(_PAUSE_POLL_SECONDS)
+        if status.paused and not status.cancel_requested:
             logger.info(
                 "Ingestion pause accepted; applies at the next batch boundary task_id=%s",
                 task_id,
