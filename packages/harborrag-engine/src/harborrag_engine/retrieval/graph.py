@@ -30,6 +30,7 @@ from .graph_visibility import (
     apply_graph_permissions,
     graph_access_scope,
     reachable_subgraph,
+    store_truncated,
 )
 
 # Stale and unpublished records are dropped *after* the store has answered, so asking for
@@ -140,7 +141,10 @@ class AuthoritativeGraphSearch:
                 accepted_count=len(selected),
                 stale_count=stale,
                 unpublished_count=unpublished,
-                projection_truncated=candidates.truncated or len(accepted) > query.limit,
+                projection_truncated=(
+                    store_truncated(candidates.truncated, access_scope)
+                    or len(accepted) > query.limit
+                ),
             ),
         )
 
@@ -187,7 +191,10 @@ class AuthoritativeGraphSearch:
                 accepted_count=len(selected),
                 stale_count=stale,
                 unpublished_count=unpublished,
-                projection_truncated=candidates.truncated or len(accepted) > query.max_paths,
+                projection_truncated=(
+                    store_truncated(candidates.truncated, access_scope)
+                    or len(accepted) > query.max_paths
+                ),
             ),
         )
 
@@ -208,7 +215,9 @@ class AuthoritativeGraphSearch:
             context=context,
         )
         return await self._accept_subgraph(
-            candidates,
+            candidates.model_copy(
+                update={"truncated": store_truncated(candidates.truncated, access_scope)}
+            ),
             max_nodes=query.max_nodes,
             selector=query.start_node,
             direction=query.direction,

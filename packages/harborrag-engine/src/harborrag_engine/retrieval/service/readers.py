@@ -27,6 +27,7 @@ from harborrag_core.retrieval import GraphNodeResolutionQuery
 from harborrag_core.security import AccessContext
 from harborrag_core.storage import StorageOperationContext
 from harborrag_engine.retrieval import graph_access_scope
+from harborrag_engine.retrieval.graph_visibility import store_truncated
 
 from .document_catalog import DocumentCatalogReader
 from .document_context import DocumentContextReader
@@ -122,7 +123,8 @@ class ReaderRetrieval:
         return GraphNodeResolveResponse(
             request_id,
             candidates,
-            raw.truncated or len(visible) > request.query.limit,
+            store_truncated(raw.truncated, query.access_scope)
+            or len(visible) > request.query.limit,
         )
 
     async def _authorized_resolution_query(

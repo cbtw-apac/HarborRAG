@@ -3,20 +3,26 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Mapping, Sequence
 from typing import Protocol
 
+from harborrag_core.contracts.errors import HarborConflictError
 from harborrag_core.ingestion import GraphEdgeRecord, GraphNodeRecord, GraphOwnershipScope
 from harborrag_core.retrieval import GraphAccessScope, GraphDirection
+from harborrag_core.retrieval.graph import GraphDocumentAccess
 from harborrag_core.security import AccessContext
 from harborrag_core.storage import StorageOperationContext
 
 from .graph_metadata import selector_matches
 
+logger = logging.getLogger("harborrag.engine.retrieval.graph_visibility")
+
 # ``external_source_entity_node_key``'s domain prefix. The key, not the ``external``
 # attribute, marks a stub here: a shared source entity is stored without attributes,
 # so the flag does not survive a read back from the graph store.
 _EXTERNAL_STUB_KEY_PREFIX = "graph-v2-external-source-entity:"
+_ENUMERATION_BUDGET = 10_000
 
 
 class GraphVisibilityAuthorizer(Protocol):
@@ -59,23 +65,55 @@ async def graph_access_scope(
     authorizer: GraphVisibilityAuthorizer | None,
     context: StorageOperationContext,
 ) -> GraphAccessScope | None:
-    """Resolve canonical allowlists before the graph store selects or limits rows."""
+    """Resolve canonical allowlists before the graph store selects or limits rows.
+
+    The readable documents themselves, while there are few enough to list. Past the
+    enumeration budget the readable source scopes stand in, as on the vector path: a
+    document is readable only inside a readable source scope, so that scope admits
+    everything the principal may read, and ``apply_graph_permissions`` removes the
+    documents of those scopes they may not.
+    """
 
     if authorizer is None:
         return None
     if context.access.corpus_mode == "tenant_shared":
         return GraphAccessScope(tenant_shared=True)
+    tenant_id = str(context.tenant_id)
     document_ids, source_scope_ids = await asyncio.gather(
         authorizer.allowed_document_ids(
-            str(context.tenant_id), access=context.access, limit=10_000
+            tenant_id, access=context.access, limit=_ENUMERATION_BUDGET
         ),
         authorizer.allowed_source_scope_ids(
-            str(context.tenant_id), access=context.access, limit=10_000
+            tenant_id, access=context.access, limit=_ENUMERATION_BUDGET
         ),
+        return_exceptions=True,
     )
-    return GraphAccessScope(
-        document_ids=tuple(sorted(set(document_ids))),
-        source_scope_ids=tuple(sorted(set(source_scope_ids))),
+    if isinstance(source_scope_ids, BaseException):
+        raise source_scope_ids
+    sources = tuple(sorted(set(source_scope_ids)))
+    if isinstance(document_ids, HarborConflictError):
+        logger.info(
+            "Readable documents exceed the enumeration budget; graph pre-filtering by source",
+            extra={"tenant_id": tenant_id, "source_scopes": len(sources)},
+        )
+        return GraphAccessScope(
+            source_scope_ids=sources, document_access=GraphDocumentAccess.BY_SOURCE_SCOPE
+        )
+    if isinstance(document_ids, BaseException):
+        raise document_ids
+    return GraphAccessScope(document_ids=tuple(sorted(set(document_ids))), source_scope_ids=sources)
+
+
+def store_truncated(truncated: bool, access_scope: GraphAccessScope | None) -> bool:
+    """Return the store's truncation bit when only readable documents could have set it.
+
+    Under the source-scope fallback the store selects from every document of a
+    readable source, so its cut can be made by documents the caller may not read.
+    Truncation then comes from the visible results alone, as on the vector path.
+    """
+
+    return truncated and (
+        access_scope is None or access_scope.document_access == GraphDocumentAccess.LISTED
     )
 
 
@@ -185,20 +223,21 @@ async def _tenant_readable(
     ``limit`` on these ports is an enumeration *budget*, not a truncation: a
     reader with more readable resources than the budget gets a
     ``HarborConflictError`` rather than a short list. Asking with ``limit=1``
-    therefore failed every reader holding two grants. Enumerate under the same
-    default budget :func:`graph_access_scope` already spends on this request,
-    so this probe can add no failure the request would not already have had,
-    and mirror its ``tenant_shared`` short-circuit: in that mode the whole
-    tenant is readable by construction and no allowlist is consulted at all.
+    therefore failed every reader holding two grants. Only the readable source
+    scopes are enumerated, under the same budget :func:`graph_access_scope`
+    spends on this request: a document is readable only inside a readable
+    source scope, so a reader of any document holds one, and a reader of more
+    documents than the budget is not refused here. In ``tenant_shared`` mode the
+    whole tenant is readable by construction and no allowlist is consulted.
     """
 
     if context.access.corpus_mode == "tenant_shared":
         return True
-    documents, sources = await asyncio.gather(
-        authorizer.allowed_document_ids(str(context.tenant_id), access=context.access),
-        authorizer.allowed_source_scope_ids(str(context.tenant_id), access=context.access),
+    return bool(
+        await authorizer.allowed_source_scope_ids(
+            str(context.tenant_id), access=context.access, limit=_ENUMERATION_BUDGET
+        )
     )
-    return bool(documents or sources)
 
 
 def _record_authorized(
