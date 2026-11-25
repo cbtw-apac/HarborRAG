@@ -140,13 +140,15 @@ class DelegatedTokenCache:
 
         Each write gets its own exclusively created, owner-only temporary file,
         so concurrent saves never share or truncate one, and a file another
-        user pre-created in the cache directory is never written through.
+        user pre-created in the cache directory is never written through. Each
+        missing directory, ``~/.harborrag`` included, is created with mode 0700.
+        An existing one keeps its mode.
 
         Args:
             refresh_token: Refresh token to store.
             account: Signed-in account name stored with the token, when known.
         """
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+        _make_private_directories(self.path.parent)
         payload = {
             "tenant_id": self.tenant_id,
             "client_id": self.client_id,
@@ -169,6 +171,13 @@ class DelegatedTokenCache:
     def clear(self) -> None:
         """Delete the stored sign-in, e.g. when access is revoked."""
         self.path.unlink(missing_ok=True)
+
+
+def _make_private_directories(directory: Path) -> None:
+    """Create ``directory`` and each missing directory above it with mode 0700."""
+    missing = [path for path in (directory, *directory.parents) if not path.exists()]
+    for path in reversed(missing):
+        path.mkdir(mode=0o700, exist_ok=True)
 
 
 class _ErrorPayload(StrEnum):
