@@ -135,6 +135,21 @@ async def test_concurrency_precedence(shipped_settings: RuntimeSettings) -> None
     assert concurrency(plain) == 8
 
 
+@pytest.mark.asyncio
+async def test_batch_size_precedence(shipped_settings: RuntimeSettings) -> None:
+    plain = await _resolve()
+    overridden = await _resolve(_MutableProvider(_snapshot(1, {"ingestion.batch_size": 100})))
+
+    def batch_size(connection, **submission: object) -> int:  # noqa: ANN001
+        return prepare_configured_source_submission(
+            shipped_settings, _submission(**submission), connection=connection
+        ).batch_size
+
+    assert batch_size(overridden, batch_size=7) == 7
+    assert batch_size(overridden) == 100
+    assert batch_size(plain) == 200
+
+
 def _source(run_settings: RunSettings | None) -> SourceIngestionInput:
     return SourceIngestionInput(
         task_id="task-1",

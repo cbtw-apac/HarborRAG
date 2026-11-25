@@ -12,9 +12,12 @@ from harborrag_core.contracts.errors import HarborValidationError
 
 pytestmark = pytest.mark.unit
 
-SIX_KEYS = (
+NINE_KEYS = (
     "chunking.max_tokens",
+    "ingestion.activity_timeout",
+    "ingestion.batch_size",
     "ingestion.concurrency",
+    "ingestion.max_attempts",
     "models.embedding",
     "parsing.pdf_parser",
     "retrieval.rerank",
@@ -22,8 +25,8 @@ SIX_KEYS = (
 )
 
 
-def test_registry_holds_exactly_the_six_keys() -> None:
-    assert SettingsRegistry.default().keys() == SIX_KEYS
+def test_registry_holds_exactly_the_nine_keys() -> None:
+    assert SettingsRegistry.default().keys() == NINE_KEYS
 
 
 def test_defaults_match_todays_knobs() -> None:
@@ -31,7 +34,7 @@ def test_defaults_match_todays_knobs() -> None:
 
     defaults = [registry.definition(key).default for key in registry.keys()]
 
-    assert defaults == [1200, 8, None, "liteparse", False, 5]
+    assert defaults == [1200, "PT10M", 50, 8, 3, None, "liteparse", False, 5]
 
 
 def test_levels_and_applies() -> None:
@@ -53,7 +56,7 @@ def test_json_schema_groups_hold_every_key_once() -> None:
     ]
     entries = {entry["key"]: entry for group in groups for entry in group["settings"]}
     assert sorted(entry["key"] for group in groups for entry in group["settings"]) == sorted(
-        SIX_KEYS
+        NINE_KEYS
     )
     assert entries["chunking.max_tokens"] == {
         "key": "chunking.max_tokens",

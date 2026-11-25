@@ -117,11 +117,12 @@ class ActivityTimeoutConfig:
 
     discovery_seconds: int = 1_800
     finalization_seconds: int = 900
+    document_seconds: int = 1_800
 
     def __post_init__(self) -> None:
         if any(
             isinstance(value, bool) or not 60 <= value <= _MAX_ACTIVITY_TIMEOUT_SECONDS
-            for value in (self.discovery_seconds, self.finalization_seconds)
+            for value in (self.discovery_seconds, self.finalization_seconds, self.document_seconds)
         ):
             raise RuntimeConfigurationError(
                 "Temporal activity timeouts must be between 60 seconds and 7 days"

@@ -62,12 +62,18 @@ class RunSettings:
         pdf_parser: PDF backend override.
         chunk_max_tokens: Cap on every chunking profile's hard maximum.
         document_concurrency: Concurrent documents override.
+        activity_timeout_seconds: Document activity start-to-close timeout override.
+        max_attempts: Document activity retry count override.
+        batch_size: Documents per batch workflow override.
     """
 
     settings_revision: str
     pdf_parser: str | None = None
     chunk_max_tokens: int | None = None
     document_concurrency: int | None = None
+    activity_timeout_seconds: int | None = None
+    max_attempts: int | None = None
+    batch_size: int | None = None
 
     def to_json(self) -> dict[str, object]:
         """Return the JSON-safe form stored in task requests and plans."""
@@ -76,6 +82,9 @@ class RunSettings:
             "pdf_parser": self.pdf_parser,
             "chunk_max_tokens": self.chunk_max_tokens,
             "document_concurrency": self.document_concurrency,
+            "activity_timeout_seconds": self.activity_timeout_seconds,
+            "max_attempts": self.max_attempts,
+            "batch_size": self.batch_size,
         }
 
     @classmethod
@@ -87,14 +96,28 @@ class RunSettings:
         pdf_parser = value.get("pdf_parser")
         max_tokens = value.get("chunk_max_tokens")
         concurrency = value.get("document_concurrency")
+        activity_timeout_seconds = value.get("activity_timeout_seconds")
+        max_attempts = value.get("max_attempts")
+        batch_size = value.get("batch_size")
         if (
             not isinstance(revision, str)
             or not (pdf_parser is None or isinstance(pdf_parser, str))
             or not (max_tokens is None or isinstance(max_tokens, int))
             or not (concurrency is None or isinstance(concurrency, int))
+            or not (activity_timeout_seconds is None or isinstance(activity_timeout_seconds, int))
+            or not (max_attempts is None or isinstance(max_attempts, int))
+            or not (batch_size is None or isinstance(batch_size, int))
         ):
             return None
-        return cls(revision, pdf_parser, max_tokens, concurrency)
+        return cls(
+            revision,
+            pdf_parser,
+            max_tokens,
+            concurrency,
+            activity_timeout_seconds,
+            max_attempts,
+            batch_size,
+        )
 
 
 @dataclass(frozen=True, slots=True)
