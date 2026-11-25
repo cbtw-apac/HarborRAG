@@ -130,7 +130,11 @@ class JiraIssueAPI:
         return bool((permissions.get(permission) or {}).get("havePermission"))
 
     def get_issue(self, issue_key: str) -> dict[str, Any]:
-        """Fetch one issue with configured fields and expansion settings."""
+        """Fetch one issue with configured fields and expansion settings.
+
+        The issue's embedded comment lists lose their restricted comments, so the
+        stored source payload holds none of their text.
+        """
         issue_key = validate_issue_key(issue_key)
         response = self.client.get_json(
             f"issue/{issue_key}",
@@ -139,6 +143,7 @@ class JiraIssueAPI:
                 "expand": ",".join(self.issue_expand()),
             },
         )
+        _drop_restricted_embedded_comments(response)
         return response
 
     def get_issue_descriptor(self, issue_key: str) -> dict[str, Any]:
@@ -153,8 +158,8 @@ class JiraIssueAPI:
     def issue_comments(self, issue_key: str, issue: dict[str, Any]) -> list[dict[str, Any]]:
         """The comments embedded in an issue response, fetched only when that list is partial.
 
-        The result is what ``fetch_comments`` returns: the same comments, capped
-        at the same ``max_comments``.
+        The result is what ``fetch_comments`` returns: the same unrestricted
+        comments, capped at the same ``max_comments``.
         """
 
         embedded = (issue.get("fields") or {}).get("comment")
@@ -168,12 +173,16 @@ class JiraIssueAPI:
                 and total <= len(values)
             ):
                 comments: list[dict[str, Any]] = []
-                truncate_with_limit(comments, values, limit=self.config.max_comments)
+                truncate_with_limit(comments, _unrestricted(values), limit=self.config.max_comments)
                 return comments
         return self.fetch_comments(issue_key)
 
     def fetch_comments(self, issue_key: str) -> list[dict[str, Any]]:
-        """Fetch comments for one issue, truncated to the configured cap."""
+        """Fetch an issue's unrestricted comments, truncated to the configured cap.
+
+        A comment limited to a role or group is left out until per-comment access
+        rules exist, so ``max_comments`` counts only the comments that are indexed.
+        """
         issue_key = validate_issue_key(issue_key)
         comments: list[dict[str, Any]] = []
         start_at = 0
@@ -191,7 +200,9 @@ class JiraIssueAPI:
                 len(values),
                 total,
             )
-            truncated = truncate_with_limit(comments, values, limit=self.config.max_comments)
+            truncated = truncate_with_limit(
+                comments, _unrestricted(values), limit=self.config.max_comments
+            )
             if truncated:
                 return comments
             start_at += len(values)
@@ -333,6 +344,46 @@ def _is_last_offset_page(
         return next_offset >= total
     served = _page_integer(response.get("maxResults"))
     return page_count < (served if served is not None and served > 0 else requested)
+
+
+def _is_restricted(comment: object) -> bool:
+    """Return whether a comment's ``visibility`` limits it to a role or group."""
+    return isinstance(comment, dict) and comment.get("visibility") is not None
+
+
+def _unrestricted(comments: list[Any]) -> list[Any]:
+    """Keep the comments that every reader of the issue can see."""
+    return [comment for comment in comments if not _is_restricted(comment)]
+
+
+def _drop_restricted_embedded_comments(issue: dict[str, Any]) -> None:
+    """Remove restricted comments from the comment lists an issue response embeds.
+
+    ``renderedFields`` repeats each comment as HTML, possibly without its
+    ``visibility``, so those copies are matched by ID too.
+    """
+    pages = _embedded_comment_pages(issue)
+    restricted_ids = {
+        str(comment.get("id")) for page in pages for comment in page if _is_restricted(comment)
+    }
+    for page in pages:
+        page[:] = [
+            comment
+            for comment in _unrestricted(page)
+            if not (isinstance(comment, dict) and str(comment.get("id")) in restricted_ids)
+        ]
+
+
+def _embedded_comment_pages(issue: dict[str, Any]) -> list[list[Any]]:
+    """Return the ``comment.comments`` lists of an issue's raw and rendered fields."""
+    pages: list[list[Any]] = []
+    for section in ("fields", "renderedFields"):
+        fields = issue.get(section)
+        page = fields.get("comment") if isinstance(fields, dict) else None
+        comments = page.get("comments") if isinstance(page, dict) else None
+        if isinstance(comments, list):
+            pages.append(comments)
+    return pages
 
 
 def _page_integer(value: object) -> int | None:
