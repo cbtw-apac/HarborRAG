@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import hashlib
 import logging
 import os
@@ -47,11 +48,20 @@ _LOCK_SUFFIX = ".harbor-lock"
 logger = logging.getLogger("harborrag.adapters.object_store.filesystem")
 
 
+@functools.cache
+def _warn_relative_root() -> None:
+    """Log, once per process, that a relative root depends on the working directory."""
+    logger.warning(
+        "Filesystem object-store root is relative and resolves against the process "
+        "working directory; set HARBORRAG_OBJECT_STORE_ROOT to an absolute path"
+    )
+
+
 class FilesystemObjectStore(FilesystemAccessMixin, HarborObjectStore):
     """Stores objects beneath a trusted filesystem root with traversal protection.
 
     A relative root resolves against the process working directory when the store is
-    built, and logs a warning.
+    built, and the first such store in a process logs a warning.
     """
 
     def __init__(
@@ -70,10 +80,7 @@ class FilesystemObjectStore(FilesystemAccessMixin, HarborObjectStore):
         if root is None:
             raise ValueError("filesystem object-store root is required")
         if not root.expanduser().is_absolute():
-            logger.warning(
-                "Filesystem object-store root is relative and resolves against the process "
-                "working directory; set HARBORRAG_OBJECT_STORE_ROOT to an absolute path"
-            )
+            _warn_relative_root()
         self._root = root.expanduser().resolve()
         self._instance_name = instance_name
         self._telemetry = RepositoryTelemetry(

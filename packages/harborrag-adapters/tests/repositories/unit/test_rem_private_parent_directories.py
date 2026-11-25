@@ -11,6 +11,9 @@ from pathlib import Path
 import pytest
 
 from harborrag_adapters.repositories.backends.sqlite import prepare_sqlite_database
+from harborrag_adapters.repositories.object_store.filesystem import (
+    repository as filesystem_repository,
+)
 from harborrag_adapters.repositories.object_store.filesystem.repository import (
     FilesystemObjectStore,
 )
@@ -67,10 +70,19 @@ def test_sqlite_creates_missing_parents_owner_only(tmp_path: Path) -> None:
     assert _mode(shared) == 0o755
 
 
-def test_relative_object_store_root_warns_without_naming_it(
+@pytest.fixture
+def fresh_relative_root_warning() -> Iterator[None]:
+    filesystem_repository._warn_relative_root.cache_clear()
+    yield
+    filesystem_repository._warn_relative_root.cache_clear()
+
+
+@pytest.mark.usefixtures("fresh_relative_root_warning")
+def test_relative_object_store_root_warns_once_without_naming_it(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     with caplog.at_level(logging.WARNING):
+        FilesystemObjectStore(root=Path("demo-relative-objects"))
         FilesystemObjectStore(root=Path("demo-relative-objects"))
 
     [record] = [record for record in caplog.records if record.levelno == logging.WARNING]
