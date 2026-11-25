@@ -1,9 +1,11 @@
 """SQLAlchemy models of the control-plane tables.
 
 Every tenant-owned row takes its ``tenant_id`` from the writer, so no
-``tenant_id`` column has a default. IDs are TEXT, payloads are JSON (JSONB on
-Postgres), datetimes are timezone-aware UTC, and constraint names come from
-``NAMING_CONVENTION`` so Alembic autogenerate stays deterministic.
+``tenant_id`` column has a default. IDs are TEXT, payloads are JSON,
+datetimes are timezone-aware UTC, and constraint names come from
+``NAMING_CONVENTION`` so Alembic autogenerate stays deterministic. A payload
+column keeps the type its revision created: ``JSONVariant`` (JSONB on
+Postgres) for those added from revision 0041 on, plain JSON for the older ones.
 
 The sibling ``schemas_*`` modules are imported after ``Base`` and
 ``JSONVariant`` exist, so their models register on ``Base.metadata`` whenever
@@ -81,9 +83,9 @@ class SourceRow(Base):
     source_type: Mapped[str] = mapped_column(sa.Text, nullable=False)
     name: Mapped[str] = mapped_column(sa.Text, nullable=False)
     credentials: Mapped[dict[str, Any]] = mapped_column(JSONVariant, default=dict, nullable=False)
-    config_json: Mapped[dict[str, Any]] = mapped_column(JSONVariant, default=dict, nullable=False)
+    config_json: Mapped[dict[str, Any]] = mapped_column(sa.JSON, default=dict, nullable=False)
     tuning: Mapped[dict[str, Any]] = mapped_column(JSONVariant, default=dict, nullable=False)
-    secret_refs: Mapped[list[str]] = mapped_column(JSONVariant, default=list, nullable=False)
+    secret_refs: Mapped[list[str]] = mapped_column(sa.JSON, default=list, nullable=False)
     schedule: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     status: Mapped[str] = mapped_column(sa.Text, default="active", nullable=False)
     status_detail: Mapped[dict[str, Any] | None] = mapped_column(JSONVariant, nullable=True)
@@ -151,7 +153,7 @@ class JobRow(Base):
         server_default="0",
         nullable=False,
     )
-    payload_json: Mapped[dict[str, Any]] = mapped_column(JSONVariant, default=dict, nullable=False)
+    payload_json: Mapped[dict[str, Any]] = mapped_column(sa.JSON, default=dict, nullable=False)
     visibility_deadline: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     enqueued_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
     started_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
@@ -171,7 +173,7 @@ class JobEventRow(Base):
     seq: Mapped[int] = mapped_column(sa.Integer, primary_key=True)
     name: Mapped[str] = mapped_column(sa.Text, nullable=False)
     trace_id: Mapped[str] = mapped_column(sa.Text, nullable=False)
-    payload_json: Mapped[dict[str, Any]] = mapped_column(JSONVariant, default=dict, nullable=False)
+    payload_json: Mapped[dict[str, Any]] = mapped_column(sa.JSON, default=dict, nullable=False)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
 
 
@@ -222,7 +224,7 @@ class PendingControlPlaneEffectRow(Base):
 
     id: Mapped[str] = mapped_column(sa.Text, primary_key=True)
     kind: Mapped[str] = mapped_column(sa.Text, nullable=False)
-    payload_json: Mapped[dict[str, Any]] = mapped_column(JSONVariant, default=dict, nullable=False)
+    payload_json: Mapped[dict[str, Any]] = mapped_column(sa.JSON, default=dict, nullable=False)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, index=True)
 
 
@@ -252,7 +254,7 @@ class ProviderRow(Base):
     tenant_id: Mapped[str] = mapped_column(sa.String(128), nullable=False, index=True)
     name: Mapped[str] = mapped_column(sa.Text, nullable=False)
     family: Mapped[str] = mapped_column(sa.Text, nullable=False)
-    config_json: Mapped[dict[str, Any]] = mapped_column(JSONVariant, default=dict, nullable=False)
+    config_json: Mapped[dict[str, Any]] = mapped_column(sa.JSON, default=dict, nullable=False)
     secret_ref: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
 
@@ -269,7 +271,7 @@ class RoutingRuleRow(Base):
     id: Mapped[str] = mapped_column(sa.Text, primary_key=True)
     family: Mapped[str] = mapped_column(sa.Text, nullable=False)
     provider_id: Mapped[str] = mapped_column(sa.Text, sa.ForeignKey("providers.id"), nullable=False)
-    rule_json: Mapped[dict[str, Any]] = mapped_column(JSONVariant, default=dict, nullable=False)
+    rule_json: Mapped[dict[str, Any]] = mapped_column(sa.JSON, default=dict, nullable=False)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
 
@@ -281,7 +283,7 @@ class WorkspaceSettingsRow(Base):
 
     id: Mapped[int] = mapped_column(sa.Integer, primary_key=True)
     tenant_id: Mapped[str] = mapped_column(sa.String(128), nullable=False, index=True)
-    data: Mapped[dict[str, Any]] = mapped_column(JSONVariant, default=dict, nullable=False)
+    data: Mapped[dict[str, Any]] = mapped_column(sa.JSON, default=dict, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
 
 
