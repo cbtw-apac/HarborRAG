@@ -23,11 +23,11 @@ from harborrag_core.contracts.reader import (
     SourceListResponse,
 )
 from harborrag_core.ingestion import GraphNodeRecord, GraphOwnershipScope, SourceCatalogQuery
-from harborrag_core.retrieval import GraphNodeResolutionQuery
+from harborrag_core.retrieval import GraphNodeResolutionQuery, GraphNodeSelectorKind
 from harborrag_core.security import AccessContext
 from harborrag_core.storage import StorageOperationContext
 from harborrag_engine.retrieval import graph_access_scope
-from harborrag_engine.retrieval.graph_visibility import store_truncated
+from harborrag_engine.retrieval.graph_visibility import refuse_inexact_selector, store_truncated
 
 from .document_catalog import DocumentCatalogReader
 from .document_context import DocumentContextReader
@@ -37,6 +37,7 @@ from .summary_views import apply_summary_views
 
 _READ_DEADLINE_SECONDS = 10
 _EXTERNAL_STUB_KEY_PREFIX = "graph-v2-external-source-entity:"
+# TODO: keep denied documents from filling this window under the source-scope fallback
 _RESOLUTION_CANDIDATE_LIMIT = 100
 
 
@@ -103,6 +104,8 @@ class ReaderRetrieval:
 
         Raises:
             HarborCapabilityError: Graph retrieval is not configured.
+            HarborAuthorizationUnavailableError: Past the document enumeration budget,
+                the selector is a provider id or a title rather than a node key.
         """
         if self._resources.graph is None:
             raise HarborCapabilityError("graph retrieval is not configured")
@@ -137,6 +140,8 @@ class ReaderRetrieval:
         access_scope = await graph_access_scope(topology, context)
         if access_scope is not None and not access_scope.tenant_visible:
             return None
+        if query.selector_kind != GraphNodeSelectorKind.NODE_KEY:
+            refuse_inexact_selector(access_scope)
         if access_scope is not None and query.source_scope_ids:
             allowed = set(query.source_scope_ids) & set(access_scope.source_scope_ids)
             if not allowed:

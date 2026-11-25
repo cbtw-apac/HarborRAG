@@ -12,10 +12,14 @@ from collections.abc import Iterable, Sequence
 import pytest
 
 from harborrag_core.chunking import RelationType
-from harborrag_core.contracts.errors import HarborConflictError
+from harborrag_core.contracts.errors import (
+    HarborAuthorizationUnavailableError,
+    HarborConflictError,
+)
 from harborrag_core.contracts.reader import GraphNodeResolveRequest
 from harborrag_core.ingestion import (
     ActiveDocumentVersion,
+    DocumentIdentityBuilder,
     GraphEdgeRecord,
     GraphEntityType,
     GraphNodeRecord,
@@ -99,9 +103,27 @@ def _small_reader() -> Authorizer:
     return Authorizer({OPEN})
 
 
+IDENTITY = DocumentIdentityBuilder()
+
+
+def _version_key(document_id: str) -> str:
+    return IDENTITY.document_version_node_key(
+        document_id=document_id, document_version_id="version-1"
+    )
+
+
+def _section_key(document_id: str) -> str:
+    return IDENTITY.node_key(
+        node_kind=KnowledgeNodeKind.STRUCTURE,
+        entity_type=GraphEntityType.SECTION.value,
+        logical_id=f"{document_id}#section",
+        document_version_id="version-1",
+    )
+
+
 def _version_node(document_id: str, source: str) -> GraphNodeRecord:
     return GraphNodeRecord(
-        node_key=f"version-{document_id}",
+        node_key=_version_key(document_id),
         node_kind=KnowledgeNodeKind.DOCUMENT_VERSION,
         entity_type=GraphEntityType.DOCUMENT_VERSION,
         logical_id=document_id,
@@ -117,7 +139,7 @@ def _version_node(document_id: str, source: str) -> GraphNodeRecord:
 def _section_node(document_id: str, source: str) -> GraphNodeRecord:
     return _version_node(document_id, source).model_copy(
         update={
-            "node_key": f"section-{document_id}",
+            "node_key": _section_key(document_id),
             "node_kind": KnowledgeNodeKind.STRUCTURE,
             "entity_type": GraphEntityType.SECTION,
             "logical_id": f"{document_id}#section",
@@ -129,8 +151,8 @@ def _contains(document_id: str, source: str) -> GraphEdgeRecord:
     return GraphEdgeRecord(
         relation_id=f"contains-{document_id}",
         relation_type=RelationType.CONTAINS,
-        source_node_key=f"version-{document_id}",
-        target_node_key=f"section-{document_id}",
+        source_node_key=_version_key(document_id),
+        target_node_key=_section_key(document_id),
         ownership_scope=GraphOwnershipScope.DOCUMENT_VERSION,
         owner_id=TENANT,
         source_scope_id=source,
@@ -146,8 +168,8 @@ def _links_to(source: str, target: str) -> GraphEdgeRecord:
         update={
             "relation_id": f"link-{source}-{target}",
             "relation_type": RelationType.LINKS_TO,
-            "source_node_key": f"version-{source}",
-            "target_node_key": f"version-{target}",
+            "source_node_key": _version_key(source),
+            "target_node_key": _version_key(target),
         }
     )
 
@@ -279,7 +301,7 @@ async def test_triplets_of_a_large_reader_never_include_a_denied_document() -> N
 
 async def test_paths_of_a_large_reader_never_cross_a_denied_document() -> None:
     result = await _search(Store(), _large_reader()).paths(
-        GraphPathQuery(start_node=f"version-{OPEN}", end_node=f"version-{DENIED}"),
+        GraphPathQuery(start_node=_version_key(OPEN), end_node=_version_key(DENIED)),
         context=CONTEXT,
     )
 
@@ -289,7 +311,7 @@ async def test_paths_of_a_large_reader_never_cross_a_denied_document() -> None:
 
 async def test_subgraph_of_a_large_reader_never_includes_a_denied_document() -> None:
     result = await _search(Store(), _large_reader()).subgraph(
-        GraphSubgraphQuery(start_node=f"version-{OPEN}", max_nodes=20), context=CONTEXT
+        GraphSubgraphQuery(start_node=_version_key(OPEN), max_nodes=20), context=CONTEXT
     )
 
     assert _documents(result.graph.nodes) == {OPEN}
@@ -299,14 +321,13 @@ async def test_subgraph_of_a_large_reader_never_includes_a_denied_document() -> 
     ]
 
 
-async def test_node_resolution_of_a_large_reader_never_returns_a_denied_document() -> None:
-    store = Store()
-    reader = ReaderRetrieval(
+def _reader(store: Store, authorizer: Authorizer) -> ReaderRetrieval:
+    return ReaderRetrieval(
         ReaderResources(
             vectors=None,  # type: ignore[arg-type]
             validator=None,  # type: ignore[arg-type]
             permissions=None,  # type: ignore[arg-type]
-            topology=_large_reader(),  # type: ignore[arg-type]
+            topology=authorizer,  # type: ignore[arg-type]
             snapshots=None,
             chunks=None,  # type: ignore[arg-type]
             sources=None,
@@ -314,13 +335,16 @@ async def test_node_resolution_of_a_large_reader_never_returns_a_denied_document
         )
     )
 
-    response = await reader.resolve_graph_nodes(
-        GraphNodeResolveRequest(
-            ACCESS,
-            GraphNodeResolutionQuery(
-                selector_kind=GraphNodeSelectorKind.EXACT_TITLE, value="Release guide"
-            ),
-        )
+
+def _resolution(kind: GraphNodeSelectorKind, value: str) -> GraphNodeResolveRequest:
+    return GraphNodeResolveRequest(
+        ACCESS, GraphNodeResolutionQuery(selector_kind=kind, value=value)
+    )
+
+
+async def test_node_resolution_of_a_large_reader_never_returns_a_denied_document() -> None:
+    response = await _reader(Store(), _large_reader()).resolve_graph_nodes(
+        _resolution(GraphNodeSelectorKind.NODE_KEY, _version_key(OPEN))
     )
 
     assert _documents(response.candidates) == {OPEN}
@@ -367,3 +391,76 @@ async def test_tenant_nodes_stay_readable_for_a_large_reader() -> None:
     )
 
     assert states == {"tenant-node": "active"}
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        GraphTripletQuery(subject="Release guide"),
+        GraphTripletQuery(subject=_version_key(OPEN), object=f"{OPEN}#section"),
+        GraphPathQuery(start_node=_version_key(OPEN), end_node=DENIED),
+        GraphSubgraphQuery(start_node="Release guide"),
+    ],
+    ids=["triplet-title", "triplet-logical-id", "path-logical-id", "subgraph-title"],
+)
+async def test_a_large_reader_cannot_select_by_title_or_logical_id(
+    query: GraphTripletQuery | GraphPathQuery | GraphSubgraphQuery,
+) -> None:
+    store = Store()
+    search = _search(store, _large_reader())
+    read = {
+        GraphTripletQuery: search.triplets,
+        GraphPathQuery: search.paths,
+        GraphSubgraphQuery: search.subgraph,
+    }[type(query)]
+
+    with pytest.raises(HarborAuthorizationUnavailableError, match="^AUTHORIZATION_UNAVAILABLE$"):
+        await read(query, context=CONTEXT)  # type: ignore[arg-type]
+
+    assert store.scopes == []
+
+
+@pytest.mark.parametrize(
+    "kind", [GraphNodeSelectorKind.EXACT_TITLE, GraphNodeSelectorKind.PROVIDER_ID]
+)
+async def test_a_large_reader_cannot_resolve_nodes_by_title_or_provider_id(
+    kind: GraphNodeSelectorKind,
+) -> None:
+    store = Store()
+
+    with pytest.raises(HarborAuthorizationUnavailableError, match="^AUTHORIZATION_UNAVAILABLE$"):
+        await _reader(store, _large_reader()).resolve_graph_nodes(_resolution(kind, OPEN))
+
+    assert store.scopes == []
+
+
+async def test_a_large_reader_still_selects_by_node_key() -> None:
+    store = Store()
+
+    result = await _search(store, _large_reader()).triplets(
+        GraphTripletQuery(subject=_version_key(OPEN), object=_section_key(OPEN)),
+        context=CONTEXT,
+    )
+
+    assert len(store.scopes) == 1
+    assert _documents(item.subject for item in result.triplets) == {OPEN}
+
+
+async def test_a_small_reader_still_selects_by_title_and_logical_id() -> None:
+    store = Store()
+    search = _search(store, _small_reader())
+
+    triplets = await search.triplets(GraphTripletQuery(subject="Release guide"), context=CONTEXT)
+    subgraph = await search.subgraph(GraphSubgraphQuery(start_node=OPEN), context=CONTEXT)
+    nodes = await _reader(store, _small_reader()).resolve_graph_nodes(
+        _resolution(GraphNodeSelectorKind.EXACT_TITLE, "Release guide")
+    )
+
+    assert [scope.document_access for scope in store.scopes if scope is not None] == [
+        "listed",
+        "listed",
+        "listed",
+    ]
+    assert _documents(item.subject for item in triplets.triplets) == {OPEN}
+    assert _documents(subgraph.graph.nodes) == {OPEN}
+    assert _documents(nodes.candidates) == {OPEN}

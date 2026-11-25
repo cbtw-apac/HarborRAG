@@ -30,6 +30,7 @@ from .graph_visibility import (
     apply_graph_permissions,
     graph_access_scope,
     reachable_subgraph,
+    require_node_key_selectors,
     store_truncated,
 )
 
@@ -92,7 +93,15 @@ class AuthoritativeGraphSearch:
         *,
         context: StorageOperationContext,
     ) -> AuthoritativeTripletResult:
+        """Return active triplets the caller may read that match the query.
+
+        Raises:
+            HarborAuthorizationUnavailableError: Past the document enumeration budget,
+                a selector is not a node key.
+        """
+
         access_scope = await graph_access_scope(self._authorizer, context)
+        require_node_key_selectors(access_scope, (query.subject, query.object))
         candidate_limit = _candidate_limit(query.limit)
         candidates = await self._repository.search_triplets(
             query.model_copy(update={"limit": candidate_limit, "access_scope": access_scope}),
@@ -154,7 +163,16 @@ class AuthoritativeGraphSearch:
         *,
         context: StorageOperationContext,
     ) -> AuthoritativePathResult:
+        """Return active paths the caller may read between the two selectors.
+
+        Raises:
+            HarborAuthorizationUnavailableError: Past the document enumeration budget,
+                a selector is not a node key.
+        """
+
         access_scope = await graph_access_scope(self._authorizer, context)
+        require_node_key_selectors(access_scope, (query.start_node, query.end_node))
+        # TODO: fetch longer readable paths when the shortest ones cross a denied document
         candidate_limit = _candidate_limit(query.max_paths)
         candidates = await self._repository.find_paths(
             query.model_copy(update={"max_paths": candidate_limit, "access_scope": access_scope}),
@@ -204,7 +222,15 @@ class AuthoritativeGraphSearch:
         *,
         context: StorageOperationContext,
     ) -> AuthoritativeSubgraphResult:
+        """Return the active neighborhood the caller may read around the selector.
+
+        Raises:
+            HarborAuthorizationUnavailableError: Past the document enumeration budget,
+                a selector is not a node key.
+        """
+
         access_scope = await graph_access_scope(self._authorizer, context)
+        require_node_key_selectors(access_scope, (query.start_node,))
         candidates = await self._repository.expand_subgraph(
             query.model_copy(
                 update={

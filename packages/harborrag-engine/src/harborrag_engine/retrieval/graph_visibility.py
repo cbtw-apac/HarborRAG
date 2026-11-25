@@ -4,10 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Mapping, Sequence
+import re
+from collections.abc import Iterable, Mapping, Sequence
 from typing import Protocol
 
-from harborrag_core.contracts.errors import HarborConflictError
+from harborrag_core.contracts.errors import (
+    HarborAuthorizationUnavailableError,
+    HarborConflictError,
+)
 from harborrag_core.ingestion import GraphEdgeRecord, GraphNodeRecord, GraphOwnershipScope
 from harborrag_core.retrieval import GraphAccessScope, GraphDirection
 from harborrag_core.retrieval.graph import GraphDocumentAccess
@@ -23,6 +27,7 @@ logger = logging.getLogger("harborrag.engine.retrieval.graph_visibility")
 # so the flag does not survive a read back from the graph store.
 _EXTERNAL_STUB_KEY_PREFIX = "graph-v2-external-source-entity:"
 _ENUMERATION_BUDGET = 10_000
+_NODE_KEY = re.compile(r"(?:graph-v2-[a-z]+(?:-[a-z]+)*|chunk):[0-9a-f]{64}")
 
 
 class GraphVisibilityAuthorizer(Protocol):
@@ -115,6 +120,45 @@ def store_truncated(truncated: bool, access_scope: GraphAccessScope | None) -> b
     return truncated and (
         access_scope is None or access_scope.document_access == GraphDocumentAccess.LISTED
     )
+
+
+def refuse_inexact_selector(access_scope: GraphAccessScope | None) -> None:
+    """Refuse a selector the store would resolve by logical id or title past the budget.
+
+    Under the source-scope fallback the store resolves a selector among every document
+    of a readable source. A logical-id or title match in a document the caller may not
+    read can then become the anchor, stop resolution at its tier or fill the candidate
+    cap, so whether anything comes back would depend on that document. The vector path
+    refuses a ``fields.*`` filter in the same state for the same reason.
+
+    Raises:
+        HarborAuthorizationUnavailableError: ``access_scope`` is the source-scope fallback.
+    """
+
+    if (
+        access_scope is not None
+        and access_scope.document_access == GraphDocumentAccess.BY_SOURCE_SCOPE
+    ):
+        logger.info("Graph selector refused: readable documents exceed the enumeration budget")
+        raise HarborAuthorizationUnavailableError("AUTHORIZATION_UNAVAILABLE")
+
+
+def require_node_key_selectors(
+    access_scope: GraphAccessScope | None, selectors: Iterable[str | None]
+) -> None:
+    """Refuse, past the budget, any selector that is not a node key or chunk id.
+
+    The store tries a selector as a node key first, then as a logical id and a title.
+    Only the node-key form names one node, so only it keeps resolving under the
+    source-scope fallback.
+
+    Raises:
+        HarborAuthorizationUnavailableError: A selector is not a node key under the
+            source-scope fallback.
+    """
+
+    if any(selector is not None and not _NODE_KEY.fullmatch(selector) for selector in selectors):
+        refuse_inexact_selector(access_scope)
 
 
 async def apply_graph_permissions(
