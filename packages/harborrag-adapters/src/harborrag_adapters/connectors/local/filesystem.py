@@ -281,12 +281,6 @@ class LocalFileSystem:
             is_symlink=is_symlink,
         )
 
-    def record_for_path(self, path: str | Path) -> SourceRecord:
-        """Resolve a caller-provided path and return its source record."""
-        is_symlink = Path(path).is_symlink()
-        resolved = self.resolve_candidate(path)
-        return self.source_record(resolved, is_symlink=is_symlink)
-
     def checksum(self, path: Path) -> str | None:
         """Return the configured change-detection signature for a file.
 

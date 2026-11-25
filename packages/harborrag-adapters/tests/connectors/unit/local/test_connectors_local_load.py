@@ -135,26 +135,17 @@ def test_load_raises_fetch_error_on_read_failure(tmp_path: Path, monkeypatch):
 def test_load_rejects_parent_directory_replaced_by_symlink(tmp_path: Path) -> None:
     source_dir = tmp_path / "source"
     original_dir = source_dir / "docs"
-    path = write_file(original_dir / "guide.md", b"safe")
+    write_file(original_dir / "guide.md", b"safe")
     outside_dir = tmp_path / "outside"
     write_file(outside_dir / "guide.md", b"secret")
     connector = LocalFileConnector(config(source_dir))
-    record = connector._files.record_for_path(path)
+    record = next(iter(connector.discover()))
 
     original_dir.rename(source_dir / "docs-original")
     original_dir.symlink_to(outside_dir, target_is_directory=True)
 
     with pytest.raises(FetchError, match="Could not securely open local file"):
         connector.load(record)
-
-
-def test_load_by_paths_loads_each_file(tmp_path: Path):
-    path = write_file(tmp_path / "a.md", b"hello")
-    connector = LocalFileConnector(config(tmp_path))
-
-    documents = list(connector.load_by_paths([path]))
-
-    assert [d.content for d in documents] == [b"hello"]
 
 
 def test_moving_source_root_preserves_public_and_document_identity(tmp_path: Path) -> None:

@@ -323,20 +323,3 @@ class GitHubConnector(BaseConnector):
                 f"GitHub source record path_digest={path_digest(path)} does not match the tree "
                 "of its commit"
             )
-
-    def load_by_paths(self, paths: Sequence[str]) -> Iterator[RawDocument]:
-        """Load files for callers that already know their repository paths.
-
-        Every path is checked against the configured ``root_path`` before the
-        first request. A path that is not a file, or a symlink to another file,
-        raises DocumentProcessingError.
-
-        Args:
-            paths: Repository-relative file paths.
-
-        Yields:
-            RawDocument: One raw document per path, in the given order.
-        """
-        self._require_inside_root(paths)
-        for path in paths:
-            yield self.load(self._github.record_for_path(path))

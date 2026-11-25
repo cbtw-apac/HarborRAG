@@ -42,11 +42,6 @@ OWNER_ROLES: frozenset[str] = frozenset({"owner"})
 READER_ROLES: frozenset[str] = frozenset({"reader", "owner"})
 
 
-async def authenticated_owner(request: Request, token_verifier: TokenVerifier) -> str:
-    """Return the authenticated owner's principal id, or raise Unauthorized."""
-    return await authenticated_principal(request, token_verifier, roles=OWNER_ROLES)
-
-
 async def authenticated_principal(
     request: Request, token_verifier: TokenVerifier, *, roles: frozenset[str]
 ) -> str:

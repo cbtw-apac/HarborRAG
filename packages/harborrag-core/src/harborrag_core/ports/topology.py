@@ -274,19 +274,3 @@ class TopologyDispatchRepositoryPort(
     Protocol,
 ):
     """The focused authority required to discover dispatchable work."""
-
-
-class TopologyRepositoryPort(
-    TopologyDerivationRepositoryPort,
-    TopologyIndexingRepositoryPort,
-    TopologyPermissionRepositoryPort,
-    TopologyBudgetRepositoryPort,
-    TopologyAuditRepositoryPort,
-    TopologyResolutionRepositoryPort,
-    TopologyPolicyRepositoryPort,
-    TopologyJobRepositoryPort,
-    TopologyBuildRepositoryPort,
-    TopologyObservationRepositoryPort,
-    Protocol,
-):
-    """Compatibility aggregate for composition roots requiring the full authority."""

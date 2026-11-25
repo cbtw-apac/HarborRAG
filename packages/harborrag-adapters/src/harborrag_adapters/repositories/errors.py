@@ -87,12 +87,6 @@ class HarborStorageConnectionError(HarborStorageError, HarborUnavailableError):
     pass
 
 
-class HarborStorageAuthenticationError(HarborStorageError):
-    """Raised when a storage operation fails because of authentication."""
-
-    pass
-
-
 class HarborStorageAuthorizationError(HarborStorageError):
     """Raised when a storage operation fails because of authorization."""
 
@@ -135,32 +129,8 @@ class HarborStorageValidationError(HarborStorageError):
     pass
 
 
-class HarborStorageTransactionError(HarborStorageError):
-    """Raised when a storage operation fails because of transaction."""
-
-    pass
-
-
-class HarborStorageMigrationError(HarborStorageError):
-    """Raised when a storage operation fails because of migration."""
-
-    pass
-
-
 class HarborStorageCapabilityError(HarborStorageError):
     """Raised when a storage operation fails because of capability."""
-
-    pass
-
-
-class HarborStorageSerializationError(HarborStorageError):
-    """Raised when a storage operation fails because of serialization."""
-
-    pass
-
-
-class HarborStorageIntegrityError(HarborStorageError):
-    """Raised when a storage operation fails because of integrity."""
 
     pass
 

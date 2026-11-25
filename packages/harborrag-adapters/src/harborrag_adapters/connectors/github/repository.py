@@ -264,24 +264,6 @@ class GitHubRepositoryAPI:
             commit=commit,
         )
 
-    def record_for_path(self, path: str) -> SourceRecord:
-        """Resolve one repository path at the run's ref and return its source record.
-
-        A path that is not a file, or a symlink to another file, raises
-        DocumentProcessingError.
-
-        Args:
-            path: Repository-relative file path.
-
-        Returns:
-            The source record, tied to the resolved commit.
-        """
-        repository = self.resolve_repository()
-        commit = self.resolve_commit(repository)
-        ref = self.resolved_ref or str(commit.get("sha") or "")
-        item = self.content_file_item(path, ref=ref)
-        return self.source_record(item, ref=ref, commit=commit)
-
     def resolve_repository(self) -> dict[str, Any]:
         """Fetch and cache repository metadata needed for default branch lookup.
 

@@ -1,5 +1,3 @@
-from urllib.parse import urlparse, urlunparse
-
 from harborrag_core.ingestion import (
     SourceAuthenticationError,
     SourceAuthorizationError,
@@ -9,20 +7,6 @@ from harborrag_core.ingestion import (
 )
 
 _RETRYABLE_CLIENT_STATUS = frozenset({408, 429})
-
-
-def _redact_url(url: str) -> str:
-    """Strip userinfo, query, and fragment before a URL reaches an error message.
-
-    Kept local (not imported from ``connectors.policies.http``) because that
-    module's package imports back from this one, which would create a
-    circular import.
-    """
-    parsed = urlparse(url)
-    netloc = parsed.hostname or ""
-    if parsed.port:
-        netloc = f"{netloc}:{parsed.port}"
-    return urlunparse((parsed.scheme, netloc, parsed.path, "", "", ""))
 
 
 class ConnectorError(Exception):
@@ -141,15 +125,3 @@ class NotRegularFileError(DocumentProcessingError, UnsupportedDocumentError):
     Reading it again gets the same answer, so it is an unsupported document that is
     never retried.
     """
-
-
-class HTTPRequestError(ConnectorError):
-    """Raised when there is an error with HTTP requests."""
-
-    def __init__(self, url: str, status_code: int | None = None, message: str | None = None):
-        """Capture request context while preserving a standard exception message."""
-        self.url = url
-        self.status_code = status_code
-        self.message = message
-        safe_url = _redact_url(url)
-        super().__init__(f"HTTP request failed for {safe_url}: {message or 'Unknown error'}")

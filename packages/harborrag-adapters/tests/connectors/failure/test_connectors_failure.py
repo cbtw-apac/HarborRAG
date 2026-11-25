@@ -31,7 +31,6 @@ def _no_sleep(monkeypatch):
         "harborrag_adapters.connectors.github.client",
         "harborrag_adapters.connectors.atlassian.client",
         "harborrag_adapters.connectors.sharepoint.client",
-        "harborrag_adapters.connectors.sharepoint.connector",
     ):
         monkeypatch.setattr(f"{module}.time.sleep", lambda *_a, **_k: None)
 

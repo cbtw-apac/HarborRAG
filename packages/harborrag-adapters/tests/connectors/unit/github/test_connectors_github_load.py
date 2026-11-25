@@ -276,63 +276,6 @@ def test_load_record_outside_configured_root_raises_before_any_request() -> None
     assert client.calls == []
 
 
-def test_load_by_paths_paths_inside_root_load_each_file() -> None:
-    client = FakeGitHubClient()
-    add_repo_and_commit(client)
-    client.add(
-        "repos/acme/harbor-rag/contents/README.md",
-        {"type": "file", "path": "README.md", "sha": "sha-readme", "size": 7},
-    )
-    _add_root_tree(client, tree_item("README.md", "sha-readme"))
-    client.add("repos/acme/harbor-rag/git/blobs/sha-readme", _readme_blob())
-    connector = GitHubConnector(config(), client=client)
-
-    documents = list(connector.load_by_paths(["README.md"]))
-
-    assert [document.content for document in documents] == [b"# Hello"]
-
-
-def test_load_by_paths_symlink_to_other_file_raises_before_fetching_blob() -> None:
-    """GitHub answers a symlink with its target, whose path differs from the request."""
-    client = FakeGitHubClient()
-    add_repo_and_commit(client)
-    client.add(
-        "repos/acme/harbor-rag/contents/docs/link.md",
-        {"type": "file", "path": "src/notes.md", "sha": "sha-notes", "size": 7},
-    )
-    _add_root_tree(
-        client, tree_item("docs/link.md", "sha-link"), tree_item("src/notes.md", "sha-notes")
-    )
-    client.add("repos/acme/harbor-rag/git/blobs/sha-notes", _blob("sha-notes", b"# Notes"))
-    connector = GitHubConnector(config(), client=client)
-
-    with pytest.raises(DocumentProcessingError, match="symlink") as raised:
-        list(connector.load_by_paths(["docs/link.md"]))
-
-    assert "src/notes.md" not in str(raised.value)
-    assert not _blob_requested(client)
-
-
-def test_load_by_paths_path_outside_configured_root_raises_before_any_request() -> None:
-    client = FakeGitHubClient()
-    connector = GitHubConnector(config(root_path="docs"), client=client)
-
-    with pytest.raises(ValueError, match="inside the configured root path"):
-        list(connector.load_by_paths(["docs/guide.md", "src/app.py"]))
-
-    assert client.calls == []
-
-
-def test_load_by_paths_parent_segment_raises_before_any_request() -> None:
-    client = FakeGitHubClient()
-    connector = GitHubConnector(config(), client=client)
-
-    with pytest.raises(ValueError, match=r"must not contain '\.\.' segments"):
-        list(connector.load_by_paths(["../../other-repo/contents/x"]))
-
-    assert client.calls == []
-
-
 def test_load_record_with_blob_sha_from_outside_root_raises_before_fetching_blob() -> None:
     """A forged record pairs an in-root path with an out-of-root blob of its commit."""
     client = FakeGitHubClient()

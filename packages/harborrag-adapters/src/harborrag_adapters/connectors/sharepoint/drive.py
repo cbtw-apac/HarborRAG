@@ -684,28 +684,6 @@ class SharePointDriveAPI:
                 url=item.get("webUrl"),
             )
 
-    def record_for_item_id(self, item_id: str) -> SourceRecord:
-        """Resolve a drive item ID inside the configured root and build its source record.
-
-        The ``ValueError`` for an unsafe ``item_id`` or an item outside
-        ``root_path``, and Graph request errors, pass through.
-
-        Args:
-            item_id: Drive item ID from the caller.
-
-        Returns:
-            The item's source record in the configured drive.
-        """
-        site = self.resolve_site()
-        drive = self.resolve_drive(site)
-        item = self.get_item(str(drive["id"]), item_id)
-        self.require_inside_root(item)
-        return build_source_record(
-            item,
-            site_id=str(site["id"]),
-            drive_id=str(drive["id"]),
-        )
-
 
 def _page_items(response: dict[str, Any], *, operation: str) -> list[dict[str, Any]]:
     """Validate a Graph collection page before exposing provider-controlled data.

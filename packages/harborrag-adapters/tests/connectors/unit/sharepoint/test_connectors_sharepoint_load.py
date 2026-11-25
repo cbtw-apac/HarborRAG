@@ -6,8 +6,6 @@ import pytest
 from sharepoint_test_helpers import (
     SITE_URL,
     FakeGraphClient,
-    add_site_and_default_drive,
-    config,
     file_item,
     folder_item,
 )
@@ -169,76 +167,3 @@ def test_load_opaque_graph_item_id_downloads_its_content() -> None:
 
     assert document.content == b"docx-bytes"
     assert client.byte_calls == [f"drives/drive1/items/{item_id}/content"]
-
-
-def test_load_by_ids_valid_ids_loads_each_item() -> None:
-    """The item is fetched once to build its record and again to confirm it is still a file."""
-    client = FakeGraphClient()
-    add_site_and_default_drive(client)
-    client.add(
-        "drives/drive1/items/file1",
-        file_item("file1", "A.docx"),
-        file_item("file1", "A.docx"),
-    )
-    client.downloads["drives/drive1/items/file1/content"] = b"bytes-a"
-    connector = SharePointConnector(config(), client=client)
-
-    documents = list(connector.load_by_ids(["file1"]))
-
-    assert [d.content for d in documents] == [b"bytes-a"]
-
-
-@pytest.mark.parametrize("item_id", ["../../../sites/site2/drive/root", "folder1/..", "a?b"])
-def test_load_by_ids_unsafe_item_id_raises_before_item_request(item_id: str) -> None:
-    client = FakeGraphClient()
-    add_site_and_default_drive(client)
-    connector = SharePointConnector(config(), client=client)
-
-    with pytest.raises(ValueError, match="drive item ID"):
-        list(connector.load_by_ids([item_id]))
-    assert not any("/items/" in endpoint for endpoint, _ in client.calls)
-    assert client.byte_calls == []
-
-
-def test_load_by_ids_item_inside_root_path_loads_it() -> None:
-    client = FakeGraphClient()
-    add_site_and_default_drive(client)
-    client.add(
-        "drives/drive1/items/file1",
-        file_item("file1", "A.docx"),
-        file_item("file1", "A.docx"),
-    )
-    client.downloads["drives/drive1/items/file1/content"] = b"bytes-a"
-    connector = SharePointConnector(config(root_path="Docs"), client=client)
-
-    documents = list(connector.load_by_ids(["file1"]))
-
-    assert [d.content for d in documents] == [b"bytes-a"]
-
-
-def test_load_by_ids_item_outside_root_path_raises_before_download() -> None:
-    item = file_item("file1", "A.docx")
-    item["parentReference"]["path"] = "/drive/root:/Secrets"
-    client = FakeGraphClient()
-    add_site_and_default_drive(client)
-    client.add("drives/drive1/items/file1", item)
-    client.downloads["drives/drive1/items/file1/content"] = b"bytes-a"
-    connector = SharePointConnector(config(root_path="Docs"), client=client)
-
-    with pytest.raises(ValueError, match="item must stay inside the configured root path"):
-        list(connector.load_by_ids(["file1"]))
-    assert client.byte_calls == []
-
-
-def test_load_by_ids_without_root_path_loads_item_from_any_folder() -> None:
-    item = file_item("file1", "A.docx")
-    item["parentReference"]["path"] = "/drive/root:/Secrets"
-    client = FakeGraphClient()
-    add_site_and_default_drive(client)
-    client.add("drives/drive1/items/file1", item, item)
-    client.downloads["drives/drive1/items/file1/content"] = b"bytes-a"
-    connector = SharePointConnector(config(), client=client)
-
-    documents = list(connector.load_by_ids(["file1"]))
-
-    assert [d.content for d in documents] == [b"bytes-a"]

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterator
-from pathlib import Path
 
 from harborrag_adapters.connectors.base import BaseConnector
 from harborrag_adapters.connectors.exceptions import (
@@ -125,8 +124,3 @@ class LocalFileConnector(BaseConnector):
     def close(self) -> None:
         """Release the root descriptor held by the filesystem boundary."""
         self._files.close()
-
-    def load_by_paths(self, paths: list[str | Path]) -> Iterator[RawDocument]:
-        """Load files for callers that already have file paths."""
-        for path in paths:
-            yield self.load(self._files.record_for_path(path))
