@@ -16,6 +16,7 @@ dependencies = [
     "python-dotenv>=1,<2",
     "PyYAML>=6.0,<7",
     "rich>=14,<16",
+    "sqlalchemy>=2,<3",
     "typer>=0.24,<0.25",
 ]
 
