@@ -35,13 +35,16 @@ def _rerank_catalog(provider: str, api_key: str) -> HarborRerankClientConfig:
     )
 
 
-@pytest.mark.parametrize("provider", ["litellm_proxy", "vllm", "infinity"])
+@pytest.mark.parametrize(
+    "provider",
+    ["litellm_proxy", "vllm", "infinity", "cohere", "jina_ai", "voyage", "watsonx", "custom"],
+)
 @pytest.mark.parametrize("blank", ["", "  ", "\r\n"])
-def test_rerank_provider_that_needs_no_key_accepts_a_blank_one(provider: str, blank: str) -> None:
-    validate_rerank_configuration(_rerank_catalog(provider, blank))
-
-
-@pytest.mark.parametrize("provider", ["cohere", "jina_ai", "voyage", "watsonx", "custom"])
-def test_rerank_provider_that_needs_or_may_borrow_a_key_refuses_a_blank_one(provider: str) -> None:
+def test_rerank_provider_refuses_a_blank_api_key(provider: str, blank: str) -> None:
     with pytest.raises(HarborRerankConfigurationError, match="empty api_key"):
-        validate_rerank_configuration(_rerank_catalog(provider, ""))
+        validate_rerank_configuration(_rerank_catalog(provider, blank))
+
+
+@pytest.mark.parametrize("provider", ["litellm_proxy", "vllm", "infinity"])
+def test_gateway_rerank_provider_accepts_a_set_api_key(provider: str) -> None:
+    validate_rerank_configuration(_rerank_catalog(provider, "gateway-key"))

@@ -48,14 +48,15 @@ has its own model name and key. All of them call one endpoint: OpenAI's,
   `search_document` for chunks. The catalog expects 1536-dimension vectors, which
   OpenAI's `text-embedding-3-small` and Cohere's embed v4 write. The embedding space
   is named after `HARBORRAG_EMBED_MODEL`.
-- **Reranking** is off until `HARBORRAG_RERANKER_MODEL` names a model. Chat retrieval
-  then uses it when `retrieval.rerank` is on; see
-  [Runtime settings](runtime-settings.md#rerank-chat-retrieval).
+- **Reranking** is off until `HARBORRAG_RERANKER_MODEL` names a model, and then needs
+  `HARBORRAG_RERANKER_API_KEY`. Chat retrieval uses it when `retrieval.rerank` is on;
+  see [Runtime settings](runtime-settings.md#rerank-chat-retrieval).
 
 The catalog reads four required variables, `HARBORRAG_CHAT_MODEL`,
 `HARBORRAG_CHAT_API_KEY`, `HARBORRAG_EMBED_MODEL` and `HARBORRAG_EMBED_API_KEY`, and
 four optional ones, `HARBORRAG_URL`, `HARBORRAG_EMBED_PROVIDER`,
-`HARBORRAG_RERANKER_MODEL` and `HARBORRAG_RERANKER_API_KEY`.
+`HARBORRAG_RERANKER_MODEL` and `HARBORRAG_RERANKER_API_KEY`. The reranker key is
+required once the reranker model is set.
 [Model endpoint environment](config-file-reference.md#model-endpoint-environment)
 describes each one. In a repository checkout they go in `env/.env.models`, created
 from `env-example/.env.models.example`. References expand eagerly, so a missing
@@ -113,13 +114,18 @@ HARBORRAG_RERANKER_MODEL=<the gateway's rerank model name>
 HARBORRAG_RERANKER_API_KEY=<gateway key>
 ```
 
-Set the key whenever the gateway needs one. The shipped catalog's `litellm_proxy`
-provider needs no key, so the services start without it. A gateway that requires a key
-then refuses each rerank call, and chat fails while `retrieval.rerank` is on. A catalog
-of your own whose rerank provider always needs a key, such as `cohere`, is refused
-instead, with an error that names the empty variable. The three keys may be the same
-gateway key. Restart the API, the worker and the MCP server after you change
-`env/.env.models`.
+The key is required, even for a gateway that accepts rerank calls without one. The
+shipped catalog reranks through LiteLLM's Cohere route, which always sends a key: given
+a blank one, it would send an ambient `COHERE_API_KEY`, `CO_API_KEY` or
+`LITELLM_PROXY_API_KEY` to the gateway instead. With the model set and the key blank,
+retrieval refuses to connect with
+`HARBORRAG_RERANKER_API_KEY is empty, and the rerank model needs it`. The MCP server
+then stops at startup, and the API fails each search and chat request. The three keys
+may be the same gateway key. Restart the API, the worker and the MCP server after you
+change `env/.env.models`.
+
+Rerank calls go to `/v1/rerank` under `HARBORRAG_URL`. A URL that already ends in
+`/v1`, such as the default `https://api.openai.com/v1`, does not get a second one.
 
 ### Optional memory model
 
@@ -244,18 +250,22 @@ send a credential where it does not belong:
   top-level key, so a misspelled section fails instead of turning its family off. The
   `profiles:` section of earlier releases is refused the same way:
   `model configuration has unknown top-level key(s): profiles`.
-- **Padding and line breaks.** `api_key`, `model`, `api_base` and `deployment_name`
-  lose surrounding whitespace, such as the trailing carriage return of an env file with
-  Windows line endings. A line break inside one is refused, and the error names the
-  field. A model name that is blank after trimming fails when the catalog loads.
+- **Padding and line breaks.** `api_key`, `model`, `api_base`, `deployment_name` and
+  an embedding model's `embedding_space` lose surrounding whitespace, such as the
+  trailing carriage return of an env file with Windows line endings. Such a file
+  therefore names the same embedding space as one with Unix line endings. A line break
+  inside one of these values is refused, and the error names the field. A model name
+  or embedding space that is blank after trimming fails when the catalog loads.
 - **Blank keys.** A deployment whose `api_key` is empty or only whitespace is refused
   when its client is built, with
   `openai_compatible deployment 'openai-compatible-chat' has an empty api_key; set the variable it reads`.
-  Otherwise LiteLLM would send an ambient key, such as `OPENAI_API_KEY`, to the
-  configured endpoint. Only a rerank provider that needs no key and reads no ambient
-  credentials may leave it empty, such as `litellm_proxy`, `vllm` or `infinity`. The
-  `litellm_proxy` chat backend's own key, `chat.backend.proxy.api_key`, is trimmed the
-  same way and must not be empty either; it fails when the catalog loads.
+  Otherwise LiteLLM would send an ambient key, such as `OPENAI_API_KEY` or
+  `COHERE_API_KEY`, to the configured endpoint. Every chat, embedding and rerank
+  provider refuses it, `litellm_proxy`, `vllm` and `infinity` included. A rerank
+  model's key is also checked when retrieval connects, and that error names the empty
+  variable, such as `HARBORRAG_RERANKER_API_KEY`. The `litellm_proxy` chat backend's
+  own key, `chat.backend.proxy.api_key`, is trimmed the same way and must not be empty
+  either. It fails when the catalog loads.
 - **Credential headers.** A header whose name contains `key`, `token`, `auth`,
   `secret`, `signature` or `cookie`, in any case, counts as a credential: its value is
   masked in printed and rendered configuration. A request's own headers with such a

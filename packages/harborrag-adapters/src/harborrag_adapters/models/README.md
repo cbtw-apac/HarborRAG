@@ -232,12 +232,16 @@ deployment must set (`required_fields`) and which credentials it accepts. For ex
 `aws_access_key_id` and `aws_secret_access_key`; `openai_compatible` and several
 self-hosted providers need `api_base`; and `custom` needs `custom_llm_provider`.
 
-A deployment's `api_key`, `model`, `api_base` and `deployment_name` lose surrounding
-whitespace, such as the carriage return a CRLF env file leaves, and a line break inside
-one is refused. Building a client refuses a deployment whose `api_key` is empty, because
-LiteLLM would otherwise send an ambient key such as `OPENAI_API_KEY` to the configured
-endpoint. Only a rerank provider that needs no key and reads no ambient credentials,
-`litellm_proxy`, `vllm` or `infinity`, may leave it empty.
+A deployment's `api_key`, `model`, `api_base` and `deployment_name`, and an embedding
+model's `embedding_space`, lose surrounding whitespace, such as the carriage return a
+CRLF env file leaves, and a line break inside one is refused. Building a client refuses
+a deployment whose `api_key` is empty, for every provider, because LiteLLM would
+otherwise send an ambient key such as `OPENAI_API_KEY` or `COHERE_API_KEY` to the
+configured endpoint.
+
+LiteLLM's Cohere rerank route, which serves `cohere` and `litellm_proxy`, appends a
+version and `/rerank` to `api_base`. `rerank/parameters.py` drops one trailing `/v1`
+first, so a base such as `https://api.openai.com/v1` posts to `/v1/rerank`.
 
 A header whose name contains `key`, `token`, `auth`, `secret`, `signature` or `cookie`
 counts as a credential. Its value is masked wherever a configuration or request is

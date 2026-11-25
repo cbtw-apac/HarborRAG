@@ -16,7 +16,7 @@ from harborrag_adapters.models.runtime.model_config import (
     validate_logical_model_references,
     validate_unique_deployments,
 )
-from harborrag_adapters.models.runtime.provider import ProviderDeploymentConfig, ProviderMetadata
+from harborrag_adapters.models.runtime.provider import ProviderDeploymentConfig
 from harborrag_core.models.capabilities import HarborRerankCapabilities
 
 from .registry import HarborRerankProvider
@@ -46,19 +46,6 @@ class HarborRerankProviderConfig(ProviderDeploymentConfig):
     provider: HarborRerankProvider
     max_documents: int | None = Field(default=None, gt=0)
     capabilities: HarborRerankCapabilities = Field(default_factory=HarborRerankCapabilities)
-
-    def _refuses_empty_api_key(self, metadata: ProviderMetadata) -> bool:
-        """Refuse an empty ``api_key`` unless the provider needs no key and reads no ambient one.
-
-        A keyless endpoint, such as a LiteLLM proxy, vLLM or Infinity, may leave it empty.
-        A custom provider, or one that may read ambient credentials, may not.
-        """
-
-        return (
-            metadata.requires_api_key
-            or metadata.supports_ambient_credentials
-            or metadata.litellm_provider is None
-        )
 
 
 class HarborRerankDefaults(BaseModel):

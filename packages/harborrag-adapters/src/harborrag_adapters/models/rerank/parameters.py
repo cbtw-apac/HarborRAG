@@ -41,6 +41,7 @@ _RESERVED_PARAMETERS = frozenset(
         "top_n",
     }
 )
+_VERSION_APPENDING_PROVIDERS = frozenset({"cohere", "litellm_proxy"})
 
 
 def normalize_rerank_documents(
@@ -200,6 +201,9 @@ def build_litellm_parameters(
         litellm_provider=litellm_provider,
         model=model_override,
     )
+    api_base = parameters.get("api_base")
+    if api_base and parameters.get("custom_llm_provider") in _VERSION_APPENDING_PROVIDERS:
+        parameters["api_base"] = _unversioned_base(api_base)
     deployment_headers = parameters.pop("extra_headers", {})
     request_headers = reveal_headers(request.custom_headers)
     optional: dict[str, Any] = {
@@ -219,3 +223,8 @@ def build_litellm_parameters(
     if headers:
         parameters["extra_headers"] = headers
     return parameters
+
+
+def _unversioned_base(api_base: str) -> str:
+    """Drop one trailing ``/v1``, since LiteLLM's Cohere route appends a version and ``/rerank``."""
+    return api_base.rstrip("/").removesuffix("/v1")
