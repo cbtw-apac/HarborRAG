@@ -55,7 +55,7 @@ _VALUE_TAKING_GLOBAL_OPTIONS = frozenset({"--project"})
 # `ingest` names only print their replacement.
 _PROJECT_OPTIONAL_COMMANDS = frozenset({"doctor", "source", "ingest"})
 _NO_PROJECT_MESSAGE = (
-    "harborrag: no project found. Run it inside a HarborRAG repository checkout, or pass "
+    "no project found. Run it inside a HarborRAG repository checkout, or pass "
     "--project DIR for a directory containing harborrag.yaml."
 )
 
@@ -220,7 +220,7 @@ def main(argv: list[str] | None = None) -> int:
                 activate_legacy_checkout() if project is None and _needs_catalogs(args) else None
             )
         except ProjectError as exc:
-            _report_project_error(exc, args)
+            _report_project_failure(str(exc), args)
             return 1
         # Never configure a run from a directory the user cannot see they are in.
         if project is not None:
@@ -232,7 +232,7 @@ def main(argv: list[str] | None = None) -> int:
         elif _requires_project(args):
             # Fail here with guidance instead of letting a catalog loader explain a missing
             # file in Docker-image terms to someone who just ran `pip install harborrag`.
-            print(_NO_PROJECT_MESSAGE, file=sys.stderr)
+            _report_project_failure(_NO_PROJECT_MESSAGE, args)
             return 1
     _load_environment(args)
     _configure_cli_logging(os.environ.get(LEVEL_ENV_VAR, _DEFAULT_CLI_LOG_LEVEL))
@@ -248,17 +248,17 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
-def _report_project_error(error: ProjectError, args: list[str]) -> None:
-    """Print why the project cannot be used: plain text in table mode, else the error envelope.
+def _report_project_failure(message: str, args: list[str]) -> None:
+    """Print why there is no usable project: plain text in table mode, else the error envelope.
 
     The envelope carries ``500 internal_error``, the status of exit code 1, as a failed local
     setup does.
     """
     output = requested_output(args, os.environ, stdout_is_tty=sys.stdout.isatty())
     if output is OutputFormat.TABLE:
-        print(f"harborrag: {error}", file=sys.stderr)
+        print(f"harborrag: {message}", file=sys.stderr)
         return
-    print_error(ErrorBody(500, "internal_error", str(error)), output=output, trace_id=uuid4().hex)
+    print_error(ErrorBody(500, "internal_error", message), output=output, trace_id=uuid4().hex)
 
 
 def _announce(notice: str | None) -> None:

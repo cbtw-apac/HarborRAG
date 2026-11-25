@@ -42,7 +42,7 @@ def test_a_project_error_under_json_output_is_the_error_envelope(
 def test_a_project_error_under_yaml_output_is_the_error_envelope(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    assert cli.main(["--output=YAML", "me"]) == 1
+    assert cli.main(["me", "--output=YAML"]) == 1
 
     error = yaml.safe_load(capsys.readouterr().err)["error"]
     assert error["code"] == "internal_error"
@@ -60,6 +60,50 @@ def test_a_project_error_in_a_terminal_without_a_format_stays_plain_text(
     err = capsys.readouterr().err
     assert err.startswith("harborrag: ")
     assert "could not be read" in err
+
+
+@pytest.fixture
+def outside_any_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("HARBORRAG_PROJECT", raising=False)
+    monkeypatch.delenv(OUTPUT_ENV, raising=False)
+    return tmp_path
+
+
+@pytest.mark.usefixtures("outside_any_project")
+def test_no_project_under_json_output_is_the_error_envelope(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert cli.main(["connections", "list", "-o", "json"]) == 1
+
+    error = json.loads(capsys.readouterr().err)["error"]
+    assert error["code"] == "internal_error"
+    assert error["message"].startswith("no project found.")
+    assert "--project DIR" in error["message"]
+
+
+@pytest.mark.usefixtures("outside_any_project")
+def test_no_project_under_yaml_output_is_the_error_envelope(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert cli.main(["connections", "list", "--output=yaml"]) == 1
+
+    error = yaml.safe_load(capsys.readouterr().err)["error"]
+    assert error["message"].startswith("no project found.")
+
+
+@pytest.mark.usefixtures("outside_any_project")
+def test_no_project_in_a_terminal_without_a_format_keeps_the_documented_line(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
+
+    assert cli.main(["connections", "list"]) == 1
+
+    assert capsys.readouterr().err == (
+        "harborrag: no project found. Run it inside a HarborRAG repository checkout, or pass "
+        "--project DIR for a directory containing harborrag.yaml.\n"
+    )
 
 
 @pytest.mark.parametrize(
