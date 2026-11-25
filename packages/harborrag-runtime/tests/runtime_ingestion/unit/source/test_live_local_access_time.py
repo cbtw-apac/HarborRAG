@@ -96,10 +96,10 @@ async def test_an_access_time_only_change_is_unchanged_and_not_fetched(
 
 
 @pytest.mark.asyncio
-async def test_a_descriptor_stored_with_an_access_time_is_refetched_once_without_a_new_version(
+async def test_a_descriptor_stored_with_an_access_time_is_unchanged_and_not_fetched(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The upgrade path: descriptors stored before carry ``accessed_at``."""
+    """A descriptor stored before this change, with ``accessed_at``, compares as unchanged."""
     root, notes = _source(tmp_path)
     control = build_control_plane(tmp_path)
     resources = build_release_resources(control)
@@ -136,4 +136,5 @@ async def test_a_descriptor_stored_with_an_access_time_is_refetched_once_without
     assert active_before is not None
     assert active_after is not None
     assert active_after.document_version_id == active_before.document_version_id
-    assert connector.loads == 2
+    assert connector.loads == 1
+    assert resources.parser.calls == 1
