@@ -111,6 +111,7 @@ class SQLAlchemyDBClient(AsyncLifecycle):
             return
         kwargs: dict[str, Any] = {
             "echo": self._echo,
+            "hide_parameters": True,
             "pool_pre_ping": True,
             "pool_recycle": self._pool_recycle_seconds,
         }

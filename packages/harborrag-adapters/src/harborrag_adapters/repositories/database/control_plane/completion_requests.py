@@ -86,6 +86,9 @@ class SqlCompletionRequestStore:
     async def _purge_expired(self, tenant_id: str) -> None:
         """Delete up to ``_PURGE_BATCH`` of the tenant's requests past key retention.
 
+        The batch's keys are locked and read once, then deleted by value in the
+        same transaction. A bounding subquery inside the DELETE would be re-run
+        per row by a Postgres nested-loop plan and delete far more than one batch.
         The rows are the ones ``_reclaim_expired`` would start over, so a live
         ``in_progress`` claim is never deleted. Rows another purge holds are skipped.
         A failure is logged and never fails the claim that triggered it.
@@ -107,9 +110,11 @@ class SqlCompletionRequestStore:
         )
         try:
             async with self.sessions.begin() as session:
-                await session.execute(
-                    sa.delete(CompletionRequestRow).where(*expired, owner_key.in_(batch))
-                )
+                keys = (await session.execute(batch)).tuples().all()
+                if keys:
+                    await session.execute(
+                        sa.delete(CompletionRequestRow).where(*expired, owner_key.in_(keys))
+                    )
         except SQLAlchemyError as exc:
             logger.warning(
                 "Expired completion requests were not purged for tenant=%s error=%s",

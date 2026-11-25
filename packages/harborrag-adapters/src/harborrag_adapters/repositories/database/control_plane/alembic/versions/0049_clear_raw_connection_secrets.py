@@ -235,13 +235,17 @@ def upgrade() -> None:
         )
         rewritten += 1
         logger.warning(
-            "Cleared raw connection secrets connection_pk=%s tenant_id=%s fields=%s",
+            "Clearing raw connection secrets connection_pk=%s tenant_id=%s fields=%s",
             row["id"],
             row["tenant_id"],
             ",".join(sorted(removed)),
         )
     if rewritten:
-        logger.warning("Cleared raw connection secrets connections=%d", rewritten)
+        logger.warning(
+            "Clearing raw connection secrets connections=%d; the change takes effect when the "
+            "migration commits",
+            rewritten,
+        )
 
 
 def downgrade() -> None:
