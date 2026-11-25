@@ -199,6 +199,11 @@ class SourceIngestionService(SourceDocumentOperations):
         )
         logger.info("Source ingestion cancelled task_id=%s", task_id)
 
+    async def is_cancelled(self, task_id: str) -> bool:
+        """Whether the run is recorded as cancelled, as a Temporal cancel records it."""
+        task = await self._control.tasks.get(task_id)
+        return task is not None and task.status is IngestionTaskState.CANCELLED
+
     async def pause(self, task_id: str) -> None:
         """Pause a running ingestion task; a missing or paused task is left as is."""
         task = await self._control.tasks.get(task_id)

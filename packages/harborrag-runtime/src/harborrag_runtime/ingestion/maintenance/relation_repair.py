@@ -274,7 +274,9 @@ class GraphRelationRepairService:
         """Repair every target; with ``failed``, record a failing one there and go on.
 
         Failures are caught per target rather than with ``gather(return_exceptions=True)``,
-        which would also swallow a cancelled activity's ``CancelledError``.
+        which would also swallow a cancelled activity's ``CancelledError``. Without
+        ``failed``, the first failure cancels the other repairs and is raised as itself,
+        so a retried finalization never waits behind the failed attempt's repairs.
         """
         slots = asyncio.Semaphore(self._max_concurrency)
 
@@ -300,7 +302,14 @@ class GraphRelationRepairService:
                     failed.append(target.document_id)
                     return (0, 0, 0)
 
-        return tuple(await asyncio.gather(*(repair(target) for target in targets)))
+        try:
+            async with asyncio.TaskGroup() as group:
+                tasks = [group.create_task(repair(target)) for target in targets]
+        except ExceptionGroup as errors:
+            first_error = errors.exceptions[0]
+        else:
+            return tuple(task.result() for task in tasks)
+        raise first_error
 
     @staticmethod
     def _result(results: Sequence[tuple[int, int, int]]) -> RelationRepairResult:

@@ -11,6 +11,8 @@ from temporalio.exceptions import ApplicationError
 from harborrag_core.contracts.errors import HarborConflictError, HarborValidationError
 from harborrag_core.ingestion import DocumentIngestionOutcome
 from harborrag_core.ingestion.run_contracts import SourceSubmission
+from harborrag_engine.ingestion.release.stage_models import RawCaptureStageResult
+from harborrag_engine.ingestion.source.models import PlannedDocumentRelease
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.config.temporal import TemporalRuntimeConfig
 from harborrag_runtime.execution.gateway import prepare_configured_source_submission
@@ -135,28 +137,38 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
         self,
         request: DocumentIngestionInput,
     ) -> RawCaptureResult:
-        """Fetch the document from its connector and capture the raw bytes."""
+        """Fetch the document from its connector and capture the raw bytes.
+
+        The heartbeat starts before the plan lookup, so a stalled store fails with its own
+        timeout error instead of a heartbeat timeout.
+        """
         with self._observability.boundary("FetchAndCaptureRaw"):
-            planned = await self._documents.get(request)
-            connector = await self._runtime.connector(
-                tenant_id=request.tenant_id,
-                task_id=request.task_id,
-                configuration_fingerprint=require_fingerprint(
-                    planned.request.configuration_fingerprint
-                ),
-            )
-            result = await heartbeat_while(
-                self._runtime.stages.preparation.fetch_and_capture(
-                    planned.request,
-                    connector,
-                ),
-                detail="fetch-and-capture",
+            planned, result = await heartbeat_while(
+                self._fetch_and_capture(request), detail="fetch-and-capture"
             )
             self._observability.record_capture(
                 result,
                 planned.request.source_identity.connector_type.value,
             )
             return to_raw_capture_result(request, result)
+
+    async def _fetch_and_capture(
+        self, request: DocumentIngestionInput
+    ) -> tuple[PlannedDocumentRelease, RawCaptureStageResult]:
+        """Resolve the planned release, build its connector, then fetch and capture it."""
+        planned = await self._documents.get(request)
+        connector = await self._runtime.connector(
+            tenant_id=request.tenant_id,
+            task_id=request.task_id,
+            configuration_fingerprint=require_fingerprint(
+                planned.request.configuration_fingerprint
+            ),
+        )
+        result = await self._runtime.stages.preparation.fetch_and_capture(
+            planned.request,
+            connector,
+        )
+        return planned, result
 
     @activity.defn(name="harborrag.parse_and_normalize")
     async def parse_and_normalize(

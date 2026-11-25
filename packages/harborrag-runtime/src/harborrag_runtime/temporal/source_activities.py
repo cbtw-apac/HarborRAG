@@ -11,10 +11,12 @@ from temporalio.api.workflowservice.v1 import (
     UnpauseWorkflowExecutionRequest,
 )
 from temporalio.client import Client
+from temporalio.exceptions import ApplicationError, ApplicationErrorCategory
 from temporalio.service import RPCError, RPCStatusCode
 
 from harborrag_adapters.connectors.base import BaseConnector
 from harborrag_adapters.connectors.harbor_connector import HarborConnector
+from harborrag_core.contracts.errors import HarborConflictError
 from harborrag_core.storage import StorageOperationContext
 from harborrag_engine.ingestion.source.models import (
     RelationRepairProgress,
@@ -118,116 +120,138 @@ class SourceActivitiesMixin:
 
         The plan is its page index, written last: paged discovery already persisted every page, and
         an unpaged one is paged here. Nothing writes, or holds, the whole plan at once.
+
+        A Temporal cancel closes the run's scan and cancels the run within a second, but this
+        attempt hears of it only at its next heartbeat. A walk of a cancelled run that meets its
+        closed scan first stops without logging a failure, because nothing can use its result.
+
+        Raises:
+            ApplicationError: Benign and non-retryable when the run was cancelled under the walk.
         """
         with self._observability.boundary("DiscoverSourceItems"):
-            logger.info(
-                "Source discovery started task_id=%s tenant=%s connector=%s",
-                source.task_id,
-                source.tenant_id,
-                source.connector_name,
-            )
-            request = to_source_request(source)
-            context = StorageOperationContext.system(source.tenant_id)
-            scan_id = source_scan_id(source.task_id)
-            replay = await self._runtime.source_plans.find(
-                task_id=source.task_id,
-                scan_id=scan_id,
-                context=context,
-            )
-            if replay is not None:
-                replayed = await self._runtime.source_plans.documents(replay, context=context)
-                await self._runtime.sources.complete_discovery(scan_id)
-                await self._runtime.sources.record_discovery_planned(
-                    source.task_id,
-                    replayed.document_count,
-                )
-                self._observability.record_discovery(
-                    source.connector_type,
-                    replayed.document_count,
-                    replayed=True,
-                )
-                logger.info(
-                    "Source discovery plan replayed task_id=%s scan_id=%s documents=%d",
-                    source.task_id,
-                    scan_id,
-                    replayed.document_count,
-                )
-                return SourceDiscoveryResult(
-                    scan_id=scan_id,
-                    plan_reference=to_workflow_artifact(replay),
-                    document_count=replayed.document_count,
-                    skipped_by_reason=await self._runtime.sources.discovery_skip_counts(
-                        source.task_id
-                    ),
-                )
-            connector = await self._runtime.connector(
-                tenant_id=source.tenant_id,
-                task_id=source.task_id,
-                configuration_fingerprint=source.configuration_fingerprint,
-            )
-            health = self._runtime.connection_health
             try:
-                if bool(getattr(getattr(connector, "capabilities", None), "pagination", False)):
-                    discovery = await self._discover_checkpointed_pages(
-                        source,
-                        request=request,
-                        connector=connector,
-                        context=context,
-                        scan_id=scan_id,
-                    )
-                else:
-                    discovery = await heartbeat_while(
-                        self._runtime.sources.prepare_discovery(
-                            request,
-                            connector,
-                        ),
-                        detail="discover-legacy-source",
-                    )
-            except Exception as error:
-                await health.record_failure(
-                    tenant_id=source.tenant_id, source_key=source.connection_id, error=error
+                return await self._discover_source_items(source)
+            except HarborConflictError:
+                if not await self._runtime.sources.is_cancelled(source.task_id):
+                    raise
+                logger.info(
+                    "Source discovery stopped; the run was cancelled task_id=%s", source.task_id
                 )
-                raise
-            await health.record_success(tenant_id=source.tenant_id, source_key=source.connection_id)
-            if discovery.page_counts:
-                index = SourcePlanIndex.from_page_counts(discovery.page_counts)
-                reference = await self._runtime.source_plans.put_index(
-                    task_id=source.task_id,
-                    scan_id=discovery.scan_id,
-                    index=index,
-                    context=context,
-                )
-                document_count = index.document_count
-            else:
-                reference = await self._runtime.source_plans.put_pages_and_index(
-                    task_id=source.task_id,
-                    scan_id=discovery.scan_id,
-                    planned=discovery.planned,
-                    context=context,
-                )
-                document_count = len(discovery.planned)
-            await self._runtime.sources.complete_discovery(discovery.scan_id)
+        raise ApplicationError(
+            "source discovery stopped because the run was cancelled",
+            type="source_discovery_cancelled",
+            non_retryable=True,
+            category=ApplicationErrorCategory.BENIGN,
+        )
+
+    async def _discover_source_items(self, source: SourceIngestionInput) -> SourceDiscoveryResult:
+        """Replay the stored plan, or walk the source and store a new one."""
+        logger.info(
+            "Source discovery started task_id=%s tenant=%s connector=%s",
+            source.task_id,
+            source.tenant_id,
+            source.connector_name,
+        )
+        request = to_source_request(source)
+        context = StorageOperationContext.system(source.tenant_id)
+        scan_id = source_scan_id(source.task_id)
+        replay = await self._runtime.source_plans.find(
+            task_id=source.task_id,
+            scan_id=scan_id,
+            context=context,
+        )
+        if replay is not None:
+            replayed = await self._runtime.source_plans.documents(replay, context=context)
+            await self._runtime.sources.complete_discovery(scan_id)
             await self._runtime.sources.record_discovery_planned(
                 source.task_id,
-                document_count,
+                replayed.document_count,
             )
             self._observability.record_discovery(
                 source.connector_type,
-                document_count,
-                replayed=False,
+                replayed.document_count,
+                replayed=True,
             )
             logger.info(
-                "Source discovery completed task_id=%s scan_id=%s documents=%d",
+                "Source discovery plan replayed task_id=%s scan_id=%s documents=%d",
                 source.task_id,
-                discovery.scan_id,
-                document_count,
+                scan_id,
+                replayed.document_count,
             )
             return SourceDiscoveryResult(
-                scan_id=discovery.scan_id,
-                plan_reference=to_workflow_artifact(reference),
-                document_count=document_count,
+                scan_id=scan_id,
+                plan_reference=to_workflow_artifact(replay),
+                document_count=replayed.document_count,
                 skipped_by_reason=await self._runtime.sources.discovery_skip_counts(source.task_id),
             )
+        connector = await self._runtime.connector(
+            tenant_id=source.tenant_id,
+            task_id=source.task_id,
+            configuration_fingerprint=source.configuration_fingerprint,
+        )
+        health = self._runtime.connection_health
+        try:
+            if bool(getattr(getattr(connector, "capabilities", None), "pagination", False)):
+                discovery = await self._discover_checkpointed_pages(
+                    source,
+                    request=request,
+                    connector=connector,
+                    context=context,
+                    scan_id=scan_id,
+                )
+            else:
+                discovery = await heartbeat_while(
+                    self._runtime.sources.prepare_discovery(
+                        request,
+                        connector,
+                    ),
+                    detail="discover-legacy-source",
+                )
+        except Exception as error:
+            await health.record_failure(
+                tenant_id=source.tenant_id, source_key=source.connection_id, error=error
+            )
+            raise
+        await health.record_success(tenant_id=source.tenant_id, source_key=source.connection_id)
+        if discovery.page_counts:
+            index = SourcePlanIndex.from_page_counts(discovery.page_counts)
+            reference = await self._runtime.source_plans.put_index(
+                task_id=source.task_id,
+                scan_id=discovery.scan_id,
+                index=index,
+                context=context,
+            )
+            document_count = index.document_count
+        else:
+            reference = await self._runtime.source_plans.put_pages_and_index(
+                task_id=source.task_id,
+                scan_id=discovery.scan_id,
+                planned=discovery.planned,
+                context=context,
+            )
+            document_count = len(discovery.planned)
+        await self._runtime.sources.complete_discovery(discovery.scan_id)
+        await self._runtime.sources.record_discovery_planned(
+            source.task_id,
+            document_count,
+        )
+        self._observability.record_discovery(
+            source.connector_type,
+            document_count,
+            replayed=False,
+        )
+        logger.info(
+            "Source discovery completed task_id=%s scan_id=%s documents=%d",
+            source.task_id,
+            discovery.scan_id,
+            document_count,
+        )
+        return SourceDiscoveryResult(
+            scan_id=discovery.scan_id,
+            plan_reference=to_workflow_artifact(reference),
+            document_count=document_count,
+            skipped_by_reason=await self._runtime.sources.discovery_skip_counts(source.task_id),
+        )
 
     async def _discover_checkpointed_pages(
         self,

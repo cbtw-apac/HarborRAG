@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 from collections.abc import Iterator, Sequence
 from dataclasses import replace
-from itertools import islice
 from time import perf_counter
 
 from harborrag_adapters.connectors.base import BaseConnector
@@ -161,31 +161,40 @@ class SourceDiscoveryPlanner:
         *,
         scan_id: str,
     ) -> tuple[PlannedDocumentRelease, ...]:
+        """Walk the connector's roots in a worker thread, a bounded batch at a time.
+
+        Cancelling the walk cannot interrupt the thread, so the walk sets ``stop`` as it
+        exits and the thread stops reading the source after the root in hand.
+        """
         bind_connector_run(connector, request.task_id)
         roots = iter(connector.discover(request.query))
+        stop = threading.Event()
         planned: list[PlannedDocumentRelease] = []
         pending: list[PendingSourceRelease] = []
         root_count = 0
-        while root_batch := await asyncio.to_thread(self._next_roots, roots):
-            descriptors = await self._describe_roots(
-                connector,
-                root_batch,
-                concurrency=self._descriptor_concurrency(
+        try:
+            while root_batch := await asyncio.to_thread(self._next_roots, roots, stop):
+                descriptors = await self._describe_roots(
                     connector,
-                    request.discovery_concurrency,
-                ),
-            )
-            for descriptor in descriptors:
-                pending.extend(self._descriptors.releases(request, descriptor))
-                root_count += 1
-                while len(pending) >= _REGISTRATION_BATCH_SIZE:
-                    batch = pending[:_REGISTRATION_BATCH_SIZE]
-                    del pending[:_REGISTRATION_BATCH_SIZE]
-                    planned.extend(await self._record_batch(scan_id, batch))
-            if pending:
-                planned.extend(await self._record_batch(scan_id, pending))
-                pending.clear()
-            await self._record_progress(request, root_count=root_count, planned=len(planned))
+                    root_batch,
+                    concurrency=self._descriptor_concurrency(
+                        connector,
+                        request.discovery_concurrency,
+                    ),
+                )
+                for descriptor in descriptors:
+                    pending.extend(self._descriptors.releases(request, descriptor))
+                    root_count += 1
+                    while len(pending) >= _REGISTRATION_BATCH_SIZE:
+                        batch = pending[:_REGISTRATION_BATCH_SIZE]
+                        del pending[:_REGISTRATION_BATCH_SIZE]
+                        planned.extend(await self._record_batch(scan_id, batch))
+                if pending:
+                    planned.extend(await self._record_batch(scan_id, pending))
+                    pending.clear()
+                await self._record_progress(request, root_count=root_count, planned=len(planned))
+        finally:
+            stop.set()
         await self._record_skips(request, connector)
         return tuple(planned)
 
@@ -268,5 +277,14 @@ class SourceDiscoveryPlanner:
         )
 
     @staticmethod
-    def _next_roots(roots: Iterator[SourceRecord]) -> tuple[SourceRecord, ...]:
-        return tuple(islice(roots, _LEGACY_ROOT_BATCH_SIZE))
+    def _next_roots(
+        roots: Iterator[SourceRecord], stop: threading.Event
+    ) -> tuple[SourceRecord, ...]:
+        """Read up to a batch of roots, checking ``stop`` before each one."""
+        batch: list[SourceRecord] = []
+        while len(batch) < _LEGACY_ROOT_BATCH_SIZE and not stop.is_set():
+            root = next(roots, None)
+            if root is None:
+                break
+            batch.append(root)
+        return tuple(batch)
