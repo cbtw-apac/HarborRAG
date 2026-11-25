@@ -173,7 +173,8 @@ class ChatOps:
 def acl_subject(principal: Principal) -> str:
     """Return the subject document ACLs check: an API key's owner, else the subject.
 
-    MCP checks a key's owner too. The key ID still owns sessions, limits and replay.
+    MCP checks a key's owner too. Sessions and ``Idempotency-Key`` replay are keyed
+    by the owner as well. Rate and capacity limits still use the key ID.
     """
     return principal.user_id if principal.kind == "api_key" else principal.subject
 
