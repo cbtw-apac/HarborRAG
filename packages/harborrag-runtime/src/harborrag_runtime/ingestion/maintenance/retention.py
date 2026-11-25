@@ -270,7 +270,6 @@ class RetiredVersionPurgeService:
                 snapshot.chunk_artifact,
                 snapshot.chunk_index_artifact,
                 snapshot.representation_artifact,
-                snapshot.relation_artifact,
             )
             if reference is not None and not reference.key.startswith(_SHARED_PREFIXES)
         }
