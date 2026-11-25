@@ -56,7 +56,7 @@ def test_mineru_cleans_up_custom_output_dir_when_run_fails(
     base_dir = tmp_path / "custom-output"
     backend = MinerUBackend(MinerUBackendOptions(output_dir=base_dir, keep_output=False))
 
-    def _raise(command: list[str]) -> None:
+    def _raise(command: list[str], **_: object) -> None:
         raise RuntimeError("mineru exited non-zero")
 
     monkeypatch.setattr(backend, "_run", _raise)
@@ -73,7 +73,7 @@ def test_mineru_keeps_custom_output_dir_when_run_fails_and_keep_output_true(
     base_dir = tmp_path / "custom-output"
     backend = MinerUBackend(MinerUBackendOptions(output_dir=base_dir, keep_output=True))
 
-    def _raise(command: list[str]) -> None:
+    def _raise(command: list[str], **_: object) -> None:
         raise RuntimeError("mineru exited non-zero")
 
     monkeypatch.setattr(backend, "_run", _raise)

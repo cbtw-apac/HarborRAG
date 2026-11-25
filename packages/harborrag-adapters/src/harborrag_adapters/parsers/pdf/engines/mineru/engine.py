@@ -103,7 +103,7 @@ class MinerUPDFEngine(HarborPDFEngine):
             output_dir.mkdir(parents=True, exist_ok=True)
             try:
                 command = self._command(executable, path, output_dir)
-                self._run(command)
+                self._run(command, private_paths=(path.parent, output_dir))
                 content, output_files = self._read_output(output_dir)
             finally:
                 # `output_dir` only means "use this custom location", not
@@ -120,14 +120,14 @@ class MinerUPDFEngine(HarborPDFEngine):
             output_dir = base_dir / uuid.uuid4().hex
             output_dir.mkdir(parents=True, exist_ok=True)
             command = self._command(executable, path, output_dir)
-            self._run(command)
+            self._run(command, private_paths=(path.parent, output_dir))
             content, output_files = self._read_output(output_dir)
             return content, output_files, output_dir
 
         with TemporaryDirectory(prefix="harborrag-mineru-") as directory:
             output_dir = Path(directory)
             command = self._command(executable, path, output_dir)
-            self._run(command)
+            self._run(command, private_paths=(path.parent, output_dir))
             content, output_files = self._read_output(output_dir)
             return content, output_files, output_dir
 
@@ -156,8 +156,17 @@ class MinerUPDFEngine(HarborPDFEngine):
         command.extend(self.options.extra_args)
         return command
 
-    def _run(self, command: list[str]) -> None:
-        """Execute MinerU with timeout, cwd, and environment overrides."""
+    def _run(self, command: list[str], *, private_paths: tuple[Path, ...]) -> None:
+        """Execute MinerU with timeout, cwd, and environment overrides.
+
+        Args:
+            command: MinerU command line.
+            private_paths: Input and output directories, replaced by placeholders
+                wherever MinerU's diagnostic output quotes them.
+
+        Raises:
+            ParseError: MinerU timed out or exited with a non-zero code.
+        """
 
         env = {
             name: value
@@ -205,7 +214,7 @@ class MinerUPDFEngine(HarborPDFEngine):
                 self._terminate_process_group(process)
                 raise
             if return_code != 0:
-                detail = self._diagnostic_text(stderr, stdout)
+                detail = self._diagnostic_text(stderr, stdout, private_paths=private_paths)
                 raise ParseError(f"MinerU failed with exit code {return_code}: {detail}")
 
     @staticmethod
@@ -220,14 +229,16 @@ class MinerUPDFEngine(HarborPDFEngine):
             process.kill()
         process.wait()
 
-    def _diagnostic_text(self, *streams: Any) -> str:
+    def _diagnostic_text(self, *streams: Any, private_paths: tuple[Path, ...]) -> str:
+        """Return the first non-empty stream, capped, with ``private_paths`` replaced."""
         for stream in streams:
             stream.seek(0)
             content = stream.read(self.options.max_diagnostic_bytes + 1)
             if content:
                 if len(content) > self.options.max_diagnostic_bytes:
                     content = content[: self.options.max_diagnostic_bytes] + b"..."
-                return compact_text(content.decode("utf-8", errors="replace"))
+                text = content.decode("utf-8", errors="replace")
+                return compact_text(_redact_paths(text, private_paths))
         return "no diagnostic output"
 
     def _read_output(self, output_dir: Path) -> tuple[str, list[str]]:
@@ -280,6 +291,26 @@ class MinerUPDFEngine(HarborPDFEngine):
             finally:
                 os.close(descriptor)
         return output
+
+
+_REDACTED_PATH = "<path>"
+
+
+def _redact_paths(text: str, paths: tuple[Path, ...]) -> str:
+    """Replace each absolute path, as given and resolved, with a placeholder.
+
+    Longer variants go first, so a path is never half replaced through a shorter one.
+    A relative path or a filesystem root is skipped: replacing it would mangle the text.
+    """
+    variants = {
+        str(candidate)
+        for path in paths
+        for candidate in (path, path.resolve())
+        if candidate.is_absolute() and candidate.parent != candidate
+    }
+    for variant in sorted(variants, key=len, reverse=True):
+        text = text.replace(variant, _REDACTED_PATH)
+    return text
 
 
 MinerUBackend = MinerUPDFEngine
