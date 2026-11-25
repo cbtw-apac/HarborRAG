@@ -274,7 +274,6 @@ class DocumentVersionLifecycle:
                 snapshot.canonical_artifact,
                 snapshot.chunk_artifact,
                 snapshot.chunk_index_artifact,
-                snapshot.relation_artifact,
                 snapshot.representation_artifact,
             )
             if reference is not None
