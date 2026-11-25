@@ -52,9 +52,19 @@ class FilesystemAccessMixin:
     _encode_key_segments: bool = os.name == "nt"
 
     def _ensure_private_directory(self, path: Path) -> None:
-        """Create and lock down directories beneath the configured root."""
+        """Create and lock down directories beneath the configured root.
 
-        path.mkdir(mode=0o700, parents=True, exist_ok=True)
+        Each missing directory, those above the root included, is created with mode
+        0700. An existing directory above the root keeps its mode.
+        """
+
+        missing: list[Path] = []
+        current = path
+        while not current.exists():
+            missing.append(current)
+            current = current.parent
+        for directory in reversed(missing):
+            directory.mkdir(mode=0o700, exist_ok=True)
         current = path
         while current == self._root or self._root in current.parents:
             os.chmod(current, 0o700)

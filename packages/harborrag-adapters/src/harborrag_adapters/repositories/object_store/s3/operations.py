@@ -43,7 +43,7 @@ from harborrag_core.schemas.object_store import (
     ObjectReference,
     PutObjectRequest,
 )
-from harborrag_core.storage import StorageOperationContext
+from harborrag_core.storage import StorageFamily, StorageOperationContext
 
 _TIMEOUT_ERRORS: tuple[type[Exception], ...]
 _CONNECTION_ERRORS: tuple[type[Exception], ...]
@@ -93,14 +93,18 @@ def _s3_failure(error: Exception) -> tuple[StorageFailure, int | None] | None:
 def _translate_s3_errors[Operation: Callable[..., Awaitable[Any]]](
     operation: Operation,
 ) -> Operation:
-    """Translate the botocore errors an object-store operation raises."""
+    """Translate the botocore errors an object-store operation raises.
+
+    An operation without a ``context`` keyword, such as bucket provisioning, gets an
+    error context with no tenant.
+    """
 
     @wraps(operation)
     async def translated(self: Any, *args: Any, **kwargs: Any) -> Any:
         try:
             return await operation(self, *args, **kwargs)
         except _VENDOR_ERRORS as error:
-            storage_error = self._s3_storage_error(operation.__name__, error, kwargs["context"])
+            storage_error = self._s3_storage_error(operation.__name__, error, kwargs.get("context"))
             if storage_error is None:
                 raise
             raise storage_error from error
@@ -140,14 +144,33 @@ class S3ObjectOperationsMixin(S3BodySpoolMixin, S3ObjectMetadataMixin):
         return await asyncio.to_thread(function, *args)
 
     def _s3_storage_error(
-        self, operation: str, error: Exception, context: StorageOperationContext
+        self, operation: str, error: Exception, context: StorageOperationContext | None
     ) -> HarborStorageError | None:
-        """Return the storage error a botocore error stands for, or ``None`` to keep it."""
+        """Return the storage error a botocore error stands for, or ``None`` to keep it.
+
+        Args:
+            operation: Name of the failed operation.
+            error: The botocore error.
+            context: Tenant context of the operation; ``None`` for a bucket-level one.
+
+        Returns:
+            The storage error, which names no bucket or key, or ``None``.
+        """
         failure = _s3_failure(error)
         if failure is None:
             return None
         kind, status = failure
-        error_context = replace(self._error_context(operation, "", "", context), resource_name=None)
+        if context is None:
+            error_context = StorageErrorContext(
+                family=StorageFamily.OBJECT_STORE,
+                backend="s3",
+                instance_name=self._config.instance_name,
+                operation=operation,
+            )
+        else:
+            error_context = replace(
+                self._error_context(operation, "", "", context), resource_name=None
+            )
         return storage_failure_error(kind, error_context, status_code=status)
 
     @traced_repository_operation("put")
