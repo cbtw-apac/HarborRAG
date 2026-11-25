@@ -368,7 +368,7 @@ def _probe_control_db(dsn: str) -> dict[str, Any]:
     from sqlalchemy.ext.asyncio import create_async_engine
 
     async def _probe() -> dict[str, Any]:
-        engine = create_async_engine(dsn)
+        engine = create_async_engine(dsn, hide_parameters=True)
         try:
             async with engine.connect() as connection:
                 version = (

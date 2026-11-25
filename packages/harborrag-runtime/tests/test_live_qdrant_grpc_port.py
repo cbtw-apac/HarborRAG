@@ -60,6 +60,18 @@ def test_moved_qdrant_url_port_is_accepted_over_http_or_another_vector_provider(
     RuntimeSettings(qdrant_url="http://localhost:16333", vector_provider="memory")
 
 
+@pytest.mark.parametrize("blank", ["", "  "])
+def test_blank_qdrant_grpc_port_counts_as_unset(
+    blank: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HARBORRAG_QDRANT_GRPC_PORT", blank)
+
+    assert RuntimeSettings().qdrant_grpc_port is None
+    monkeypatch.setenv("HARBORRAG_QDRANT_URL", "http://localhost:16333")
+    with pytest.raises(ValidationError, match="HARBORRAG_QDRANT_GRPC_PORT"):
+        RuntimeSettings()
+
+
 @pytest.mark.parametrize("port", [0, 65_536])
 def test_qdrant_grpc_port_outside_the_tcp_range_is_refused(port: int) -> None:
     with pytest.raises(ValidationError):

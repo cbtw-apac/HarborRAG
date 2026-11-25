@@ -250,6 +250,14 @@ class RuntimeSettings(MemorySettingsMixin, BaseSettings):
             return None
         return value
 
+    @field_validator("qdrant_grpc_port", mode="before")
+    @classmethod
+    def _blank_grpc_port_is_unset(cls, value: object) -> object:
+        """Read a blank value, such as Compose's empty default, as no explicit gRPC port."""
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
     @model_validator(mode="after")
     def _warn_removed_environment(self) -> RuntimeSettings:
         for name, replacement in _REMOVED_ENVIRONMENT.items():
