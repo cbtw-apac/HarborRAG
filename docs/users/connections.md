@@ -172,8 +172,7 @@ Without a `token_cache_path`, the sign-in is kept per HarborRAG tenant, so pass 
 connection's tenant to `--harborrag-tenant` (the default is `HARBORRAG_TENANT_ID`, else
 `DEFAULT`). `token_cache_path` is a path on the worker, so only
 `config/sources/connectors.yaml` and the `harborrag connections` commands can set or
-change it;
-through the API, send it back as read, or leave it out when it was never set.
+change it; through the API, send it back as read, or leave it out when it was never set.
 
 </details>
 
@@ -216,16 +215,16 @@ entry of `checks` (`schema`, `auth`, `reachable`, `permissions`, `preview`) has
 `"ok": true`, and `preview.sample` lists up to five items a sync would read. When a
 check fails, `ok` is `false`, the failing check carries a `message`, and
 `error_category` says why: `auth_invalid`, `auth_expired`, `forbidden`, `unreachable`,
-`rate_limited`, or `secret_unavailable` when a token is an `env:` reference that only
-the worker can read. A test gives up after 15 seconds. Without a body, the call tests
-the saved connection.
+`rate_limited` (also for a GitHub secondary rate limit, which answers `403`), or
+`secret_unavailable` when a token is an `env:` reference that only the worker can read.
+A test gives up after 15 seconds. Without a body, the call tests the saved connection.
 
 From a terminal, `harborrag connections test demo/demo-tickets -f demo-tickets.yaml`
-tests a body file the same way. It exits 0 even when a check fails, as the route answers
-`200`, so read `ok` from its output. The CLI runs the checks in its own process, so it
-checks a `local_file` folder on the machine where the CLI runs: from a checkout, a
-connection to `/data/sources`, which exists only in the containers, answers
-`"ok": false` while the same test over HTTP passes.
+tests a body file the same way and prints the same body. It exits 8 when `ok` is
+`false`, although the route answers `200`, and 0 when every check passes. The CLI runs
+the checks in its own process, so it checks a `local_file` folder on the machine where
+the CLI runs: from a checkout, a connection to `/data/sources`, which exists only in the
+containers, answers `"ok": false` while the same test over HTTP passes.
 
 ### 3. Save the connection
 
@@ -328,9 +327,10 @@ name, and answers `202` with the run and its `Location`.
 | `item_refs` | Not supported yet: a non-empty list answers `501 not_supported`. |
 
 A second start while one runs answers `409 already_running`, with `details.ingestion_id`
-naming the running ingestion. An unknown project or connection is
-`422 reference_not_found`. A connection whose stored values fail its source type's
-schema is `422 validation_error` with each failing field, and nothing starts.
+naming the running ingestion, or `null` when another start of the same connection is
+still registering its run. An unknown project or connection is `422 reference_not_found`.
+A connection whose stored values fail its source type's schema is
+`422 validation_error` with each failing field, and nothing starts.
 
 ### `GET /v1/admin/ingestions`
 
@@ -359,8 +359,9 @@ three kinds:
 
 ### `POST /v1/admin/ingestions/{ingestion_id}/pause`, `/resume`, `/cancel`
 
-These answer `200` with the run after waiting for the new status: up to 10 s for pause
-and resume, 30 s for cancel. If the wait ends first, the answer is the run as it stands.
+These answer `200` with the run after waiting for the new status: up to about 25 s for
+pause (15 s for the run to take the pause, then 10 s for the paused status), 10 s for
+resume and 30 s for cancel. If the wait ends first, the answer is the run as it stands.
 
 - `pause` is allowed from `queued` or `running`, and `cancel` from `queued`, `running`
   or `paused`. `resume` is allowed from `paused`, and from `running` while the workflow
@@ -612,8 +613,7 @@ credential that holds several sends `X-Tenant-Id` to pick one; without the heade
 call fails with `400 tenant_required`. A wildcard (`*`) credential without the header
 acts in the tenant `HARBORRAG_TENANT_ID` names (`DEFAULT` unless set). A tenant the
 credential does not hold gives `403 tenant_forbidden`. The CLI takes the tenant from
-`--tenant`.
-See [Tenant and workspace status](configuration/workspace-mode.md).
+`--tenant`. See [Tenant and workspace status](configuration/workspace-mode.md).
 
 ## Local files
 
@@ -633,7 +633,8 @@ link out of it is refused too.
   them.
 - With the default `config.checksum_mode`, `stat`, a file whose modification time
   changes gets a new document version even when its bytes are the same; the version
-  reuses the stored vectors. See
+  reuses the stored vectors. Reading a file, which moves only its access time, is not a
+  change. See
   [Connector configuration: Local files](configuration/connector-config.md#local-files).
 
 ## Connection status

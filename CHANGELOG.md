@@ -81,8 +81,9 @@ Follow the [upgrade guide](docs/users/upgrading.md) before upgrading; entries ma
 - The local file connector sets a chunk's `created_at` to the file's creation time (`st_birthtime`, else `st_ctime`) and adds `updated_at` from the modification time
 - The destination policy refuses a private IPv4 address carried in NAT64 (`64:ff9b::/96`), IPv4-compatible (`::/96`) or IPv4-translated (`::ffff:0:0:0/96`) IPv6 form, judging these addresses by the IPv4 address they carry; hosts and networks in `HARBORRAG_CONNECTOR_ALLOWED_HOSTS` keep working
 - **Breaking:** the model catalog loader refuses a duplicate key, in YAML and JSON, and a top-level key other than `chat`, `embed` and `rerank`, so a misspelled section no longer turns a family off without a warning; `harborrag doctor` fails its `models catalog` check on such a catalog
-- **Breaking:** a model deployment whose `api_key` is empty or only spaces is refused when its client is built, with an error that names the deployment, instead of LiteLLM sending an ambient key such as `OPENAI_API_KEY` to the configured endpoint; only a rerank deployment whose provider needs no key, `litellm_proxy`, `vllm` or `infinity`, may leave it empty. A chat catalog with `backend.type: litellm_proxy` needs a non-empty `backend.proxy.api_key`
-- A model deployment's `api_key`, `model`, `api_base` and `deployment_name`, and the chat proxy's `api_key`, lose the spaces at their start and end, such as the CR of a CRLF env file, and a line break inside one is refused with an error that names the field
+- **Breaking:** a model deployment whose `api_key` is empty or only spaces is refused when its client is built, with an error that names the deployment, instead of LiteLLM sending an ambient key such as `OPENAI_API_KEY` or `COHERE_API_KEY` to the configured endpoint. Every chat, embedding and rerank provider refuses it, `litellm_proxy`, `vllm` and `infinity` included, so with `HARBORRAG_RERANKER_MODEL` set, a blank `HARBORRAG_RERANKER_API_KEY` stops retrieval with `HARBORRAG_RERANKER_API_KEY is empty, and the rerank model needs it`. A chat catalog with `backend.type: litellm_proxy` needs a non-empty `backend.proxy.api_key`
+- A model deployment's `api_key`, `model`, `api_base` and `deployment_name`, an embedding model's `embedding_space`, and the chat proxy's `api_key` lose the spaces at their start and end, such as the CR of a CRLF env file, and a line break inside one is refused with an error that names the field
+- Migration `0049` logs `Clearing raw connection secrets` for each connection it rewrites, and a summary line that says the change takes effect when the migration commits, instead of `Cleared raw connection secrets` before it commits
 - Chat, embedding and rerank calls no longer retry inside the provider SDK under HarborRAG's own retries, and LiteLLM's module retry default is `0`
 - Embedding and rerank caches are keyed by the model catalog, as chat is, so the first calls after the upgrade, and after any catalog change, miss the cache instead of returning the previous model's results
 - **Breaking:** SharePoint discovery fails, and Temporal retries it from its checkpoint, when a folder listing or a selected item answers `429` or a `5xx`, or times out, instead of skipping the folder and retiring its files after the next full scans; only denied and deleted items are skipped. Local discovery skips a directory it may not read or that was removed while it ran, with the new skip reason `deleted`, and fails on any other listing error
@@ -139,7 +140,7 @@ Follow the [upgrade guide](docs/users/upgrading.md) before upgrading; entries ma
 - `POST /v1/admin/ingestions` and `harborrag ingestions start` refuse a connection a run would reject, with `422 validation_error` naming each failing field, instead of starting a run that fails in the worker
 - The CLI recognises a checkout by `config/sources/connectors.yaml`
 - `POST /v1/admin/ingestions/{ingestion_id}/resume` and `harborrag ingestions resume` accept a `running` run whose workflow holds a pause it has not applied yet, such as a pause sent during discovery, and take the pause back; on a `running` run with no pending pause they answer `409 invalid_state`
-- `harborrag ingestions start --inline` refuses a connection with a pending, running or paused run with `409 already_running` and exit `4`, as the API does
+- `harborrag ingestions start --inline` refuses a connection with a pending, running or paused run with `409 already_running`, naming that run in `details.ingestion_id`, and exit `4`, as the API does
 - An ingestion's `counters.discovered` and `counters.skipped` include the items skipped at discovery, so `processed + skipped + failed` reaches `discovered` when every item is done, and the CLI's run tables show a `Skipped` column [#136]
 
 #### harborrag-core
@@ -159,6 +160,7 @@ Follow the [upgrade guide](docs/users/upgrading.md) before upgrading; entries ma
 
 - The MCP server reads `config/mcp/server.yaml` and, with the file key store, `config/mcp/keys.yaml`
 - `harborrag-mcp` reads `HARBORRAG_MCP_AUDIT_PATH` once at launch and passes the path to the server; code that builds `McpServer(...)` or calls `create_mcp_server()` without a registry gets the default `.harborrag/mcp-audit.jsonl` and no longer reads the variable, so pass `audit=McpAuditLog(path=...)` to choose the path; see the [upgrade guide](docs/users/upgrading.md#mcp-server-built-in-python)
+- The MCP server checks its durable audit directory when it starts: it creates a missing one owner-only (`0700`), and exits `2` when the directory is open to other users or owned by another user, with a message that names the directory, and its mode when that is the problem. Before, it started and failed every tool call with an opaque `500`. It never changes an existing directory's mode; see the [upgrade guide](docs/users/upgrading.md#check-the-settings-that-are-now-refused)
 - **Breaking:** the MCP HTTP server refuses a request addressed to a host name other than loopback, or sent from another origin
 - The MCP HTTP server answers extra host names, such as a reverse proxy's, when they are listed; a development container may listen beyond loopback when it acknowledges that
 - The MCP status page walks through connecting, choosing a tenant that holds content, picking a tool and running it, in one window
@@ -181,7 +183,7 @@ Follow the [upgrade guide](docs/users/upgrading.md) before upgrading; entries ma
 - Config YAML files hold values only; their explanations moved to the configuration pages. `config/ingestion/parsers.yaml` keeps its comments because its bytes are the parser identity
 - **Breaking:** `harborrag.yaml` and the SDK configuration file refuse a key under `runtime:` that is not a runtime setting, and the error names it, so a typo such as `contol_db_url` no longer falls back to the default database. This includes keys `harborrag.yaml` only exported as `HARBORRAG_*` variables, such as `local_source_root`, `log_level` and `connector_allowed_hosts`; set those as environment variables. `harborrag.yaml` matches keys in any case, the SDK file only in lower case
 - **Breaking:** a connection's `advanced.max_retries` takes at most 10, and the source-type schema publishes that maximum; `HARBORRAG_MEMORY_RETENTION_DAYS_SESSION`, `_USER` and `_PROJECT` take at most 36,500 days
-- **Breaking:** the API's control-plane engine sizes its pool with `HARBORRAG_CONTROL_DB_POOL_SIZE` and `HARBORRAG_CONTROL_DB_MAX_OVERFLOW` (40 and 32 by default), which apply to each control-database pool, instead of SQLAlchemy's default of 5 and 10; size Postgres `max_connections` for every pool of every API replica, worker and checkout CLI, see the [upgrade guide](docs/users/upgrading.md#before-you-start). The engine also checks a connection before use and recycles it after 30 minutes, so the first request after a database failover or an idle disconnect no longer fails
+- **Breaking:** the API's control-plane engine sizes its pool with `HARBORRAG_CONTROL_DB_POOL_SIZE` and `HARBORRAG_CONTROL_DB_MAX_OVERFLOW` (40 and 32 by default), which apply to each control-database pool, instead of SQLAlchemy's default of 5 and 10, and so does the new connection-store engine that workers and inline runs use to read connections and their secrets; size Postgres `max_connections` for every pool of every API replica, worker and checkout CLI, see the [upgrade guide](docs/users/upgrading.md#before-you-start). Both engines also check a connection before use and recycle it after 30 minutes, so the first request after a database failover or an idle disconnect no longer fails
 - **Breaking:** `AppService.resume` on a `running` run with no pending pause raises `IngestionActionStateError` (`invalid_state`) instead of `IngestionAlreadyRunningError` (`already_running`), and resumes a run whose workflow holds a pause it has not applied yet
 - **Breaking:** a source or document run cancelled from Temporal, through its UI, its CLI or a cancelled schedule, is recorded as cancelled instead of failed, and a cancelled document's failure code is `document_release_cancelled` instead of `document_release_cancellederror`; update failure-inbox filters and dashboards that match it
 - **Breaking:** document retries heartbeat, so a retry on a crashed worker is tried again after about 2 minutes instead of 60, and a cancel reaches it before it publishes. Workers that serve the `harborrag-io` queue must run this release no later than those that serve `harborrag-transform`, see the [upgrade guide](docs/users/upgrading.md#upgrade-the-services-in-order). The changed workflows sit behind seven new Temporal patch IDs, so runs started before the upgrade replay
@@ -265,6 +267,12 @@ Follow the [upgrade guide](docs/users/upgrading.md) before upgrading; entries ma
 - A document version that fails while it is being verified is no longer marked verified
 - SQLite control databases enforce foreign keys, so deleting a connection on a development database removes its document versions; rows an earlier release left behind stay
 - The MCP tenant directory logs a warning when it stops at its limit of 500 tenants
+- A `litellm_proxy` or `cohere` rerank deployment whose `api_base` ends in `/v1`, such as the shipped default `https://api.openai.com/v1`, posts to `/v1/rerank` (`cohere`: `/v2/rerank`) instead of putting a second version after the `/v1`: one trailing `/v1` is dropped before LiteLLM's Cohere route appends its version and `/rerank`
+- A local file whose access time changed, for example because a backup, `grep` or HarborRAG's own fetch read it, is no longer fetched and parsed again: its stored discovery record leaves the access time out, and records that earlier releases stored with it are compared without it
+- The completion-request purge on Postgres deletes at most its batch of 100 expired rows per claim. It reads the batch's keys once and deletes only those, where a subquery the planner ran again for each row could delete every expired row at once
+- S3 object-store requests honour their connect and read timeouts, 10 s and 30 s, which were ignored, and are tried at most twice, so a stalled object store raises a retryable storage timeout
+- GitHub (`403` or `429`) and Atlassian (`429`) rate limits that outlast the retries carry their HTTP status and stay retryable, and a connection test reports them as `rate_limited` with that status in its message
+- A SharePoint download cut off after its headers arrived is a retryable fetch error instead of a raw `requests` exception
 
 #### harborrag-app
 
@@ -286,6 +294,7 @@ Follow the [upgrade guide](docs/users/upgrading.md) before upgrading; entries ma
 - The CLI refuses a malformed connection ID in `connections get`, `create`, `update`, `delete` and `test` with `422 validation_error` and exit `2`, as HTTP does, instead of `500` or a not-found error; `connections list --source-type` takes only `jira`, `confluence`, `sharepoint`, `local_file` and `github`, and refuses anything else the same way instead of printing an empty page
 - `harborrag me` reports the tenant the other commands use, including the tenant in `env/.env.api`
 - The failure inbox routes release their API capacity when the handler returns, as the other routes do
+- `harborrag doctor` fails its `models catalog` check when a named rerank model's key variable is blank, as the API and the MCP server refuse it; a `${HARBORRAG_RERANKER_API_KEY:-}` reference hid it from the check before
 
 #### harborrag-core
 
@@ -324,12 +333,18 @@ Follow the [upgrade guide](docs/users/upgrading.md) before upgrading; entries ma
 - A brief error during finalization no longer marks a run `failed` while Temporal retries it; a run that runs out of retries fails at the stage finalization recorded, with an `error_code`
 - A run, a retry run included, no longer sends every `document.failed` event again when it ends, and a run summary written from an earlier read no longer rolls the event cursor back
 - A pause or cancel that arrives during discovery is always recorded, and a graceful cancel that races the end of a batch no longer fails the run
-- A cancelled run's result reports the items skipped at discovery and per document, not only those skipped at discovery
+- A cancelled run's result and stored summary report the items skipped at discovery and per document, for graceful and Temporal cancels, not only those skipped at discovery
 - A document retry cancelled in Temporal is recorded as cancelled and its workflow closes as cancelled; the retry run counts that document as failed and finishes
 - Relation repair after a reindex selects only the reindexed tenant's documents, so another tenant's documents no longer crowd them out of its row limit
 - A connection removal whose store connections partly fail closes the stores that did connect before it reports the error
 - Citation renumbering rewrites a marker only when every number in it names a passage, and leaves other brackets as written, such as years, an unknown `[9]` or text in code; an answer that is only an unknown marker is returned instead of failing
 - A completion body the API would reject is no longer stored in the session's history, so the next turn does not replay it
+- **Breaking:** with gRPC preferred, the Qdrant client always dialled port `6334` on the host of `HARBORRAG_QDRANT_URL`, so a stack on a mapped port could write vectors into another Qdrant. `HARBORRAG_QDRANT_GRPC_PORT` now sets the gRPC port, and the API, the worker, the MCP server and the checkout CLI refuse to start when `HARBORRAG_QDRANT_URL` names a port other than `6333` and no gRPC port is set; a blank value counts as unset. See the [upgrade guide](docs/users/upgrading.md#check-the-settings-that-are-now-refused)
+- Chat no longer fails on every request when `HARBORRAG_METRICS_PORT` is already in use, for example by the worker; retrieval logs one warning and runs without its metrics exporter
+- A pause sent during discovery answers within about 25 s instead of about 44 s, and a pause that a resume takes back answers `200` with the run instead of `503`
+- A Temporal cancel during discovery stops the walk when it next records a batch, without logging an ERROR `immutable_artifact_conflict`
+- A retried finalization no longer waits behind the relation repairs of the attempt that failed: the first failed repair cancels the others
+- The document fetch heartbeats before it reads the run's plan, so a stalled object store fails with its own storage timeout instead of a heartbeat timeout
 
 #### Deployment
 
@@ -337,6 +352,7 @@ Follow the [upgrade guide](docs/users/upgrading.md) before upgrading; entries ma
 - The SharePoint entry of `config/sources/connectors.yaml` crawls the drive with the shared file type list instead of a test folder of Markdown files
 - `mcp.sh --http` stops and removes a server that never becomes healthy
 - The development worker receives `HARBORRAG_INGESTION_TENANT_ID` from the compose environment file, so it refuses to start on the removed name as the API does
+- The API and worker Compose services pass `HARBORRAG_QDRANT_GRPC_PORT` (empty by default) and `HARBORRAG_QDRANT_PREFER_GRPC` (`true` by default) through, so both can be set in `env/.env.temporal` next to `HARBORRAG_QDRANT_URL`
 
 ### Security
 
@@ -348,11 +364,14 @@ Follow the [upgrade guide](docs/users/upgrading.md) before upgrading; entries ma
 - Parser log lines and parser errors name a file by the first 12 hex characters of the SHA-256 of its name, with its suffix and size, instead of its name or path; local and GitHub connector logs and local load errors name a path by its digest the same way. A PDF or OCR engine failure that a library raised is named by its exception class instead of the library's message
 - SharePoint and Atlassian request failures no longer carry the underlying request error, whose text can hold a signed download URL
 - The destination policy refuses the `fec0::/10`, `3fff::/20` and `5f00::/16` IPv6 ranges, which are not public
+- Control-plane database engines, the migration engine included, no longer print SQL parameters in errors or logs, as a migration lock timeout did
+- A first SharePoint delegated sign-in creates each missing directory of its token cache path, `~/.harborrag` included, with mode `0700`, where `~/.harborrag` got the umask default, such as `0755`; an existing directory keeps its mode
 
 #### harborrag-app
 
 - **Breaking:** a blank `HARBORRAG_METRICS_SCRAPE_TOKEN` counts as unset, so `/metrics` on the ops port answers `401` to every request, where a bare `Bearer` header read it before; set a non-empty token. `env-example/.env.api.example` ships the line blank and `scripts/deployment/dev.sh` fills it in
-- **Breaking:** over HTTP, an API key reads documents as its owner, as it does over MCP: a grant to the owner reaches the key's chat answers, and an explicit deny for the owner hides documents from them. `/v1/me`, rate and capacity limits, `Idempotency-Key` replay and session ownership still use the key ID
+- **Breaking:** over HTTP, an API key reads documents as its owner, as it does over MCP: a grant to the owner reaches the key's chat answers, and an explicit deny for the owner hides documents from them. Chat sessions and `Idempotency-Key` replay are keyed by the key's owner, not the key ID. `/v1/me` and rate and capacity limits still use the key ID
+- A first `harborrag auth keys create` that writes its secret file creates each missing directory of the file's path, `~/.harborrag` included, with mode `0700`, where `~/.harborrag` got the umask default, such as `0755`; an existing directory keeps its mode
 - Under `source_acl`, `GET /v1/projects/{project_id}/connections` lists only connections with a source the caller may read, so a connection never ingested is hidden; a caller who may read more sources than the permission check can list gets `409`. `tenant_shared` lists every connection as before. Each connection's `documents` count is still its total, not what the caller may read
 - The HMAC token verifier keeps its signing secret out of its `repr`
 
@@ -376,6 +395,7 @@ Follow the [upgrade guide](docs/users/upgrading.md) before upgrading; entries ma
 - **Breaking:** `HARBORRAG_QDRANT_ALLOW_INSECURE_REMOTE`, `HARBORRAG_FALKORDB_ALLOW_INSECURE_REMOTE`, `HARBORRAG_TEMPORAL_ALLOW_INSECURE_REMOTE` and `connection.allow_insecure_remote` in `config/temporal.yaml` apply only when `HARBORRAG_ENV=dev`, as the Redis and object-store switches already did; in `staging` and `prod`, remote Qdrant, FalkorDB and Temporal need TLS
 - A failed settings check of the API, a worker or the MCP server no longer prints environment values, such as object-store secrets or `HARBORRAG_AUTH_SECRET`
 - An ingestion activity failure no longer carries the original error into Temporal history; it keeps the failure's safe code
+- The control-database probe at startup no longer prints SQL parameters in errors or logs
 
 ### Known limitations
 

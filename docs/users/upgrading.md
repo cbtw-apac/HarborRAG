@@ -36,8 +36,10 @@ what behaves differently afterwards and what scripts and clients must change.
   (default 40) and `HARBORRAG_CONTROL_DB_MAX_OVERFLOW` (default 32) apply to each
   control-database pool, and one process opens several. The API's control-plane engine
   now uses them too, where it used SQLAlchemy's default of 5 plus 10, so each API replica
-  can open up to 57 more connections. Size `max_connections` for every pool of every API
-  replica, worker and checkout CLI, or lower the two variables; see
+  can open up to 57 more connections. Workers, and inline runs from the CLI, open a new
+  pool of the same size to read connections and their secrets, so each worker process
+  can open up to 72 more. Size `max_connections` for every pool of every API replica,
+  worker and checkout CLI, or lower the two variables; see
   [Ingestion runtime environment](configuration/config-file-reference.md#ingestion-runtime-environment).
 - Give the API the environment variables `config/sources/connectors.yaml` names, for
   example `JIRA_BASE_URL` or `LOCAL_SOURCE_PATH`. The one-time import reads non-secret
@@ -167,7 +169,7 @@ that injects it:
     | `HARBORRAG_EMBED_API_KEY` | The embedding endpoint's API key; it may equal the chat key |
     | `HARBORRAG_URL` | Optional. The base URL of another OpenAI-compatible endpoint for every family, such as a LiteLLM proxy gateway. Unset, the endpoint is `https://api.openai.com/v1` |
     | `HARBORRAG_EMBED_PROVIDER` | Optional. `cohere` when the embedding model is a Cohere model |
-    | `HARBORRAG_RERANKER_MODEL`, `HARBORRAG_RERANKER_API_KEY` | Optional. A rerank model at the same endpoint and its key |
+    | `HARBORRAG_RERANKER_MODEL`, `HARBORRAG_RERANKER_API_KEY` | Optional. A rerank model at the same endpoint and its key; once the model is set, the key is required |
 
     Use the endpoint's own model names. Remove a provider prefix such as `openai/` from
     `HARBORRAG_EMBED_MODEL`: the embedding name is sent as written.
@@ -198,10 +200,10 @@ variable that is set but blank is refused too; see
 A deployment that sent everything through a LiteLLM proxy gateway keeps
 `HARBORRAG_URL` and its model names. It renames `HARBORRAG_API_KEY` to the three key
 variables, and adds `HARBORRAG_EMBED_PROVIDER=cohere` for a Cohere embedding model.
-The shipped reranker calls the gateway with the `litellm_proxy` provider, which may run
-without a key, so `HARBORRAG_RERANKER_API_KEY` can stay unset. Set it beside
-`HARBORRAG_RERANKER_MODEL` when the gateway asks for a key: without it the services
-still start, and chat fails while `retrieval.rerank` is on. See
+To rerank, set `HARBORRAG_RERANKER_API_KEY` beside `HARBORRAG_RERANKER_MODEL`, even for
+a gateway that takes rerank calls without a key. With the model set and the key blank,
+the MCP server stops at startup and the API fails search and chat, with
+`HARBORRAG_RERANKER_API_KEY is empty, and the rerank model needs it`. See
 [Send Cohere embeddings and reranking through a gateway](configuration/model-config.md#send-cohere-embeddings-and-reranking-through-a-gateway).
 To call a provider through its own API, keep a catalog of your own, point
 `HARBORRAG_MODEL_CONFIG_PATH` at it, and keep the variables it reads, renamed as in
@@ -256,10 +258,11 @@ start the new release.
 - **A blank model API key is refused.** A chat, embedding or rerank deployment whose
   `api_key` is empty or only spaces is refused when HarborRAG builds its client, with an
   error that names the deployment. Before, LiteLLM sent an ambient key such as
-  `OPENAI_API_KEY` to the configured endpoint. Only a rerank deployment whose provider
-  needs no key, `litellm_proxy`, `vllm` or `infinity`, may leave it empty. Spaces around
-  `api_key`, `model`, `api_base` and `deployment_name`, such as the CR at the end of a
-  line in a CRLF env file, are removed, and a line break inside one is refused.
+  `OPENAI_API_KEY` or `COHERE_API_KEY` to the configured endpoint. Every provider
+  refuses it, the `litellm_proxy`, `vllm` and `infinity` rerank providers included.
+  Spaces around `api_key`, `model`, `api_base`, `deployment_name` and `embedding_space`,
+  such as the CR at the end of a line in a CRLF env file, are removed, and a line break
+  inside one is refused.
 - **The chat proxy key must be set.** A catalog of your own whose chat `backend.type` is
   `litellm_proxy` needs a non-empty `backend.proxy.api_key`; an empty one is refused when
   the catalog loads. The shipped catalog calls chat with `direct_sdk` and is not
@@ -295,6 +298,27 @@ start the new release.
   `config/sources/connectors.yaml` entry above 10 is imported with status `error`, and
   starting a run on it answers `422` the same way. `PUT` the connection with its whole
   `advanced` object and a `max_retries` of 10 or less: `PUT` replaces `advanced` whole.
+- **The Qdrant gRPC port must match the URL.** While gRPC is preferred, as it is by
+  default, the Qdrant client dialled port 6334 on the host of `HARBORRAG_QDRANT_URL`
+  whatever port the URL named, so a stack on a mapped port could write vectors into
+  another Qdrant. If `HARBORRAG_QDRANT_URL` names a port other than 6333, set
+  `HARBORRAG_QDRANT_GRPC_PORT` to the gRPC port of the same Qdrant, or set
+  `HARBORRAG_QDRANT_PREFER_GRPC=false`; otherwise the API, the worker, the MCP server
+  and the CLI refuse to start. Set it wherever `HARBORRAG_QDRANT_URL` is set: with
+  Compose, in `env/.env.temporal`, which Compose reads for the API and the worker. See
+  [Ingestion runtime environment](configuration/config-file-reference.md#ingestion-runtime-environment).
+- **The MCP audit directory must be owner-only.** `harborrag-mcp` now checks the
+  directory of its durable audit file when it starts. It exits with
+  `durable MCP audit directory must be owner-only (mode 0700)` when the directory grants
+  any permission to its group or to other users, or with
+  `durable MCP audit directory must be owned by this process user` when another user
+  owns it. Before, the server started and failed every tool call. The directory is
+  `~/.harborrag` unless `HARBORRAG_MCP_AUDIT_PATH` names another, and an earlier
+  `harborrag auth keys create` or SharePoint sign-in may have created it with a mode
+  such as 0755. Run `chmod 700` on the directory the message names, or set
+  `HARBORRAG_MCP_AUDIT_PATH` to a file in an owner-only directory. HarborRAG now
+  creates a missing `~/.harborrag` with mode 0700, but never changes the mode of an
+  existing one.
 
 ### Upgrade the services in order
 
@@ -389,9 +413,10 @@ before its next run. Most installs have none.
 
 2. Find the cleared fields. While it migrates, the API logs one line per connection from
    the `harborrag.adapters.control_plane.migrations` logger, such as
-   `Cleared raw connection secrets connection_pk=… tenant_id=DEFAULT fields=credentials.api_token`.
-   The fields are also in the connection's `status_detail`, which the API does not
-   return. Read it in the control database:
+   `Clearing raw connection secrets connection_pk=… tenant_id=DEFAULT fields=credentials.api_token`.
+   The values are cleared when the migration commits. The fields are also in the
+   connection's `status_detail`, which the API does not return. Read it in the control
+   database:
 
     ```sql
     SELECT tenant_id, project_id, connection_id, status_detail
@@ -464,6 +489,12 @@ WHERE v.admission_change_key <> s.admission_change_key
 GROUP BY d.connector_type
 ORDER BY documents DESC;
 ```
+
+Local files are fetched and parsed once on the first run after the upgrade, changed or
+not. The record 2.0.0 keeps of each discovered local file adds the file's modification
+time, so it differs from the record 2.0.0a2 stored. After that run, reading a file, for
+example with a backup or `grep`, no longer makes the next run fetch it again: the change
+check leaves out the file's access time, also in the records 2.0.0a2 stored.
 
 The `force` re-ingest that
 [Re-index when the embedding model changes](#re-index-when-the-embedding-model-changes)
@@ -805,8 +836,9 @@ connection with `"method": "api_token"` and the `email`; the stored token is kep
   database does not hold is not found (exit 3); stop such a run in the Temporal UI.
 - **One run per connection, also inline and on a schedule.** `ingestions start --inline`
   refuses a connection that has a pending, running or paused run with
-  `409 already_running` and exit 4, as the API does. A scheduled firing is skipped while
-  the connection has such a run, not only while its scan runs.
+  `409 already_running` and exit 4, and names that run in `details.ingestion_id`, as the
+  API does. A scheduled firing is skipped while the connection has such a run, not only
+  while its scan runs.
 - **`qdrant-client` must be 1.17 to 1.19.** Installs of the `qdrant` extra that pinned
   an older client need `pip install -U "qdrant-client>=1.17,<1.20"`.
 - **A paused run shows as `Running` in the Temporal UI.** HarborRAG now pauses a run by
@@ -829,8 +861,8 @@ connection with `"method": "api_token"` and the `email`; the stored token is kep
 
 - **Loggers that moved with their code are renamed.** A log filter, alert rule or
   dashboard query that selects records by logger name needs the new name. Messages and
-  levels are unchanged. Each logger is now named after the module that owns it, so a prefix
-  that covered several modules becomes one name per module.
+  levels are unchanged. Each logger is now named after the module that owns it, so a
+  prefix that covered several modules becomes one name per module.
 
     | Old logger | New logger |
     | --- | --- |
@@ -1048,6 +1080,8 @@ environment variables and their effect do not change.
   [Check the settings that are now refused](#check-the-settings-that-are-now-refused).
   The API image starts with `python -m harborrag_app.api.serve`.
 - **A Qdrant gRPC or S3 outage answers `503 dependency_unavailable`** instead of `500`.
+  An S3 request is tried at most twice, with 10 s to connect and 30 s to wait for data
+  each time, and then fails as a storage timeout that ingestion retries.
 - **A project `PUT` that changes nothing keeps the project's version.**
   `PUT /v1/admin/projects/{project_id}` with the stored body keeps the version and the
   `ETag` and records no activity entry, so repeating it with `If-Match` no longer
@@ -1087,8 +1121,9 @@ reads and lists everything, as before.
   API key's owner, as the MCP server already did. A grant to the owner reaches the key's
   chat answers, and an explicit deny for the owner hides documents from them. Before,
   HTTP checked the key ID, which holds no grants, so the key read only sources that need
-  none. `/v1/me`, rate and capacity limits, `Idempotency-Key` replay and session
-  ownership still use the key ID. User tokens are unchanged.
+  none. Chat sessions and `Idempotency-Key` replay are keyed by the key's owner, not the
+  key ID. `/v1/me` and rate and capacity limits still use the key ID. User tokens are
+  unchanged.
 - **The connection chips list only connections the caller can search.**
   `GET /v1/projects/{project_id}/connections` lists only connections with a source the
   caller may read. A connection that was never ingested has no source yet and is hidden.
@@ -1425,5 +1460,5 @@ Summarization is now off by default. To keep entity summaries on 2.0.0a2, set
 `summarization.enabled` to `true` in `config/graph/build.yaml`, then run the 2.0.0a2
 backfill command, `harborrag topology summaries backfill`.
 
-That command exists only in 2.0.0a2. 2.0.0 removed it with the rest of `harborrag topology`,
-so do not run it on 2.0.0 or later.
+That command exists only in 2.0.0a2. 2.0.0 removed it with the rest of
+`harborrag topology`, so do not run it on 2.0.0 or later.

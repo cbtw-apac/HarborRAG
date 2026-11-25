@@ -106,10 +106,11 @@ from one file, and references these protected values:
 | `HARBORRAG_URL` | Optional. Base URL of another OpenAI-compatible endpoint for every family, such as a LiteLLM proxy gateway; the default is `https://api.openai.com/v1` |
 | `HARBORRAG_EMBED_PROVIDER` | Optional. `cohere` when the embedding model is a Cohere model, so HarborRAG sends its `input_type`; the default is `openai_compatible`, and `openai` means the same |
 | `HARBORRAG_RERANKER_MODEL` | Optional. The endpoint's name for a rerank model; set, it makes `retrieval.rerank` available |
-| `HARBORRAG_RERANKER_API_KEY` | Optional. API key for reranking, when the endpoint needs one |
+| `HARBORRAG_RERANKER_API_KEY` | Optional while `HARBORRAG_RERANKER_MODEL` is unset, required once it is set. API key for reranking; a blank one is refused |
 
-The first four are required, and a blank chat or embedding key is refused when its
-client is built; see [What the catalog refuses](model-config.md#what-the-catalog-refuses).
+The first four are required, and a blank chat, embedding or rerank key is refused when
+its client is built; see
+[What the catalog refuses](model-config.md#what-the-catalog-refuses).
 The model values are names the endpoint serves, as its `/models` path lists them.
 Surrounding whitespace, such as a trailing carriage return, is trimmed. Changing
 `HARBORRAG_EMBED_MODEL` or `HARBORRAG_EMBED_PROVIDER` needs a re-index; see
@@ -127,7 +128,7 @@ The MCP server keeps transport and tool policy separate from model policy:
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `HARBORRAG_MCP_CONFIG_PATH` | `config/mcp/server.yaml` | Versioned tool defaults, limits, enablement and tenant overrides |
-| `HARBORRAG_MCP_AUDIT_PATH` | `.harborrag/mcp-audit.jsonl` | Owner-only audit output of the `harborrag-mcp` launch; a server built in Python passes `audit=McpAuditLog(path=...)` |
+| `HARBORRAG_MCP_AUDIT_PATH` | `.harborrag/mcp-audit.jsonl` | Owner-only audit output of the `harborrag-mcp` launch; a relative path is under the home directory. The launch creates a missing directory with mode `0700`, and refuses to start when the directory grants access to other users or belongs to another user. A server built in Python passes `audit=McpAuditLog(path=...)` |
 | `HARBORRAG_MCP_BEARER_TOKEN` | None | Local HTTP owner token; at least 32 bytes |
 | `HARBORRAG_MCP_HOST` | `127.0.0.1` | HTTP bind address. One that is not loopback is refused outside a development container; see `HARBORRAG_MCP_ALLOW_INSECURE_BIND` |
 | `HARBORRAG_MCP_ALLOWED_HOSTS` | None | Comma-separated host names the HTTP server answers besides `127.0.0.1`, `localhost` and `::1`, such as a reverse proxy's |

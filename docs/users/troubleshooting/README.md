@@ -57,8 +57,10 @@ git rev-parse --short HEAD
 | `python -m harborrag_adapters.models validate` reports a missing environment variable | `config/models/models.yaml` expands every `${VARIABLE}` when it loads | Set every variable the selected family uses, for example with `uv run --env-file env/.env.models` |
 | `validate --family rerank` exits 2 with `String should have at least 1 character` | Reranking is off: the shipped rerank section names no model until `HARBORRAG_RERANKER_MODEL` is set | Nothing to fix while you do not rerank; set the variable before you check that family |
 | `model configuration has unknown top-level key(s): …` | The model catalog holds a section other than `chat`, `embed` and `rerank`, such as a misspelled one or the removed `profiles:` | Fix the spelling or remove the section; see [What the catalog refuses](../configuration/model-config.md#what-the-catalog-refuses) |
-| A log or an error says `deployment '…' has an empty api_key; set the variable it reads` | The key variable of that model deployment is set but blank or only whitespace. HarborRAG refuses it when it builds the model's client, instead of letting LiteLLM send another key | Fill the variable in `env/.env.models`, or in the deployment's secret manager, and restart the API, the worker and the MCP server. Only a keyless rerank provider, such as `litellm_proxy`, may leave its key empty |
-| `PATCH /v1/admin/settings` refuses `retrieval.rerank: true` with `422 validation_error` | The model catalog names no rerank model, as the shipped one does not until `HARBORRAG_RERANKER_MODEL` is set, or the API started before it was | Set `HARBORRAG_RERANKER_MODEL` and `HARBORRAG_RERANKER_API_KEY` in `env/.env.models` and restart the API; see [Rerank chat retrieval](../configuration/runtime-settings.md#rerank-chat-retrieval) |
+| A log or an error says `deployment '…' has an empty api_key; set the variable it reads` | The key variable of that model deployment is set but blank or only whitespace. HarborRAG refuses it when it builds the model's client, instead of letting LiteLLM send another key | Fill the variable in `env/.env.models`, or in the deployment's secret manager, and restart the API, the worker and the MCP server |
+| The MCP server stops at startup, or the API fails search and chat, with `HARBORRAG_RERANKER_API_KEY is empty, and the rerank model needs it`; `harborrag doctor` fails its `models catalog` check with the same message | `HARBORRAG_RERANKER_MODEL` is set and the reranker key is blank. Every rerank provider needs a key, even for a gateway that takes rerank calls without one | Set `HARBORRAG_RERANKER_API_KEY` in `env/.env.models`, or unset `HARBORRAG_RERANKER_MODEL` to turn reranking off, then restart the API, the worker and the MCP server |
+| `PATCH /v1/admin/settings` refuses `retrieval.rerank: true` with `422 validation_error` | The model catalog names no rerank model, as the shipped one does not until `HARBORRAG_RERANKER_MODEL` is set, or the API started before it was. A blank `HARBORRAG_RERANKER_API_KEY` has the same effect | Set `HARBORRAG_RERANKER_MODEL` and `HARBORRAG_RERANKER_API_KEY` in `env/.env.models` and restart the API; see [Rerank chat retrieval](../configuration/runtime-settings.md#rerank-chat-retrieval) |
+| The API, the worker, the MCP server or the CLI stops at startup with `HARBORRAG_QDRANT_URL names a port other than 6333, but gRPC would still dial port 6334 on that host` | `HARBORRAG_QDRANT_URL` names another REST port, such as a mapped `16333`, while gRPC is preferred and `HARBORRAG_QDRANT_GRPC_PORT` is unset, so gRPC would reach port 6334, which can belong to another Qdrant | Wherever `HARBORRAG_QDRANT_URL` is set, set `HARBORRAG_QDRANT_GRPC_PORT` to the gRPC port of the same Qdrant, or `HARBORRAG_QDRANT_PREFER_GRPC=false`. For the Compose API and worker, that is `env/.env.temporal`; see [Ingestion runtime environment](../configuration/config-file-reference.md#ingestion-runtime-environment) |
 | `Enabled parser definitions '…' and '…' both configure family 'pdf'` | More than one enabled definition replaces the same parser | Enable only one definition per parser family |
 | Unknown fields are rejected | Configuration models use strict validation | Fix the spelling, or move Python-only callbacks into code overrides |
 
@@ -131,15 +133,17 @@ finish, deploy the current worker, and retry its retryable document failures wit
 ### A stopped ingestion still answers `409 already_running`
 
 Stop an ingestion with `POST /v1/admin/ingestions/{ingestion_id}/cancel` or
-`uv run harborrag ingestions cancel INGESTION_ID`, not with Terminate in the Temporal UI. A
-terminated workflow never records its end, so the run stays `running`.
+`uv run harborrag ingestions cancel INGESTION_ID`, not with Terminate in the Temporal
+UI. A terminated workflow never records its end, so the run stays `running`.
 
-Before HarborRAG refuses a start, it asks Temporal about the running ingestion. A run whose
-workflow ended is recorded as `cancelled` (terminated or cancelled) or `failed` (failed,
-timed out, or completed without recording its end), and the start goes ahead. Removing
-the connection or cancelling the run does the same; until one of these happens, the run
-still reads `running`. A run that Temporal reports as running or paused, or cannot
-describe, still blocks its connection.
+Before HarborRAG refuses a start, it asks Temporal about the running ingestion. A run
+whose workflow ended is recorded as `cancelled` (terminated or cancelled) or `failed`
+(failed, timed out, or completed without recording its end), and the start goes ahead.
+Removing the connection or cancelling the run does the same; until one of these
+happens, the run still reads `running`. A run that Temporal reports as running or
+paused, or cannot describe, still blocks its connection. The `409` names the blocking
+run in `details.ingestion_id`, also for `ingestions start --inline`. It is `null` when
+another start of the same connection is still registering its run.
 
 A run whose workflow Temporal no longer has, for example after its history passed the
 namespace retention, stays `running` until you cancel it. Cancelling a running or paused
@@ -158,6 +162,7 @@ Chat answers over HTTP and the CLI only; the MCP server exposes retrieval tools 
 | HTTP chat returns `503 llm_unavailable` | Model configuration, credentials, provider reachability or a provider limit failed; provider details are not returned to callers | Read the API logs, and check the chat family with `uv run --env-file env/.env.models python -m harborrag_adapters.models validate config/models/models.yaml --family chat` |
 | The API answers `503 dependency_unavailable` | A store, such as Qdrant, FalkorDB or the S3 object store (MinIO), is down or timing out. `details.dependency` names it when known | Start or fix the store; `uv run harborrag doctor` checks each one. Ingestion retries such failures on its own |
 | An MCP client gets JSON-RPC error `-32000` from `/mcp`, or `/api/tools` answers `429` with a `Retry-After` header | The credential sent more than `HARBORRAG_MCP_RATE_LIMIT` requests per second (10 by default), or had more than `HARBORRAG_MCP_MAX_INFLIGHT` requests running at once (4 by default). Both limits count `/mcp` and `/api/tools` together | Retry after the wait, or slow the client down. To raise a limit, set its variable in `env/.env.mcp` and restart the server; `0` turns that limit off. See [MCP runtime environment](../configuration/config-file-reference.md#mcp-runtime-environment) |
+| `harborrag-mcp` exits at startup with `durable MCP audit directory must be owner-only (mode 0700)`, or `durable MCP audit directory must be owned by this process user` | The directory of the durable audit file, `~/.harborrag` unless `HARBORRAG_MCP_AUDIT_PATH` names another, grants access to other users or belongs to another user. An earlier `harborrag auth keys create` or SharePoint sign-in may have created it with a mode such as 0755 | Run `chmod 700` on the directory the message names, as its owner, or set `HARBORRAG_MCP_AUDIT_PATH` to a file in an owner-only directory. HarborRAG never changes the mode of an existing directory |
 | MCP appears to do nothing when started in a terminal | The stdio MCP server waits for a client over pipes and has no port or prompt | Run `scripts/deployment/mcp.sh --check`, or start it with `--http` and open `http://127.0.0.1:8010/` |
 | `mcp.sh --http` prints `HarborRAG MCP preflight failed` and starts nothing | A setting or backend the server needs at start-up is missing or unreachable. The line names it, and a `Note:` line above it lists model variables that no env file sets | Fix what the line names and run the command again; see [Checks before the HTTP server starts](../detailed-guides/mcp-server/setup-and-integration.md#checks-before-the-http-server-starts) |
 | The MCP HTTP server answers `421 Misdirected Request` or `403 Forbidden Origin` | The request is addressed to a host name other than `127.0.0.1`, `localhost` or `::1`, for example through a reverse proxy, or it comes from a page on another origin | Call the server by a loopback name, or list the proxy's host name in `HARBORRAG_MCP_ALLOWED_HOSTS`, with `HARBORRAG_MCP_AUTH_MODE=api_key`, and restart it |

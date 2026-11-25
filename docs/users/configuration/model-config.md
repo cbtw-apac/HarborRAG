@@ -227,8 +227,10 @@ uses.
 ## Environment and secret references
 
 `${NAME}` is required. `${NAME:-default}` supplies a default; reserve it for values
-that are not secret. References expand while the catalog loads, so a missing required
-variable fails validation before any provider call.
+that are not secret. The shipped rerank section reads `${HARBORRAG_RERANKER_API_KEY:-}`
+only so that the key may stay unset while reranking is off. References expand while the
+catalog loads, so a missing required variable fails validation before any provider
+call.
 
 The catalog loaders do not read `.env` files. In a checkout the CLI loads
 `env/.env.models` itself and Compose passes it to the containers; anywhere else,
@@ -262,10 +264,10 @@ send a credential where it does not belong:
   Otherwise LiteLLM would send an ambient key, such as `OPENAI_API_KEY` or
   `COHERE_API_KEY`, to the configured endpoint. Every chat, embedding and rerank
   provider refuses it, `litellm_proxy`, `vllm` and `infinity` included. A rerank
-  model's key is also checked when retrieval connects, and that error names the empty
-  variable, such as `HARBORRAG_RERANKER_API_KEY`. The `litellm_proxy` chat backend's
-  own key, `chat.backend.proxy.api_key`, is trimmed the same way and must not be empty
-  either. It fails when the catalog loads.
+  model's key is also checked when retrieval connects and by `harborrag doctor`, and
+  that error names the empty variable, such as `HARBORRAG_RERANKER_API_KEY`. The
+  `litellm_proxy` chat backend's own key, `chat.backend.proxy.api_key`, is trimmed the
+  same way and must not be empty either. It fails when the catalog loads.
 - **Credential headers.** A header whose name contains `key`, `token`, `auth`,
   `secret`, `signature` or `cookie`, in any case, counts as a credential: its value is
   masked in printed and rendered configuration. A request's own headers with such a
@@ -308,8 +310,10 @@ AWS_REGION=us-east-1 COHERE_API_KEY=placeholder \
 
 `harborrag doctor` also loads the catalog: its `models catalog` check fails on a
 catalog the loader refuses, and names each `${NAME}` reference whose variable is
-blank. A reference with a default, such as `${HARBORRAG_RERANKER_API_KEY:-}`, is not
-checked.
+blank. That scan skips a reference with a default, such as
+`${HARBORRAG_RERANKER_API_KEY:-}`, but once `HARBORRAG_RERANKER_MODEL` names a rerank
+model, the check also fails on a blank reranker key, with the message the API and the
+MCP server give: `HARBORRAG_RERANKER_API_KEY is empty, and the rerank model needs it`.
 
 ## How the application uses the catalog
 
