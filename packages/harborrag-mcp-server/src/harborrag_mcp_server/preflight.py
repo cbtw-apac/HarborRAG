@@ -48,7 +48,9 @@ def describe_startup_failure(error: BaseException) -> str:
     message and may quote what it rejects, so a message that shares a run of
     eight characters with a rejected value is replaced by the error type. An
     error raised while the lifespan is running arrives in an exception group, so
-    the first member is described.
+    the first member is described. An error raised from another one ends with the
+    class of the first error in the chain, such as a refused database login, but
+    never with its message.
     """
     while isinstance(error, BaseExceptionGroup) and error.exceptions:
         error = error.exceptions[0]
@@ -59,7 +61,20 @@ def describe_startup_failure(error: BaseException) -> str:
         message = " ".join(str(error).split())
         name = type(error).__name__
         description = f"{name}: {message}" if message else name
+        root = _root_cause(error)
+        if root is not None and type(root) is not type(error):
+            description += f" (cause: {type(root).__name__})"
     return description[:_MAX_DESCRIPTION_CHARACTERS]
+
+
+def _root_cause(error: BaseException) -> BaseException | None:
+    """Return the first error of the ``raise ... from`` chain that ends in ``error``."""
+    seen = {id(error)}
+    cause = error.__cause__
+    while cause is not None and cause.__cause__ is not None and id(cause.__cause__) not in seen:
+        seen.add(id(cause))
+        cause = cause.__cause__
+    return cause
 
 
 def _field_problem(detail: ErrorDetails) -> str:
