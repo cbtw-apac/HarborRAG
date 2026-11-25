@@ -51,7 +51,10 @@ _FALLBACK_TARGETS = {
 _START_HINTS = {
     "control": "check HARBORRAG_CONTROL_DB_URL",
     "object_store": "check HARBORRAG_OBJECT_STORE_* credentials and that MinIO is running",
-    "vector": "start Qdrant or set HARBORRAG_QDRANT_PREFER_GRPC=false to use HTTP",
+    "vector": (
+        "start Qdrant, check HARBORRAG_QDRANT_GRPC_PORT, or set "
+        "HARBORRAG_QDRANT_PREFER_GRPC=false to use HTTP"
+    ),
     "graph": "start FalkorDB",
 }
 

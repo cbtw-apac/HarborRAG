@@ -213,7 +213,10 @@ def resource_hints(settings: RuntimeSettings) -> dict[str, str]:
     if settings.vector_provider != "qdrant":
         vector = "check the configuration of HARBORRAG_VECTOR_PROVIDER"
     elif settings.qdrant_prefer_grpc:
-        vector = "start Qdrant or set HARBORRAG_QDRANT_PREFER_GRPC=false to use HTTP"
+        vector = (
+            "start Qdrant, check HARBORRAG_QDRANT_GRPC_PORT, or set "
+            "HARBORRAG_QDRANT_PREFER_GRPC=false to use HTTP"
+        )
     else:
         vector = "start Qdrant and check HARBORRAG_QDRANT_URL"
     graph = (
