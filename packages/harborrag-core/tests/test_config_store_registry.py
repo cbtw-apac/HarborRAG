@@ -12,7 +12,28 @@ from harborrag_core.contracts.errors import HarborValidationError
 
 pytestmark = pytest.mark.unit
 
-NINE_KEYS = (
+CAPTURE_FILE_TYPES = [
+    ".md",
+    ".markdown",
+    ".txt",
+    ".pdf",
+    ".docx",
+    ".doc",
+    ".epub",
+    ".odt",
+    ".pptx",
+    ".csv",
+    ".xlsx",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".html",
+]
+
+TWELVE_KEYS = (
+    "capture.file_types",
+    "capture.max_document_mb",
+    "capture.max_pdf_pages",
     "chunking.max_tokens",
     "ingestion.activity_timeout",
     "ingestion.batch_size",
@@ -25,8 +46,8 @@ NINE_KEYS = (
 )
 
 
-def test_registry_holds_exactly_the_nine_keys() -> None:
-    assert SettingsRegistry.default().keys() == NINE_KEYS
+def test_registry_holds_exactly_the_twelve_keys() -> None:
+    assert SettingsRegistry.default().keys() == TWELVE_KEYS
 
 
 def test_defaults_match_todays_knobs() -> None:
@@ -34,7 +55,20 @@ def test_defaults_match_todays_knobs() -> None:
 
     defaults = [registry.definition(key).default for key in registry.keys()]
 
-    assert defaults == [1200, "PT10M", 50, 8, 3, None, "liteparse", False, 5]
+    assert defaults == [
+        CAPTURE_FILE_TYPES,
+        20,
+        200,
+        1200,
+        "PT10M",
+        50,
+        8,
+        3,
+        None,
+        "liteparse",
+        False,
+        5,
+    ]
 
 
 def test_levels_and_applies() -> None:
@@ -49,6 +83,7 @@ def test_json_schema_groups_hold_every_key_once() -> None:
 
     assert [(group["name"], group["title"]) for group in groups] == [
         ("retrieval", "Retrieval"),
+        ("capture", "Capture"),
         ("parsing", "Parsing"),
         ("chunking", "Chunking"),
         ("ingestion", "Ingestion"),
@@ -56,8 +91,31 @@ def test_json_schema_groups_hold_every_key_once() -> None:
     ]
     entries = {entry["key"]: entry for group in groups for entry in group["settings"]}
     assert sorted(entry["key"] for group in groups for entry in group["settings"]) == sorted(
-        NINE_KEYS
+        TWELVE_KEYS
     )
+    assert entries["capture.max_document_mb"] == {
+        "key": "capture.max_document_mb",
+        "type": "integer",
+        "default": 20,
+        "min": 1,
+        "max": 100,
+        "levels": ["tenant", "project", "connection"],
+        "applies": "next_ingestion",
+        "description": entries["capture.max_document_mb"]["description"],
+    }
+    assert entries["capture.file_types"]["type"] == "array"
+    assert entries["capture.file_types"]["default"] == CAPTURE_FILE_TYPES
+    assert "min" not in entries["capture.file_types"]
+    assert entries["capture.max_pdf_pages"] == {
+        "key": "capture.max_pdf_pages",
+        "type": "integer",
+        "default": 200,
+        "min": 1,
+        "max": 2000,
+        "levels": ["tenant", "project", "connection"],
+        "applies": "next_ingestion",
+        "description": entries["capture.max_pdf_pages"]["description"],
+    }
     assert entries["chunking.max_tokens"] == {
         "key": "chunking.max_tokens",
         "type": "integer",

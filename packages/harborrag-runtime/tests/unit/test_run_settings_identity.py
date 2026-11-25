@@ -80,6 +80,20 @@ def test_run_settings_json_round_trip() -> None:
     assert RunSettings.from_json(None) is None
 
 
+def test_run_settings_json_round_trip_with_capture_overrides() -> None:
+    settings = RunSettings(
+        "rev_3",
+        max_document_mb=5,
+        file_types=(".pdf", ".docx"),
+        max_pdf_pages=10,
+    )
+
+    rebuilt = RunSettings.from_json(settings.to_json())
+
+    assert rebuilt == settings
+    assert rebuilt.file_types == (".pdf", ".docx")
+
+
 def test_catalog_pdf_selection(tmp_path: Path) -> None:
     path = tmp_path / "parsers.yaml"
     path.write_text(
@@ -136,6 +150,29 @@ async def test_resolver_reports_overrides_only() -> None:
     )
 
     assert run_settings == RunSettings("rev_3", None, 256, None)
+
+
+@pytest.mark.asyncio
+async def test_resolver_reports_capture_overrides() -> None:
+    snapshot = SettingsSnapshot(
+        "tenant-a",
+        5,
+        {
+            "connection:p1/c1": {
+                "capture.max_document_mb": 5,
+                "capture.file_types": [".pdf", ".docx"],
+                "capture.max_pdf_pages": 10,
+            }
+        },
+    )
+
+    run_settings = await RunSettingsResolver(_FixedProvider(snapshot)).for_connection(
+        tenant_id="tenant-a", project_id="p1", connection_id="c1"
+    )
+
+    assert run_settings.max_document_mb == 5
+    assert run_settings.file_types == (".pdf", ".docx")
+    assert run_settings.max_pdf_pages == 10
 
 
 def test_build_registry_swaps_in_the_selected_pdf_definition(tmp_path: Path) -> None:

@@ -134,6 +134,7 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
                 configuration_fingerprint=require_fingerprint(
                     planned.request.configuration_fingerprint
                 ),
+                run_settings=planned.request.run_settings,
             )
             result = await heartbeat_while(
                 self._runtime.stages.preparation.fetch_and_capture(

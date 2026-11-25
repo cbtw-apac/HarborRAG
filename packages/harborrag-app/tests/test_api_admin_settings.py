@@ -302,6 +302,7 @@ def test_schema_lists_registry_by_group(env: _Env) -> None:
     groups = response.json()["groups"]
     assert [(group["name"], group["title"]) for group in groups] == [
         ("retrieval", "Retrieval"),
+        ("capture", "Capture"),
         ("parsing", "Parsing"),
         ("chunking", "Chunking"),
         ("ingestion", "Ingestion"),

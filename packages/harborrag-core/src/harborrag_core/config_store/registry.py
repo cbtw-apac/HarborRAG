@@ -34,6 +34,7 @@ BOOT_ONLY_PREFIXES: tuple[str, ...] = (
 
 GROUP_TITLES: Mapping[str, str] = {
     "retrieval": "Retrieval",
+    "capture": "Capture",
     "parsing": "Parsing",
     "chunking": "Chunking",
     "ingestion": "Ingestion",
@@ -41,6 +42,24 @@ GROUP_TITLES: Mapping[str, str] = {
 }
 
 _SCHEMA_KEYS = ("type", "minimum", "maximum", "enum", "pattern")
+
+_CAPTURE_FILE_TYPES: tuple[str, ...] = (
+    ".md",
+    ".markdown",
+    ".txt",
+    ".pdf",
+    ".docx",
+    ".doc",
+    ".epub",
+    ".odt",
+    ".pptx",
+    ".csv",
+    ".xlsx",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".html",
+)
 
 
 def is_boot_only(key: str) -> bool:
@@ -66,6 +85,30 @@ class RetrievalGroup(StrictModel):
         False,
         description="Rerank chat retrieval passages with the model catalog's rerank model",
         json_schema_extra=_extra(["tenant", "project"], "live"),
+    )
+
+
+class CaptureGroup(StrictModel):
+    """Capture settings."""
+
+    max_document_mb: int = Field(
+        20,
+        ge=1,
+        le=100,
+        description="Largest document size in megabytes a capture will fetch",
+        json_schema_extra=_extra(["tenant", "project", "connection"], "next_ingestion"),
+    )
+    file_types: list[str] = Field(
+        list(_CAPTURE_FILE_TYPES),
+        description="File extensions a capture will fetch",
+        json_schema_extra=_extra(["tenant", "project", "connection"], "next_ingestion"),
+    )
+    max_pdf_pages: int = Field(
+        200,
+        ge=1,
+        le=2000,
+        description="Largest page count a PDF may have before it is rejected",
+        json_schema_extra=_extra(["tenant", "project", "connection"], "next_ingestion"),
     )
 
 
@@ -135,6 +178,7 @@ class ModelsGroup(StrictModel):
 
 SETTINGS_GROUPS: Mapping[str, type[StrictModel]] = {
     "retrieval": RetrievalGroup,
+    "capture": CaptureGroup,
     "parsing": ParsingGroup,
     "chunking": ChunkingGroup,
     "ingestion": IngestionGroup,

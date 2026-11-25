@@ -162,6 +162,7 @@ class SourceActivitiesMixin:
                 tenant_id=source.tenant_id,
                 task_id=source.task_id,
                 configuration_fingerprint=source.configuration_fingerprint,
+                run_settings=source.run_settings,
             )
             health = self._runtime.connection_health
             try:

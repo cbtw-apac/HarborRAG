@@ -18,6 +18,7 @@ from harborrag_adapters.models.embed import HarborEmbedClient
 from harborrag_adapters.repositories.database import IngestionControlPlaneDatabase
 from harborrag_adapters.repositories.object_store import ARTIFACT_BUCKET, RAW_BUCKET
 from harborrag_core.ingestion import ProcessingProfile
+from harborrag_core.ingestion.run_contracts import RunSettings
 from harborrag_core.ports import KnowledgeGraphRepositoryPort
 from harborrag_core.ports.storage import ObjectStorePort, VectorRepositoryPort
 from harborrag_engine.ingestion.maintenance.cleanup import ProjectionCleanupService
@@ -226,6 +227,7 @@ class IngestionRuntime:
         tenant_id: str,
         task_id: str,
         configuration_fingerprint: str,
+        run_settings: RunSettings | None = None,
     ) -> HarborConnector:
         """Return the run's connector, built from the snapshot the run started with.
 
@@ -233,6 +235,8 @@ class IngestionRuntime:
             tenant_id: Tenant of the run.
             task_id: The run; every activity of one run shares its connector.
             configuration_fingerprint: Fingerprint of the run's connection snapshot.
+            run_settings: The run's pinned settings; its ``capture.*`` overrides
+                narrow the connection's own size/extension ceiling.
 
         Returns:
             The connector facade.
@@ -245,6 +249,7 @@ class IngestionRuntime:
             tenant_id=tenant_id,
             task_id=task_id,
             configuration_fingerprint=configuration_fingerprint,
+            run_settings=run_settings,
         )
 
     async def _close_connection_stores(self) -> None:

@@ -130,7 +130,34 @@ def test_selected_backend_registry_is_built_once() -> None:
 
     assert tools.parser_for(run) is registry
     assert tools.parser_for(run) is registry
-    catalog.build_registry.assert_called_once_with(pdf_definition="pdf-docling")
+    catalog.build_registry.assert_called_once_with(pdf_definition="pdf-docling", max_pages=None)
+
+
+def test_max_pdf_pages_alone_builds_a_capped_registry_on_the_enabled_backend() -> None:
+    registry = object()
+    catalog = SimpleNamespace(
+        enabled_pdf_backend=lambda: "liteparse",
+        pdf_definition_for=lambda backend: "pdf-liteparse",
+        build_registry=Mock(return_value=registry),
+    )
+    tools = _run_tools(parsers=catalog)
+    run = RunSettings("rev_1", max_pdf_pages=5)
+
+    assert tools.parser_for(run) is registry
+    assert tools.parser_for(run) is registry
+    catalog.build_registry.assert_called_once_with(pdf_definition="pdf-liteparse", max_pages=5)
+
+
+def test_max_pdf_pages_without_a_single_engine_boot_definition_keeps_base_parser() -> None:
+    catalog = SimpleNamespace(
+        enabled_pdf_backend=lambda: None,
+        pdf_definition_for=lambda backend: None,
+        build_registry=Mock(),
+    )
+    tools = _run_tools(parsers=catalog)
+
+    assert tools.parser_for(RunSettings("rev_1", max_pdf_pages=5)) is tools._parser
+    catalog.build_registry.assert_not_called()
 
 
 @pytest.mark.asyncio

@@ -6,6 +6,7 @@ import http.server
 import threading
 from collections.abc import Iterator
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -22,6 +23,7 @@ from harborrag_core.testing.control_plane_fakes import (
     FakeConnectionRepository,
     FakeConnectionRevisionRepository,
 )
+from harborrag_core.ingestion.run_contracts import RunSettings
 from harborrag_core.testing.fakes import FakeSecrets
 from harborrag_runtime.config.connectors.models import ConnectionValidationError
 from harborrag_runtime.config.errors import ConnectorConfigurationError
@@ -32,6 +34,7 @@ from harborrag_runtime.ingestion.connections import (
     ConnectionResolver,
     ConnectionUnavailableError,
     ConnectorPool,
+    _narrow_capture_limits,
     build_connector,
 )
 from runtime_ingestion.connection_support import connection_row
@@ -175,6 +178,40 @@ async def test_activities_of_one_run_share_a_connector_and_each_run_gets_its_own
 
 
 @pytest.mark.asyncio
+async def test_whichever_activity_builds_the_connector_first_pins_its_capture_narrowing(
+    stores: Any,
+) -> None:
+    """Every activity of one run shares the pool's cached connector (see the test
+
+    above), so whichever activity happens to build it first -- discovery, a direct
+    fetch, or a retry -- must already pass the run's pinned ``run_settings``: a later
+    call in the same run that omits it does NOT widen the narrowing back, since the
+    cached connector from the first call is reused unchanged.
+    """
+    connections, revisions = stores
+    await _github(connections)
+    resolved = await ConnectionResolver(connections, revisions).resolve(
+        tenant_id="tenant-1", source_key="handbook"
+    )
+    pool = _pool(revisions)
+
+    discovery = await pool.connector(
+        tenant_id="tenant-1",
+        task_id="run-1",
+        configuration_fingerprint=resolved.fingerprint,
+        run_settings=RunSettings("rev_1", max_document_mb=1),
+    )
+    fetch = await pool.connector(
+        tenant_id="tenant-1",
+        task_id="run-1",
+        configuration_fingerprint=resolved.fingerprint,
+    )
+
+    assert discovery is fetch
+    assert fetch.provider.config.max_file_size_bytes == 1024 * 1024
+
+
+@pytest.mark.asyncio
 async def test_the_pool_closes_connectors_it_evicts_and_on_shutdown(
     stores: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -240,6 +277,63 @@ def test_build_connector_rejects_extensions_no_parser_can_read(tmp_path: Path) -
 
     message = str(raised.value)
     assert ".rtf" in message and ".xyz" in message and ".md" not in message
+
+
+def test_capture_max_document_mb_narrows_but_never_raises_the_connection_ceiling(
+    tmp_path: Path,
+) -> None:
+    from runtime_ingestion.connection_support import resolved_connection
+
+    resolved = resolved_connection(
+        "local_file", config={"source_path": str(tmp_path), "max_file_size_bytes": 10_000_000}
+    )
+
+    narrower = build_connector(
+        resolved.snapshot, {}, run_settings=RunSettings("rev_1", max_document_mb=5)
+    )
+    assert narrower.provider.config.max_file_size_bytes == 5 * 1024 * 1024
+
+    wider = build_connector(
+        resolved.snapshot, {}, run_settings=RunSettings("rev_1", max_document_mb=50)
+    )
+    assert wider.provider.config.max_file_size_bytes == 10_000_000
+
+    unchanged = build_connector(resolved.snapshot, {})
+    assert unchanged.provider.config.max_file_size_bytes == 10_000_000
+
+
+def test_capture_file_types_narrows_allowed_extensions_to_the_intersection(
+    tmp_path: Path,
+) -> None:
+    from runtime_ingestion.connection_support import resolved_connection
+
+    resolved = resolved_connection(
+        "local_file",
+        config={"source_path": str(tmp_path), "allowed_extensions": [".md", ".pdf", ".docx"]},
+    )
+
+    connector = build_connector(
+        resolved.snapshot, {}, run_settings=RunSettings("rev_1", file_types=(".pdf", ".xyz"))
+    )
+
+    assert connector.provider.config.allowed_extensions == {".pdf"}
+
+
+def test_narrow_capture_limits_uses_the_attachment_field_name_when_present() -> None:
+    config = SimpleNamespace(max_attachment_size_bytes=10_000_000)
+
+    _narrow_capture_limits(config, RunSettings("rev_1", max_document_mb=5))
+
+    assert config.max_attachment_size_bytes == 5 * 1024 * 1024
+
+
+def test_narrow_capture_limits_is_a_noop_without_run_settings() -> None:
+    config = SimpleNamespace(max_file_size_bytes=10_000_000, allowed_extensions={".pdf"})
+
+    _narrow_capture_limits(config, None)
+
+    assert config.max_file_size_bytes == 10_000_000
+    assert config.allowed_extensions == {".pdf"}
 
 
 @pytest.mark.asyncio

@@ -65,6 +65,9 @@ class RunSettings:
         activity_timeout_seconds: Document activity start-to-close timeout override.
         max_attempts: Document activity retry count override.
         batch_size: Documents per batch workflow override.
+        max_document_mb: Largest document size in megabytes a capture will fetch.
+        file_types: File extensions a capture will fetch.
+        max_pdf_pages: Largest PDF page count a capture will accept.
     """
 
     settings_revision: str
@@ -74,6 +77,9 @@ class RunSettings:
     activity_timeout_seconds: int | None = None
     max_attempts: int | None = None
     batch_size: int | None = None
+    max_document_mb: int | None = None
+    file_types: tuple[str, ...] | None = None
+    max_pdf_pages: int | None = None
 
     def to_json(self) -> dict[str, object]:
         """Return the JSON-safe form stored in task requests and plans."""
@@ -85,6 +91,9 @@ class RunSettings:
             "activity_timeout_seconds": self.activity_timeout_seconds,
             "max_attempts": self.max_attempts,
             "batch_size": self.batch_size,
+            "max_document_mb": self.max_document_mb,
+            "file_types": list(self.file_types) if self.file_types is not None else None,
+            "max_pdf_pages": self.max_pdf_pages,
         }
 
     @classmethod
@@ -99,6 +108,9 @@ class RunSettings:
         activity_timeout_seconds = value.get("activity_timeout_seconds")
         max_attempts = value.get("max_attempts")
         batch_size = value.get("batch_size")
+        max_document_mb = value.get("max_document_mb")
+        file_types = value.get("file_types")
+        max_pdf_pages = value.get("max_pdf_pages")
         if (
             not isinstance(revision, str)
             or not (pdf_parser is None or isinstance(pdf_parser, str))
@@ -107,6 +119,15 @@ class RunSettings:
             or not (activity_timeout_seconds is None or isinstance(activity_timeout_seconds, int))
             or not (max_attempts is None or isinstance(max_attempts, int))
             or not (batch_size is None or isinstance(batch_size, int))
+            or not (max_document_mb is None or isinstance(max_document_mb, int))
+            or not (
+                file_types is None
+                or (
+                    isinstance(file_types, list)
+                    and all(isinstance(item, str) for item in file_types)
+                )
+            )
+            or not (max_pdf_pages is None or isinstance(max_pdf_pages, int))
         ):
             return None
         return cls(
@@ -117,6 +138,9 @@ class RunSettings:
             activity_timeout_seconds,
             max_attempts,
             batch_size,
+            max_document_mb,
+            tuple(file_types) if file_types is not None else None,
+            max_pdf_pages,
         )
 
 

@@ -160,6 +160,7 @@ def build_connector(
     parser: HarborParserRegistry | None = None,
     rate_limiter: ConnectorRateLimiter | None = None,
     destination_policy: DestinationPolicy | None = None,
+    run_settings: RunSettings | None = None,
 ) -> HarborConnector:
     """Construct the connector a snapshot describes.
 
@@ -170,6 +171,8 @@ def build_connector(
         rate_limiter: Shared limiter for connectors that use one.
         destination_policy: Hosts connectors may reach beyond public addresses; without
             one, connectors reach public addresses only.
+        run_settings: The run's pinned settings; its ``capture.*`` overrides narrow the
+            connection's own size/extension ceiling.
 
     Returns:
         A ready-to-connect connector facade.
@@ -188,6 +191,7 @@ def build_connector(
         parser=parser,
         rate_limiter=rate_limiter,
         destination_policy=destination_policy,
+        run_settings=run_settings,
     )
 
 
@@ -202,6 +206,7 @@ def build_connector_from_parts(  # noqa: PLR0913 - the parts of one connection
     parser: HarborParserRegistry | None = None,
     rate_limiter: ConnectorRateLimiter | None = None,
     destination_policy: DestinationPolicy | None = None,
+    run_settings: RunSettings | None = None,
 ) -> HarborConnector:
     """Construct a connector from validated parts; credentials may hold raw values.
 
@@ -223,6 +228,7 @@ def build_connector_from_parts(  # noqa: PLR0913 - the parts of one connection
         .tenant(tenant_id)
         .build()
     )
+    _narrow_capture_limits(config_object, run_settings)
     if parser is not None:
         _require_parseable_extensions(spec.source_type, config, parser)
     available: dict[str, object | None] = {
@@ -237,6 +243,40 @@ def build_connector_from_parts(  # noqa: PLR0913 - the parts of one connection
         if available.get(dependency) is not None
     }
     return HarborConnector(spec.provider, config=config_object, **kwargs)
+
+
+_CAPTURE_SIZE_FIELDS = ("max_file_size_bytes", "max_attachment_size_bytes")
+
+
+def _narrow_capture_limits(config_object: object, run_settings: RunSettings | None) -> None:
+    """Narrow a connector's own size/extension ceiling with the run's pinned capture settings.
+
+    The connection's stored config is a ceiling a run can only narrow, the same
+    rule ``_effective_query`` applies to query filters: ``capture.max_document_mb``/
+    ``capture.file_types`` can lower it further, never raise it past what the
+    connection itself configures.
+    """
+    if run_settings is None:
+        return
+    if run_settings.max_document_mb is not None:
+        override_bytes = run_settings.max_document_mb * 1024 * 1024
+        for field_name in _CAPTURE_SIZE_FIELDS:
+            if hasattr(config_object, field_name):
+                current = getattr(config_object, field_name)
+                setattr(
+                    config_object,
+                    field_name,
+                    override_bytes if current is None else min(current, override_bytes),
+                )
+    if run_settings.file_types is not None and hasattr(config_object, "allowed_extensions"):
+        allowed = {normalize_extension(extension) for extension in run_settings.file_types}
+        current_extensions = getattr(config_object, "allowed_extensions")
+        narrowed = set(current_extensions) & allowed if current_extensions else allowed
+        setattr(
+            config_object,
+            "allowed_extensions",
+            type(current_extensions)(narrowed) if current_extensions is not None else narrowed,
+        )
 
 
 def _require_parseable_extensions(
@@ -295,7 +335,12 @@ class ConnectorPool:
         self._locks: dict[tuple[str, str, str], asyncio.Lock] = {}
 
     async def connector(
-        self, *, tenant_id: str, task_id: str, configuration_fingerprint: str
+        self,
+        *,
+        tenant_id: str,
+        task_id: str,
+        configuration_fingerprint: str,
+        run_settings: RunSettings | None = None,
     ) -> HarborConnector:
         """Return the run's connector, building it from its snapshot on first use.
 
@@ -310,7 +355,7 @@ class ConnectorPool:
         async with self._locks.setdefault(key, asyncio.Lock()):
             connector = self._entries.get(key)
             if connector is None:
-                connector = await self._build(tenant_id, configuration_fingerprint)
+                connector = await self._build(tenant_id, configuration_fingerprint, run_settings)
                 self._entries[key] = connector
                 await self._evict()
         self._locks.pop(key, None)
@@ -339,7 +384,9 @@ class ConnectorPool:
         self._entries.clear()
         await asyncio.gather(*(asyncio.to_thread(c.close) for c in entries), return_exceptions=True)
 
-    async def _build(self, tenant_id: str, fingerprint: str) -> HarborConnector:
+    async def _build(
+        self, tenant_id: str, fingerprint: str, run_settings: RunSettings | None = None
+    ) -> HarborConnector:
         """Load the snapshot, resolve its secrets and construct the connector."""
         snapshot = await self.snapshot(tenant_id=tenant_id, configuration_fingerprint=fingerprint)
         secret_values = await self._secrets.resolve_credentials(
@@ -352,6 +399,7 @@ class ConnectorPool:
             parser=self._parser,
             rate_limiter=self._rate_limiter,
             destination_policy=self._destination_policy,
+            run_settings=run_settings,
         )
         logger.info(
             "Connection connector built source_type=%s fingerprint=%s",

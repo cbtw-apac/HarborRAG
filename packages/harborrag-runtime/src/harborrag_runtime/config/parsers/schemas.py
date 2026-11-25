@@ -295,6 +295,7 @@ class ParserCatalog:
         *,
         environment: Mapping[str, str] | None = None,
         pdf_definition: str | None = None,
+        max_pages: int | None = None,
     ) -> HarborParserRegistry:
         """Build the default parser registry with the enabled definitions in place.
 
@@ -308,6 +309,8 @@ class ParserCatalog:
             environment: Source of referenced variables; ``os.environ`` when None.
             pdf_definition: Definition, enabled or not, that stands in for the
                 enabled ``pdf`` one.
+            max_pages: ``capture.max_pdf_pages`` override applied to whichever
+                ``pdf`` definition is built; other families are unaffected.
 
         Returns:
             A new registry of default and configured families.
@@ -326,7 +329,12 @@ class ParserCatalog:
             definitions[pdf_definition] = selected
         configured: dict[str, tuple[str, HarborParser]] = {}
         for config_name, definition in definitions.items():
-            parser = definition.build(environment=environment)
+            overrides = (
+                {"max_pages": max_pages}
+                if max_pages is not None and definition.parser == "pdf"
+                else None
+            )
+            parser = definition.build(environment=environment, overrides=overrides)
             existing = configured.get(parser.parser_name)
             if existing is not None:
                 raise ParserConfigurationError(

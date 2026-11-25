@@ -44,6 +44,9 @@ class RunSettingsResolver:
             ),
             max_attempts=_integer(effective.override("ingestion.max_attempts")),
             batch_size=_integer(effective.override("ingestion.batch_size")),
+            max_document_mb=_integer(effective.override("capture.max_document_mb")),
+            file_types=_strings(effective.override("capture.file_types")),
+            max_pdf_pages=_integer(effective.override("capture.max_pdf_pages")),
         )
 
 
@@ -53,3 +56,9 @@ def _text(value: object) -> str | None:
 
 def _integer(value: object) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _strings(value: object) -> tuple[str, ...] | None:
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        return None
+    return tuple(value)
