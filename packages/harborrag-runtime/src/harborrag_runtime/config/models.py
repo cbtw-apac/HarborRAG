@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
-import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-
-_VARIABLE_REFERENCE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)")
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,45 +65,26 @@ def has_rerank_model(path: str | Path) -> bool:
             it, because LiteLLM would send an ambient key such as ``COHERE_API_KEY``
             instead. The message names the variable, never a value.
     """
-    from harborrag_adapters.models.runtime import expand_environment, load_config_document
+    from harborrag_adapters.models.runtime import catalog_has_rerank_model, load_config_document
 
-    document = load_config_document(path)
-    if "rerank" not in document:
-        return False
-    deployments = _rerank_deployments(document["rerank"])
-    if deployments is None:
-        return True
-    named = [item for item in deployments if str(expand_environment(item["model"])).strip()]
-    for deployment in named:
-        _require_rerank_key(deployment)
-    return bool(named)
+    return catalog_has_rerank_model(load_config_document(path))
 
 
-def _rerank_deployments(section: object) -> list[Mapping[str, Any]] | None:
-    """Return the rerank deployments that name a ``model``, or None for another shape."""
-    definitions = section.get("models") if isinstance(section, Mapping) else None
-    if not isinstance(definitions, Mapping) or not definitions:
-        return None
-    found: list[Mapping[str, Any]] = []
-    for definition in definitions.values():
-        deployments = definition.get("deployments") if isinstance(definition, Mapping) else None
-        if not isinstance(deployments, list) or not deployments:
-            return None
-        for deployment in deployments:
-            if not isinstance(deployment, Mapping) or "model" not in deployment:
-                return None
-            found.append(deployment)
-    return found
+def require_set_model_variables(values: object) -> None:
+    """Refuse a ``${VAR}`` reference in parsed catalog values whose variable is blank.
 
+    ``python -m harborrag_adapters.models validate`` applies the same rule to one
+    family's section. A ``${VAR:-default}`` reference is skipped.
 
-def _require_rerank_key(deployment: Mapping[str, Any]) -> None:
-    """Refuse an ``api_key`` whose variables expand to blank, naming the variables."""
-    from harborrag_adapters.models.runtime import expand_environment
+    Args:
+        values: The catalog, or part of it, as parsed from YAML or JSON.
 
-    key = deployment.get("api_key")
-    variables = _VARIABLE_REFERENCE.findall(key) if isinstance(key, str) else []
-    if variables and not str(expand_environment(key)).strip():
-        raise ValueError(f"{', '.join(variables)} is empty, and the rerank model needs it")
+    Raises:
+        ValueError: ``NAME is blank``, naming every blank variable in sorted order.
+    """
+    from harborrag_adapters.models.runtime import require_set_variables
+
+    require_set_variables(values)
 
 
 def _deployment_names(models: Mapping[str, Any]) -> tuple[str, ...]:
