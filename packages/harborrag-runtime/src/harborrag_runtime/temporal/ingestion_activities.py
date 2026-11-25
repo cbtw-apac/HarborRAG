@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import replace
 
 from temporalio import activity
@@ -11,6 +12,7 @@ from temporalio.exceptions import ApplicationError
 from harborrag_core.contracts.errors import HarborConflictError, HarborValidationError
 from harborrag_core.ingestion import DocumentIngestionOutcome
 from harborrag_core.ingestion.run_contracts import SourceSubmission
+from harborrag_engine.ingestion.release.models import DocumentReleaseRequest
 from harborrag_engine.ingestion.release.stage_models import RawCaptureStageResult
 from harborrag_engine.ingestion.source.models import PlannedDocumentRelease
 from harborrag_runtime.config.settings import RuntimeSettings
@@ -170,6 +172,26 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
         )
         return planned, result
 
+    async def _run_stage[StageInputT, ResultT](
+        self,
+        document: DocumentIngestionInput,
+        stage: Callable[[DocumentReleaseRequest, StageInputT], Awaitable[ResultT]],
+        stage_input: StageInputT,
+        *,
+        detail: object,
+    ) -> ResultT:
+        """Resolve the planned release and run ``stage`` on it under one heartbeat.
+
+        The heartbeat starts before the plan lookup, so a stalled store fails with its own
+        timeout error instead of a heartbeat timeout.
+        """
+
+        async def lookup_and_run() -> ResultT:
+            planned = await self._documents.get(document)
+            return await stage(planned.request, stage_input)
+
+        return await heartbeat_while(lookup_and_run(), detail=detail)
+
     @activity.defn(name="harborrag.parse_and_normalize")
     async def parse_and_normalize(
         self,
@@ -183,8 +205,6 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
         spawn attempt and then ran here anyway.
         """
         with self._observability.boundary("ParseAndNormalize"):
-            planned = await self._documents.get(request.document)
-            capture_stage = to_capture_stage(request)
             prior = last_heartbeat_detail()
             prior_attempt_count = 0
             if prior is not None:
@@ -203,11 +223,10 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
                 "prior_attempt_count": prior_attempt_count,
             }
             try:
-                prepared_stage = await heartbeat_while(
-                    self._runtime.stages.preparation.parse_and_normalize(
-                        planned.request,
-                        capture_stage,
-                    ),
+                prepared_stage = await self._run_stage(
+                    request.document,
+                    self._runtime.stages.preparation.parse_and_normalize,
+                    to_capture_stage(request),
                     detail=heartbeat_detail,
                 )
             except ParserUnavailableError as error:
@@ -224,12 +243,10 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
     ) -> PreparedDocument:
         """Sync the document's content units."""
         with self._observability.boundary("SyncContentUnits"):
-            planned = await self._documents.get(request.document)
-            await heartbeat_while(
-                self._runtime.stages.preparation.sync_content_units(
-                    planned.request,
-                    to_prepared_stage(request),
-                ),
+            await self._run_stage(
+                request.document,
+                self._runtime.stages.preparation.sync_content_units,
+                to_prepared_stage(request),
                 detail="sync-content-units",
             )
             return request
@@ -241,12 +258,10 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
     ) -> PreparedDocument:
         """Persist the canonical document."""
         with self._observability.boundary("PersistCanonical"):
-            planned = await self._documents.get(request.document)
-            await heartbeat_while(
-                self._runtime.stages.preparation.persist_canonical(
-                    planned.request,
-                    to_prepared_stage(request),
-                ),
+            await self._run_stage(
+                request.document,
+                self._runtime.stages.preparation.persist_canonical,
+                to_prepared_stage(request),
                 detail="persist-canonical",
             )
             return request
@@ -258,12 +273,10 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
     ) -> PreparedDocument:
         """Chunk the document and validate the chunks."""
         with self._observability.boundary("ChunkAndValidate"):
-            planned = await self._documents.get(request.document)
-            statistics = await heartbeat_while(
-                self._runtime.stages.preparation.chunk_and_validate(
-                    planned.request,
-                    to_prepared_stage(request),
-                ),
+            statistics = await self._run_stage(
+                request.document,
+                self._runtime.stages.preparation.chunk_and_validate,
+                to_prepared_stage(request),
                 detail="chunk-and-validate",
             )
             self._observability.record_chunking(statistics)
@@ -276,12 +289,10 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
     ) -> PreparedDocument:
         """Encode the document's chunks."""
         with self._observability.boundary("EncodeChunks"):
-            planned = await self._documents.get(request.document)
-            await heartbeat_while(
-                self._runtime.stages.preparation.encode_chunks(
-                    planned.request,
-                    to_prepared_stage(request),
-                ),
+            await self._run_stage(
+                request.document,
+                self._runtime.stages.preparation.encode_chunks,
+                to_prepared_stage(request),
                 detail="encode-chunks",
             )
             return request
@@ -293,12 +304,10 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
     ) -> PreparedDocument:
         """Build the document's relations."""
         with self._observability.boundary("BuildRelations"):
-            planned = await self._documents.get(request.document)
-            await heartbeat_while(
-                self._runtime.stages.projections.build_relations(
-                    planned.request,
-                    to_prepared_stage(request),
-                ),
+            await self._run_stage(
+                request.document,
+                self._runtime.stages.projections.build_relations,
+                to_prepared_stage(request),
                 detail="build-relations",
             )
             return request
@@ -310,12 +319,10 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
     ) -> PreparedDocument:
         """Build the document's projections."""
         with self._observability.boundary("BuildProjections"):
-            planned = await self._documents.get(request.document)
-            await heartbeat_while(
-                self._runtime.stages.projections.build_projections(
-                    planned.request,
-                    to_prepared_stage(request),
-                ),
+            await self._run_stage(
+                request.document,
+                self._runtime.stages.projections.build_projections,
+                to_prepared_stage(request),
                 detail="build-projections",
             )
             return request
@@ -327,12 +334,10 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
     ) -> PreparedDocument:
         """Write the document's vector projection."""
         with self._observability.boundary("WriteVectorProjection"):
-            planned = await self._documents.get(request.document)
-            await heartbeat_while(
-                self._runtime.stages.projections.write_vector_projection(
-                    planned.request,
-                    to_prepared_stage(request),
-                ),
+            await self._run_stage(
+                request.document,
+                self._runtime.stages.projections.write_vector_projection,
+                to_prepared_stage(request),
                 detail="write-vector-projection",
             )
             return request
@@ -344,12 +349,10 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
     ) -> PreparedDocument:
         """Write the document's graph projection."""
         with self._observability.boundary("WriteGraphProjection"):
-            planned = await self._documents.get(request.document)
-            await heartbeat_while(
-                self._runtime.stages.projections.write_graph_projection(
-                    planned.request,
-                    to_prepared_stage(request),
-                ),
+            await self._run_stage(
+                request.document,
+                self._runtime.stages.projections.write_graph_projection,
+                to_prepared_stage(request),
                 detail="write-graph-projection",
             )
             return request
@@ -361,12 +364,10 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
     ) -> PreparedDocument:
         """Verify the document's projections."""
         with self._observability.boundary("VerifyProjections"):
-            planned = await self._documents.get(request.document)
-            await heartbeat_while(
-                self._runtime.stages.projections.verify_projections(
-                    planned.request,
-                    to_prepared_stage(request),
-                ),
+            await self._run_stage(
+                request.document,
+                self._runtime.stages.projections.verify_projections,
+                to_prepared_stage(request),
                 detail="verify-projections",
             )
             return request

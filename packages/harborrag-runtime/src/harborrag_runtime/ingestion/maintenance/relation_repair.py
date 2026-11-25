@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Mapping, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -278,38 +278,29 @@ class GraphRelationRepairService:
         ``failed``, the first failure cancels the other repairs and is raised as itself,
         so a retried finalization never waits behind the failed attempt's repairs.
         """
-        slots = asyncio.Semaphore(self._max_concurrency)
 
         async def repair(target: _RepairTarget) -> tuple[int, int, int]:
-            async with slots:
-                try:
-                    return await self._repair_one(
-                        target.document_id,
-                        expected_processing_fingerprint=target.processing_fingerprint,
-                        graph_projection_version=target.graph_projection_version,
-                        context=context,
-                    )
-                except Exception as error:
-                    if failed is None:
-                        raise
-                    logger.warning(
-                        "Skipping relation repair of a resolvable declarer "
-                        "tenant_id=%s document_id=%s error_type=%s",
-                        context.tenant_id,
-                        target.document_id,
-                        type(error).__name__,
-                    )
-                    failed.append(target.document_id)
-                    return (0, 0, 0)
+            try:
+                return await self._repair_one(
+                    target.document_id,
+                    expected_processing_fingerprint=target.processing_fingerprint,
+                    graph_projection_version=target.graph_projection_version,
+                    context=context,
+                )
+            except Exception as error:
+                if failed is None:
+                    raise
+                logger.warning(
+                    "Skipping relation repair of a resolvable declarer "
+                    "tenant_id=%s document_id=%s error_type=%s",
+                    context.tenant_id,
+                    target.document_id,
+                    type(error).__name__,
+                )
+                failed.append(target.document_id)
+                return (0, 0, 0)
 
-        try:
-            async with asyncio.TaskGroup() as group:
-                tasks = [group.create_task(repair(target)) for target in targets]
-        except ExceptionGroup as errors:
-            first_error = errors.exceptions[0]
-        else:
-            return tuple(task.result() for task in tasks)
-        raise first_error
+        return await _run_bounded(repair, targets, limit=self._max_concurrency)
 
     @staticmethod
     def _result(results: Sequence[tuple[int, int, int]]) -> RelationRepairResult:
@@ -481,10 +472,8 @@ class GraphRelationRepairService:
             connector = target_connector_type(declaring_connector, source_item_id).casefold()
             by_connector.setdefault(connector, []).append(source_item_id)
 
-        async def resolve(
-            connector: str,
-            ids: Sequence[str],
-        ) -> dict[str, ActiveSourceDocument]:
+        async def resolve(group: tuple[str, list[str]]) -> dict[str, ActiveSourceDocument]:
+            connector, ids = group
             if connector == declaring_connector:
                 return await self._control.document_versions.resolve_active_sources(
                     tenant_id=context.tenant_id,
@@ -498,8 +487,9 @@ class GraphRelationRepairService:
                 source_item_ids=ids,
             )
 
-        groups = tuple(by_connector.items())
-        resolved = await asyncio.gather(*(resolve(connector, ids) for connector, ids in groups))
+        resolved = await _run_bounded(
+            resolve, tuple(by_connector.items()), limit=self._max_concurrency
+        )
         return {
             source_item_id: target
             for targets in resolved
@@ -536,3 +526,30 @@ class GraphRelationRepairService:
         if not text:
             raise ValueError(f"canonical document is missing its {key}")
         return text
+
+
+async def _run_bounded[ItemT, ResultT](
+    operation: Callable[[ItemT], Awaitable[ResultT]],
+    items: Iterable[ItemT],
+    *,
+    limit: int,
+) -> tuple[ResultT, ...]:
+    """Run ``operation`` on every item, at most ``limit`` at once, in item order.
+
+    The first failure cancels the other operations and is raised as itself, with its cause,
+    rather than inside an ``ExceptionGroup``.
+    """
+    slots = asyncio.Semaphore(limit)
+
+    async def bounded(item: ItemT) -> ResultT:
+        async with slots:
+            return await operation(item)
+
+    try:
+        async with asyncio.TaskGroup() as group:
+            tasks = [group.create_task(bounded(item)) for item in items]
+    except ExceptionGroup as errors:
+        first_error = errors.exceptions[0]
+    else:
+        return tuple(task.result() for task in tasks)
+    raise first_error
