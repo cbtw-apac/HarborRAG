@@ -27,14 +27,17 @@ services:
       HARBORRAG_MCP_CONFIG_PATH: /app/config/mcp/server.yaml
       HARBORRAG_MODEL_CONFIG_PATH: /app/config/models/models.yaml
       HARBORRAG_MCP_AUDIT_PATH: /var/lib/harborrag/.harborrag/mcp-audit.jsonl
-      HARBORRAG_CONTROL_DB_URL: postgresql+asyncpg://${POSTGRES_USER:?set POSTGRES_USER in the database environment file}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in the database environment file}@postgres:5432/${POSTGRES_DB:?set POSTGRES_DB in the database environment file}
+      # The server reads with its own accounts: the read-only harborrag_mcp role and
+      # the harborrag-mcp MinIO user, which 'scripts/deployment/dev.sh mcp-access'
+      # creates. It never gets the Postgres owner or the MinIO root credentials.
+      HARBORRAG_CONTROL_DB_URL: postgresql+asyncpg://harborrag_mcp:${POSTGRES_MCP_PASSWORD:?run scripts/deployment/dev.sh mcp-access to set POSTGRES_MCP_PASSWORD}@postgres:5432/${POSTGRES_DB:?set POSTGRES_DB in the database environment file}
       # The backends are fixed names on the data network. The plaintext
       # acknowledgements apply to those names only, so the addresses are not
       # variables that an override could point at a remote host.
       HARBORRAG_OBJECT_STORE_ENDPOINT_URL: http://minio:9000
       HARBORRAG_OBJECT_STORE_ALLOW_INSECURE_REMOTE: "true"
-      HARBORRAG_OBJECT_STORE_ACCESS_KEY_ID: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER in the database environment file}
-      HARBORRAG_OBJECT_STORE_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in the database environment file}
+      HARBORRAG_OBJECT_STORE_ACCESS_KEY_ID: harborrag-mcp
+      HARBORRAG_OBJECT_STORE_SECRET_ACCESS_KEY: ${MINIO_MCP_PASSWORD:?run scripts/deployment/dev.sh mcp-access to set MINIO_MCP_PASSWORD}
       HARBORRAG_QDRANT_URL: http://qdrant:6333
       HARBORRAG_QDRANT_ALLOW_INSECURE_REMOTE: "true"
       HARBORRAG_FALKORDB_HOST: falkordb
