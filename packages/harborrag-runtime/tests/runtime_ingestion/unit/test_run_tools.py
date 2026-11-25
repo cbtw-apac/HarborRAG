@@ -130,7 +130,9 @@ def test_selected_backend_registry_is_built_once() -> None:
 
     assert tools.parser_for(run) is registry
     assert tools.parser_for(run) is registry
-    catalog.build_registry.assert_called_once_with(pdf_definition="pdf-docling", max_pages=None)
+    catalog.build_registry.assert_called_once_with(
+        pdf_definition="pdf-docling", max_pages=None, ocr_enabled=None, ocr_languages=None
+    )
 
 
 def test_max_pdf_pages_alone_builds_a_capped_registry_on_the_enabled_backend() -> None:
@@ -145,7 +147,9 @@ def test_max_pdf_pages_alone_builds_a_capped_registry_on_the_enabled_backend() -
 
     assert tools.parser_for(run) is registry
     assert tools.parser_for(run) is registry
-    catalog.build_registry.assert_called_once_with(pdf_definition="pdf-liteparse", max_pages=5)
+    catalog.build_registry.assert_called_once_with(
+        pdf_definition="pdf-liteparse", max_pages=5, ocr_enabled=None, ocr_languages=None
+    )
 
 
 def test_max_pdf_pages_without_a_single_engine_boot_definition_keeps_base_parser() -> None:
@@ -158,6 +162,34 @@ def test_max_pdf_pages_without_a_single_engine_boot_definition_keeps_base_parser
 
     assert tools.parser_for(RunSettings("rev_1", max_pdf_pages=5)) is tools._parser
     catalog.build_registry.assert_not_called()
+
+
+def test_ocr_override_builds_a_registry_with_both_the_image_engine_and_pdf_backend_capped() -> (
+    None
+):
+    tools = _run_tools()
+    run = RunSettings("rev_1", ocr_enabled=False, ocr_languages=("vi", "en"))
+
+    registry = tools.parser_for(run)
+
+    assert registry is not tools._parser
+    image = registry.resolve("scan.png", None)
+    assert image.engines[0].enabled is False
+    assert image.engines[0].lang == "vi+en"
+    pdf = registry.resolve("report.pdf", None)
+    assert pdf.backends[0].options.ocr_enabled is False
+    assert pdf.backends[0].options.ocr_language == "vi"
+
+
+def test_ocr_override_is_cached_and_independent_of_pdf_parser_override() -> None:
+    tools = _run_tools()
+
+    first = tools.parser_for(RunSettings("rev_1", ocr_enabled=False))
+    second = tools.parser_for(RunSettings("rev_2", ocr_enabled=False))
+    plain = tools.parser_for(RunSettings("rev_3"))
+
+    assert first is second
+    assert plain is tools._parser
 
 
 @pytest.mark.asyncio

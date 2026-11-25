@@ -68,6 +68,8 @@ class RunSettings:
         max_document_mb: Largest document size in megabytes a capture will fetch.
         file_types: File extensions a capture will fetch.
         max_pdf_pages: Largest PDF page count a capture will accept.
+        ocr_enabled: Whether OCR runs on scanned PDFs and image documents.
+        ocr_languages: Languages the OCR engine recognizes.
     """
 
     settings_revision: str
@@ -80,6 +82,8 @@ class RunSettings:
     max_document_mb: int | None = None
     file_types: tuple[str, ...] | None = None
     max_pdf_pages: int | None = None
+    ocr_enabled: bool | None = None
+    ocr_languages: tuple[str, ...] | None = None
 
     def to_json(self) -> dict[str, object]:
         """Return the JSON-safe form stored in task requests and plans."""
@@ -94,6 +98,10 @@ class RunSettings:
             "max_document_mb": self.max_document_mb,
             "file_types": list(self.file_types) if self.file_types is not None else None,
             "max_pdf_pages": self.max_pdf_pages,
+            "ocr_enabled": self.ocr_enabled,
+            "ocr_languages": (
+                list(self.ocr_languages) if self.ocr_languages is not None else None
+            ),
         }
 
     @classmethod
@@ -111,6 +119,14 @@ class RunSettings:
         max_document_mb = value.get("max_document_mb")
         file_types = value.get("file_types")
         max_pdf_pages = value.get("max_pdf_pages")
+        ocr_enabled = value.get("ocr_enabled")
+        ocr_languages = value.get("ocr_languages")
+
+        def is_string_list(candidate: object) -> bool:
+            return isinstance(candidate, list) and all(
+                isinstance(item, str) for item in candidate
+            )
+
         if (
             not isinstance(revision, str)
             or not (pdf_parser is None or isinstance(pdf_parser, str))
@@ -120,14 +136,10 @@ class RunSettings:
             or not (max_attempts is None or isinstance(max_attempts, int))
             or not (batch_size is None or isinstance(batch_size, int))
             or not (max_document_mb is None or isinstance(max_document_mb, int))
-            or not (
-                file_types is None
-                or (
-                    isinstance(file_types, list)
-                    and all(isinstance(item, str) for item in file_types)
-                )
-            )
+            or not (file_types is None or is_string_list(file_types))
             or not (max_pdf_pages is None or isinstance(max_pdf_pages, int))
+            or not (ocr_enabled is None or isinstance(ocr_enabled, bool))
+            or not (ocr_languages is None or is_string_list(ocr_languages))
         ):
             return None
         return cls(
@@ -141,6 +153,8 @@ class RunSettings:
             max_document_mb,
             tuple(file_types) if file_types is not None else None,
             max_pdf_pages,
+            ocr_enabled,
+            tuple(ocr_languages) if ocr_languages is not None else None,
         )
 
 

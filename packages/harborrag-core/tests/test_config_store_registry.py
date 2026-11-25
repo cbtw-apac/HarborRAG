@@ -30,7 +30,7 @@ CAPTURE_FILE_TYPES = [
     ".html",
 ]
 
-TWELVE_KEYS = (
+FOURTEEN_KEYS = (
     "capture.file_types",
     "capture.max_document_mb",
     "capture.max_pdf_pages",
@@ -40,14 +40,16 @@ TWELVE_KEYS = (
     "ingestion.concurrency",
     "ingestion.max_attempts",
     "models.embedding",
+    "parsing.ocr.enabled",
+    "parsing.ocr.languages",
     "parsing.pdf_parser",
     "retrieval.rerank",
     "retrieval.top_k",
 )
 
 
-def test_registry_holds_exactly_the_twelve_keys() -> None:
-    assert SettingsRegistry.default().keys() == TWELVE_KEYS
+def test_registry_holds_exactly_the_fourteen_keys() -> None:
+    assert SettingsRegistry.default().keys() == FOURTEEN_KEYS
 
 
 def test_defaults_match_todays_knobs() -> None:
@@ -65,6 +67,8 @@ def test_defaults_match_todays_knobs() -> None:
         8,
         3,
         None,
+        True,
+        ["en"],
         "liteparse",
         False,
         5,
@@ -91,7 +95,7 @@ def test_json_schema_groups_hold_every_key_once() -> None:
     ]
     entries = {entry["key"]: entry for group in groups for entry in group["settings"]}
     assert sorted(entry["key"] for group in groups for entry in group["settings"]) == sorted(
-        TWELVE_KEYS
+        FOURTEEN_KEYS
     )
     assert entries["capture.max_document_mb"] == {
         "key": "capture.max_document_mb",
@@ -128,6 +132,16 @@ def test_json_schema_groups_hold_every_key_once() -> None:
     }
     assert entries["parsing.pdf_parser"]["type"] == "enum"
     assert entries["parsing.pdf_parser"]["enum"] == ["liteparse", "docling"]
+    assert entries["parsing.ocr.enabled"] == {
+        "key": "parsing.ocr.enabled",
+        "type": "boolean",
+        "default": True,
+        "levels": ["tenant", "project", "connection"],
+        "applies": "next_ingestion",
+        "description": entries["parsing.ocr.enabled"]["description"],
+    }
+    assert entries["parsing.ocr.languages"]["type"] == "array"
+    assert entries["parsing.ocr.languages"]["default"] == ["en"]
     assert entries["retrieval.rerank"]["type"] == "boolean"
     assert "min" not in entries["retrieval.rerank"]
     assert "max" not in entries["retrieval.rerank"]

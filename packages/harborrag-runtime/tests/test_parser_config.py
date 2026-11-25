@@ -814,6 +814,32 @@ def test_build_registry_max_pages_caps_the_built_pdf_family() -> None:
     assert family.page_limit.max_pages == 5
 
 
+def test_build_registry_ocr_overrides_the_image_engine_and_the_liteparse_backend() -> None:
+    registry = load_parser_catalog(
+        REPO_ROOT / "config" / "ingestion" / "parsers.yaml"
+    ).build_registry(ocr_enabled=False, ocr_languages=("vi", "en"))
+
+    image = registry.resolve("scan.png", None)
+    assert image.engines[0].enabled is False
+    assert image.engines[0].lang == "vi+en"
+
+    pdf = registry.resolve("report.pdf", None)
+    liteparse = pdf.backends[0]
+    assert liteparse.options.ocr_enabled is False
+    assert liteparse.options.ocr_language == "vi"
+    assert liteparse.supports_ocr is False
+
+
+def test_build_registry_without_ocr_overrides_keeps_todays_defaults() -> None:
+    registry = load_parser_catalog(REPO_ROOT / "config" / "ingestion" / "parsers.yaml").build_registry()
+
+    image = registry.resolve("scan.png", None)
+    assert image.engines[0].enabled is True
+
+    pdf = registry.resolve("report.pdf", None)
+    assert pdf.backends[0].options.ocr_enabled is True
+
+
 def test_build_registry_max_pages_leaves_other_families_untouched(tmp_path: Path) -> None:
     config_path = _write_config(
         tmp_path,

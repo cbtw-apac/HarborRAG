@@ -67,12 +67,14 @@ class PdfBackendDefinition:
         *,
         parser_name: str,
         environment: Mapping[str, str] | None = None,
+        overrides: Mapping[str, object] | None = None,
     ) -> HarborPDFEngine:
         """Build the PDF backend with its secrets and subprocess variables resolved.
 
         Args:
             parser_name: Definition that owns this backend, named in errors.
             environment: Source of referenced variables; ``os.environ`` when None.
+            overrides: Settings that take precedence over the YAML ones.
 
         Returns:
             A new PDF engine.
@@ -101,6 +103,8 @@ class PdfBackendDefinition:
                 )
                 for target, variable_name in self.process_environment.items()
             }
+        if overrides:
+            values.update(overrides)
 
         try:
             return spec.build(values)
@@ -137,12 +141,17 @@ class ParserDefinition:
         *,
         environment: Mapping[str, str] | None = None,
         overrides: Mapping[str, object] | None = None,
+        pdf_backend_overrides: Mapping[str, Mapping[str, object]] | None = None,
     ) -> HarborParser:
         """Build the parser after merging YAML settings and code overrides.
 
         Args:
             environment: Source of referenced variables; ``os.environ`` when None.
-            overrides: Settings that take precedence over the YAML ones.
+            overrides: Settings that take precedence over the YAML ones, applied
+                to the parser's own constructor.
+            pdf_backend_overrides: Settings applied to each PDF backend's own
+                constructor instead, keyed by backend name; backends this does
+                not name build from their YAML settings unchanged.
 
         Returns:
             A new parser family of this definition's parser type.
@@ -156,7 +165,15 @@ class ParserDefinition:
         values = dict(self.settings)
         if self.pdf_backends:
             values["backends"] = [
-                backend.build(parser_name=self.name, environment=environment)
+                backend.build(
+                    parser_name=self.name,
+                    environment=environment,
+                    overrides=(
+                        pdf_backend_overrides.get(backend.backend)
+                        if pdf_backend_overrides
+                        else None
+                    ),
+                )
                 for backend in self.pdf_backends
             ]
         if overrides:
@@ -296,6 +313,8 @@ class ParserCatalog:
         environment: Mapping[str, str] | None = None,
         pdf_definition: str | None = None,
         max_pages: int | None = None,
+        ocr_enabled: bool | None = None,
+        ocr_languages: tuple[str, ...] | None = None,
     ) -> HarborParserRegistry:
         """Build the default parser registry with the enabled definitions in place.
 
@@ -311,6 +330,12 @@ class ParserCatalog:
                 enabled ``pdf`` one.
             max_pages: ``capture.max_pdf_pages`` override applied to whichever
                 ``pdf`` definition is built; other families are unaffected.
+            ocr_enabled: ``parsing.ocr.enabled`` override applied to the image
+                OCR engine and to the ``liteparse``/``docling`` PDF backends;
+                other PDF backends have no disable switch and are unaffected.
+            ocr_languages: ``parsing.ocr.languages`` override applied the same
+                way; ``liteparse`` and the image engine take the first language,
+                ``docling`` takes every language given.
 
         Returns:
             A new registry of default and configured families.
@@ -329,12 +354,19 @@ class ParserCatalog:
             definitions[pdf_definition] = selected
         configured: dict[str, tuple[str, HarborParser]] = {}
         for config_name, definition in definitions.items():
-            overrides = (
-                {"max_pages": max_pages}
-                if max_pages is not None and definition.parser == "pdf"
-                else None
+            overrides: dict[str, object] | None = None
+            pdf_backend_overrides: Mapping[str, Mapping[str, object]] | None = None
+            if definition.parser == "pdf":
+                if max_pages is not None:
+                    overrides = {"max_pages": max_pages}
+                pdf_backend_overrides = _pdf_ocr_overrides(ocr_enabled, ocr_languages)
+            elif definition.parser == "image":
+                overrides = _image_ocr_overrides(ocr_enabled, ocr_languages)
+            parser = definition.build(
+                environment=environment,
+                overrides=overrides,
+                pdf_backend_overrides=pdf_backend_overrides,
             )
-            parser = definition.build(environment=environment, overrides=overrides)
             existing = configured.get(parser.parser_name)
             if existing is not None:
                 raise ParserConfigurationError(
@@ -369,6 +401,49 @@ class ParserCatalog:
             A new registry, as ``build_registry`` builds it.
         """
         return self.build_registry(environment=environment)
+
+
+_PDF_OCR_FIELDS: Mapping[str, tuple[str, str]] = {
+    "liteparse": ("ocr_enabled", "ocr_language"),
+    "docling": ("do_ocr", "ocr_lang"),
+}
+"""Backend's own enable/language field names; a backend not listed here has no
+real disable switch (``paddleocr``, ``mineru``) or does no OCR (``pymupdf``),
+so ``parsing.ocr.*`` leaves it unaffected rather than passing it an unsupported
+constructor argument."""
+
+
+def _pdf_ocr_overrides(
+    ocr_enabled: bool | None, ocr_languages: tuple[str, ...] | None
+) -> dict[str, dict[str, object]] | None:
+    """Return each OCR-capable PDF backend's own override, or ``None`` for neither."""
+    if ocr_enabled is None and not ocr_languages:
+        return None
+    overrides: dict[str, dict[str, object]] = {}
+    for backend, (enabled_field, languages_field) in _PDF_OCR_FIELDS.items():
+        backend_overrides: dict[str, object] = {}
+        if ocr_enabled is not None:
+            backend_overrides[enabled_field] = ocr_enabled
+        if ocr_languages:
+            backend_overrides[languages_field] = (
+                tuple(ocr_languages) if backend == "docling" else ocr_languages[0]
+            )
+        overrides[backend] = backend_overrides
+    return overrides
+
+
+def _image_ocr_overrides(
+    ocr_enabled: bool | None, ocr_languages: tuple[str, ...] | None
+) -> dict[str, object] | None:
+    """Return the image OCR engine's own override, or ``None`` for neither."""
+    if ocr_enabled is None and not ocr_languages:
+        return None
+    overrides: dict[str, object] = {}
+    if ocr_enabled is not None:
+        overrides["enabled"] = ocr_enabled
+    if ocr_languages:
+        overrides["lang"] = "+".join(ocr_languages)
+    return overrides
 
 
 def _is_single_engine_pdf(definition: ParserDefinition) -> bool:

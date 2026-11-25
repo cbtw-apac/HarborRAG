@@ -47,6 +47,8 @@ class RunSettingsResolver:
             max_document_mb=_integer(effective.override("capture.max_document_mb")),
             file_types=_strings(effective.override("capture.file_types")),
             max_pdf_pages=_integer(effective.override("capture.max_pdf_pages")),
+            ocr_enabled=_boolean(effective.override("parsing.ocr.enabled")),
+            ocr_languages=_strings(effective.override("parsing.ocr.languages")),
         )
 
 
@@ -56,6 +58,10 @@ def _text(value: object) -> str | None:
 
 def _integer(value: object) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _boolean(value: object) -> bool | None:
+    return value if isinstance(value, bool) else None
 
 
 def _strings(value: object) -> tuple[str, ...] | None:

@@ -35,7 +35,9 @@ class RunTools:
         self._chunking = chunking
         self._parsers = parsers
         self._build_chunker = build_chunker
-        self._pdf_parsers: dict[tuple[str, int | None], DocumentParserPort] = {}
+        self._pdf_parsers: dict[
+            tuple[str | None, int | None, bool | None, tuple[str, ...] | None], DocumentParserPort
+        ] = {}
         self._chunkers: dict[int, BaseChunker] = {}
 
     def parser_for(self, run: RunSettings | None) -> DocumentParserPort:
@@ -46,7 +48,8 @@ class RunTools:
 
         Returns:
             The boot parser, or a registry whose PDF family is the pinned backend
-            and/or ``capture.max_pdf_pages`` cap.
+            and/or ``capture.max_pdf_pages`` cap, with ``parsing.ocr.*`` applied
+            to the image engine and to the ``liteparse``/``docling`` PDF backends.
 
         Raises:
             ParserUnavailableError: ``parsing.pdf_parser`` names a backend with no
@@ -54,24 +57,38 @@ class RunTools:
         """
         backend = run.pdf_parser if run is not None else None
         max_pages = run.max_pdf_pages if run is not None else None
+        ocr_enabled = run.ocr_enabled if run is not None else None
+        ocr_languages = run.ocr_languages if run is not None else None
         enabled_backend = self._parsers.enabled_pdf_backend()
-        if max_pages is None and (backend is None or backend == enabled_backend):
+        has_pdf_override = max_pages is not None or (
+            backend is not None and backend != enabled_backend
+        )
+        has_ocr_override = ocr_enabled is not None or ocr_languages is not None
+        if not has_pdf_override and not has_ocr_override:
             return self._parser
         effective_backend = backend or enabled_backend
+        pdf_definition: str | None = None
         if effective_backend is None:
-            # No single-engine pdf definition at boot to vary max_pages on alone.
-            return self._parser
-        cache_key = (effective_backend, max_pages)
+            if not has_ocr_override:
+                # No single-engine pdf definition at boot to vary max_pages on alone.
+                return self._parser
+        else:
+            pdf_definition = self._parsers.pdf_definition_for(effective_backend)
+            if pdf_definition is None and backend is not None:
+                raise ParserUnavailableError(
+                    f"parsing.pdf_parser {effective_backend!r} has no single-engine pdf definition"
+                )
+        cache_key = (effective_backend, max_pages, ocr_enabled, ocr_languages)
         cached = self._pdf_parsers.get(cache_key)
         if cached is not None:
             return cached
-        definition = self._parsers.pdf_definition_for(effective_backend)
-        if definition is None:
-            raise ParserUnavailableError(
-                f"parsing.pdf_parser {effective_backend!r} has no single-engine pdf definition"
-            )
         try:
-            registry = self._parsers.build_registry(pdf_definition=definition, max_pages=max_pages)
+            registry = self._parsers.build_registry(
+                pdf_definition=pdf_definition,
+                max_pages=max_pages,
+                ocr_enabled=ocr_enabled,
+                ocr_languages=ocr_languages,
+            )
         except ImportError as error:
             raise ParserUnavailableError(
                 f"parsing.pdf_parser {effective_backend!r} is not installed on this worker"

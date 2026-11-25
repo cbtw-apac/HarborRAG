@@ -112,6 +112,21 @@ class CaptureGroup(StrictModel):
     )
 
 
+class OcrSettings(StrictModel):
+    """OCR settings nested under ``parsing.ocr``."""
+
+    enabled: bool = Field(
+        True,
+        description="Run OCR on scanned PDFs and image documents",
+        json_schema_extra=_extra(["tenant", "project", "connection"], "next_ingestion"),
+    )
+    languages: list[str] = Field(
+        ["en"],
+        description="Languages the OCR engine recognizes",
+        json_schema_extra=_extra(["tenant", "project", "connection"], "next_ingestion"),
+    )
+
+
 class ParsingGroup(StrictModel):
     """Parsing settings."""
 
@@ -120,6 +135,7 @@ class ParsingGroup(StrictModel):
         description="Engine that parses PDF documents",
         json_schema_extra=_extra(["tenant", "project", "connection"], "next_ingestion"),
     )
+    ocr: OcrSettings = Field(default_factory=OcrSettings)
 
 
 class ChunkingGroup(StrictModel):
@@ -191,10 +207,13 @@ class SettingDefinition:
     """One registered setting.
 
     Args:
-        key: Dotted key, ``<group>.<field>``.
+        key: Dotted key, ``<group>.<field>`` or ``<group>.<nested>.<field>``.
         levels: Levels at which an override may exist.
         applies: When a change takes effect.
         default: Value used when no level overrides the key.
+        owner: The model the leaf field belongs to: the group itself, or a
+            nested settings model one level under it.
+        leaf_field: The field name on ``owner`` that holds the value.
         schema: JSON-schema fragment of the value: type, bounds, enum or pattern.
         description: One-line summary of what the key controls.
     """
@@ -203,11 +222,13 @@ class SettingDefinition:
     levels: tuple[LevelKind, ...]
     applies: Applies
     default: object
+    owner: type[StrictModel] = field(compare=False)
+    leaf_field: str = field(compare=False)
     schema: Mapping[str, object] = field(compare=False)
     description: str = field(default="", compare=False)
 
     def validate(self, value: object) -> object:
-        """Validate ``value`` strictly against the group field, so ``True`` is not an int.
+        """Validate ``value`` strictly against the owning model, so ``True`` is not an int.
 
         Args:
             value: Candidate override value.
@@ -219,15 +240,14 @@ class SettingDefinition:
             HarborValidationError: The value is of the wrong type or out of range
                 (``field = key``).
         """
-        group_name, field_name = self.key.split(".", 1)
         try:
-            model = SETTINGS_GROUPS[group_name].model_validate({field_name: value}, strict=True)
+            model = self.owner.model_validate({self.leaf_field: value}, strict=True)
         except ValidationError as error:
             reason = "; ".join(str(item["msg"]) for item in error.errors())
             raise HarborValidationError(
                 f"{self.key} is invalid: {reason}", details={"field": self.key}
             ) from error
-        return getattr(model, field_name)
+        return getattr(model, self.leaf_field)
 
 
 def _flat_schema(raw: Mapping[str, Any]) -> dict[str, object]:
@@ -240,21 +260,34 @@ def _flat_schema(raw: Mapping[str, Any]) -> dict[str, object]:
 def _definitions() -> dict[str, SettingDefinition]:
     definitions: dict[str, SettingDefinition] = {}
     for group_name, group in SETTINGS_GROUPS.items():
-        properties = group.model_json_schema()["properties"]
-        for field_name, info in group.model_fields.items():
-            extra = info.json_schema_extra
-            assert isinstance(extra, dict)
-            key = f"{group_name}.{field_name}"
-            levels: tuple[LevelKind, ...] = tuple(extra["levels"])  # type: ignore[arg-type]  # extra is a plain dict of lists
-            definitions[key] = SettingDefinition(
-                key=key,
-                levels=levels,
-                applies=extra["applies"],  # type: ignore[arg-type]  # extra values are Applies literals
-                default=info.default,
-                schema=_flat_schema(properties[field_name]),
-                description=info.description or "",
-            )
+        _collect(definitions, group_name, group)
     return definitions
+
+
+def _collect(
+    definitions: dict[str, SettingDefinition], prefix: str, owner: type[StrictModel]
+) -> None:
+    """Add every leaf field of ``owner`` to ``definitions``, recursing into nested models."""
+    properties = owner.model_json_schema()["properties"]
+    for field_name, info in owner.model_fields.items():
+        annotation = info.annotation
+        if isinstance(annotation, type) and issubclass(annotation, StrictModel):
+            _collect(definitions, f"{prefix}.{field_name}", annotation)
+            continue
+        extra = info.json_schema_extra
+        assert isinstance(extra, dict)
+        key = f"{prefix}.{field_name}"
+        levels: tuple[LevelKind, ...] = tuple(extra["levels"])  # type: ignore[arg-type]  # extra is a plain dict of lists
+        definitions[key] = SettingDefinition(
+            key=key,
+            levels=levels,
+            applies=extra["applies"],  # type: ignore[arg-type]  # extra values are Applies literals
+            default=info.default,
+            owner=owner,
+            leaf_field=field_name,
+            schema=_flat_schema(properties[field_name]),
+            description=info.description or "",
+        )
 
 
 @dataclass(frozen=True, slots=True)

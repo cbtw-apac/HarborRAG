@@ -94,6 +94,15 @@ def test_run_settings_json_round_trip_with_capture_overrides() -> None:
     assert rebuilt.file_types == (".pdf", ".docx")
 
 
+def test_run_settings_json_round_trip_with_ocr_overrides() -> None:
+    settings = RunSettings("rev_3", ocr_enabled=False, ocr_languages=("vi", "en"))
+
+    rebuilt = RunSettings.from_json(settings.to_json())
+
+    assert rebuilt == settings
+    assert rebuilt.ocr_languages == ("vi", "en")
+
+
 def test_catalog_pdf_selection(tmp_path: Path) -> None:
     path = tmp_path / "parsers.yaml"
     path.write_text(
@@ -173,6 +182,27 @@ async def test_resolver_reports_capture_overrides() -> None:
     assert run_settings.max_document_mb == 5
     assert run_settings.file_types == (".pdf", ".docx")
     assert run_settings.max_pdf_pages == 10
+
+
+@pytest.mark.asyncio
+async def test_resolver_reports_ocr_overrides() -> None:
+    snapshot = SettingsSnapshot(
+        "tenant-a",
+        5,
+        {
+            "connection:p1/c1": {
+                "parsing.ocr.enabled": False,
+                "parsing.ocr.languages": ["vi", "en"],
+            }
+        },
+    )
+
+    run_settings = await RunSettingsResolver(_FixedProvider(snapshot)).for_connection(
+        tenant_id="tenant-a", project_id="p1", connection_id="c1"
+    )
+
+    assert run_settings.ocr_enabled is False
+    assert run_settings.ocr_languages == ("vi", "en")
 
 
 def test_build_registry_swaps_in_the_selected_pdf_definition(tmp_path: Path) -> None:
