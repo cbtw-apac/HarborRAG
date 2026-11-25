@@ -140,10 +140,10 @@ class _RequestsGitHubClient:
             detail = safe_response_error_detail(response) if forbidden else ""
             if self._rate_limited(response, detail):
                 if attempt == self.config.max_retries:
-                    if forbidden:
-                        # TODO: pass status 403 once a 403 RateLimitError stays retryable and rate_limited
-                        raise RateLimitError(detail)
-                    raise RateLimitError(safe_response_error_detail(response), status_code=429)
+                    raise RateLimitError(
+                        detail if forbidden else safe_response_error_detail(response),
+                        status_code=response.status_code,
+                    )
                 last_error = RateLimitError("GitHub rate limit exceeded")
                 retry_headers = response.headers
                 response.close()

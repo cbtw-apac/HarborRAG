@@ -108,7 +108,26 @@ class RefusedResponseError(FetchError):
 
 
 class RateLimitError(FetchError):
-    """Raised when the source system rate-limits the connector."""
+    """The source system rate-limits the connector.
+
+    It stays retryable whatever its HTTP status, since GitHub answers a secondary
+    rate limit with 403.
+
+    Args:
+        message: Safe description of the limit.
+        status_code: HTTP status the source answered with.
+        detail: Safe excerpt of the response body.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+        detail: str | None = None,
+    ) -> None:
+        super().__init__(message, status_code=status_code, detail=detail)
+        self.retryable = type(self).retryable
 
 
 class DocumentProcessingError(ConnectorError):

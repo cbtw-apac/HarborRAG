@@ -42,7 +42,7 @@ def test_github_429_after_the_retries_carries_status_429_and_stays_retryable() -
     assert raised.value.retryable is True
 
 
-def test_github_403_secondary_limit_after_the_retries_stays_retryable() -> None:
+def test_github_403_secondary_limit_carries_status_403_and_stays_retryable() -> None:
     client = _client(
         FakeResponse(status_code=403, text="You have exceeded a secondary rate limit"),
         FakeResponse(status_code=403, text="You have exceeded a secondary rate limit"),
@@ -51,4 +51,5 @@ def test_github_403_secondary_limit_after_the_retries_stays_retryable() -> None:
     with pytest.raises(RateLimitError) as raised:
         client.get_json("repos/demo/engineering")
 
+    assert raised.value.status_code == 403
     assert raised.value.retryable is True

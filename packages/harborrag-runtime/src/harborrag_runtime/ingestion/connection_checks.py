@@ -190,7 +190,9 @@ def classify(error: BaseException, *, default: CheckName) -> tuple[CheckName, Er
 
     An error with no HTTP status means the source never answered, so it fails
     ``reachable`` whichever step raised it, as does a blocked private address,
-    whose message is HarborRAG's own; 403 and 404 fail ``permissions``.
+    whose message is HarborRAG's own. A rate limit is reported as one whatever
+    its status, since GitHub answers a secondary limit with 403. Any other 403
+    or 404 fails ``permissions``.
     """
     status = getattr(error, "status_code", None)
     prefix = f"{status} from the source: " if status else ""
@@ -198,10 +200,10 @@ def classify(error: BaseException, *, default: CheckName) -> tuple[CheckName, Er
         return "reachable", "unreachable", str(error)
     if isinstance(error, SourceAuthenticationError):
         return "auth", "auth_invalid", f"{prefix}the credentials were rejected"
-    if isinstance(error, SourceAuthorizationError) or status in _NOT_PERMITTED:
-        return "permissions", "forbidden", f"{prefix}the credentials cannot read this content"
     if isinstance(error, RateLimitError):
         return "reachable", "rate_limited", f"{prefix}the source is rate limiting requests"
+    if isinstance(error, SourceAuthorizationError) or status in _NOT_PERMITTED:
+        return "permissions", "forbidden", f"{prefix}the credentials cannot read this content"
     if isinstance(error, TimeoutError):
         return "reachable", "unreachable", "the source did not answer in time"
     check = default if status else "reachable"

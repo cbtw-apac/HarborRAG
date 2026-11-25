@@ -265,7 +265,7 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
             if response.status_code == 403:
                 raise AuthorizationError(safe_response_error_detail(response), status_code=403)
             if response.status_code == 429 and attempt == self.config.max_retries:
-                raise RateLimitError(safe_response_error_detail(response))
+                raise RateLimitError(safe_response_error_detail(response), status_code=429)
             if response.status_code not in _RETRYABLE_STATUS or attempt == self.config.max_retries:
                 if response.status_code == 404:
                     detail = safe_response_error_detail(response)
