@@ -31,6 +31,7 @@ from harborrag_adapters.connectors.policies.http import (
     safe_error_detail,
 )
 from harborrag_adapters.connectors.policies.network import DestinationPolicy, guarded_session
+from harborrag_adapters.repositories.private_directories import make_private_directories
 
 from .permissions import token_claims
 
@@ -148,7 +149,7 @@ class DelegatedTokenCache:
             refresh_token: Refresh token to store.
             account: Signed-in account name stored with the token, when known.
         """
-        _make_private_directories(self.path.parent)
+        make_private_directories(self.path.parent)
         payload = {
             "tenant_id": self.tenant_id,
             "client_id": self.client_id,
@@ -171,13 +172,6 @@ class DelegatedTokenCache:
     def clear(self) -> None:
         """Delete the stored sign-in, e.g. when access is revoked."""
         self.path.unlink(missing_ok=True)
-
-
-def _make_private_directories(directory: Path) -> None:
-    """Create ``directory`` and each missing directory above it with mode 0700."""
-    missing = [path for path in (directory, *directory.parents) if not path.exists()]
-    for path in reversed(missing):
-        path.mkdir(mode=0o700, exist_ok=True)
 
 
 class _ErrorPayload(StrEnum):

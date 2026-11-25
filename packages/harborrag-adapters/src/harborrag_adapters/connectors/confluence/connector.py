@@ -324,8 +324,3 @@ class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
             len(descriptor.bound_records),
         )
         return descriptor
-
-    def load_by_ids(self, content_ids: list[str]) -> Iterator[RawDocument]:
-        """Load content for callers that already have Confluence IDs."""
-        for content_id in content_ids:
-            yield self.load(self._record_for_id(content_id, ConnectorQuery()))

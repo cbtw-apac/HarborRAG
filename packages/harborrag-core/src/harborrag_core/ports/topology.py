@@ -6,8 +6,6 @@ from typing import Protocol
 from harborrag_core.ingestion import ArtifactReference
 from harborrag_core.security.context import AccessContext
 from harborrag_core.topology import (
-    CanonicalAssertion,
-    CanonicalMention,
     ChunkExtractionCheckpoint,
     DocumentTopologyBuild,
     ResolutionDecision,
@@ -224,30 +222,6 @@ class TopologyBuildRepositoryPort(Protocol):
     async def eligible_build_ids(
         self, tenant_id: str, build_ids: tuple[str, ...], *, access: AccessContext | None = None
     ) -> set[str]: ...
-
-
-class TopologyObservationRepositoryPort(Protocol):
-    """Read accepted semantic observations under an explicit access context."""
-
-    async def active_mentions(  # noqa: PLR0913 - explicit permission context on shared search contract
-        self,
-        tenant_id: str,
-        *,
-        labels: tuple[str, ...] = (),
-        chunk_ids: tuple[str, ...] = (),
-        entity_ids: tuple[str, ...] = (),
-        limit: int = 100,
-        access: AccessContext | None = None,
-    ) -> tuple[CanonicalMention, ...]: ...
-
-    async def active_assertions(
-        self,
-        tenant_id: str,
-        *,
-        entity_ids: tuple[str, ...] = (),
-        limit: int = 100,
-        access: AccessContext | None = None,
-    ) -> tuple[CanonicalAssertion, ...]: ...
 
 
 class TopologyEnrichmentRepositoryPort(
