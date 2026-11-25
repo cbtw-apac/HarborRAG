@@ -63,12 +63,12 @@ def test_defaults_match_todays_knobs() -> None:
         CAPTURE_FILE_TYPES,
         20,
         200,
-        1200,
+        512,
         64,
         32,
         "PT10M",
         50,
-        8,
+        4,
         3,
         None,
         True,
@@ -128,7 +128,7 @@ def test_json_schema_groups_hold_every_key_once() -> None:
     assert entries["chunking.max_tokens"] == {
         "key": "chunking.max_tokens",
         "type": "integer",
-        "default": 1200,
+        "default": 512,
         "min": 64,
         "max": 4096,
         "levels": ["tenant", "project", "connection"],
@@ -213,6 +213,9 @@ def test_unknown_key_is_refused() -> None:
         ("retrieval.top_k", "5"),
         ("parsing.pdf_parser", "tesseract"),
         ("models.embedding", "no-colon"),
+        ("ingestion.activity_timeout", "PT1S"),
+        ("ingestion.activity_timeout", "PT2H"),
+        ("ingestion.activity_timeout", "bogus"),
     ],
 )
 def test_validate_rejects_bad_values(key: str, value: object) -> None:
@@ -224,6 +227,13 @@ def test_validate_rejects_bad_values(key: str, value: object) -> None:
 
 def test_validate_returns_the_value() -> None:
     assert SettingsRegistry.default().definition("chunking.max_tokens").validate(300) == 300
+
+
+@pytest.mark.parametrize("value", ["PT30S", "PT10M", "PT1H"])
+def test_activity_timeout_accepts_the_boundary_and_default_values(value: str) -> None:
+    assert SettingsRegistry.default().definition("ingestion.activity_timeout").validate(
+        value
+    ) == value
 
 
 def test_level_parse() -> None:

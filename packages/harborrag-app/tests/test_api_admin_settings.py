@@ -315,7 +315,7 @@ def test_schema_lists_registry_by_group(env: _Env) -> None:
     assert entries["chunking.max_tokens"] == {
         "key": "chunking.max_tokens",
         "type": "integer",
-        "default": 1200,
+        "default": 512,
         "min": 64,
         "max": 4096,
         "levels": ["tenant", "project", "connection"],

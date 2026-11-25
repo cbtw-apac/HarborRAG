@@ -12,11 +12,15 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from typing import Any, Literal
 
-from pydantic import Field, ValidationError
+from pydantic import Field, ValidationError, field_validator
 
 from harborrag_core.base import StrictModel
+from harborrag_core.config_store.durations import parse_iso8601_duration_seconds
 from harborrag_core.config_store.levels import LevelKind
 from harborrag_core.contracts.errors import HarborValidationError
+
+MIN_ACTIVITY_TIMEOUT_SECONDS = 30
+MAX_ACTIVITY_TIMEOUT_SECONDS = 3_600
 
 Applies = Literal["live", "next_ingestion", "reindex"]
 
@@ -143,7 +147,7 @@ class ChunkingGroup(StrictModel):
     """Chunking settings."""
 
     max_tokens: int = Field(
-        1200,
+        512,
         ge=64,
         le=4096,
         description="Largest chunk size in tokens; caps every chunking profile",
@@ -174,7 +178,7 @@ class IngestionGroup(StrictModel):
     """Ingestion settings."""
 
     concurrency: int = Field(
-        8,
+        4,
         ge=1,
         le=64,
         description="Documents processed at once by one ingestion run",
@@ -185,6 +189,21 @@ class IngestionGroup(StrictModel):
         description="ISO 8601 duration bounding one activity attempt",
         json_schema_extra=_extra(["tenant", "connection"], "next_ingestion"),
     )
+
+    @field_validator("activity_timeout")
+    @classmethod
+    def _validate_activity_timeout(cls, value: str) -> str:
+        try:
+            seconds = parse_iso8601_duration_seconds(value)
+        except ValueError as error:
+            raise ValueError(str(error)) from error
+        if not MIN_ACTIVITY_TIMEOUT_SECONDS <= seconds <= MAX_ACTIVITY_TIMEOUT_SECONDS:
+            raise ValueError(
+                "activity_timeout must be between PT30S and PT1H "
+                f"({MIN_ACTIVITY_TIMEOUT_SECONDS}-{MAX_ACTIVITY_TIMEOUT_SECONDS} seconds)"
+            )
+        return value
+
     max_attempts: int = Field(
         3,
         ge=1,

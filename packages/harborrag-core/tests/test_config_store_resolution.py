@@ -53,7 +53,7 @@ def test_override_at_a_level_the_key_does_not_list_is_ignored() -> None:
 
     resolved = resolve_effective(REGISTRY, snapshot, SettingsLevel.parse("project:demo"))
 
-    assert resolved.values["ingestion.concurrency"] == EffectiveValue(8, "default")
+    assert resolved.values["ingestion.concurrency"] == EffectiveValue(4, "default")
 
 
 def plan(
