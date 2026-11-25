@@ -1,4 +1,4 @@
-"""Parser and chunker selection for one run's pinned settings."""
+"""Parser, chunker and representation-encoder selection for one run's pinned settings."""
 
 from __future__ import annotations
 
@@ -8,8 +8,9 @@ from harborrag_core.contracts.errors import HarborConfigurationError
 from harborrag_core.ingestion.run_contracts import RunSettings
 from harborrag_engine.ingestion import BaseChunker
 from harborrag_engine.ingestion.chunking import ChunkingConfig
-from harborrag_engine.ingestion.chunking.config import cap_chunking_config
+from harborrag_engine.ingestion.chunking.config import cap_chunking_config, pin_chunking_overlap
 from harborrag_engine.ingestion.release.dependencies import DocumentParserPort
+from harborrag_engine.ingestion.representations.reuse import RepresentationReuseService
 from harborrag_runtime.config.chunking import ChunkingSettings
 from harborrag_runtime.config.parsers import ParserCatalog
 
@@ -19,7 +20,7 @@ class ParserUnavailableError(HarborConfigurationError):
 
 
 class RunTools:
-    """Boot parser and chunker, plus per-run variants built once per distinct override."""
+    """Boot parser, chunker and encoder, plus per-run variants built once per override."""
 
     def __init__(
         self,
@@ -29,16 +30,21 @@ class RunTools:
         chunking: ChunkingSettings,
         parsers: ParserCatalog,
         build_chunker: Callable[[ChunkingConfig], BaseChunker],
+        representations: RepresentationReuseService | None = None,
+        build_representations: Callable[[int], RepresentationReuseService] | None = None,
     ) -> None:
         self._parser = parser
         self._chunker = chunker
         self._chunking = chunking
         self._parsers = parsers
         self._build_chunker = build_chunker
+        self._representations = representations
+        self._build_representations = build_representations
         self._pdf_parsers: dict[
             tuple[str | None, int | None, bool | None, tuple[str, ...] | None], DocumentParserPort
         ] = {}
-        self._chunkers: dict[int, BaseChunker] = {}
+        self._chunkers: dict[tuple[int | None, int | None], BaseChunker] = {}
+        self._representation_encoders: dict[int, RepresentationReuseService] = {}
 
     def parser_for(self, run: RunSettings | None) -> DocumentParserPort:
         """Return the parser a run parses with.
@@ -103,16 +109,46 @@ class RunTools:
             run: Pinned settings, or ``None`` for the boot chunker.
 
         Returns:
-            The boot chunker, or one built from the capped configuration.
+            The boot chunker, or one built from the capped and/or overlap-pinned
+            configuration.
         """
         cap = run.chunk_max_tokens if run is not None else None
-        if cap is None:
+        overlap = run.chunk_overlap_tokens if run is not None else None
+        if cap is None and overlap is None:
             return self._chunker
-        capped = cap_chunking_config(self._chunking.config, cap)
-        if capped is self._chunking.config:
+        config = self._chunking.config
+        if cap is not None:
+            config = cap_chunking_config(config, cap)
+        if overlap is not None:
+            config = pin_chunking_overlap(config, overlap)
+        if config is self._chunking.config:
             return self._chunker
-        cached = self._chunkers.get(cap)
+        cache_key = (cap, overlap)
+        cached = self._chunkers.get(cache_key)
         if cached is None:
-            cached = self._build_chunker(capped)
-            self._chunkers[cap] = cached
+            cached = self._build_chunker(config)
+            self._chunkers[cache_key] = cached
+        return cached
+
+    def representations_for(self, run: RunSettings | None) -> RepresentationReuseService:
+        """Return the encoder a run embeds with.
+
+        Args:
+            run: Pinned settings, or ``None`` for the boot encoder.
+
+        Returns:
+            The boot encoder, or one built with the pinned ``embedding.batch_size``.
+
+        Raises:
+            HarborConfigurationError: This ``RunTools`` was built without an encoder.
+        """
+        if self._representations is None or self._build_representations is None:
+            raise HarborConfigurationError("RunTools was built without an embedding encoder")
+        batch_size = run.embedding_batch_size if run is not None else None
+        if batch_size is None:
+            return self._representations
+        cached = self._representation_encoders.get(batch_size)
+        if cached is None:
+            cached = self._build_representations(batch_size)
+            self._representation_encoders[batch_size] = cached
         return cached

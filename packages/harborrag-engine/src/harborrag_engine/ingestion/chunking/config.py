@@ -236,6 +236,30 @@ def cap_chunking_config(config: ChunkingConfig, max_tokens: int) -> ChunkingConf
     return replace(config, profiles=profiles)
 
 
+def pin_chunking_overlap(config: ChunkingConfig, overlap_tokens: int) -> ChunkingConfig:
+    """Set every profile's overlap to ``overlap_tokens``, clamped below its target.
+
+    Args:
+        config: Configuration to override.
+        overlap_tokens: Desired overlap; a profile whose target is too small to
+            hold it keeps the largest valid overlap instead (``target_tokens - 1``).
+
+    Returns:
+        ``config`` itself when no profile's overlap would change, else a copy.
+    """
+
+    def _overlaid(profile: ChunkingProfile) -> ChunkingProfile:
+        pinned = min(overlap_tokens, profile.target_tokens - 1)
+        if profile.overlap_tokens == pinned:
+            return profile
+        return replace(profile, limits=replace(profile.limits, overlap_tokens=pinned))
+
+    profiles = {name: _overlaid(profile) for name, profile in config.profiles.items()}
+    if all(profiles[name] is profile for name, profile in config.profiles.items()):
+        return config
+    return replace(config, profiles=profiles)
+
+
 def _capped(profile: ChunkingProfile, max_tokens: int) -> ChunkingProfile:
     limits = profile.limits
     target = min(limits.target_tokens, max_tokens)

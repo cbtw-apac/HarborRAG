@@ -103,6 +103,14 @@ def test_run_settings_json_round_trip_with_ocr_overrides() -> None:
     assert rebuilt.ocr_languages == ("vi", "en")
 
 
+def test_run_settings_json_round_trip_with_overlap_and_embedding_batch_size() -> None:
+    settings = RunSettings("rev_3", chunk_overlap_tokens=10, embedding_batch_size=8)
+
+    rebuilt = RunSettings.from_json(settings.to_json())
+
+    assert rebuilt == settings
+
+
 def test_catalog_pdf_selection(tmp_path: Path) -> None:
     path = tmp_path / "parsers.yaml"
     path.write_text(
@@ -203,6 +211,27 @@ async def test_resolver_reports_ocr_overrides() -> None:
 
     assert run_settings.ocr_enabled is False
     assert run_settings.ocr_languages == ("vi", "en")
+
+
+@pytest.mark.asyncio
+async def test_resolver_reports_overlap_and_embedding_batch_size_overrides() -> None:
+    snapshot = SettingsSnapshot(
+        "tenant-a",
+        5,
+        {
+            "connection:p1/c1": {"chunking.overlap_tokens": 10},
+            # embedding.batch_size is tenant+project only (no connection level),
+            # so its override must live at a level the key actually allows.
+            "project:p1": {"embedding.batch_size": 8},
+        },
+    )
+
+    run_settings = await RunSettingsResolver(_FixedProvider(snapshot)).for_connection(
+        tenant_id="tenant-a", project_id="p1", connection_id="c1"
+    )
+
+    assert run_settings.chunk_overlap_tokens == 10
+    assert run_settings.embedding_batch_size == 8
 
 
 def test_build_registry_swaps_in_the_selected_pdf_definition(tmp_path: Path) -> None:

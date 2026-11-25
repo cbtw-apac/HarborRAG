@@ -159,7 +159,12 @@ class DocumentMaterializationStages:
             context=context,
             reuse=(prepared.decision == SourceAdmissionDecision.METADATA_CHANGED),
         )
-        representations = await self._dependencies.representations.encode(
+        encoder = (
+            self._dependencies.representations
+            if self._dependencies.representations_for is None
+            else self._dependencies.representations_for(request.run_settings)
+        )
+        representations = await encoder.encode(
             chunks,
             previous_chunks=previous_chunks,
             previous_representations=previous_representations,

@@ -305,6 +305,7 @@ def test_schema_lists_registry_by_group(env: _Env) -> None:
         ("capture", "Capture"),
         ("parsing", "Parsing"),
         ("chunking", "Chunking"),
+        ("embedding", "Embedding"),
         ("ingestion", "Ingestion"),
         ("models", "Models"),
     ]

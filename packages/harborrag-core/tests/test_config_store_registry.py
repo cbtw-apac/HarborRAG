@@ -30,11 +30,13 @@ CAPTURE_FILE_TYPES = [
     ".html",
 ]
 
-FOURTEEN_KEYS = (
+SIXTEEN_KEYS = (
     "capture.file_types",
     "capture.max_document_mb",
     "capture.max_pdf_pages",
     "chunking.max_tokens",
+    "chunking.overlap_tokens",
+    "embedding.batch_size",
     "ingestion.activity_timeout",
     "ingestion.batch_size",
     "ingestion.concurrency",
@@ -48,8 +50,8 @@ FOURTEEN_KEYS = (
 )
 
 
-def test_registry_holds_exactly_the_fourteen_keys() -> None:
-    assert SettingsRegistry.default().keys() == FOURTEEN_KEYS
+def test_registry_holds_exactly_the_sixteen_keys() -> None:
+    assert SettingsRegistry.default().keys() == SIXTEEN_KEYS
 
 
 def test_defaults_match_todays_knobs() -> None:
@@ -62,6 +64,8 @@ def test_defaults_match_todays_knobs() -> None:
         20,
         200,
         1200,
+        64,
+        32,
         "PT10M",
         50,
         8,
@@ -90,12 +94,13 @@ def test_json_schema_groups_hold_every_key_once() -> None:
         ("capture", "Capture"),
         ("parsing", "Parsing"),
         ("chunking", "Chunking"),
+        ("embedding", "Embedding"),
         ("ingestion", "Ingestion"),
         ("models", "Models"),
     ]
     entries = {entry["key"]: entry for group in groups for entry in group["settings"]}
     assert sorted(entry["key"] for group in groups for entry in group["settings"]) == sorted(
-        FOURTEEN_KEYS
+        SIXTEEN_KEYS
     )
     assert entries["capture.max_document_mb"] == {
         "key": "capture.max_document_mb",
@@ -129,6 +134,26 @@ def test_json_schema_groups_hold_every_key_once() -> None:
         "levels": ["tenant", "project", "connection"],
         "applies": "next_ingestion",
         "description": entries["chunking.max_tokens"]["description"],
+    }
+    assert entries["chunking.overlap_tokens"] == {
+        "key": "chunking.overlap_tokens",
+        "type": "integer",
+        "default": 64,
+        "min": 0,
+        "max": 512,
+        "levels": ["tenant", "project", "connection"],
+        "applies": "next_ingestion",
+        "description": entries["chunking.overlap_tokens"]["description"],
+    }
+    assert entries["embedding.batch_size"] == {
+        "key": "embedding.batch_size",
+        "type": "integer",
+        "default": 32,
+        "min": 1,
+        "max": 256,
+        "levels": ["tenant", "project"],
+        "applies": "next_ingestion",
+        "description": entries["embedding.batch_size"]["description"],
     }
     assert entries["parsing.pdf_parser"]["type"] == "enum"
     assert entries["parsing.pdf_parser"]["enum"] == ["liteparse", "docling"]

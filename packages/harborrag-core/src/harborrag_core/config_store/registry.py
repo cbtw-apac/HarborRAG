@@ -37,6 +37,7 @@ GROUP_TITLES: Mapping[str, str] = {
     "capture": "Capture",
     "parsing": "Parsing",
     "chunking": "Chunking",
+    "embedding": "Embedding",
     "ingestion": "Ingestion",
     "models": "Models",
 }
@@ -148,6 +149,25 @@ class ChunkingGroup(StrictModel):
         description="Largest chunk size in tokens; caps every chunking profile",
         json_schema_extra=_extra(["tenant", "project", "connection"], "next_ingestion"),
     )
+    overlap_tokens: int = Field(
+        64,
+        ge=0,
+        le=512,
+        description="Tokens repeated between consecutive chunks; clamped below a profile's target",
+        json_schema_extra=_extra(["tenant", "project", "connection"], "next_ingestion"),
+    )
+
+
+class EmbeddingGroup(StrictModel):
+    """Embedding settings."""
+
+    batch_size: int = Field(
+        32,
+        ge=1,
+        le=256,
+        description="Chunks embedded per encoding API call",
+        json_schema_extra=_extra(["tenant", "project"], "next_ingestion"),
+    )
 
 
 class IngestionGroup(StrictModel):
@@ -197,6 +217,7 @@ SETTINGS_GROUPS: Mapping[str, type[StrictModel]] = {
     "capture": CaptureGroup,
     "parsing": ParsingGroup,
     "chunking": ChunkingGroup,
+    "embedding": EmbeddingGroup,
     "ingestion": IngestionGroup,
     "models": ModelsGroup,
 }

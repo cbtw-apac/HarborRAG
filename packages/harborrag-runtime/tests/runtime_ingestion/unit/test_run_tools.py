@@ -12,10 +12,18 @@ import pytest
 from temporalio.exceptions import ApplicationError
 
 from harborrag_core.chunking.tokenization import ApproximateTokenCounter
+from harborrag_core.contracts.errors import HarborConfigurationError
 from harborrag_core.domain.document import Document
 from harborrag_core.domain.element import DocumentElement
 from harborrag_core.domain.provenance import DocumentProvenance
+from harborrag_core.ingestion import SparseEncoderProfile
 from harborrag_core.ingestion.run_contracts import RunSettings
+from harborrag_engine.ingestion import (
+    BM25SparseEncoder,
+    ChunkRepresentationEncoder,
+    RepresentationEncodingPolicy,
+    RepresentationReuseService,
+)
 from harborrag_engine.ingestion.chunking import ChunkingRequest
 from harborrag_engine.ingestion.release.materialization import DocumentMaterializationStages
 from harborrag_runtime.config.chunking import default_chunking_settings
@@ -31,6 +39,26 @@ REPO_ROOT = Path(__file__).resolve().parents[5]
 CAP = 256
 
 
+class _FakeEmbedClient:
+    async def aembed(self, *, request: Any) -> Any:  # noqa: ANN401 - unused in these tests
+        raise NotImplementedError
+
+
+def _boot_representations(batch_size: int = 32) -> RepresentationReuseService:
+    return RepresentationReuseService(
+        ChunkRepresentationEncoder(
+            _FakeEmbedClient(),
+            BM25SparseEncoder(SparseEncoderProfile(profile_id="bm25-v1")),
+            RepresentationEncodingPolicy(
+                logical_model="embedding-model",
+                dense_profile_id="dense-v1",
+                dense_dimension=3,
+                batch_size=batch_size,
+            ),
+        )
+    )
+
+
 def _run_tools(*, parsers: Any = None, build_chunker: Any = None) -> RunTools:
     chunking = default_chunking_settings()
     return RunTools(
@@ -40,6 +68,8 @@ def _run_tools(*, parsers: Any = None, build_chunker: Any = None) -> RunTools:
         parsers=parsers or load_parser_catalog(REPO_ROOT / "config" / "ingestion" / "parsers.yaml"),
         build_chunker=build_chunker
         or (lambda config: build_default_chunker(config=config, refiner=chunking.refiner)),
+        representations=_boot_representations(),
+        build_representations=_boot_representations,
     )
 
 
@@ -190,6 +220,54 @@ def test_ocr_override_is_cached_and_independent_of_pdf_parser_override() -> None
 
     assert first is second
     assert plain is tools._parser
+
+
+def test_overlap_override_builds_one_cached_chunker_distinct_from_a_cap_override() -> None:
+    tools = _run_tools()
+
+    overlap_only = tools.chunker_for(RunSettings("rev_1", chunk_overlap_tokens=10))
+    same_overlap = tools.chunker_for(RunSettings("rev_2", chunk_overlap_tokens=10))
+    cap_only = tools.chunker_for(RunSettings("rev_3", chunk_max_tokens=CAP))
+
+    assert overlap_only is not tools._chunker
+    assert overlap_only is same_overlap
+    assert overlap_only is not cap_only
+    assert tools.chunker_for(RunSettings("rev_4")) is tools._chunker
+
+
+def test_default_run_uses_the_boot_representation_encoder() -> None:
+    tools = _run_tools()
+    boot = tools._representations
+
+    assert tools.representations_for(None) is boot
+    assert tools.representations_for(RunSettings("rev_1")) is boot
+
+
+def test_embedding_batch_size_builds_one_cached_encoder_per_distinct_value() -> None:
+    tools = _run_tools()
+
+    first = tools.representations_for(RunSettings("rev_1", embedding_batch_size=8))
+    second = tools.representations_for(RunSettings("rev_2", embedding_batch_size=8))
+    other = tools.representations_for(RunSettings("rev_3", embedding_batch_size=16))
+
+    assert first is second
+    assert first is not other
+    assert first._encoder._policy.batch_size == 8
+    assert other._encoder._policy.batch_size == 16
+
+
+def test_representations_for_without_an_encoder_raises() -> None:
+    chunking = default_chunking_settings()
+    tools = RunTools(
+        parser=cast(Any, object()),
+        chunker=build_default_chunker(config=chunking.config),
+        chunking=chunking,
+        parsers=load_parser_catalog(REPO_ROOT / "config" / "ingestion" / "parsers.yaml"),
+        build_chunker=lambda config: build_default_chunker(config=config, refiner=chunking.refiner),
+    )
+
+    with pytest.raises(HarborConfigurationError):
+        tools.representations_for(None)
 
 
 @pytest.mark.asyncio

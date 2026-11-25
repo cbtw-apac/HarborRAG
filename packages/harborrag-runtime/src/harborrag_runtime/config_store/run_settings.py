@@ -49,6 +49,8 @@ class RunSettingsResolver:
             max_pdf_pages=_integer(effective.override("capture.max_pdf_pages")),
             ocr_enabled=_boolean(effective.override("parsing.ocr.enabled")),
             ocr_languages=_strings(effective.override("parsing.ocr.languages")),
+            chunk_overlap_tokens=_integer(effective.override("chunking.overlap_tokens")),
+            embedding_batch_size=_integer(effective.override("embedding.batch_size")),
         )
 
 

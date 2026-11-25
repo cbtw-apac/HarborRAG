@@ -70,6 +70,8 @@ class RunSettings:
         max_pdf_pages: Largest PDF page count a capture will accept.
         ocr_enabled: Whether OCR runs on scanned PDFs and image documents.
         ocr_languages: Languages the OCR engine recognizes.
+        chunk_overlap_tokens: Tokens repeated between consecutive chunks.
+        embedding_batch_size: Chunks embedded per encoding API call.
     """
 
     settings_revision: str
@@ -84,6 +86,8 @@ class RunSettings:
     max_pdf_pages: int | None = None
     ocr_enabled: bool | None = None
     ocr_languages: tuple[str, ...] | None = None
+    chunk_overlap_tokens: int | None = None
+    embedding_batch_size: int | None = None
 
     def to_json(self) -> dict[str, object]:
         """Return the JSON-safe form stored in task requests and plans."""
@@ -102,6 +106,8 @@ class RunSettings:
             "ocr_languages": (
                 list(self.ocr_languages) if self.ocr_languages is not None else None
             ),
+            "chunk_overlap_tokens": self.chunk_overlap_tokens,
+            "embedding_batch_size": self.embedding_batch_size,
         }
 
     @classmethod
@@ -121,6 +127,8 @@ class RunSettings:
         max_pdf_pages = value.get("max_pdf_pages")
         ocr_enabled = value.get("ocr_enabled")
         ocr_languages = value.get("ocr_languages")
+        chunk_overlap_tokens = value.get("chunk_overlap_tokens")
+        embedding_batch_size = value.get("embedding_batch_size")
 
         def is_string_list(candidate: object) -> bool:
             return isinstance(candidate, list) and all(
@@ -140,6 +148,8 @@ class RunSettings:
             or not (max_pdf_pages is None or isinstance(max_pdf_pages, int))
             or not (ocr_enabled is None or isinstance(ocr_enabled, bool))
             or not (ocr_languages is None or is_string_list(ocr_languages))
+            or not (chunk_overlap_tokens is None or isinstance(chunk_overlap_tokens, int))
+            or not (embedding_batch_size is None or isinstance(embedding_batch_size, int))
         ):
             return None
         return cls(
@@ -155,6 +165,8 @@ class RunSettings:
             max_pdf_pages,
             ocr_enabled,
             tuple(ocr_languages) if ocr_languages is not None else None,
+            chunk_overlap_tokens,
+            embedding_batch_size,
         )
 
 
