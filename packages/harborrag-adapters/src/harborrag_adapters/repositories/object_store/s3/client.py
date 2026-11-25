@@ -7,15 +7,24 @@ from harborrag_adapters.repositories.errors import MissingOptionalDependencyErro
 from harborrag_adapters.repositories.lifecycle import AsyncLifecycle
 
 try:
+    from aiobotocore.config import AioConfig  # type: ignore[import-untyped]  # no stubs
     from aiobotocore.session import get_session  # type: ignore
 except ImportError:  # pragma: no cover - optional dependency
     get_session = None
 
 logger = logging.getLogger("harborrag.storage.s3")
 
+_MAX_ATTEMPTS = 2
+"""Tries per S3 request, the first included; callers' retry policies cover longer outages."""
+
 
 class S3DBClient(AsyncLifecycle):
-    """Owns one asynchronous S3-compatible SDK client and its context manager."""
+    """Owns one asynchronous S3-compatible SDK client and its context manager.
+
+    A request that does not connect within ``connect_timeout_seconds``, or waits longer
+    than ``operation_timeout_seconds`` for data, is tried at most ``_MAX_ATTEMPTS``
+    times before botocore raises its timeout error.
+    """
 
     def __init__(
         self,
@@ -25,6 +34,8 @@ class S3DBClient(AsyncLifecycle):
         access_key_id: str | None,
         secret_access_key: str | None,
         session_token: str | None,
+        connect_timeout_seconds: float,
+        operation_timeout_seconds: float,
     ) -> None:
         if get_session is None:
             raise MissingOptionalDependencyError("aiobotocore")
@@ -35,6 +46,8 @@ class S3DBClient(AsyncLifecycle):
             "aws_secret_access_key": secret_access_key,
             "aws_session_token": session_token,
         }
+        self._connect_timeout_seconds = connect_timeout_seconds
+        self._operation_timeout_seconds = operation_timeout_seconds
         self._client_manager: Any = None
         self._client: Any = None
 
@@ -54,7 +67,12 @@ class S3DBClient(AsyncLifecycle):
         try:
             session = get_session()
             kwargs = {key: value for key, value in self._settings.items() if value is not None}
-            self._client_manager = session.create_client("s3", **kwargs)
+            config = AioConfig(
+                connect_timeout=self._connect_timeout_seconds,
+                read_timeout=self._operation_timeout_seconds,
+                retries={"total_max_attempts": _MAX_ATTEMPTS, "mode": "standard"},
+            )
+            self._client_manager = session.create_client("s3", config=config, **kwargs)
             self._client = await self._client_manager.__aenter__()
         except BaseException:
             await self.close()

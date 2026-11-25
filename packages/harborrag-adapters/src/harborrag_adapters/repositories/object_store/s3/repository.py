@@ -59,6 +59,8 @@ class S3ObjectStore(S3ObjectOperationsMixin, HarborObjectStore):
             session_token=(
                 config.session_token.get_secret_value() if config.session_token else None
             ),
+            connect_timeout_seconds=config.connect_timeout_seconds,
+            operation_timeout_seconds=config.operation_timeout_seconds,
         )
 
     @property

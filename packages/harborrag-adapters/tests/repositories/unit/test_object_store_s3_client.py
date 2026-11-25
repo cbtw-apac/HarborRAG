@@ -66,6 +66,8 @@ def make_client() -> S3DBClient:
         access_key_id="ak",
         secret_access_key="sk",
         session_token=None,
+        connect_timeout_seconds=10,
+        operation_timeout_seconds=30,
     )
 
 
@@ -99,10 +101,14 @@ async def test_connect_is_idempotent_and_filters_none_settings(
         access_key_id=None,
         secret_access_key=None,
         session_token=None,
+        connect_timeout_seconds=10,
+        operation_timeout_seconds=30,
     )
 
     await db.connect()
-    assert fake_session.client_kwargs == {"endpoint_url": "http://localhost:9000"}
+    assert fake_session.client_kwargs is not None
+    assert set(fake_session.client_kwargs) == {"endpoint_url", "config"}
+    assert fake_session.client_kwargs["endpoint_url"] == "http://localhost:9000"
     assert db.raw is not None
 
     # A second connect() is a no-op and must not build a new client.
