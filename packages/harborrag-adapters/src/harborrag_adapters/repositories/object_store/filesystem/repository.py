@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import logging
 import os
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
@@ -43,9 +44,15 @@ from harborrag_core.storage import (
 _META_SUFFIX = ".harbor-meta.json"
 _LOCK_SUFFIX = ".harbor-lock"
 
+logger = logging.getLogger("harborrag.adapters.object_store.filesystem")
+
 
 class FilesystemObjectStore(FilesystemAccessMixin, HarborObjectStore):
-    """Stores objects beneath a trusted filesystem root with traversal protection."""
+    """Stores objects beneath a trusted filesystem root with traversal protection.
+
+    A relative root resolves against the process working directory when the store is
+    built, and logs a warning.
+    """
 
     def __init__(
         self,
@@ -62,6 +69,11 @@ class FilesystemObjectStore(FilesystemAccessMixin, HarborObjectStore):
             self._namespace_prefix = config.namespace_prefix
         if root is None:
             raise ValueError("filesystem object-store root is required")
+        if not root.expanduser().is_absolute():
+            logger.warning(
+                "Filesystem object-store root is relative and resolves against the process "
+                "working directory; set HARBORRAG_OBJECT_STORE_ROOT to an absolute path"
+            )
         self._root = root.expanduser().resolve()
         self._instance_name = instance_name
         self._telemetry = RepositoryTelemetry(

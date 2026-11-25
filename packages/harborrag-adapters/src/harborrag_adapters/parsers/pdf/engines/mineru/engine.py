@@ -165,7 +165,9 @@ class MinerUPDFEngine(HarborPDFEngine):
                 wherever MinerU's diagnostic output quotes them.
 
         Raises:
-            ParseError: MinerU timed out or exited with a non-zero code.
+            ParseError: MinerU timed out or exited with a non-zero code. A timeout
+                carries no cause or context, since ``TimeoutExpired`` quotes the
+                command line.
         """
 
         env = {
@@ -203,16 +205,17 @@ class MinerUPDFEngine(HarborPDFEngine):
                     os.name == "posix" and os.environ.get("HARBORRAG_ISOLATED_PROCESS") != "1"
                 ),
             )
+            return_code: int | None
             try:
                 return_code = process.wait(timeout=self.options.timeout_seconds)
-            except subprocess.TimeoutExpired as exc:
+            except subprocess.TimeoutExpired:
                 self._terminate_process_group(process)
-                raise ParseError(
-                    f"MinerU timed out after {self.options.timeout_seconds} seconds."
-                ) from exc
+                return_code = None
             except BaseException:
                 self._terminate_process_group(process)
                 raise
+            if return_code is None:
+                raise ParseError(f"MinerU timed out after {self.options.timeout_seconds} seconds.")
             if return_code != 0:
                 detail = self._diagnostic_text(stderr, stdout, private_paths=private_paths)
                 raise ParseError(f"MinerU failed with exit code {return_code}: {detail}")

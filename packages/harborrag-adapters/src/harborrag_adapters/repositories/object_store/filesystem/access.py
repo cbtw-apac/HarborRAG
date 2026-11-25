@@ -17,6 +17,7 @@ from harborrag_adapters.repositories.object_store.keys import (
     tenant_object_prefix,
     validate_object_key,
 )
+from harborrag_adapters.repositories.private_directories import make_private_directories
 from harborrag_core.schemas.object_store import ObjectMetadata, PutObjectRequest
 from harborrag_core.storage import StorageFamily, StorageOperationContext
 
@@ -58,13 +59,7 @@ class FilesystemAccessMixin:
         0700. An existing directory above the root keeps its mode.
         """
 
-        missing: list[Path] = []
-        current = path
-        while not current.exists():
-            missing.append(current)
-            current = current.parent
-        for directory in reversed(missing):
-            directory.mkdir(mode=0o700, exist_ok=True)
+        make_private_directories(path)
         current = path
         while current == self._root or self._root in current.parents:
             os.chmod(current, 0o700)
