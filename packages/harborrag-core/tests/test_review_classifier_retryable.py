@@ -45,7 +45,7 @@ def test_classifier_known_failure_honours_a_false_retryable_flag() -> None:
     failure = IngestionFailureClassifier().classify("FetchAndCaptureRaw", error)
 
     assert failure.retryable is False
-    assert failure.category is FailureCategory.TRANSIENT
+    assert failure.category is FailureCategory.INVALID_CONFIGURATION
     assert failure.code == "source_unavailable"
 
 

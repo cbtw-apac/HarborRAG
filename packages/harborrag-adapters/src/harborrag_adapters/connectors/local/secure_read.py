@@ -12,7 +12,11 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from harborrag_adapters.connectors.exceptions import DocumentProcessingError, FetchError
+from harborrag_adapters.connectors.exceptions import (
+    DocumentProcessingError,
+    FetchError,
+    NotRegularFileError,
+)
 
 from .filesystem_paths import SUPPORTS_DIR_FD
 from .skips import path_digest
@@ -94,8 +98,8 @@ def _read_via_dir_fd(
     """Open every component without following links and read the bound inode.
 
     Requires `dir_fd`/`openat()` support (POSIX only, see `SUPPORTS_DIR_FD`). The
-    file opens non-blocking, so a FIFO swapped in after discovery is refused as
-    not a regular file instead of blocking the worker. A regular file is read in
+    file opens non-blocking, so a FIFO swapped in after discovery is refused with
+    `NotRegularFileError` instead of blocking the worker. A regular file is read in
     blocking mode.
     """
 
@@ -121,7 +125,7 @@ def _read_via_dir_fd(
         file_fd = os.open(relative.parts[-1], file_flags, dir_fd=directory_fd)
         descriptor_stat = os.fstat(file_fd)
         if not stat_module.S_ISREG(descriptor_stat.st_mode):
-            raise DocumentProcessingError(
+            raise NotRegularFileError(
                 f"Local path is not a regular file: path_digest={path_digest(path)}"
             )
         os.set_blocking(file_fd, True)
@@ -177,7 +181,7 @@ def _read_via_plain_open(
         file_fd = os.open(final, os.O_RDONLY | getattr(os, "O_BINARY", 0))
         descriptor_stat = os.fstat(file_fd)
         if not stat_module.S_ISREG(descriptor_stat.st_mode):
-            raise DocumentProcessingError(
+            raise NotRegularFileError(
                 f"Local path is not a regular file: path_digest={path_digest(path)}"
             )
         enforce_size_limit(path, descriptor_stat.st_size)

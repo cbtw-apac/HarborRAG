@@ -5,6 +5,7 @@ from harborrag_core.ingestion import (
     SourceAuthorizationError,
     SourceItemNotFoundError,
     SourceUnavailableError,
+    UnsupportedDocumentError,
 )
 
 _RETRYABLE_CLIENT_STATUS = frozenset({408, 429})
@@ -132,6 +133,14 @@ class RateLimitError(FetchError):
 
 class DocumentProcessingError(ConnectorError):
     """Raised when there is an error processing a document."""
+
+
+class NotRegularFileError(DocumentProcessingError, UnsupportedDocumentError):
+    """A local path is a FIFO, socket, device or directory, not a regular file.
+
+    Reading it again gets the same answer, so it is an unsupported document that is
+    never retried.
+    """
 
 
 class HTTPRequestError(ConnectorError):

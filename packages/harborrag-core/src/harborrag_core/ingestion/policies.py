@@ -128,6 +128,13 @@ _TRANSIENT_ERRORS: tuple[type[BaseException], ...] = (
 )
 
 
+def _permanent_category(failure: SafeFailure, error: Exception) -> FailureCategory:
+    """Return the category of a failure the error's own flag made non-retryable."""
+    if failure.category is FailureCategory.TRANSIENT and isinstance(error, SourceUnavailableError):
+        return FailureCategory.INVALID_CONFIGURATION
+    return failure.category
+
+
 class DocumentVersionTransitionPolicy:
     """Validate provider-independent state transitions and replay boundaries.
 
@@ -290,10 +297,12 @@ class IngestionFailureClassifier:
 
         An error whose own ``retryable`` flag is ``False``, such as a model error for a
         rejected request, is never retried. The flag never makes a failure retryable.
+        A source error it makes permanent, such as a 400 or a refused response, is
+        ``INVALID_CONFIGURATION`` rather than ``TRANSIENT`` and keeps its code.
         """
         failure = self._classify(stage, error)
         if failure.retryable and getattr(error, "retryable", None) is False:
-            return replace(failure, retryable=False)
+            return replace(failure, retryable=False, category=_permanent_category(failure, error))
         return failure
 
     def _classify(self, stage: str, error: Exception) -> SafeFailure:
