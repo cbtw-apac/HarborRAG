@@ -1,20 +1,12 @@
 """The filter vocabulary evidence search accepts, derived from what is indexed.
 
-``vector_search`` used to accept any object as ``filters``. A key the collection
-has no payload index for is not an error to Qdrant -- it is a scan of every
-point's on-disk payload, which on a few hundred thousand points ran into the
-request deadline instead of failing. The accepted keys are therefore exactly the
-provisioned payload indexes (``EVIDENCE_PAYLOAD_INDEXES``), plus two prefixed
-families resolved elsewhere:
-
-- ``fields.<key>``: a source item's own typed fields (a Jira custom field such as
-  ``fields.skill_set``), traced from the item to its attachments. Only fields a
-  source scope declares as a facet are indexed; whether one is, is checked
-  against the live collection at query time.
-- ``facet.<name>``: a declared facet on source-entity summary cards.
-
-The schema and the validation below are both rendered from that one list so the
-advertised vocabulary and the enforced one cannot drift apart.
+A key without a payload index makes Qdrant scan every point's payload, so the
+accepted keys are exactly ``EVIDENCE_PAYLOAD_INDEXES`` plus two prefixed
+families. ``fields.<key>`` filters a source item's own typed field and reaches
+its attachments, and whether that path is indexed is checked against the live
+collection at query time. ``facet.<name>`` filters source-entity summary cards.
+The schema and the validation are both rendered from the one list, so the
+advertised and the enforced vocabularies cannot drift apart.
 """
 
 from __future__ import annotations
@@ -28,10 +20,10 @@ from harborrag_engine.ingestion.projections.vector import EVIDENCE_PAYLOAD_INDEX
 
 SOURCE_FIELD_FILTER_PREFIX = "fields."
 FACET_FILTER_PREFIX = "facet."
-# The normalized key shapes a connector writes under ``fields`` and a scope may
-# name a facet with (``VectorPayload.fields`` and ``FACET_NAME_PATTERN``).
 _SOURCE_FIELD_PATTERN = r"^fields\.[a-z0-9][a-z0-9_]{0,127}$"
+"""Key shape a connector writes under ``VectorPayload.fields``."""
 _FACET_PATTERN = r"^facet\.[a-z][a-z0-9_]{0,63}$"
+"""Facet name shape a source scope declares, as ``FACET_NAME_PATTERN`` allows."""
 _PREFIXED = (re.compile(_SOURCE_FIELD_PATTERN), re.compile(_FACET_PATTERN))
 EVIDENCE_FILTER_KEYS = frozenset(EVIDENCE_PAYLOAD_INDEXES)
 _RANGE_OPERATORS = frozenset(
@@ -50,10 +42,6 @@ _RANGE_VALUE: dict[str, object] = {
     "minProperties": 1,
     "additionalProperties": False,
 }
-# One value shape for every key. Repeating a per-key schema for each of the ~27
-# indexed keys made ``filters`` alone about 2k tokens of every tool listing; the
-# stricter per-key rules (no ranges on keyword keys) are enforced by
-# ``validate_evidence_filter`` either way.
 _VALUE: dict[str, object] = {
     "anyOf": [
         _TEXT,
@@ -66,15 +54,22 @@ _VALUE: dict[str, object] = {
 
 
 def evidence_filters_schema() -> dict[str, object]:
-    """The ``filters`` input schema: the indexed keys once, and one value shape."""
+    """Return the ``filters`` input schema of the evidence search tools.
 
+    Every key shares one value shape, which keeps the schema small in each tool
+    listing. ``validate_evidence_filter`` enforces the stricter per-key rules,
+    such as no range on a keyword key.
+
+    Returns:
+        A JSON schema object for the ``filters`` argument.
+    """
     return {
         "type": "object",
         "description": (
             "Narrow evidence by indexed payload fields; all conditions must hold. A "
-            "string matches exactly and a list matches any member; created_at and modified "
-            "(formerly updated_at) are exact ISO-8601 strings, not ranges.'fields.<key>' filters a source "
-            "item's own typed field (e.g. fields.skill_set) and reaches its attachments; "
+            "string matches exactly and a list matches any member; created_at and "
+            "last_modified are exact ISO-8601 strings, not ranges. 'fields.<key>' "
+            "filters a source item's own typed field (e.g. fields.skill_set) and reaches its attachments; "
             "only fields a source scope declares as a facet (see list_sources) are "
             'indexed, and number-typed ones also take a range such as {"gte": 5}. '
             "'facet.<name>' filters source-entity cards. Other keys are rejected."
@@ -92,8 +87,15 @@ def evidence_filters_schema() -> dict[str, object]:
 
 
 def validate_evidence_filter_keys(keys: Iterable[str]) -> None:
-    """Reject a filter key that would become an unindexed payload scan."""
+    """Reject a filter key that would become an unindexed payload scan.
 
+    Args:
+        keys: Filter keys a caller sent.
+
+    Raises:
+        HarborValidationError: A key is neither an indexed payload field nor a
+            ``fields.<key>`` or ``facet.<name>`` path.
+    """
     unknown = sorted(
         key
         for key in set(keys)
@@ -110,10 +112,16 @@ def validate_evidence_filter_keys(keys: Iterable[str]) -> None:
 def validate_evidence_filter(filters: VectorFilter | None) -> None:
     """Validate a caller's filter before any permission conditions are added.
 
-    A range on one of the keyword-indexed keys is refused too: the keyword index
-    cannot answer it, so it would be the same full scan as an unknown key.
-    """
+    A range on a keyword-indexed key is refused too. The keyword index cannot
+    answer it, so it would scan every payload like an unknown key.
 
+    Args:
+        filters: The caller's filter, or ``None`` for no filter.
+
+    Raises:
+        HarborValidationError: A key is not filterable, or a keyword key has a
+            range.
+    """
     if filters is None:
         return
     conditions = [*filters.must, *filters.should, *filters.must_not]
