@@ -72,6 +72,62 @@ def test_non_default_pdf_parser_suffixes_parser_profile(shipped_settings: Runtim
     assert liteparse.parser_profile == GOLDEN_PARSER_PROFILE
 
 
+def test_overlap_override_changes_chunk_strategy(shipped_settings: RuntimeSettings) -> None:
+    pinned = build_processing_profile(
+        shipped_settings, run_settings=RunSettings("rev_1", chunk_overlap_tokens=10)
+    )
+
+    assert pinned.chunk_strategy != GOLDEN_CHUNK_STRATEGY
+    assert pinned.parser_profile == GOLDEN_PARSER_PROFILE
+
+
+@pytest.mark.parametrize(
+    ("overrides", "suffix"),
+    [
+        ({"ocr_enabled": False}, "+ocr-off"),
+        ({"ocr_languages": ("en", "vi")}, "+ocr-en.vi"),
+        ({"ocr_enabled": False, "ocr_languages": ("vi",)}, "+ocr-off-vi"),
+        ({"ocr_enabled": True, "ocr_languages": ("en",)}, ""),
+    ],
+)
+def test_ocr_override_suffixes_parser_profile_only_when_it_changes_a_parser(
+    shipped_settings: RuntimeSettings, overrides: dict[str, object], suffix: str
+) -> None:
+    profile = build_processing_profile(
+        shipped_settings, run_settings=RunSettings("rev_1", **overrides)
+    )
+
+    assert profile.parser_profile == f"{GOLDEN_PARSER_PROFILE}{suffix}"
+    assert profile.chunk_strategy == GOLDEN_CHUNK_STRATEGY
+
+
+def test_ocr_comparison_reads_a_yaml_language_list_and_a_missing_switch_as_on(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "parsers.yaml"
+    path.write_text(
+        dedent(
+            """
+            version: 1
+            parsers:
+              pdf-docling:
+                parser: pdf
+                engines:
+                  - backend: docling
+                    settings:
+                      ocr_lang: [en, vi]
+            """
+        ),
+        encoding="utf-8",
+    )
+
+    catalog = load_parser_catalog(path)
+
+    assert not catalog.ocr_overrides_change_parsing(ocr_enabled=True, ocr_languages=("en", "vi"))
+    assert catalog.ocr_overrides_change_parsing(ocr_enabled=None, ocr_languages=("en",))
+    assert catalog.ocr_overrides_change_parsing(ocr_enabled=False, ocr_languages=None)
+
+
 def test_run_settings_json_round_trip() -> None:
     settings = RunSettings("rev_3", "docling", 256, 4)
 

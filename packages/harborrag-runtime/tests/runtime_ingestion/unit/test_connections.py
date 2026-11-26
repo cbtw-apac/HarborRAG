@@ -319,6 +319,22 @@ def test_capture_file_types_narrows_allowed_extensions_to_the_intersection(
     assert connector.provider.config.allowed_extensions == {".pdf"}
 
 
+def test_capture_file_types_with_no_shared_extension_fails_instead_of_keeping_every_file(
+    tmp_path: Path,
+) -> None:
+    from runtime_ingestion.connection_support import resolved_connection
+
+    resolved = resolved_connection(
+        "local_file",
+        config={"source_path": str(tmp_path), "allowed_extensions": [".md", ".pdf"]},
+    )
+
+    with pytest.raises(ConnectorConfigurationError, match=r"capture\.file_types"):
+        build_connector(
+            resolved.snapshot, {}, run_settings=RunSettings("rev_1", file_types=(".png",))
+        )
+
+
 def test_narrow_capture_limits_uses_the_attachment_field_name_when_present() -> None:
     config = SimpleNamespace(max_attachment_size_bytes=10_000_000)
 

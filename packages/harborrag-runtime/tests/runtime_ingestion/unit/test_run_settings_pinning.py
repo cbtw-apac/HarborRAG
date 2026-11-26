@@ -262,6 +262,45 @@ async def test_scheduled_preparation_pins_settings(
     assert preparation.source.run_settings == RunSettings("rev_4", None, 256, None)
 
 
+@pytest.mark.asyncio
+async def test_scheduled_preparation_applies_the_pinned_activity_timeout_and_attempts(
+    shipped_settings: RuntimeSettings,
+) -> None:
+    from harborrag_runtime.config.temporal import TemporalRuntimeConfig
+    from harborrag_runtime.temporal.ingestion_activities import IngestionActivities
+    from harborrag_runtime.temporal.schemas import ScheduledSourcePreparationInput
+
+    connections, revisions = await _stored_connection()
+    provider = _MutableProvider(
+        _snapshot(4, {"ingestion.activity_timeout": "PT2M", "ingestion.max_attempts": 2})
+    )
+    runtime = SimpleNamespace(
+        control=SimpleNamespace(
+            source_scans=SimpleNamespace(has_running_scan=AsyncMock(return_value=False))
+        ),
+        source_plans=None,
+        connection_resolver=ConnectionResolver(
+            connections, revisions, run_settings=RunSettingsResolver(provider)
+        ),
+    )
+    activities = IngestionActivities(
+        runtime,  # type: ignore[arg-type]
+        settings=shipped_settings,
+        temporal_config=TemporalRuntimeConfig(),
+    )
+
+    preparation = await activities.prepare_scheduled_source(
+        ScheduledSourcePreparationInput(
+            task_id="scheduled-1", tenant_id="tenant-1", connection_id="docs"
+        )
+    )
+
+    assert preparation.source is not None
+    options = preparation.source.workflow_options
+    assert options.timeouts.document_seconds == 120
+    assert options.retries.document.maximum_attempts == 2
+
+
 def test_source_input_without_run_settings_still_loads() -> None:
     converter = DataConverter.default.payload_converter
     (payload,) = converter.to_payloads([_source(RunSettings("rev_4", None, 256, None))])

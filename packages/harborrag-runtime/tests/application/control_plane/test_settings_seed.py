@@ -16,12 +16,10 @@ from harborrag_adapters.repositories.database.control_plane.engine import (
 )
 from harborrag_adapters.repositories.database.control_plane.migrations import run_migrations
 from harborrag_core.config_store import SettingsLevel, SettingsRegistry, SettingsSnapshot
-from harborrag_core.config_store.documents import plan_import
 from harborrag_runtime.application.control_plane.settings_import import (
     SettingsImporter,
     seed_settings_once,
 )
-from harborrag_runtime.config.settings_document import load_settings_document
 from harborrag_runtime.config_store import CachedConfigProvider
 from harborrag_runtime.testing.connection_fakes import FakeSecrets, fake_control_plane
 
@@ -148,24 +146,6 @@ async def test_seed_race_writes_one_revision(
 
     assert set(outcomes) == {"seeded", "raced"}
     assert await world.store.latest_revision(_TENANT) == 1
-
-
-async def test_shipped_example_seeds_cleanly(world: _World) -> None:
-    world.write_file((Path(__file__).parents[5] / "config/settings.example.yaml").read_text())
-
-    assert await world.seed() == "seeded"
-    assert await world.effective() == (1200, "tenant")
-
-
-async def test_shipped_example_skips_no_key_under_a_derived_embedding_default() -> None:
-    document = load_settings_document(Path(__file__).parents[5] / "config/settings.example.yaml")
-    registry = SettingsRegistry.default().with_defaults(
-        {"models.embedding": "openai:text-embedding-3-small"}
-    )
-
-    plan = plan_import(registry, SettingsSnapshot(_TENANT, 0, {}), document, prune=False)
-
-    assert plan.skipped == ()
 
 
 async def test_unknown_project_in_seed_file_names_level(

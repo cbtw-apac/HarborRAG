@@ -63,13 +63,13 @@ def test_defaults_match_todays_knobs() -> None:
         CAPTURE_FILE_TYPES,
         20,
         200,
-        512,
-        64,
+        1200,
+        None,
         32,
-        "PT10M",
-        50,
-        4,
-        3,
+        None,
+        200,
+        8,
+        None,
         None,
         True,
         ["en"],
@@ -128,7 +128,7 @@ def test_json_schema_groups_hold_every_key_once() -> None:
     assert entries["chunking.max_tokens"] == {
         "key": "chunking.max_tokens",
         "type": "integer",
-        "default": 512,
+        "default": 1200,
         "min": 64,
         "max": 4096,
         "levels": ["tenant", "project", "connection"],
@@ -138,13 +138,20 @@ def test_json_schema_groups_hold_every_key_once() -> None:
     assert entries["chunking.overlap_tokens"] == {
         "key": "chunking.overlap_tokens",
         "type": "integer",
-        "default": 64,
+        "default": None,
         "min": 0,
         "max": 512,
         "levels": ["tenant", "project", "connection"],
         "applies": "next_ingestion",
         "description": entries["chunking.overlap_tokens"]["description"],
     }
+    assert (
+        entries["ingestion.max_attempts"]["default"],
+        entries["ingestion.max_attempts"]["min"],
+        entries["ingestion.max_attempts"]["max"],
+    ) == (None, 1, 10)
+    assert entries["ingestion.activity_timeout"]["type"] == "string"
+    assert entries["ingestion.activity_timeout"]["default"] is None
     assert entries["embedding.batch_size"] == {
         "key": "embedding.batch_size",
         "type": "integer",
@@ -216,6 +223,10 @@ def test_unknown_key_is_refused() -> None:
         ("ingestion.activity_timeout", "PT1S"),
         ("ingestion.activity_timeout", "PT2H"),
         ("ingestion.activity_timeout", "bogus"),
+        ("capture.file_types", ["exe"]),
+        ("capture.file_types", ["pdf", ".exe"]),
+        ("capture.file_types", []),
+        ("capture.file_types", "pdf"),
     ],
 )
 def test_validate_rejects_bad_values(key: str, value: object) -> None:
@@ -229,8 +240,14 @@ def test_validate_returns_the_value() -> None:
     assert SettingsRegistry.default().definition("chunking.max_tokens").validate(300) == 300
 
 
+def test_file_types_accept_shared_types_with_or_without_the_dot_and_keep_them_as_sent() -> None:
+    definition = SettingsRegistry.default().definition("capture.file_types")
+
+    assert definition.validate(["pdf", "DOCX", ".txt"]) == ["pdf", "DOCX", ".txt"]
+
+
 @pytest.mark.parametrize("value", ["PT30S", "PT10M", "PT1H"])
-def test_activity_timeout_accepts_the_boundary_and_default_values(value: str) -> None:
+def test_activity_timeout_accepts_the_boundary_and_middle_values(value: str) -> None:
     assert (
         SettingsRegistry.default().definition("ingestion.activity_timeout").validate(value) == value
     )

@@ -35,7 +35,7 @@ def test_plan_import_diff() -> None:
     plan = plan_import(
         REGISTRY,
         SNAPSHOT,
-        _document(tenant={KEY: 1024, "ingestion.concurrency": 6}),
+        _document(tenant={KEY: 1024, "ingestion.concurrency": 4}),
         prune=False,
     )
 
@@ -46,7 +46,7 @@ def test_plan_import_diff() -> None:
         for change in plan.changes
     ] == [
         ("tenant", KEY, 512, 1024, "next_ingestion"),
-        ("tenant", "ingestion.concurrency", 4, 6, "next_ingestion"),
+        ("tenant", "ingestion.concurrency", 8, 4, "next_ingestion"),
     ]
     assert plan.skipped == ()
     assert not plan.empty

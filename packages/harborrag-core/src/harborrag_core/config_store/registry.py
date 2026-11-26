@@ -1,4 +1,4 @@
-"""The runtime settings registry: the six keys, their groups, levels and defaults.
+"""The runtime settings registry: its keys, their groups, levels and defaults.
 
 Pure; no I/O. Group models are the single source of each key's type, range,
 default, levels and ``applies``. Boot-only keys never enter the registry.
@@ -87,7 +87,7 @@ class RetrievalGroup(StrictModel):
         json_schema_extra=_extra(["tenant", "project"], "live"),
     )
     rerank: bool = Field(
-        False,
+        default=False,
         description="Rerank chat retrieval passages with the model catalog's rerank model",
         json_schema_extra=_extra(["tenant", "project"], "live"),
     )
@@ -105,7 +105,8 @@ class CaptureGroup(StrictModel):
     )
     file_types: list[str] = Field(
         list(_CAPTURE_FILE_TYPES),
-        description="File extensions a capture will fetch",
+        min_length=1,
+        description="File extensions a capture will fetch, from the shared capture types",
         json_schema_extra=_extra(["tenant", "project", "connection"], "next_ingestion"),
     )
     max_pdf_pages: int = Field(
@@ -116,12 +117,27 @@ class CaptureGroup(StrictModel):
         json_schema_extra=_extra(["tenant", "project", "connection"], "next_ingestion"),
     )
 
+    @field_validator("file_types")
+    @classmethod
+    def _shared_file_types(cls, value: list[str]) -> list[str]:
+        """Refuse an extension outside the shared types, with or without its dot."""
+        unknown = sorted({_dotted_extension(item) for item in value} - set(_CAPTURE_FILE_TYPES))
+        if unknown:
+            raise ValueError(f"unsupported file types: {', '.join(unknown)}")
+        return value
+
+
+def _dotted_extension(value: str) -> str:
+    """Return ``value`` lowercased with exactly one leading dot, so ``PDF`` becomes ``.pdf``."""
+    stripped = value.strip().lower()
+    return stripped if stripped.startswith(".") else f".{stripped}"
+
 
 class OcrSettings(StrictModel):
     """OCR settings nested under ``parsing.ocr``."""
 
     enabled: bool = Field(
-        True,
+        default=True,
         description="Run OCR on scanned PDFs and image documents",
         json_schema_extra=_extra(["tenant", "project", "connection"], "next_ingestion"),
     )
@@ -147,17 +163,20 @@ class ChunkingGroup(StrictModel):
     """Chunking settings."""
 
     max_tokens: int = Field(
-        512,
+        1200,
         ge=64,
         le=4096,
         description="Largest chunk size in tokens; caps every chunking profile",
         json_schema_extra=_extra(["tenant", "project", "connection"], "next_ingestion"),
     )
-    overlap_tokens: int = Field(
-        64,
+    overlap_tokens: int | None = Field(
+        None,
         ge=0,
         le=512,
-        description="Tokens repeated between consecutive chunks; clamped below a profile's target",
+        description=(
+            "Tokens repeated between consecutive chunks, clamped below a profile's target; "
+            "unset keeps each profile's own overlap"
+        ),
         json_schema_extra=_extra(["tenant", "project", "connection"], "next_ingestion"),
     )
 
@@ -178,46 +197,51 @@ class IngestionGroup(StrictModel):
     """Ingestion settings."""
 
     concurrency: int = Field(
-        4,
+        8,
         ge=1,
         le=64,
         description="Documents processed at once by one ingestion run",
         json_schema_extra=_extra(["tenant", "connection"], "next_ingestion"),
     )
-    activity_timeout: str = Field(
-        "PT10M",
-        description="ISO 8601 duration bounding one activity attempt",
+    activity_timeout: str | None = Field(
+        None,
+        description=(
+            "ISO 8601 duration from PT30S to PT1H bounding one attempt of each document "
+            "activity; unset keeps each activity's own budget"
+        ),
+        json_schema_extra=_extra(["tenant", "connection"], "next_ingestion"),
+    )
+    max_attempts: int | None = Field(
+        None,
+        ge=1,
+        le=10,
+        description=(
+            "Attempts per document activity, the first one included; unset keeps the "
+            "document retry policy in config/temporal.yaml"
+        ),
+        json_schema_extra=_extra(["tenant", "connection"], "next_ingestion"),
+    )
+    batch_size: int = Field(
+        200,
+        ge=1,
+        le=500,
+        description="Documents grouped into one batch workflow",
         json_schema_extra=_extra(["tenant", "connection"], "next_ingestion"),
     )
 
     @field_validator("activity_timeout")
     @classmethod
-    def _validate_activity_timeout(cls, value: str) -> str:
-        try:
-            seconds = parse_iso8601_duration_seconds(value)
-        except ValueError as error:
-            raise ValueError(str(error)) from error
+    def _validate_activity_timeout(cls, value: str | None) -> str | None:
+        """Refuse a duration that is malformed or outside PT30S to PT1H."""
+        if value is None:
+            return None
+        seconds = parse_iso8601_duration_seconds(value)
         if not MIN_ACTIVITY_TIMEOUT_SECONDS <= seconds <= MAX_ACTIVITY_TIMEOUT_SECONDS:
             raise ValueError(
                 "activity_timeout must be between PT30S and PT1H "
                 f"({MIN_ACTIVITY_TIMEOUT_SECONDS}-{MAX_ACTIVITY_TIMEOUT_SECONDS} seconds)"
             )
         return value
-
-    max_attempts: int = Field(
-        3,
-        ge=1,
-        le=10,
-        description="Retries per activity",
-        json_schema_extra=_extra(["tenant", "connection"], "next_ingestion"),
-    )
-    batch_size: int = Field(
-        50,
-        ge=1,
-        le=500,
-        description="Documents grouped into one batch workflow",
-        json_schema_extra=_extra(["tenant", "connection"], "next_ingestion"),
-    )
 
 
 class ModelsGroup(StrictModel):
@@ -246,7 +270,7 @@ SETTINGS_GROUPS: Mapping[str, type[StrictModel]] = {
 class SettingDefinition:
     """One registered setting.
 
-    Args:
+    Attributes:
         key: Dotted key, ``<group>.<field>`` or ``<group>.<nested>.<field>``.
         levels: Levels at which an override may exist.
         applies: When a change takes effect.
@@ -334,7 +358,7 @@ def _collect(
 class SettingsRegistry:
     """The set of settings keys the service accepts.
 
-    Args:
+    Attributes:
         definitions: Definitions by key.
         rerank_available: The model catalog has a rerank model, so
             ``retrieval.rerank`` may be switched on.

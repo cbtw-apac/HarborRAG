@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from harborrag_core.ingestion.run_contracts import RunSettings
 from harborrag_runtime.config import (
     TEMPORAL_CONFIG_VERSION,
     TemporalConfigurationError,
@@ -15,6 +16,7 @@ from harborrag_runtime.config import (
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.errors import RuntimeConfigurationError
 from harborrag_runtime.temporal.schemas import SourceIngestionInput
+from harborrag_runtime.temporal_models import ActivityTimeoutConfig, TemporalWorkflowOptions
 
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -325,6 +327,35 @@ def test_activity_timeouts_default_to_the_budgets_runs_used_before_they_were_con
     timeouts = load_temporal_config(config_path).workflow_options().timeouts
 
     assert (timeouts.discovery_seconds, timeouts.finalization_seconds) == (1_800, 900)
+    assert timeouts.document_seconds is None
+
+
+@pytest.mark.parametrize("seconds", [30, 3_600])
+def test_document_activity_timeout_accepts_the_activity_timeout_setting_range(
+    seconds: int,
+) -> None:
+    assert ActivityTimeoutConfig(document_seconds=seconds).document_seconds == seconds
+
+
+@pytest.mark.parametrize("seconds", [29, 3_601, True])
+def test_document_activity_timeout_rejects_values_outside_the_setting_range(
+    seconds: int,
+) -> None:
+    with pytest.raises(RuntimeConfigurationError, match="document activity timeout"):
+        ActivityTimeoutConfig(document_seconds=seconds)
+
+
+def test_workflow_options_for_run_apply_the_pinned_timeout_and_attempts() -> None:
+    options = TemporalWorkflowOptions()
+
+    pinned = options.for_run(RunSettings("rev_1", activity_timeout_seconds=30, max_attempts=2))
+
+    assert pinned.timeouts.document_seconds == 30
+    assert pinned.retries.document.maximum_attempts == 2
+    assert pinned.retries.document.maximum_interval_seconds == 300.0
+    assert pinned.retries.discovery == options.retries.discovery
+    assert options.for_run(None) is options
+    assert options.for_run(RunSettings("rev_1", chunk_max_tokens=256)) == options
 
 
 @pytest.mark.parametrize(

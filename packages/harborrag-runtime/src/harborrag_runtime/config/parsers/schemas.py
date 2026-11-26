@@ -4,8 +4,6 @@ Definitions here are already validated; reading and checking the YAML belongs to
 ``parsing`` and ``loader``, and provider constructors to ``providers``. Secrets
 and subprocess variables are read from the environment when a parser is built,
 never stored in a definition, and ``repr`` hides every setting.
-
-Start from: ParserCatalog.build_registry, ParserCatalog.build.
 """
 
 from __future__ import annotations
@@ -34,7 +32,7 @@ from harborrag_runtime.config.parsers.providers import (
 class PdfBackendDefinition:
     """One PDF backend in an explicitly ordered backend chain.
 
-    Args:
+    Attributes:
         backend: PDF backend name, such as ``liteparse`` or ``docling``.
         settings: Backend constructor options from YAML.
         secret_environment: Backend option name to the environment variable
@@ -118,7 +116,7 @@ class PdfBackendDefinition:
 class ParserDefinition:
     """One named parser construction recipe loaded from YAML.
 
-    Args:
+    Attributes:
         name: Application-level definition name, the YAML key.
         parser: Stable parser type, such as ``pdf``, ``image`` or ``docx``.
         enabled: Whether the registry uses this definition.
@@ -191,7 +189,7 @@ class ParserDefinition:
 class ParserCatalog:
     """A versioned, immutable collection of named parser definitions.
 
-    Args:
+    Attributes:
         parsers: Definitions by name, in YAML order.
         source_path: File the catalog was loaded from.
         version: Configuration format version of that file.
@@ -334,8 +332,8 @@ class ParserCatalog:
                 OCR engine and to the ``liteparse``/``docling`` PDF backends;
                 other PDF backends have no disable switch and are unaffected.
             ocr_languages: ``parsing.ocr.languages`` override applied the same
-                way; ``liteparse`` and the image engine take the first language,
-                ``docling`` takes every language given.
+                way. ``liteparse`` takes the first language, ``docling`` takes
+                every language, and the image engine takes them joined with ``+``.
 
         Returns:
             A new registry of default and configured families.
@@ -345,23 +343,20 @@ class ParserCatalog:
                 family, ``pdf_definition`` names no definition, or a definition
                 fails to build.
         """
-        definitions = {name: item for name, item in self.parsers.items() if item.enabled}
-        if pdf_definition is not None:
-            selected = self.get(pdf_definition)
-            definitions = {
-                name: item for name, item in definitions.items() if item.parser != selected.parser
-            }
-            definitions[pdf_definition] = selected
         configured: dict[str, tuple[str, HarborParser]] = {}
-        for config_name, definition in definitions.items():
+        for config_name, definition in self._registry_definitions(pdf_definition).items():
             overrides: dict[str, object] | None = None
             pdf_backend_overrides: Mapping[str, Mapping[str, object]] | None = None
             if definition.parser == "pdf":
                 if max_pages is not None:
                     overrides = {"max_pages": max_pages}
-                pdf_backend_overrides = _pdf_ocr_overrides(ocr_enabled, ocr_languages)
+                pdf_backend_overrides = _pdf_ocr_overrides(
+                    ocr_enabled=ocr_enabled, ocr_languages=ocr_languages
+                )
             elif definition.parser == "image":
-                overrides = _image_ocr_overrides(ocr_enabled, ocr_languages)
+                overrides = _image_ocr_overrides(
+                    ocr_enabled=ocr_enabled, ocr_languages=ocr_languages
+                )
             parser = definition.build(
                 environment=environment,
                 overrides=overrides,
@@ -384,6 +379,66 @@ class ParserCatalog:
             )
         parser_families.extend(parser for _, parser in configured.values())
         return HarborParserFactory().create_registry(families=parser_families)
+
+    def ocr_overrides_change_parsing(
+        self,
+        *,
+        ocr_enabled: bool | None,
+        ocr_languages: tuple[str, ...] | None,
+        pdf_definition: str | None = None,
+    ) -> bool:
+        """Return whether ``parsing.ocr.*`` overrides change a parser ``build_registry`` builds.
+
+        Compares the overrides with the YAML settings of the same definitions
+        ``build_registry`` builds for ``pdf_definition``. A missing on/off switch
+        counts as on, the default of every OCR engine here. A missing language
+        counts as different, because the engines default to different codes.
+
+        Passes on the ``ParserConfigurationError`` of ``get`` when
+        ``pdf_definition`` names no definition.
+
+        Args:
+            ocr_enabled: ``parsing.ocr.enabled`` override, or ``None``.
+            ocr_languages: ``parsing.ocr.languages`` override, or ``None``.
+            pdf_definition: Definition that stands in for the enabled ``pdf`` one.
+
+        Returns:
+            True when some built parser would run with a different OCR setting.
+        """
+        pdf_overrides = (
+            _pdf_ocr_overrides(ocr_enabled=ocr_enabled, ocr_languages=ocr_languages) or {}
+        )
+        image_overrides = (
+            _image_ocr_overrides(ocr_enabled=ocr_enabled, ocr_languages=ocr_languages) or {}
+        )
+        for definition in self._registry_definitions(pdf_definition).values():
+            if definition.parser == "pdf" and any(
+                _overrides_change(
+                    backend.settings,
+                    pdf_overrides.get(backend.backend, {}),
+                    on_switch=_PDF_OCR_FIELDS[backend.backend][0],
+                )
+                for backend in definition.pdf_backends
+                if backend.backend in _PDF_OCR_FIELDS
+            ):
+                return True
+            if definition.parser == "image" and _overrides_change(
+                definition.settings, image_overrides, on_switch=_IMAGE_OCR_ON_SWITCH
+            ):
+                return True
+        return False
+
+    def _registry_definitions(self, pdf_definition: str | None) -> dict[str, ParserDefinition]:
+        """Return the enabled definitions, with ``pdf_definition`` in place of the ``pdf`` one."""
+        definitions = {name: item for name, item in self.parsers.items() if item.enabled}
+        if pdf_definition is None:
+            return definitions
+        selected = self.get(pdf_definition)
+        definitions = {
+            name: item for name, item in definitions.items() if item.parser != selected.parser
+        }
+        definitions[pdf_definition] = selected
+        return definitions
 
     def build_harbor_parser(
         self,
@@ -412,9 +467,15 @@ real disable switch (``paddleocr``, ``mineru``) or does no OCR (``pymupdf``),
 so ``parsing.ocr.*`` leaves it unaffected rather than passing it an unsupported
 constructor argument."""
 
+_IMAGE_OCR_ON_SWITCH = "enabled"
+"""The image OCR engine's own on/off field."""
+
+_UNSET = object()
+"""Stands in for a setting the YAML leaves out, so it never equals an override."""
+
 
 def _pdf_ocr_overrides(
-    ocr_enabled: bool | None, ocr_languages: tuple[str, ...] | None
+    *, ocr_enabled: bool | None, ocr_languages: tuple[str, ...] | None
 ) -> dict[str, dict[str, object]] | None:
     """Return each OCR-capable PDF backend's own override, or ``None`` for neither."""
     if ocr_enabled is None and not ocr_languages:
@@ -433,17 +494,37 @@ def _pdf_ocr_overrides(
 
 
 def _image_ocr_overrides(
-    ocr_enabled: bool | None, ocr_languages: tuple[str, ...] | None
+    *, ocr_enabled: bool | None, ocr_languages: tuple[str, ...] | None
 ) -> dict[str, object] | None:
     """Return the image OCR engine's own override, or ``None`` for neither."""
     if ocr_enabled is None and not ocr_languages:
         return None
     overrides: dict[str, object] = {}
     if ocr_enabled is not None:
-        overrides["enabled"] = ocr_enabled
+        overrides[_IMAGE_OCR_ON_SWITCH] = ocr_enabled
     if ocr_languages:
         overrides["lang"] = "+".join(ocr_languages)
     return overrides
+
+
+def _overrides_change(
+    settings: Mapping[str, object], overrides: Mapping[str, object], *, on_switch: str
+) -> bool:
+    """Return whether ``overrides`` set a value ``settings`` does not already hold.
+
+    A missing ``on_switch`` counts as on. A list in either mapping compares equal to
+    the tuple of its items.
+    """
+    for key, value in overrides.items():
+        current = settings.get(key, True if key == on_switch else _UNSET)
+        if _comparable(current) != _comparable(value):
+            return True
+    return False
+
+
+def _comparable(value: object) -> object:
+    """Return ``value`` with a list turned into a tuple, so YAML lists match tuples."""
+    return tuple(value) if isinstance(value, list) else value
 
 
 def _is_single_engine_pdf(definition: ParserDefinition) -> bool:

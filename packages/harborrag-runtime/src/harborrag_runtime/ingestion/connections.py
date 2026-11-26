@@ -178,7 +178,8 @@ def build_connector(  # noqa: PLR0913 - the parts of one connection, plus the ru
         A ready-to-connect connector facade.
 
     Raises:
-        ConnectorConfigurationError: The values are rejected or allow unparseable files.
+        ConnectorConfigurationError: The values are rejected or allow unparseable files,
+            or ``capture.file_types`` shares no extension with them.
         ConnectionValidationError: A secret reference has no resolved value.
     """
     return build_connector_from_parts(
@@ -255,6 +256,15 @@ def _narrow_capture_limits(config_object: object, run_settings: RunSettings | No
     rule ``_effective_query`` applies to query filters: ``capture.max_document_mb``/
     ``capture.file_types`` can lower it further, never raise it past what the
     connection itself configures.
+
+    Args:
+        config_object: The connector config, changed in place.
+        run_settings: The run's pinned settings; ``None`` leaves the config as is.
+
+    Raises:
+        ConnectorConfigurationError: ``capture.file_types`` shares no extension with
+            the connection's own list. An empty list would keep every extension, so
+            the run fails instead.
     """
     if run_settings is None:
         return
@@ -272,6 +282,10 @@ def _narrow_capture_limits(config_object: object, run_settings: RunSettings | No
         allowed = {normalize_extension(extension) for extension in run_settings.file_types}
         current_extensions = config_object.allowed_extensions
         narrowed = set(current_extensions) & allowed if current_extensions else allowed
+        if not narrowed:
+            raise ConnectorConfigurationError(
+                "capture.file_types shares no extension with the connection's allowed_extensions"
+            )
         config_object.allowed_extensions = (
             type(current_extensions)(narrowed) if current_extensions is not None else narrowed
         )
@@ -342,6 +356,19 @@ class ConnectorPool:
     ) -> HarborConnector:
         """Return the run's connector, building it from its snapshot on first use.
 
+        Every activity of one run shares the connector, so the first call's
+        ``run_settings`` stay in force for the whole run.
+
+        Args:
+            tenant_id: Tenant of the run.
+            task_id: The run the connector belongs to.
+            configuration_fingerprint: Fingerprint of the run's connection snapshot.
+            run_settings: The run's pinned settings; its ``capture.*`` overrides
+                narrow the connection's own size and extension limits.
+
+        Returns:
+            The run's connector facade.
+
         Raises:
             ConnectorConfigurationError: The snapshot is unknown or its values are rejected.
             SecretUnavailableError: A referenced secret cannot be read on this worker.
@@ -363,6 +390,13 @@ class ConnectorPool:
         self, *, tenant_id: str, configuration_fingerprint: str
     ) -> ConnectionSnapshot:
         """Return the stored snapshot behind a fingerprint.
+
+        Args:
+            tenant_id: Tenant that owns the connection.
+            configuration_fingerprint: Fingerprint of the connection revision.
+
+        Returns:
+            The connection snapshot.
 
         Raises:
             ConnectorConfigurationError: No snapshot has this fingerprint.
@@ -418,6 +452,12 @@ class ConnectorPool:
 
 def require_fingerprint(fingerprint: str | None) -> str:
     """Return a run's connection fingerprint.
+
+    Args:
+        fingerprint: The fingerprint the run recorded, if any.
+
+    Returns:
+        The fingerprint.
 
     Raises:
         ConnectorConfigurationError: The run predates connection revisions.

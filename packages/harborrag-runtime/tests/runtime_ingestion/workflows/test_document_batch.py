@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import timedelta
 
 import pytest
 from temporalio.exceptions import ActivityError, ApplicationError, ChildWorkflowError
@@ -17,15 +18,16 @@ from harborrag_runtime.temporal.schemas import (
     SourceBatchInput,
 )
 from harborrag_runtime.temporal.source_batch_workflow import SourceBatchWorkflow
-from harborrag_runtime.temporal_models import TaskQueueConfig, TemporalWorkflowOptions
+from harborrag_runtime.temporal_models import (
+    ActivityTimeoutConfig,
+    TaskQueueConfig,
+    TemporalWorkflowOptions,
+)
 
 from .fixtures import plan_reference as _plan_reference
 
 
-@pytest.mark.asyncio
-async def test_document_workflow_routes_twelve_stages_to_resource_queues(monkeypatch) -> None:
-    calls = []
-
+def _recording_activities(calls: list):
     async def execute_activity(name, request, **options):
         calls.append((name, request, options))
         if name == "harborrag.fetch_and_capture_raw":
@@ -51,9 +53,60 @@ async def test_document_workflow_routes_twelve_stages_to_resource_queues(monkeyp
             return DocumentIngestionOutcome.PUBLISHED
         return request
 
+    return execute_activity
+
+
+async def _start_to_close_by_activity(
+    monkeypatch, workflow_options: TemporalWorkflowOptions
+) -> dict[str, timedelta]:
+    calls: list = []
     monkeypatch.setattr(
         "harborrag_runtime.temporal.document_workflow.workflow.execute_activity",
-        execute_activity,
+        _recording_activities(calls),
+    )
+    request = DocumentIngestionInput(
+        task_id="task-1",
+        tenant_id="tenant-1",
+        connector_name="local-docs",
+        plan_reference=_plan_reference(),
+        document_index=0,
+        workflow_options=workflow_options,
+    )
+
+    assert await DocumentIngestionWorkflow().run(request) is DocumentIngestionOutcome.PUBLISHED
+    return {name: options["start_to_close_timeout"] for name, _, options in calls}
+
+
+@pytest.mark.asyncio
+async def test_document_workflow_keeps_each_activity_budget_without_an_activity_timeout(
+    monkeypatch,
+) -> None:
+    timeouts = await _start_to_close_by_activity(monkeypatch, TemporalWorkflowOptions())
+
+    assert timeouts["harborrag.fetch_and_capture_raw"] == timedelta(minutes=30)
+    assert timeouts["harborrag.parse_and_normalize"] == timedelta(minutes=30)
+    assert timeouts["harborrag.write_vector_projection"] == timedelta(minutes=60)
+    assert timeouts["harborrag.publish_version"] == timedelta(minutes=5)
+
+
+@pytest.mark.asyncio
+async def test_document_workflow_applies_the_run_activity_timeout_to_every_activity(
+    monkeypatch,
+) -> None:
+    options = TemporalWorkflowOptions(timeouts=ActivityTimeoutConfig(document_seconds=30))
+
+    timeouts = await _start_to_close_by_activity(monkeypatch, options)
+
+    assert len(timeouts) == 12
+    assert set(timeouts.values()) == {timedelta(seconds=30)}
+
+
+@pytest.mark.asyncio
+async def test_document_workflow_routes_twelve_stages_to_resource_queues(monkeypatch) -> None:
+    calls: list = []
+    monkeypatch.setattr(
+        "harborrag_runtime.temporal.document_workflow.workflow.execute_activity",
+        _recording_activities(calls),
     )
     queues = TaskQueueConfig(
         discovery="test-discovery",
