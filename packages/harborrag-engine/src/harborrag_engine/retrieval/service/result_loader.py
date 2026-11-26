@@ -13,7 +13,7 @@ from harborrag_core.ports.model_clients import AsyncHarborEmbedClientProtocol
 
 from .contracts import RetrievalPolicy
 from .payload import optional_text, section_path
-from .validation import required_text
+from .validation import required_text, required_text_values
 
 _LOAD_CONCURRENCY = 8
 
@@ -91,6 +91,12 @@ class EvidenceResultLoader:
         Older evidence payloads predate the provenance fields, so those keys are
         always present, empty when absent, to keep the public metadata shape stable.
 
+        Args:
+            candidate: Vector search hit whose payload holds the evidence.
+
+        Returns:
+            The evidence text, scores and public metadata.
+
         Raises:
             ValueError: The payload lacks a required identity or content field.
         """
@@ -99,7 +105,7 @@ class EvidenceResultLoader:
             "document_id": required_text(payload, "document_id"),
             "document_version_id": required_text(payload, "document_version_id"),
             "record_kind": required_text(payload, "record_kind"),
-            "chunk_kind": required_text(payload, "chunk_kind"),
+            "chunk_kind": required_text_values(payload, "chunk_kind"),
             "connector_type": required_text(payload, "connector_type"),
             "citation_locator": payload.get("citation_locator", {}),
             "quality_score": payload.get("quality_score"),

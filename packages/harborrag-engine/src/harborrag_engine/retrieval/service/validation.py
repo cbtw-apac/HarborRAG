@@ -8,6 +8,13 @@ from collections.abc import Mapping
 def required_text(values: Mapping[str, object], key: str) -> str:
     """Return a required non-blank string field.
 
+    Args:
+        values: Payload or input to read.
+        key: Name of the field.
+
+    Returns:
+        The field's value.
+
     Raises:
         ValueError: The field is missing or not a non-blank string.
     """
@@ -17,11 +24,44 @@ def required_text(values: Mapping[str, object], key: str) -> str:
     return value
 
 
+def required_text_values(values: Mapping[str, object], key: str) -> list[str]:
+    """Return a required, non-empty list of non-blank strings.
+
+    One string reads as a one-item list, which is how points written before the
+    field became a list still store it.
+
+    Args:
+        values: Payload or input to read.
+        key: Name of the field.
+
+    Returns:
+        The field's strings, in stored order.
+
+    Raises:
+        ValueError: The field is missing, empty, or holds a blank or non-string item.
+    """
+    value = values.get(key)
+    items = [value] if isinstance(value, str) else value
+    if not isinstance(items, list | tuple) or not items:
+        raise ValueError(f"retrieval candidate is missing {key}")
+    texts = [item for item in items if isinstance(item, str) and item.strip()]
+    if len(texts) != len(items):
+        raise ValueError(f"retrieval candidate is missing {key}")
+    return texts
+
+
 def required_mapping(
     values: Mapping[str, object],
     key: str,
 ) -> Mapping[str, object]:
     """Return a required mapping field.
+
+    Args:
+        values: Payload or input to read.
+        key: Name of the field.
+
+    Returns:
+        The field's mapping.
 
     Raises:
         ValueError: The field is missing or not a mapping.
@@ -34,6 +74,11 @@ def required_mapping(
 
 def validate_retrieval_request(query: str, tenant_id: str, top_k: int) -> None:
     """Validate the public retrieval inputs.
+
+    Args:
+        query: Search text; must not be blank.
+        tenant_id: Tenant to search, 1 to 100 characters.
+        top_k: Results to return, from 1 to 100.
 
     Raises:
         ValueError: The query is blank, the tenant id is not 1 to 100 characters,

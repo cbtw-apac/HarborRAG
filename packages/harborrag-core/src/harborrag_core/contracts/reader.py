@@ -1,10 +1,8 @@
 """Transport-independent reader requests and results.
 
 Frozen values that the MCP tools, the SDK and the application services pass to the
-reader. Requests check their own bounds in ``__post_init__``; nothing here performs
+reader. Requests check their own bounds in ``__post_init__``. Nothing here performs
 I/O, and every request carries the caller's ``AccessContext``.
-
-Start from: RetrievalRequest, EvidenceReadRequest, DocumentContextRequest.
 """
 
 from __future__ import annotations
@@ -51,7 +49,7 @@ type DocumentContextOutcome = Literal["ok", "unavailable", "version_changed", "o
 class EvidenceReadSelector:
     """One chunk to read, optionally pinned to the document version the caller saw.
 
-    Args:
+    Attributes:
         chunk_id: Chunk to read; must not be blank.
         expected_document_id: Document the chunk must belong to, when given.
         expected_document_version_id: Version the chunk must belong to, when given.
@@ -78,7 +76,7 @@ class EvidenceReadSelector:
 class EvidenceReadRequest:
     """Read up to ``EVIDENCE_BATCH_LIMIT`` chunks by ID.
 
-    Args:
+    Attributes:
         access: Caller identity; only chunks the caller may read are returned.
         items: Chunks to read, each at most once.
     """
@@ -99,7 +97,7 @@ class EvidenceReadRequest:
 class EvidenceReadItem:
     """One chunk read, or the reason it could not be.
 
-    Args:
+    Attributes:
         chunk_id: Chunk that was asked for.
         availability: ``available``, ``unavailable`` or ``output_limit`` when the
             response ran out of room.
@@ -109,7 +107,8 @@ class EvidenceReadItem:
         document_title: Title of that document.
         source_scope_id: Source scope the document came from.
         connector_type: Connector that ingested the document.
-        chunk_kind: Kind of chunk, such as text, table or code.
+        chunk_kind: Kinds of content the chunk holds, its own kind first, such as
+            text and table. Empty when the chunk is not available.
         ordinal: Position of the chunk within its document version.
         section_path: Headings from the document root to the chunk.
         citation_locator: Where the chunk sits in its source, for citations.
@@ -123,7 +122,7 @@ class EvidenceReadItem:
     document_title: str | None = None
     source_scope_id: str | None = None
     connector_type: str | None = None
-    chunk_kind: str | None = None
+    chunk_kind: tuple[str, ...] = ()
     ordinal: int | None = None
     section_path: tuple[str, ...] = ()
     citation_locator: dict[str, object] = field(default_factory=dict)
@@ -133,7 +132,7 @@ class EvidenceReadItem:
 class EvidenceReadResponse:
     """Chunks read for one ``EvidenceReadRequest``, in request order.
 
-    Args:
+    Attributes:
         request_id: Identifies this read in logs and diagnostics.
         items: One entry per requested chunk.
     """
@@ -146,7 +145,7 @@ class EvidenceReadResponse:
 class DocumentContextRequest:
     """A window of consecutive chunks of one document.
 
-    Args:
+    Attributes:
         access: Caller identity; the document must be readable by it.
         document_id: Document to read; must not be blank.
         expected_document_version_id: Version the caller saw; any other active
@@ -191,11 +190,12 @@ class DocumentContextRequest:
 class DocumentContextChunk:
     """One chunk inside a document context window.
 
-    Args:
+    Attributes:
         chunk_id: Chunk identifier.
         ordinal: Position of the chunk within its document version.
         text: Chunk text.
-        chunk_kind: Kind of chunk, such as text, table or code.
+        chunk_kind: Kinds of content the chunk holds, its own kind first, such as
+            text and table.
         section_path: Headings from the document root to the chunk.
         citation_locator: Where the chunk sits in its source, for citations.
     """
@@ -203,7 +203,7 @@ class DocumentContextChunk:
     chunk_id: str
     ordinal: int
     text: str
-    chunk_kind: str
+    chunk_kind: tuple[str, ...]
     section_path: tuple[str, ...]
     citation_locator: dict[str, object]
 
@@ -212,7 +212,7 @@ class DocumentContextChunk:
 class DocumentContextResponse:
     """A document context window, or why there is none.
 
-    Args:
+    Attributes:
         request_id: Identifies this read in logs and diagnostics.
         outcome: ``ok``, ``unavailable``, ``version_changed`` or ``output_limit``.
         document_id: Document that was asked for.
@@ -238,7 +238,7 @@ class DocumentContextResponse:
 class SourceListRequest:
     """A page of the source scopes the caller can read.
 
-    Args:
+    Attributes:
         access: Caller identity; only readable scopes are listed.
         source_scope_ids: Scopes to keep, up to ``SOURCE_LIST_LIMIT``; empty keeps all.
         connector_types: Connector types to keep, up to
@@ -268,7 +268,7 @@ class SourceListRequest:
 class SourceListResponse:
     """One page of readable source scopes.
 
-    Args:
+    Attributes:
         request_id: Identifies this read in logs and diagnostics.
         sources: Scopes on this page.
         has_more: More scopes follow this page.
@@ -283,7 +283,7 @@ class SourceListResponse:
 class DocumentMetadata:
     """What a document list shows for one document.
 
-    Args:
+    Attributes:
         document_id: Document identifier.
         document_version_id: Active version of the document.
         title: Document title, when the source has one.
@@ -304,7 +304,7 @@ class DocumentMetadata:
 class DocumentListRequest:
     """A page of the documents the caller can read.
 
-    Args:
+    Attributes:
         access: Caller identity; only readable documents are listed.
         after_document_id: Cursor: list the documents after this one.
         limit: Documents to return, from 1 to ``DOCUMENT_LIST_LIMIT``.
@@ -326,7 +326,7 @@ class DocumentListRequest:
 class DocumentListResponse:
     """One page of readable documents.
 
-    Args:
+    Attributes:
         request_id: Identifies this read in logs and diagnostics.
         documents: Documents on this page.
         next_document_id: Cursor for the next page; ``None`` at the end.
@@ -341,7 +341,7 @@ class DocumentListResponse:
 class GraphNodeResolveRequest:
     """Resolve names or keys to knowledge-graph nodes.
 
-    Args:
+    Attributes:
         access: Caller identity; only readable nodes are returned.
         query: What to resolve and how many candidates to return.
     """
@@ -354,7 +354,7 @@ class GraphNodeResolveRequest:
 class GraphNodeResolveResponse:
     """Graph nodes that match a ``GraphNodeResolveRequest``.
 
-    Args:
+    Attributes:
         request_id: Identifies this read in logs and diagnostics.
         candidates: Matching nodes, best first.
         truncated: More nodes matched than were returned.
@@ -373,7 +373,7 @@ DOCUMENT_CONTEXT_CHUNK_FIELDS = tuple(value.name for value in fields(DocumentCon
 class RetrievalRequest:
     """One passage search within the caller's tenant.
 
-    Args:
+    Attributes:
         access: Caller identity, tenant and corpus mode; every read is scoped by it.
         query: Question to search for; must not be blank.
         top_k: Passages to return, from 1 to 100.
@@ -413,7 +413,7 @@ class RetrievalRequest:
 class RetrievalResponse:
     """Passages found for one ``RetrievalRequest``.
 
-    Args:
+    Attributes:
         request_id: Identifies this search in logs and diagnostics.
         lane: Lane that ranked the passages.
         results: Passages, best first.
@@ -440,7 +440,7 @@ class EntityFindRequest:
     facet. It is the one place a caller states *which* entities qualify, as
     opposed to what to look for in them.
 
-    Args:
+    Attributes:
         access: Caller identity; only released entities and evidence are returned.
         query: Question to rank entities against; must not be blank.
         facets: Facet name to the value or bounds an entity must have; at most 12.
@@ -468,7 +468,7 @@ class EntityFindRequest:
 class EntityMatch:
     """One ranked source entity with the evidence released for it.
 
-    Args:
+    Attributes:
         node_key: Graph node of the entity.
         source_scope_id: Source scope the entity came from.
         rank: Position in the answer, from 1.
@@ -499,7 +499,7 @@ ENTITIES_WITHOUT_RELEASED_EVIDENCE = "entities_without_released_evidence"
 class EntityFindResponse:
     """Entities ranked for one ``EntityFindRequest``.
 
-    Args:
+    Attributes:
         request_id: Identifies this search in logs and diagnostics.
         matches: Ranked entities, best first.
         truncated: More entities matched than were returned.
@@ -524,7 +524,7 @@ class EntityFindResponse:
 class EvidenceFetchRequest:
     """Fetch up to 20 chunks by ID as retrieval results.
 
-    Args:
+    Attributes:
         access: Caller identity; only readable chunks are returned.
         chunk_ids: Chunks to fetch, each non-blank and at most once.
     """
@@ -546,7 +546,7 @@ class EvidenceFetchRequest:
 class EvidenceFetchResponse:
     """Chunks fetched for one ``EvidenceFetchRequest``.
 
-    Args:
+    Attributes:
         request_id: Identifies this read in logs and diagnostics.
         results: Fetched chunks as retrieval results.
         unavailable_chunk_ids: Requested chunks that were not returned; the response
@@ -562,7 +562,7 @@ class EvidenceFetchResponse:
 class EntityResolveRequest:
     """Resolve an entity name to its canonical mentions.
 
-    Args:
+    Attributes:
         access: Caller identity; only readable mentions are returned.
         name: Entity name, from 1 to 256 characters.
         limit: Mentions to return, from 1 to 20.
@@ -584,7 +584,7 @@ class EntityResolveRequest:
 class EntityResolveResponse:
     """Canonical mentions resolved for one ``EntityResolveRequest``.
 
-    Args:
+    Attributes:
         request_id: Identifies this read in logs and diagnostics.
         mentions: Matching mentions, best first.
         truncated: More mentions matched than were returned.
@@ -599,7 +599,7 @@ class EntityResolveResponse:
 class RelationSearchRequest:
     """Assertions that connect one canonical entity to others.
 
-    Args:
+    Attributes:
         access: Caller identity; only readable assertions are returned.
         entity_id: Canonical entity to start from; must not be blank.
         predicates: Relation types to keep, at most five; empty keeps all.
@@ -629,7 +629,7 @@ class RelationSearchRequest:
 class RelationSearchResponse:
     """Assertions found for one ``RelationSearchRequest``.
 
-    Args:
+    Attributes:
         request_id: Identifies this read in logs and diagnostics.
         assertions: Matching assertions.
         mentions: Canonical mentions the assertions refer to.
@@ -646,7 +646,7 @@ class RelationSearchResponse:
 class SemanticPathRequest:
     """Assertion paths between two canonical entities.
 
-    Args:
+    Attributes:
         access: Caller identity; only readable assertions are used.
         start_entity_id: Entity the paths start from.
         end_entity_id: Entity the paths end at; must differ from the start.
@@ -684,7 +684,7 @@ class SemanticPathRequest:
 class SemanticPathResponse:
     """Paths found for one ``SemanticPathRequest``.
 
-    Args:
+    Attributes:
         request_id: Identifies this read in logs and diagnostics.
         paths: Each path as its assertions in order.
         mentions: Canonical mentions the assertions refer to.
@@ -701,7 +701,7 @@ class SemanticPathResponse:
 class GraphTripletRequest:
     """Search knowledge-graph triplets.
 
-    Args:
+    Attributes:
         access: Caller identity; only readable triplets are returned.
         query: What to search for and its bounds.
     """
@@ -714,7 +714,7 @@ class GraphTripletRequest:
 class GraphTripletResponse:
     """Triplets found for one ``GraphTripletRequest``.
 
-    Args:
+    Attributes:
         triplets: Matching triplets.
         diagnostics: Counts and limits of the search, for operators.
     """
@@ -727,7 +727,7 @@ class GraphTripletResponse:
 class GraphPathRequest:
     """Search knowledge-graph paths between nodes.
 
-    Args:
+    Attributes:
         access: Caller identity; only readable paths are returned.
         query: Endpoints and bounds of the search.
     """
@@ -740,7 +740,7 @@ class GraphPathRequest:
 class GraphPathResponse:
     """Paths found for one ``GraphPathRequest``.
 
-    Args:
+    Attributes:
         paths: Matching paths.
         diagnostics: Counts and limits of the search, for operators.
     """
@@ -753,7 +753,7 @@ class GraphPathResponse:
 class GraphSubgraphRequest:
     """Expand the knowledge-graph neighbourhood of some nodes.
 
-    Args:
+    Attributes:
         access: Caller identity; only readable nodes and relations are returned.
         query: Seed nodes and bounds of the expansion.
     """
@@ -766,7 +766,7 @@ class GraphSubgraphRequest:
 class GraphSubgraphResponse:
     """Subgraph expanded for one ``GraphSubgraphRequest``.
 
-    Args:
+    Attributes:
         nodes: Nodes in the subgraph.
         relations: Relations between those nodes.
         diagnostics: Counts and limits of the expansion, for operators.

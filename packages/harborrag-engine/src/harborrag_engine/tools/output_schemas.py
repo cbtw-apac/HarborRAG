@@ -238,7 +238,11 @@ RETRIEVAL_RESULT_SCHEMA: dict[str, object] = {
                 "document_id": {"type": "string"},
                 "document_version_id": {"type": "string"},
                 "record_kind": {"type": "string"},
-                "chunk_kind": {"type": "string"},
+                "chunk_kind": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "minItems": 1,
+                },
                 "connector_type": {"type": "string"},
                 "citation_locator": {"type": "object"},
                 "source_scope_id": {"type": "string"},

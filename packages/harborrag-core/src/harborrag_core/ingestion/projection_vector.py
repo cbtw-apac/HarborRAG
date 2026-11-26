@@ -47,7 +47,13 @@ class VectorPayload(StrictModel):
     document_id: DocumentId
     document_version_id: DocumentVersionId
     record_kind: RecordKind
-    chunk_kind: ChunkKind
+    chunk_kind: tuple[ChunkKind, ...] = Field(
+        min_length=1,
+        description=(
+            "Every kind of content the chunk holds, its own kind first, such as text "
+            "and table. A filter on one kind matches any chunk that lists it."
+        ),
+    )
     connector_type: ConnectorType
     document_kind: DocumentKind | None = None
     source_scope_id: str = Field(min_length=1)

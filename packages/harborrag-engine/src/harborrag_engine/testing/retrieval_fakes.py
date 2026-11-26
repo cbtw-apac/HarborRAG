@@ -47,8 +47,10 @@ class FakeEmbedClient:
         requests: Every request passed to ``aembed``, in order.
     """
 
+    requests: list[Any]
+
     def __init__(self) -> None:
-        self.requests: list[Any] = []
+        self.requests = []
 
     async def aembed(self, *, request: Any) -> SimpleNamespace:  # noqa: ANN401 - any request shape
         """Record ``request`` and return the vector ``(1.0, 0.0, 0.0)``."""
@@ -71,12 +73,15 @@ class FakeVectorRepository:
         drop_provenance: Leave the document title and section path out of the point.
     """
 
+    dense_queries: list[tuple[Any, Any]]
+    sparse_queries: list[tuple[Any, Any]]
+    hybrid_queries: list[tuple[Any, Any]]
     drop_provenance: bool = False
 
     def __init__(self) -> None:
-        self.dense_queries: list[tuple[Any, Any]] = []
-        self.sparse_queries: list[tuple[Any, Any]] = []
-        self.hybrid_queries: list[tuple[Any, Any]] = []
+        self.dense_queries = []
+        self.sparse_queries = []
+        self.hybrid_queries = []
 
     async def search(self, query: Any, *, context: Any) -> list[VectorSearchResult]:  # noqa: ANN401 - any query shape
         """Record the dense query and return the canned results of its index."""
@@ -115,7 +120,7 @@ class FakeVectorRepository:
                     "document_id": "document-1",
                     "document_version_id": "version-1",
                     "record_kind": "evidence",
-                    "chunk_kind": "text",
+                    "chunk_kind": ["text"],
                     "connector_type": "local",
                     "content": _EVIDENCE_CONTENT,
                     **provenance,
@@ -148,8 +153,10 @@ class FakeChunkReader:
         references: ``(reference, context)`` of every read.
     """
 
+    references: list[tuple[Any, Any]]
+
     def __init__(self) -> None:
-        self.references: list[tuple[Any, Any]] = []
+        self.references = []
 
     async def get_reference(self, reference: Any, *, context: Any) -> ChunkRecord:  # noqa: ANN401 - any reference shape
         """Record the read and return the evidence chunk of ``context``'s tenant."""
@@ -186,8 +193,10 @@ class FakeGraphRepository:
         queries: ``(start_node_key, options)`` of every traversal.
     """
 
+    queries: list[tuple[str, dict[str, object]]]
+
     def __init__(self) -> None:
-        self.queries: list[tuple[str, dict[str, object]]] = []
+        self.queries = []
 
     async def traverse(self, start_node_key: str, **kwargs: object) -> KnowledgeGraphTraversal:
         """Record the traversal and return an empty graph."""
@@ -283,6 +292,12 @@ class CanonicalTopology:
         validation_calls: Arguments of every ``eligible_build_ids`` call.
     """
 
+    mentions: tuple[CanonicalMention, ...]
+    assertions: tuple[CanonicalAssertion, ...]
+    eligible: set[str]
+    calls: list[tuple[Any, ...]]
+    validation_calls: list[tuple[Any, ...]]
+
     def __init__(self) -> None:
         self.mentions = (
             mention("entity-1", "chunk-1", "Alpha"),
@@ -313,8 +328,8 @@ class CanonicalTopology:
             ),
         )
         self.eligible = {"build-1", "build-2"}
-        self.calls: list[tuple[Any, ...]] = []
-        self.validation_calls: list[tuple[Any, ...]] = []
+        self.calls = []
+        self.validation_calls = []
 
     async def active_mentions(  # noqa: PLR0913 - mirrors the authorized repository contract
         self,
@@ -387,7 +402,7 @@ def record(chunk: str, document: str, version: str) -> VectorIndexRecord:
             "document_id": document,
             "document_version_id": version,
             "record_kind": "evidence",
-            "chunk_kind": "text",
+            "chunk_kind": ["text"],
             "connector_type": "local",
             "content": "Alpha depends on Beta." if chunk == "chunk-1" else "Beta controls retries.",
         },
@@ -402,9 +417,12 @@ class TopologyVectors(FakeVectorRepository):
         records: Indexed points of ``chunk-1`` and ``chunk-2``.
     """
 
+    get_calls: list[tuple[Any, ...]]
+    records: list[VectorIndexRecord]
+
     def __init__(self) -> None:
         super().__init__()
-        self.get_calls: list[tuple[Any, ...]] = []
+        self.get_calls = []
         self.records = [
             record("chunk-1", "document-1", "version-1"),
             record("chunk-2", "document-2", "version-2"),
@@ -428,6 +446,8 @@ class ActiveVersions:
     Attributes:
         versions: Active version ID of each document.
     """
+
+    versions: dict[str, str]
 
     def __init__(self) -> None:
         self.versions = {"document-1": "version-1", "document-2": "version-2"}

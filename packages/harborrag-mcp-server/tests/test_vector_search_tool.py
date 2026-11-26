@@ -9,6 +9,8 @@ from harborrag_engine.tools.vector_search import VectorSearchTool
 from harborrag_mcp_server.server.server import McpServer
 from harborrag_runtime.sdk import RetrievalLane, RetrievalMode
 
+pytestmark = pytest.mark.unit
+
 
 def _result(id_: str, text: str, score: float, relevance: float | None = None) -> RetrievalResult:
     """A ``RetrievalResult`` with the exact metadata shape the real service produces."""
@@ -21,7 +23,7 @@ def _result(id_: str, text: str, score: float, relevance: float | None = None) -
             "document_id": "document-1",
             "document_version_id": "version-1",
             "record_kind": "evidence",
-            "chunk_kind": "text",
+            "chunk_kind": ["text"],
             "connector_type": "local",
             "citation_locator": {},
             "quality_score": None,
@@ -49,11 +51,14 @@ def _diagnostics(candidate_hits: int) -> dict[str, object]:
 
 
 class StaticRetrievalFacade:
+    """Retrieval facade that returns its fixed results, best score first."""
+
     def __init__(self, results: list[RetrievalResult]) -> None:
         self.results = results
         self.last_request = None
 
     async def search(self, request):
+        """Record the request and return the top results it asks for."""
         self.last_request = request
         ordered = sorted(self.results, key=lambda item: item.score, reverse=True)
         return SimpleNamespace(
@@ -280,6 +285,7 @@ async def test_a_refused_filter_reports_its_reason_not_a_backend_failure() -> No
 
 @pytest.mark.asyncio
 async def test_hits_carry_the_issue_key_but_not_constant_bookkeeping() -> None:
+    """Everything citations and the Explorer read stays on each hit."""
     hit = _result("vec-1", "Deployment runbook", 0.9, 0.5)
     hit.metadata.update({"issue_key": "DEMO-101361", "content_hash": "abc", "raw_score": 0.4})
     harbor, _ = runtime([hit])
@@ -297,5 +303,4 @@ async def test_hits_carry_the_issue_key_but_not_constant_bookkeeping() -> None:
         "quality_score",
         "content_hash",
     }.isdisjoint(metadata)
-    # Everything citations and the Explorer read is still there.
     assert {"document_id", "document_title", "section_path", "citation_locator"} <= set(metadata)

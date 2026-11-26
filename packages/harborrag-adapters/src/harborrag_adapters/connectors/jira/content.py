@@ -1,4 +1,8 @@
-"""Text extraction and rendering for JIRA issue payloads."""
+"""Text extraction and rendering for JIRA issue payloads.
+
+Tables from HTML and ADF stay Markdown tables, never one cell per line, so the
+rows and columns that give each cell its meaning reach chunk context.
+"""
 
 from __future__ import annotations
 
@@ -9,7 +13,11 @@ from typing import Any
 
 from harborrag_adapters.connectors.attachments.processing import AttachmentMetadata
 from harborrag_adapters.parsers.common.html_markdown import html_to_markdown
-from harborrag_adapters.parsers.common.markdown_tables import TableCell, markdown_table
+from harborrag_adapters.parsers.common.markdown_tables import (
+    TableCell,
+    markdown_table,
+    positive_span,
+)
 from harborrag_adapters.parsers.common.normalization import compact_text
 from harborrag_core.ingestion import is_runtime_field
 
@@ -23,12 +31,12 @@ CUSTOM_FIELD_PREFIX = "customfield_"
 
 _ADF_TABLE_CELL_TYPES = frozenset({"tableCell", "tableHeader"})
 
-# Markdown constructs that are only recognized at the start of a line.
 _STARTS_MARKDOWN_BLOCK = re.compile(r"\||#{1,6} |> |[-*+] |\d+\. |```|~~~")
+"""Markdown constructs that are only recognized at the start of a line."""
 
 _FIELD_KEY_SEPARATORS = re.compile(r"[^a-z0-9]+")
-# Latin letters NFKD does not decompose into a base letter plus a mark.
 _FIELD_KEY_LETTERS = str.maketrans({"đ": "d", "ø": "o", "ł": "l", "æ": "ae", "œ": "oe"})
+"""Latin letters NFKD does not decompose into a base letter plus a mark."""
 _MAX_FILTER_VALUE_CHARS = 256
 # TODO: import the payload key pattern from core once projection_vector exports it.
 _PAYLOAD_FIELD_KEY = re.compile(r"[a-z0-9][a-z0-9_]{0,127}")
@@ -43,7 +51,12 @@ def build_raw_content(
     attachments: list[AttachmentMetadata] | None = None,
     include_attachment_text: bool = True,
 ) -> str:
-    """Render a JIRA issue and optional child data as readable plain text."""
+    """Render a JIRA issue and optional child data as readable plain text.
+
+    Each attachment heading carries its upload time, not just the structured
+    metadata, so retrieval over an attachment's own content can still answer
+    when the file was attached.
+    """
     fields = issue.get("fields", {})
     lines = [
         f"# {issue.get('key')} {fields.get('summary') or ''}".strip(),
@@ -53,7 +66,7 @@ def build_raw_content(
         f"Priority: {_name(fields.get('priority')) or ''}".strip(),
         "",
         "## Description",
-        field_text(fields.get("description")),
+        description_text(issue),
     ]
 
     custom_field_lines = [
@@ -75,15 +88,32 @@ def build_raw_content(
     if processed and include_attachment_text:
         lines.extend(["", "## Attachments"])
         for attachment in processed:
-            # Carry the upload time into the rendered text, not just structured
-            # metadata, so retrieval over an attachment's own content can still
-            # answer when the file was attached.
             heading = f"### {attachment.title}"
             if attachment.created_at:
                 heading = f"{heading} (attached {attachment.created_at})"
             lines.extend((heading, attachment.text or ""))
 
     return compact_text("\n".join(lines))
+
+
+def description_text(issue: dict[str, Any]) -> str:
+    """Render an issue's description, using Jira's HTML when the raw value is wiki markup.
+
+    Jira Cloud sends the description as ADF, which keeps its tables on its own.
+    Jira Server and Data Center send wiki markup, whose ``||header||`` tables are
+    not Markdown, so the HTML Jira rendered from it is used when the issue has it.
+
+    Args:
+        issue: Issue payload fetched with ``renderedFields`` expanded.
+
+    Returns:
+        The description as Markdown text, or ``""`` when there is none.
+    """
+    description = issue.get("fields", {}).get("description")
+    rendered = (issue.get("renderedFields") or {}).get("description")
+    if isinstance(description, str) and isinstance(rendered, str) and rendered.strip():
+        return field_text(rendered)
+    return field_text(description)
 
 
 def labelled_block(label: str | None, text: str) -> str:
@@ -148,13 +178,13 @@ def custom_field_metadata(issue: dict[str, Any]) -> list[JiraCustomFieldMetadata
 
 
 def field_key(name: str) -> str:
-    """The payload key one custom field is filtered by: ``Skill Set`` -> ``skill_set``.
+    """Return the payload key one custom field is filtered by.
 
-    Accents are folded rather than treated as separators, so ``Kỹ năng`` is
-    ``ky_nang`` and ``Résumé`` is ``resume``. A name with no Latin letters or
-    digits left, such as ``経験年数``, normalizes to ``""``.
+    ``Skill Set`` becomes ``skill_set``. Accents are folded rather than treated
+    as separators, so ``Kỹ năng`` is ``ky_nang`` and ``Résumé`` is ``resume``. A
+    name with no Latin letters or digits left, such as ``経験年数``, normalizes
+    to ``""``.
     """
-
     decomposed = unicodedata.normalize("NFKD", name.casefold())
     unaccented = "".join(char for char in decomposed if unicodedata.category(char) != "Mn")
     return _FIELD_KEY_SEPARATORS.sub("_", unaccented.translate(_FIELD_KEY_LETTERS)).strip("_")
@@ -165,15 +195,14 @@ def filterable_fields(
 ) -> dict[str, FieldFilterValue]:
     """Map every typed custom field to one exact, filterable value.
 
-    Prose fields are left out: they are evidence of their own, and nobody filters
-    on a paragraph. A number stays a number, so a range filter works on it; an
-    option or user list keeps each member, so set membership matches any one of
-    them. A display name that cannot be a key -- one that normalizes to a key
-    already taken, or to a runtime-only name knowledge records reject, such as
-    ``Request ID`` -- falls back to the field id rather than overwriting the
-    first or failing the whole document version.
+    Prose fields are left out, because they are evidence of their own and nobody
+    filters on a paragraph. A number stays a number, so a range filter works on
+    it. An option or user list keeps each member, so set membership matches any
+    one of them. A display name that cannot be a key falls back to the field id
+    rather than overwriting the first or failing the whole document version.
+    Such a name normalizes to a key already taken, or to a runtime-only name
+    that knowledge records reject, such as ``Request ID``.
     """
-
     keys = filter_keys(fields)
     output: dict[str, FieldFilterValue] = {}
     for field in fields:
@@ -195,7 +224,6 @@ def filter_keys(fields: list[JiraCustomFieldMetadata]) -> dict[str, str]:
     readable key and the others fall back to their field id. A name too long to be
     a payload key, over 128 characters once normalized, falls back the same way.
     """
-
     keys: dict[str, str] = {}
     taken: set[str] = set()
     for field_id, name in sorted({field.field_id: field.name for field in fields}.items()):
@@ -208,6 +236,12 @@ def filter_keys(fields: list[JiraCustomFieldMetadata]) -> dict[str, str]:
 
 
 def _filter_value(field: JiraCustomFieldMetadata) -> FieldFilterValue | None:
+    """Return one field's filter value, or None when it has none.
+
+    Members are read from the raw value, not the rendered text, because
+    rendering turns an email into a Markdown link and a user list into one
+    multi-line string.
+    """
     raw = field.value
     if field.value_kind == JiraCustomFieldKind.NUMBER:
         try:
@@ -217,8 +251,6 @@ def _filter_value(field: JiraCustomFieldMetadata) -> FieldFilterValue | None:
         return number if math.isfinite(number) else None
     if field.value_kind == JiraCustomFieldKind.BOOLEAN:
         return raw if isinstance(raw, bool) else None
-    # Read members from the raw value, not the rendered text: rendering turns an
-    # email into a Markdown link and a user list into one multi-line string.
     values = list(dict.fromkeys(_member_texts(raw))) or ([field.text] if field.text else [])
     values = [value[:_MAX_FILTER_VALUE_CHARS] for value in values]
     if not values:
@@ -226,7 +258,7 @@ def _filter_value(field: JiraCustomFieldMetadata) -> FieldFilterValue | None:
     return values[0] if len(values) == 1 else values
 
 
-def _member_texts(value: Any) -> list[str]:
+def _member_texts(value: object) -> list[str]:
     if isinstance(value, bool):
         return []
     if isinstance(value, str):
@@ -247,7 +279,7 @@ def _custom_field_kind(
     *,
     name: str,
     schema: dict[str, Any],
-    value: Any,
+    value: object,
     text: str,
 ) -> JiraCustomFieldKind:
     schema_type = str(schema.get("type") or "").casefold()
@@ -278,7 +310,7 @@ def _custom_field_kind(
     return JiraCustomFieldKind.ATTRIBUTE
 
 
-def _is_option_value(value: Any, *, schema_type: str, custom_type: str) -> bool:
+def _is_option_value(value: object, *, schema_type: str, custom_type: str) -> bool:
     if "option" in custom_type or schema_type in {"option", "array"}:
         return True
     if isinstance(value, dict):
@@ -288,19 +320,19 @@ def _is_option_value(value: Any, *, schema_type: str, custom_type: str) -> bool:
     return False
 
 
-def _optional_text(value: Any) -> str | None:
+def _optional_text(value: object) -> str | None:
     if value is None or not str(value).strip():
         return None
     return str(value).strip()
 
 
-def field_text(value: Any) -> str:
+def field_text(value: object) -> str:
     """Extract readable text from JIRA strings, HTML, ADF, lists, or scalars.
 
-    HTML is rendered as Markdown rather than flattened to visible text: JIRA
+    HTML is rendered as Markdown rather than flattened to visible text. JIRA
     descriptions, comments, and rendered custom fields routinely carry tables,
     and flattening one emits a bare cell per line, so the rows and columns that
-    give each cell its meaning never reach chunk context.
+    give each cell its meaning would never reach chunk context.
     """
     if value is None:
         return ""
@@ -322,8 +354,16 @@ def field_text(value: Any) -> str:
     return compact_text(str(value))
 
 
-def _walk_adf(node: Any) -> list[str]:
-    """Walk Atlassian Document Format nodes into plain-text fragments."""
+def _walk_adf(node: object) -> list[str]:
+    """Walk Atlassian Document Format nodes into plain-text fragments.
+
+    A table renders as one Markdown table with a blank line on each side.
+    Walking it like any other node would emit one cell per line and lose the row
+    and column each cell belongs to. Without the blank line after it, Markdown
+    would read the next paragraph as another table row. Jira Cloud sends every
+    description and comment as ADF, so this is the only place a Cloud issue's
+    tables can be kept for chunk context.
+    """
     if isinstance(node, str):
         return [node]
     if isinstance(node, list):
@@ -340,12 +380,8 @@ def _walk_adf(node: Any) -> list[str]:
     if node_type == "hardBreak":
         return ["\n"]
     if node_type == "table":
-        # Walking a table like any other node would emit one cell per line,
-        # losing the row and column each cell belongs to. Jira Cloud sends
-        # every description and comment as ADF, so this is the only place a
-        # Cloud issue's tables can be kept for chunk context.
         rendered = _adf_table(node)
-        return ["\n", rendered, "\n"] if rendered else []
+        return ["\n", rendered, "\n\n"] if rendered else []
 
     node_parts: list[str] = []
     for child in node.get("content", []) or []:
@@ -377,27 +413,19 @@ def _adf_table_cell(cell: dict[str, Any]) -> TableCell:
     attributes: dict[str, Any] = raw_attributes if isinstance(raw_attributes, dict) else {}
     return TableCell(
         text=compact_text("".join(_walk_adf(cell.get("content") or []))),
-        row_span=_adf_span(attributes.get("rowspan")),
-        column_span=_adf_span(attributes.get("colspan")),
+        row_span=positive_span(attributes.get("rowspan")),
+        column_span=positive_span(attributes.get("colspan")),
         header=cell.get("type") == "tableHeader",
     )
 
 
-def _adf_span(value: Any) -> int:
-    """Read one ADF span attribute, which is optional and may be malformed."""
-    try:
-        return max(int(value), 1)
-    except (TypeError, ValueError):
-        return 1
-
-
-def _name(value: Any) -> str | None:
+def _name(value: object) -> str | None:
     if not isinstance(value, dict) or not value.get("name"):
         return None
     return str(value["name"])
 
 
-def _display_name(value: Any) -> str | None:
+def _display_name(value: object) -> str | None:
     if not isinstance(value, dict):
         return None
     name = value.get("displayName") or value.get("name") or value.get("emailAddress")
