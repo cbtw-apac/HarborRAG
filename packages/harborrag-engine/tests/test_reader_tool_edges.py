@@ -29,6 +29,8 @@ from harborrag_engine.tools.reader_tools import (
     ResolveGraphNodesTool,
 )
 
+pytestmark = pytest.mark.unit
+
 TENANT = "tenant-1"
 PRINCIPAL = "reader-1"
 
@@ -226,7 +228,7 @@ def _context_response(
         outcome=outcome,  # type: ignore[arg-type]
         document_id="document-1",
         document_version_id="version-2",
-        chunks=(DocumentContextChunk("chunk-1", 0, "Body", "text", ("Overview",), {"page": 1}),),
+        chunks=(DocumentContextChunk("chunk-1", 0, "Body", ("text",), ("Overview",), {"page": 1}),),
         outline=(("Overview",),),
         next_offset=next_offset,
         document_title="Guide",
@@ -250,7 +252,7 @@ async def test_document_context_reports_a_non_ok_outcome_and_a_window_only_outli
             "chunk_id": "chunk-1",
             "ordinal": 0,
             "text": "Body",
-            "chunk_kind": "text",
+            "chunk_kind": ["text"],
             "section_path": ["Overview"],
             "citation_locator": {"page": 1},
         }

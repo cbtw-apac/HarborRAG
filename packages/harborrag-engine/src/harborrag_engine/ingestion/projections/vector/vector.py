@@ -122,7 +122,7 @@ class VectorProjectionBuilder:
             "document_id": str(chunk.document_id),
             "document_version_id": str(chunk.document_version_id),
             "record_kind": chunk.record_kind.value,
-            "chunk_kind": chunk.chunk_kind.value,
+            "chunk_kind": chunk.chunk_kinds,
             "connector_type": chunk.connector_type.value,
             "document_kind": chunk.document_kind.value,
             "source_scope_id": chunk.source_scope_id,

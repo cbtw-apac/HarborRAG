@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from harborrag_core.chunking import ChunkRecord
+from harborrag_core.chunking import ChunkKind, ChunkRecord
 from harborrag_core.domain.element import DocumentElement
 from harborrag_core.ingestion import (
     ArtifactReference,
@@ -123,6 +123,26 @@ def test_vector_projection_writes_only_evidence_content() -> None:
     assert projection.evidence_records[0].sparse_vector is not None
     with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
         VectorPayload.model_validate({**serialized, "raw_parser_metadata": {"x": 1}})
+
+
+def test_vector_projection_lists_table_kind_for_text_holding_a_markdown_table() -> None:
+    content = "Expected results:\n\n| Step | Result |\n| --- | --- |\n| 1 | Saved |"
+    result = make_service(make_profile(target=100, maximum=120)).chunk(
+        make_request(make_document([DocumentElement("p1", "paragraph", content)]))
+    )
+
+    projection = VectorProjectionBuilder().build(
+        VectorProjectionInput(
+            chunks=result.chunks,
+            representations=representation_set(result.chunks),
+            chunk_artifacts=chunk_set(result.chunks),
+        )
+    )
+
+    payload = projection.evidence_records[0].payload
+    assert payload.content == content
+    assert payload.chunk_kind == (ChunkKind.TEXT, ChunkKind.TABLE)
+    assert payload.model_dump(mode="json")["chunk_kind"] == ["text", "table"]
 
 
 def test_vector_projection_requires_every_dense_vector() -> None:

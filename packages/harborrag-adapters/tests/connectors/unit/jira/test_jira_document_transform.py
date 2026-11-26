@@ -4,9 +4,20 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
 from harborrag_adapters.connectors.jira.document_transform import JiraDocumentTransform
 from harborrag_core.domain import Document, DocumentProvenance, ParsedDocument, RawDocument
 from harborrag_core.domain.element import DocumentElement
+
+pytestmark = pytest.mark.unit
+
+_WIKI_TABLE = "||Layer||Approach||\n|Functional|Manual|"
+_RENDERED_TABLE = (
+    "<table><tr><th>Layer</th><th>Approach</th></tr><tr><td>Functional</td><td>Manual</td></tr>"
+    "</table>"
+)
+_MARKDOWN_TABLE = "| Layer | Approach |\n| --- | --- |\n| Functional | Manual |"
 
 
 def make_inputs(
@@ -32,6 +43,32 @@ def make_inputs(
         provenance=DocumentProvenance(source="jira", record_id="HARBOR-1"),
     )
     return raw, parsed, document
+
+
+def test_server_description_in_wiki_markup_uses_the_rendered_table() -> None:
+    raw, parsed, document = make_inputs(fields={"summary": "Checks", "description": _WIKI_TABLE})
+    assert raw.raw is not None
+    raw.raw["renderedFields"] = {"description": _RENDERED_TABLE}
+
+    result = JiraDocumentTransform().transform(raw, parsed, document)
+
+    description = next(element for element in result.content if element.id.endswith(":description"))
+    assert description.content == _MARKDOWN_TABLE
+
+
+def test_cloud_description_in_adf_wins_over_the_rendered_html() -> None:
+    adf = {
+        "type": "doc",
+        "content": [{"type": "paragraph", "content": [{"type": "text", "text": "From ADF"}]}],
+    }
+    raw, parsed, document = make_inputs(fields={"summary": "Checks", "description": adf})
+    assert raw.raw is not None
+    raw.raw["renderedFields"] = {"description": "<p>From HTML</p>"}
+
+    result = JiraDocumentTransform().transform(raw, parsed, document)
+
+    description = next(element for element in result.content if element.id.endswith(":description"))
+    assert description.content == "From ADF"
 
 
 def test_transform_keeps_the_summary_as_canonical_evidence() -> None:

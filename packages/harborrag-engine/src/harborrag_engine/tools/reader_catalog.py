@@ -30,9 +30,36 @@ _COMPLETION = {
 }
 _CITATION = {"type": "object"}
 _SECTION_PATH = {"type": "array", "items": {"type": "string"}, "maxItems": 50}
+_CHUNK_KINDS = {"type": "array", "items": {"type": "string", "minLength": 1}, "maxItems": 10}
+"""Kinds of content a chunk holds, its own kind first, such as text and table."""
+_CONTEXT_DOCUMENT_TITLE = {"type": ["string", "null"]}
+"""Title taken from the window's own chunks, so it costs no extra read.
+
+It is null when no chunk was read (unavailable, version_changed, past the end).
+A refused read discloses nothing about the document beyond its outcome.
+"""
+_ENTITY_FACETS = {
+    "type": "array",
+    "maxItems": 12,
+    "items": {
+        "type": "object",
+        "required": ["name", "type", "field"],
+        "properties": {
+            "name": {"type": "string", "minLength": 1},
+            "type": {"type": "string", "enum": ["text", "integer"]},
+            "field": {"type": "string", "minLength": 1},
+        },
+        "additionalProperties": False,
+    },
+}
+"""The closed facet vocabulary find_entities filters a source's entities by.
+
+It is empty when the source declares none, which is the common case.
+"""
 
 
 def reader_success_schema(properties: dict[str, object], required: list[str]) -> dict[str, object]:
+    """Wrap a reader tool's output properties in the shared success envelope."""
     return success_or_failure_schema(
         {
             "type": "object",
@@ -78,7 +105,7 @@ EVIDENCE_ITEM_SCHEMA = {
         "document_title": {"type": ["string", "null"]},
         "source_scope_id": {"type": ["string", "null"]},
         "connector_type": {"type": ["string", "null"]},
-        "chunk_kind": {"type": ["string", "null"]},
+        "chunk_kind": _CHUNK_KINDS,
         "ordinal": {"type": ["integer", "null"]},
         "section_path": _SECTION_PATH,
         "citation_locator": _CITATION,
@@ -125,7 +152,7 @@ _CONTEXT_CHUNK = {
         "chunk_id": {"type": "string", "minLength": 1},
         "ordinal": {"type": "integer", "minimum": 0},
         "text": {"type": "string"},
-        "chunk_kind": {"type": "string", "minLength": 1},
+        "chunk_kind": {**_CHUNK_KINDS, "minItems": 1},
         "section_path": _SECTION_PATH,
         "citation_locator": _CITATION,
     },
@@ -173,10 +200,7 @@ GET_DOCUMENT_CONTEXT_SPEC = ToolSpec(
             },
             "document_id": {"type": "string", "minLength": 1},
             "document_version_id": {"type": ["string", "null"]},
-            # Taken from the window's own chunks, so it costs no extra read. Null when
-            # no chunk was read (unavailable, version_changed, past the end): a refused
-            # read discloses nothing about the document beyond its outcome.
-            "document_title": {"type": ["string", "null"]},
+            "document_title": _CONTEXT_DOCUMENT_TITLE,
             "chunks": {
                 "type": "array",
                 "items": _CONTEXT_CHUNK,
@@ -231,22 +255,7 @@ _SOURCE = {
             "format": "date-time",
         },
         "active_document_count": {"type": "integer", "minimum": 0},
-        # The closed facet vocabulary find_entities filters this source's entities
-        # by; empty when the source declares none, which is the common case.
-        "entity_facets": {
-            "type": "array",
-            "maxItems": 12,
-            "items": {
-                "type": "object",
-                "required": ["name", "type", "field"],
-                "properties": {
-                    "name": {"type": "string", "minLength": 1},
-                    "type": {"type": "string", "enum": ["text", "integer"]},
-                    "field": {"type": "string", "minLength": 1},
-                },
-                "additionalProperties": False,
-            },
-        },
+        "entity_facets": _ENTITY_FACETS,
         "entity_summaries": {
             "type": ["string", "null"],
             "enum": ["disabled", "idle", "queued", "running", "blocked", "failed", None],

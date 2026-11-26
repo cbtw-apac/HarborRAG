@@ -1,3 +1,9 @@
+"""The canonical chunk record every projection is rebuilt from.
+
+A record is immutable. Values derived from it, such as ``chunk_kinds``, are
+computed on read and never stored beside the fields they come from.
+"""
+
 from __future__ import annotations
 
 from pydantic import Field, model_validator
@@ -58,8 +64,20 @@ class ChunkRecord(StrictModel):
 
     metadata: ChunkMetadata = Field(default_factory=FrozenMetadata)
 
+    @property
+    def chunk_kinds(self) -> tuple[ChunkKind, ...]:
+        """Every kind of content the chunk holds, its own ``chunk_kind`` first.
+
+        A chunk whose content carries a Markdown table also lists ``table``, so a
+        table kept inside the text around it is still found as a table.
+        """
+        if self.chunk_kind != ChunkKind.TABLE and _holds_markdown_table(self.content):
+            return (self.chunk_kind, ChunkKind.TABLE)
+        return (self.chunk_kind,)
+
     @model_validator(mode="after")
     def validate_chunk(self) -> ChunkRecord:
+        """Check that the kind, text, locator and source fields agree."""
         evidence_kinds = {
             ChunkKind.TEXT,
             ChunkKind.TABLE,
@@ -116,3 +134,20 @@ class ChunkRecord(StrictModel):
         attribute_keys = {attribute.key for attribute in self.source_attributes}
         if len(attribute_keys) != len(self.source_attributes):
             raise ValueError("source_attributes keys must be unique")
+
+
+def _holds_markdown_table(content: str) -> bool:
+    """Report whether two consecutive lines are Markdown table rows.
+
+    Two rows catch a header with its delimiter row, and also the rows of a table
+    whose header stayed in an earlier chunk. One pipe-bounded line alone is not
+    a table.
+    """
+    previous_is_row = False
+    for line in content.splitlines():
+        stripped = line.strip()
+        is_row = len(stripped) > 1 and stripped.startswith("|") and stripped.endswith("|")
+        if is_row and previous_is_row:
+            return True
+        previous_is_row = is_row
+    return False

@@ -41,6 +41,14 @@ class DocumentContextReader:
     ) -> DocumentContextResponse:
         """Return the requested chunk window, or an unavailable response when it is hidden.
 
+        Args:
+            request: Document, anchor and window to read.
+            request_id: Identifies this read in the response and in logs.
+            context: Storage context of the caller.
+
+        Returns:
+            The chunk window and its outcome.
+
         Raises:
             HarborCapabilityError: The document context reader is not configured.
         """
@@ -133,7 +141,7 @@ class DocumentContextReader:
                     chunk_id=str(chunk.chunk_id),
                     ordinal=chunk.ordinal,
                     text=chunk.content,
-                    chunk_kind=chunk.chunk_kind.value,
+                    chunk_kind=tuple(kind.value for kind in chunk.chunk_kinds),
                     section_path=chunk.hierarchy.section_path,
                     citation_locator=chunk.citation_locator.model_dump(exclude_none=True),
                 )

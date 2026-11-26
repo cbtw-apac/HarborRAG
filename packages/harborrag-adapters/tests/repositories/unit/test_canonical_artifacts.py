@@ -128,7 +128,7 @@ async def test_projection_repository_round_trips_replayable_batches() -> None:
                 document_id="document-1",
                 document_version_id="version-1",
                 record_kind=RecordKind.EVIDENCE,
-                chunk_kind=ChunkKind.TEXT,
+                chunk_kind=(ChunkKind.TEXT,),
                 connector_type=ConnectorType.LOCAL,
                 source_scope_id="scope-1",
                 content="The timeout is 30 seconds.",
@@ -162,9 +162,12 @@ async def test_projection_repository_round_trips_replayable_batches() -> None:
 
 @pytest.mark.asyncio
 async def test_vector_projection_read_skips_retired_route_records() -> None:
-    # Artifacts written before the route collection was retired interleave route points
-    # with evidence points. Route points are no longer projected anywhere, so replaying
-    # such an artifact must drop them and still yield the evidence — not fail to parse.
+    """Replaying an older artifact yields its evidence in the current payload shape.
+
+    Artifacts written before the route collection was retired interleave route points
+    with evidence points, carry payload keys the strict model no longer declares, and
+    store ``chunk_kind`` as one string. The route points are dropped, not a parse error.
+    """
     store = MemoryObjectStore()
     writer = ImmutableArtifactWriter(store)
     reader = ImmutableArtifactReader(store)
@@ -183,7 +186,6 @@ async def test_vector_projection_read_skips_retired_route_records() -> None:
             "content": "The timeout is 30 seconds.",
             "citation_locator": {"source_element_ids": ["paragraph-1"]},
             "quality_score": 1.0,
-            # Legacy payload keys that the current strict model no longer declares.
             "preview": "The timeout...",
             "content_reference": "s3://legacy/ref",
         }
@@ -219,14 +221,16 @@ async def test_vector_projection_read_skips_retired_route_records() -> None:
 
     assert [record.payload.chunk_id for record in records] == ["chunk-evidence"]
     assert all(record.payload.record_kind is RecordKind.EVIDENCE for record in records)
+    assert [record.payload.chunk_kind for record in records] == [(ChunkKind.TEXT,)]
 
 
 @pytest.mark.asyncio
 async def test_graph_projection_read_rejects_a_non_mapping_record_value() -> None:
-    # A hand-edited or corrupted JSONL artifact whose "value" is not an
-    # object (e.g. a bare string) must raise the same ValueError the rest of
-    # this module uses for malformed records, not a raw TypeError from
-    # dict(...) on a non-mapping.
+    """A record value that is not an object raises the module's ValueError.
+
+    A hand-edited or corrupted JSONL artifact can hold a bare string there, and
+    reading it must not leak a raw TypeError from ``dict(...)``.
+    """
     store = MemoryObjectStore()
     writer = ImmutableArtifactWriter(store)
     reader = ImmutableArtifactReader(store)
@@ -273,6 +277,7 @@ async def test_graph_projection_read_rejects_an_unknown_record_type() -> None:
 
 @pytest.mark.asyncio
 async def test_canonical_put_conflicts_on_different_bytes_unless_adopting() -> None:
+    """A re-parse that differs only in incidental metadata conflicts unless adopted."""
     store = MemoryObjectStore()
     async with store:
         repository = CanonicalDocumentArtifactRepository(
@@ -285,7 +290,6 @@ async def test_canonical_put_conflicts_on_different_bytes_unless_adopting() -> N
             document=canonical_document(),
             context=context(),
         )
-        # A re-parse of the same version that differs only in incidental metadata.
         retried = canonical_document()
         retried.provenance.extra["parser_note"] = "second attempt"
 
