@@ -261,7 +261,7 @@ def test_temporal_ingestion_section_rejects_unknown_keys(tmp_path: Path) -> None
     "ingestion_yaml",
     [
         "batch_size: 0",
-        "batch_size: 301",
+        "batch_size: 501",
         "document_concurrency: 0",
         "document_concurrency: 101",
     ],
