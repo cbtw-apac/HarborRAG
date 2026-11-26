@@ -15,6 +15,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, ClassVar
 
 from harborrag_adapters.parsers.common.markdown_tables import (
+    MAX_TABLE_SPAN,
     TableCell,
     markdown_table,
     positive_span,
@@ -306,8 +307,11 @@ def _grid_rows(table: Element) -> list[list[_GridCell]]:
     """Place each row's cells on the table grid, keeping their merge markers."""
     rows: list[list[_GridCell]] = []
     for row in _children(table, _ROW):
-        column = 0
-        cells: list[_GridCell] = []
+        cells = [
+            _GridCell(text="", column=column, column_span=1, merge=_VerticalMerge.NONE)
+            for column in range(_omitted_leading_columns(row))
+        ]
+        column = len(cells)
         for cell in _children(row, _CELL):
             column_span = positive_span(_cell_property(cell, "gridSpan"))
             cells.append(
@@ -330,6 +334,21 @@ def _children(element: Element, tag: str) -> Iterator[Element]:
             yield child
         elif child.tag in _BLOCK_CONTAINERS:
             yield from _children(child, tag)
+
+
+def _omitted_leading_columns(row: Element) -> int:
+    """Count the grid columns Word leaves empty before a row's first cell.
+
+    The count comes from ``w:gridBefore`` and is capped at ``MAX_TABLE_SPAN``,
+    like any other span read from untrusted markup.
+    """
+    grid_before = row.find(f"{_WORD}trPr/{_WORD}gridBefore")
+    if grid_before is None:
+        return 0
+    try:
+        return min(max(int(grid_before.get(_VALUE) or "0"), 0), MAX_TABLE_SPAN)
+    except ValueError:
+        return 0
 
 
 def _row_span(continued: list[set[int]], row_index: int, column: int) -> int:

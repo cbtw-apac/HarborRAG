@@ -12,10 +12,14 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-# Spans and cell counts come from untrusted markup, and every span widens the
-# whole grid, so a few bytes of `colspan` could otherwise allocate gigabytes.
 MAX_TABLE_SPAN = 100
+"""Widest column span honoured, because spans come from untrusted markup.
+
+Every column span widens the whole grid, so a few bytes of ``colspan`` could
+otherwise allocate gigabytes.
+"""
 MAX_TABLE_CELLS = 50_000
+"""Largest grid laid out. A bigger table renders as plain rows of cell text."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,9 +41,10 @@ def markdown_table(rows: Sequence[Sequence[TableCell]]) -> str:
     generated: Markdown has no headerless table, and dropping the first data
     row into the header position would hide it.
 
-    Spans are clamped to `MAX_TABLE_SPAN`, and a grid that would exceed
-    `MAX_TABLE_CELLS` renders as plain rows of cell text instead: the words
-    survive, the layout does not.
+    Column spans are clamped to `MAX_TABLE_SPAN`. A row span covers at most the
+    rows left in the table, so however tall it is, every later cell keeps its
+    column. A grid that would exceed `MAX_TABLE_CELLS` renders as plain rows of
+    cell text instead, so the words survive but the layout does not.
     """
     if not rows:
         return ""
@@ -54,7 +59,7 @@ def markdown_table(rows: Sequence[Sequence[TableCell]]) -> str:
         for cell in row:
             while column_index < len(grid[row_index]) and grid[row_index][column_index] is not None:
                 column_index += 1
-            row_span = min(max(cell.row_span, 1), MAX_TABLE_SPAN)
+            row_span = min(max(cell.row_span, 1), len(rows) - row_index)
             column_span = min(max(cell.column_span, 1), MAX_TABLE_SPAN)
             width = max(width, column_index + column_span)
             if max(len(grid), row_index + row_span) * width > MAX_TABLE_CELLS:

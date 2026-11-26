@@ -104,7 +104,11 @@ def _render_fragment(root: BeautifulSoup | Tag) -> str:
     """
     if _is_tag(root) and root.name in _BLOCK_TAGS:
         return _render_block(root)
+    return _render_children(root)
 
+
+def _render_children(root: BeautifulSoup | Tag) -> str:
+    """Render the children of one element as blocks separated by a blank line."""
     blocks: list[str] = []
     inline_run: list[str] = []
 
@@ -147,8 +151,8 @@ def _render_block(node: Tag) -> str:
         code = node.get_text("\n", strip=False).strip("\n")
         return f"```text\n{code}\n```" if code else ""
     if name == "blockquote":
-        text = _normalize_inline(_render_inline(node))
-        return "\n".join(f"> {line}" for line in text.splitlines())
+        quoted = _render_children(node)
+        return "\n".join(f"> {line}".rstrip() for line in quoted.splitlines())
     if name == "hr":
         return "---"
     return _normalize_inline(_render_inline(node))
@@ -191,7 +195,7 @@ def _render_list_item(node: Tag, *, depth: int) -> tuple[str, list[str]]:
             rendered = _render_list(child, depth=depth + 1)
             if rendered:
                 nested.extend(rendered.splitlines())
-        elif child.name in {"div", "table"} and child.find(_BLOCK_TAGS):
+        elif child.name == "table" or (child.name == "div" and child.find(_BLOCK_TAGS)):
             rendered = _render_fragment(child)
             if rendered:
                 nested.extend(("  " * (depth + 1)) + line for line in rendered.splitlines())

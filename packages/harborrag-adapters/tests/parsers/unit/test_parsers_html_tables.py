@@ -7,6 +7,8 @@ import pytest
 from harbor_test_builders import build_epub_bytes
 
 from harborrag_adapters.connectors.sharepoint.pages import render_page_html
+from harborrag_adapters.parsers.common.html_markdown import html_to_markdown
+from harborrag_adapters.parsers.common.markdown_tables import TableCell, markdown_table
 from harborrag_adapters.parsers.compat import EpubParser, HtmlParser
 from harborrag_core.domain.parser import ParseInput
 
@@ -29,6 +31,33 @@ def test_html_table_renders_as_markdown_table_between_its_paragraphs() -> None:
     parsed = HtmlParser().parse(ParseInput(content=html.encode(), filename="page.html"))
 
     assert parsed.content == f"Intro\n\n{_TABLE_MARKDOWN}\n\nClosing note."
+
+
+def test_table_directly_inside_a_list_item_is_kept_under_it() -> None:
+    markdown = html_to_markdown(f"<ul><li>Results{_TABLE_HTML}</li></ul>")
+
+    assert markdown == "- Results\n  " + _TABLE_MARKDOWN.replace("\n", "\n  ")
+
+
+def test_table_inside_a_blockquote_is_kept_in_the_quote() -> None:
+    markdown = html_to_markdown(f"<blockquote><p>Quoted results</p>{_TABLE_HTML}</blockquote>")
+
+    assert markdown == "> Quoted results\n>\n> " + _TABLE_MARKDOWN.replace("\n", "\n> ")
+
+
+def test_row_span_taller_than_the_span_limit_keeps_later_cells_in_their_column() -> None:
+    rows = [
+        [TableCell("Owner", header=True), TableCell("Step", header=True)],
+        [TableCell("Alex Example", row_span=101), TableCell("step 1")],
+        *([TableCell(f"step {index}")] for index in range(2, 102)),
+        [TableCell("Sam Sample"), TableCell("step 102")],
+    ]
+
+    lines = markdown_table(rows).splitlines()
+
+    assert lines[2] == "| Alex Example (spans 101 rows) | step 1 |"
+    assert lines[102] == "|  | step 101 |"
+    assert lines[103] == "| Sam Sample | step 102 |"
 
 
 def test_html_inline_data_image_keeps_only_its_alt_text() -> None:

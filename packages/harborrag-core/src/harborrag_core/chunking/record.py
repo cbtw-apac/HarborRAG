@@ -24,6 +24,9 @@ from .schemas import (
 from .source_schemas import ChunkSecurity, CitationLocator, SourceAttribute
 from .table_schemas import TableChunkLocator
 
+_CODE_FENCES = frozenset({"```", "~~~"})
+"""Markers that open and close a fenced code block in Markdown."""
+
 
 class ChunkRecord(StrictModel):
     """Canonical immutable, source-independent chunk revision."""
@@ -137,15 +140,23 @@ class ChunkRecord(StrictModel):
 
 
 def _holds_markdown_table(content: str) -> bool:
-    """Report whether two consecutive lines are Markdown table rows.
+    """Report whether two consecutive lines outside fenced code are table rows.
 
     Two rows catch a header with its delimiter row, and also the rows of a table
     whose header stayed in an earlier chunk. One pipe-bounded line alone is not
-    a table.
+    a table, and neither is a pipe-bounded example inside a code fence.
     """
+    fence: str | None = None
     previous_is_row = False
     for line in content.splitlines():
         stripped = line.strip()
+        marker = stripped[:3]
+        if marker in _CODE_FENCES and fence in {None, marker}:
+            fence = marker if fence is None else None
+            previous_is_row = False
+            continue
+        if fence is not None:
+            continue
         is_row = len(stripped) > 1 and stripped.startswith("|") and stripped.endswith("|")
         if is_row and previous_is_row:
             return True

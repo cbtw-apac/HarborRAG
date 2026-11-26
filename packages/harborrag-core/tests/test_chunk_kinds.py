@@ -18,8 +18,26 @@ _TABLE_TEXT = "Expected results:\n\n| Step | Result |\n| --- | --- |\n| 1 | Save
         (ChunkKind.COMMENT, _TABLE_TEXT, (ChunkKind.COMMENT, ChunkKind.TABLE)),
         (ChunkKind.TEXT, "| 3 | Retry |\n| 4 | Done |", (ChunkKind.TEXT, ChunkKind.TABLE)),
         (ChunkKind.TEXT, "| only one row |\nthen prose", (ChunkKind.TEXT,)),
+        (
+            ChunkKind.TEXT,
+            "Example:\n\n```\n| key | value |\n| --- | --- |\n```\n\nDone.",
+            (ChunkKind.TEXT,),
+        ),
+        (
+            ChunkKind.TEXT,
+            "~~~text\n| a |\n| b |\n~~~\n| Step | Result |\n| --- | --- |",
+            (ChunkKind.TEXT, ChunkKind.TABLE),
+        ),
     ],
-    ids=["prose", "text-with-table", "comment-with-table", "table-rows-only", "single-row"],
+    ids=[
+        "prose",
+        "text-with-table",
+        "comment-with-table",
+        "table-rows-only",
+        "single-row",
+        "fenced-code",
+        "table-after-fence",
+    ],
 )
 def test_chunk_kinds_lists_table_when_content_holds_a_markdown_table(
     chunk_kind: ChunkKind,

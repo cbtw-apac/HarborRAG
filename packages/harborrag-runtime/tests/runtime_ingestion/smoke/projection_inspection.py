@@ -259,10 +259,13 @@ async def _graph_observations(
 
 
 def _chunk_kinds(value: object) -> tuple[str, ...]:
-    """Read the payload's ``chunk_kind``, which must be a non-empty list."""
+    """Read the payload's ``chunk_kind``, which must be a non-empty list of kind names."""
     if not isinstance(value, list) or not value:
         raise AssertionError("Qdrant payload chunk_kind is not a non-empty list")
-    return tuple(str(kind) for kind in value)
+    kinds = tuple(kind for kind in value if isinstance(kind, str) and kind.strip())
+    if len(kinds) != len(value):
+        raise AssertionError("Qdrant payload chunk_kind holds a blank or non-string kind")
+    return kinds
 
 
 def validate_vector_payload(

@@ -72,6 +72,23 @@ def test_docx_merged_cells_are_shown_once_with_their_spans() -> None:
     ]
 
 
+def test_docx_row_after_omitted_grid_columns_keeps_its_cells_in_place() -> None:
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    document = _document()
+    table = _add_table(document, [["Name", "Value"], ["", "42"]])
+    row = table.rows[1]._tr
+    row.remove(row.tc_lst[0])
+    grid_before = OxmlElement("w:gridBefore")
+    grid_before.set(qn("w:val"), "1")
+    row.get_or_add_trPr().append(grid_before)
+
+    parsed = _parse(document)
+
+    assert parsed.content.splitlines() == ["| Name | Value |", "| --- | --- |", "|  | 42 |"]
+
+
 def test_docx_header_and_footer_text_surround_the_body() -> None:
     document = _document()
     document.sections[0].header.paragraphs[0].text = "Header line"
