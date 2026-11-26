@@ -231,9 +231,9 @@ def test_validate_returns_the_value() -> None:
 
 @pytest.mark.parametrize("value", ["PT30S", "PT10M", "PT1H"])
 def test_activity_timeout_accepts_the_boundary_and_default_values(value: str) -> None:
-    assert SettingsRegistry.default().definition("ingestion.activity_timeout").validate(
-        value
-    ) == value
+    assert (
+        SettingsRegistry.default().definition("ingestion.activity_timeout").validate(value) == value
+    )
 
 
 def test_level_parse() -> None:

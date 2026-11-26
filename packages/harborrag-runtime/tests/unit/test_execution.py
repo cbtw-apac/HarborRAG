@@ -224,7 +224,10 @@ async def test_direct_executor_runs_and_closes_runtime(monkeypatch) -> None:
 
     runtime = Runtime()
     source_input = SimpleNamespace(
-        tenant_id="tenant-1", task_id="task-1", configuration_fingerprint="fingerprint-1", run_settings=None
+        tenant_id="tenant-1",
+        task_id="task-1",
+        configuration_fingerprint="fingerprint-1",
+        run_settings=None,
     )
     monkeypatch.setattr(
         direct_module,
@@ -502,7 +505,10 @@ async def test_direct_resolves_connector_before_connecting(monkeypatch) -> None:
         "build_ingestion_input",
         Mock(
             return_value=SimpleNamespace(
-                tenant_id="tenant-1", task_id="task-1", configuration_fingerprint="f", run_settings=None
+                tenant_id="tenant-1",
+                task_id="task-1",
+                configuration_fingerprint="f",
+                run_settings=None,
             )
         ),
     )
@@ -536,7 +542,10 @@ async def test_direct_rejects_reused_terminal_run_id(monkeypatch) -> None:
         "build_ingestion_input",
         Mock(
             return_value=SimpleNamespace(
-                tenant_id="tenant-1", task_id="task-1", configuration_fingerprint="f", run_settings=None
+                tenant_id="tenant-1",
+                task_id="task-1",
+                configuration_fingerprint="f",
+                run_settings=None,
             )
         ),
     )

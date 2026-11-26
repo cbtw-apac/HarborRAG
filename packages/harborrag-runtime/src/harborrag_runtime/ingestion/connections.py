@@ -153,7 +153,7 @@ class ConnectionResolver:
         return ResolvedConnection(snapshot, spec, run_settings)
 
 
-def build_connector(
+def build_connector(  # noqa: PLR0913 - the parts of one connection, plus the run's pinned settings
     snapshot: ConnectionSnapshot,
     secret_values: Mapping[str, str],
     *,
@@ -270,12 +270,10 @@ def _narrow_capture_limits(config_object: object, run_settings: RunSettings | No
                 )
     if run_settings.file_types is not None and hasattr(config_object, "allowed_extensions"):
         allowed = {normalize_extension(extension) for extension in run_settings.file_types}
-        current_extensions = getattr(config_object, "allowed_extensions")
+        current_extensions = config_object.allowed_extensions
         narrowed = set(current_extensions) & allowed if current_extensions else allowed
-        setattr(
-            config_object,
-            "allowed_extensions",
-            type(current_extensions)(narrowed) if current_extensions is not None else narrowed,
+        config_object.allowed_extensions = (
+            type(current_extensions)(narrowed) if current_extensions is not None else narrowed
         )
 
 

@@ -194,9 +194,7 @@ def test_max_pdf_pages_without_a_single_engine_boot_definition_keeps_base_parser
     catalog.build_registry.assert_not_called()
 
 
-def test_ocr_override_builds_a_registry_with_both_the_image_engine_and_pdf_backend_capped() -> (
-    None
-):
+def test_ocr_override_builds_a_registry_with_both_the_image_engine_and_pdf_backend_capped() -> None:
     tools = _run_tools()
     run = RunSettings("rev_1", ocr_enabled=False, ocr_languages=("vi", "en"))
 

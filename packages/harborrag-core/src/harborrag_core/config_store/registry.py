@@ -140,7 +140,7 @@ class ParsingGroup(StrictModel):
         description="Engine that parses PDF documents",
         json_schema_extra=_extra(["tenant", "project", "connection"], "next_ingestion"),
     )
-    ocr: OcrSettings = Field(default_factory=OcrSettings)
+    ocr: OcrSettings = Field(default_factory=lambda: OcrSettings(enabled=True, languages=["en"]))
 
 
 class ChunkingGroup(StrictModel):

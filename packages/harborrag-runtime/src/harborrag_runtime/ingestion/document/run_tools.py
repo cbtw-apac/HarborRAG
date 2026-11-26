@@ -22,7 +22,7 @@ class ParserUnavailableError(HarborConfigurationError):
 class RunTools:
     """Boot parser, chunker and encoder, plus per-run variants built once per override."""
 
-    def __init__(
+    def __init__(  # noqa: PLR0913 - the boot parser, chunker and encoder, plus their builders
         self,
         *,
         parser: DocumentParserPort,

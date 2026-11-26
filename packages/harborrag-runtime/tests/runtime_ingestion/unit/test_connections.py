@@ -19,11 +19,11 @@ from harborrag_adapters.connectors.policies.network import (
 )
 from harborrag_adapters.parsers import HarborParserFactory
 from harborrag_core.domain.connection import ConnectionBuilder
+from harborrag_core.ingestion.run_contracts import RunSettings
 from harborrag_core.testing.control_plane_fakes import (
     FakeConnectionRepository,
     FakeConnectionRevisionRepository,
 )
-from harborrag_core.ingestion.run_contracts import RunSettings
 from harborrag_core.testing.fakes import FakeSecrets
 from harborrag_runtime.config.connectors.models import ConnectionValidationError
 from harborrag_runtime.config.errors import ConnectorConfigurationError

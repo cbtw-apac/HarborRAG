@@ -95,7 +95,9 @@ def test_pin_overlap_clamps_below_a_profile_target_instead_of_rejecting() -> Non
 
 def test_pin_overlap_leaves_profiles_already_at_the_pinned_value_untouched() -> None:
     config = ChunkingConfig()
-    already_zero = {name for name, profile in config.profiles.items() if profile.overlap_tokens == 0}
+    already_zero = {
+        name for name, profile in config.profiles.items() if profile.overlap_tokens == 0
+    }
 
     pinned = pin_chunking_overlap(config, 0)
 

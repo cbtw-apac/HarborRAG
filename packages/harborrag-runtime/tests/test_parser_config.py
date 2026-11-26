@@ -831,7 +831,9 @@ def test_build_registry_ocr_overrides_the_image_engine_and_the_liteparse_backend
 
 
 def test_build_registry_without_ocr_overrides_keeps_todays_defaults() -> None:
-    registry = load_parser_catalog(REPO_ROOT / "config" / "ingestion" / "parsers.yaml").build_registry()
+    registry = load_parser_catalog(
+        REPO_ROOT / "config" / "ingestion" / "parsers.yaml"
+    ).build_registry()
 
     image = registry.resolve("scan.png", None)
     assert image.engines[0].enabled is True

@@ -103,9 +103,7 @@ class RunSettings:
             "file_types": list(self.file_types) if self.file_types is not None else None,
             "max_pdf_pages": self.max_pdf_pages,
             "ocr_enabled": self.ocr_enabled,
-            "ocr_languages": (
-                list(self.ocr_languages) if self.ocr_languages is not None else None
-            ),
+            "ocr_languages": (list(self.ocr_languages) if self.ocr_languages is not None else None),
             "chunk_overlap_tokens": self.chunk_overlap_tokens,
             "embedding_batch_size": self.embedding_batch_size,
         }
@@ -131,9 +129,7 @@ class RunSettings:
         embedding_batch_size = value.get("embedding_batch_size")
 
         def is_string_list(candidate: object) -> bool:
-            return isinstance(candidate, list) and all(
-                isinstance(item, str) for item in candidate
-            )
+            return isinstance(candidate, list) and all(isinstance(item, str) for item in candidate)
 
         if (
             not isinstance(revision, str)
