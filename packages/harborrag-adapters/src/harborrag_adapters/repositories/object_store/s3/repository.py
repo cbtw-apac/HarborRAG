@@ -48,21 +48,7 @@ class S3ObjectStore(S3ObjectOperationsMixin, HarborObjectStore):
             family=StorageFamily.OBJECT_STORE,
             backend="s3",
         )
-        self._database = client or S3DBClient(
-            endpoint_url=config.endpoint_url,
-            region=config.region,
-            access_key_id=(
-                config.access_key_id.get_secret_value() if config.access_key_id else None
-            ),
-            secret_access_key=(
-                config.secret_access_key.get_secret_value() if config.secret_access_key else None
-            ),
-            session_token=(
-                config.session_token.get_secret_value() if config.session_token else None
-            ),
-            connect_timeout_seconds=config.connect_timeout_seconds,
-            operation_timeout_seconds=config.operation_timeout_seconds,
-        )
+        self._database = client or S3DBClient(config)
 
     @property
     def capabilities(self) -> ObjectStoreCapabilities:

@@ -15,7 +15,11 @@ from harborrag_engine.tools.base import BaseTool, ToolSpec
 from harborrag_mcp_server.audit import McpAuditLog
 from harborrag_mcp_server.configuration import McpConfiguration, McpConfigurationStore
 from harborrag_mcp_server.server import McpServer, create_mcp_server
-from harborrag_mcp_server.server.http import register_health_route, register_http_routes
+from harborrag_mcp_server.server.http import (
+    RouteAccess,
+    register_health_route,
+    register_http_routes,
+)
 from harborrag_mcp_server.server.request_limits import (
     CredentialLimiter,
     RequestLimitExceeded,
@@ -105,8 +109,7 @@ async def _client(
         mcp_path="/mcp",
         registry=registry,
         configuration=registry.configuration,
-        token_verifier=_VERIFIER,
-        limiter=limiter,
+        access=RouteAccess(_VERIFIER, limiter),
     )
     app = server.http_app(path="/mcp")
     async with app.router.lifespan_context(app):

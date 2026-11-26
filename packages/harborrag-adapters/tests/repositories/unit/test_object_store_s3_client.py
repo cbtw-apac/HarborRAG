@@ -3,9 +3,11 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from pydantic import SecretStr
 
 from harborrag_adapters.repositories.object_store.s3 import client as client_module
 from harborrag_adapters.repositories.object_store.s3.client import S3DBClient
+from harborrag_adapters.repositories.object_store.s3.config import S3ObjectStoreConfig
 
 
 class FakeRawClient:
@@ -61,13 +63,12 @@ class FakeFailingSession(FakeSession):
 
 def make_client() -> S3DBClient:
     return S3DBClient(
-        endpoint_url="http://localhost:9000",
-        region="us-east-1",
-        access_key_id="ak",
-        secret_access_key="sk",
-        session_token=None,
-        connect_timeout_seconds=10,
-        operation_timeout_seconds=30,
+        S3ObjectStoreConfig(
+            endpoint_url="http://localhost:9000",
+            region="us-east-1",
+            access_key_id=SecretStr("ak"),
+            secret_access_key=SecretStr("sk"),
+        )
     )
 
 
@@ -95,15 +96,7 @@ async def test_connect_is_idempotent_and_filters_none_settings(
 ) -> None:
     fake_session = FakeSession()
     monkeypatch.setattr(client_module, "get_session", lambda: fake_session)
-    db = S3DBClient(
-        endpoint_url="http://localhost:9000",
-        region=None,
-        access_key_id=None,
-        secret_access_key=None,
-        session_token=None,
-        connect_timeout_seconds=10,
-        operation_timeout_seconds=30,
-    )
+    db = S3DBClient(S3ObjectStoreConfig(endpoint_url="http://localhost:9000"))
 
     await db.connect()
     assert fake_session.client_kwargs is not None

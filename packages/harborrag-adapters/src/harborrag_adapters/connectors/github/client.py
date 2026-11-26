@@ -152,19 +152,7 @@ class _RequestsGitHubClient:
             if response.status_code == 403:
                 raise AuthorizationError(detail, status_code=response.status_code)
             if response.status_code not in _RETRYABLE_STATUS or attempt == self.config.max_retries:
-                if response.status_code == 404:
-                    detail = safe_response_error_detail(response)
-                    raise ItemNotFoundError(
-                        f"GitHub request failed with HTTP 404: {detail}",
-                        status_code=404,
-                        detail=detail,
-                    )
-                if response.status_code >= 400:
-                    raise FetchError(
-                        f"GitHub request failed with HTTP "
-                        f"{response.status_code}: {safe_response_error_detail(response)}",
-                        status_code=response.status_code,
-                    )
+                self._raise_for_error_status(response)
                 return response
 
             last_error = FetchError(f"GitHub request returned HTTP {response.status_code}")
@@ -173,6 +161,28 @@ class _RequestsGitHubClient:
             self._sleep(attempt, last_error, retry_headers)
 
         raise FetchError("GitHub request failed") from last_error
+
+    @staticmethod
+    def _raise_for_error_status(response: requests.Response) -> None:
+        """Raise the typed error of a final 4xx or 5xx response; return on success.
+
+        Raises:
+            ItemNotFoundError: GitHub answered 404.
+            FetchError: GitHub answered any other 4xx or 5xx status.
+        """
+        if response.status_code == 404:
+            detail = safe_response_error_detail(response)
+            raise ItemNotFoundError(
+                f"GitHub request failed with HTTP 404: {detail}",
+                status_code=404,
+                detail=detail,
+            )
+        if response.status_code >= 400:
+            raise FetchError(
+                f"GitHub request failed with HTTP "
+                f"{response.status_code}: {safe_response_error_detail(response)}",
+                status_code=response.status_code,
+            )
 
     def _api_url(self, endpoint: str) -> str:
         """Build a GitHub API URL while rejecting cross-origin absolute URLs."""

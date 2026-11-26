@@ -19,7 +19,7 @@ def _payload(fields: dict[str, object]) -> VectorPayload:
             "document_id": "document-1",
             "document_version_id": "version-1",
             "record_kind": "evidence",
-            "chunk_kind": "jira_field",
+            "chunk_kind": ("jira_field",),
             "connector_type": "jira",
             "source_scope_id": "DEMO",
             "content": "DEMO-1: Migrate the build agents",

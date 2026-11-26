@@ -17,6 +17,7 @@ from harborrag_mcp_server.configuration import McpConfiguration, McpConfiguratio
 from harborrag_mcp_server.server import McpServer, create_mcp_server
 from harborrag_mcp_server.server import http as http_module
 from harborrag_mcp_server.server.http import (
+    RouteAccess,
     create_local_token_verifier,
     register_http_routes,
     validate_local_http_settings,
@@ -126,7 +127,7 @@ async def test_http_routes_expose_ui_health_and_authenticated_mcp(tmp_path) -> N
         mcp_path="/mcp",
         registry=registry,
         configuration=configuration,
-        token_verifier=verifier,
+        access=RouteAccess(verifier),
     )
     app = server.http_app(path="/mcp")
 
@@ -224,7 +225,7 @@ async def test_owner_configuration_api_persists_and_audits_updates(tmp_path) -> 
         mcp_path="/mcp",
         registry=registry,
         configuration=configuration,
-        token_verifier=verifier,
+        access=RouteAccess(verifier),
     )
     app = server.http_app(path="/mcp")
 
@@ -294,7 +295,7 @@ async def test_configuration_api_answers_409_when_the_file_is_read_only(tmp_path
         mcp_path="/mcp",
         registry=registry,
         configuration=configuration,
-        token_verifier=verifier,
+        access=RouteAccess(verifier),
     )
     app = server.http_app(path="/mcp")
     mounted.chmod(0o555)
@@ -351,7 +352,7 @@ async def test_tool_playground_offers_the_tenants_the_server_was_started_with(tm
         mcp_path="/mcp",
         registry=registry,
         configuration=configuration,
-        token_verifier=verifier,
+        access=RouteAccess(verifier),
     )
     app = server.http_app(path="/mcp")
 
@@ -419,7 +420,7 @@ async def test_tool_playground_api_applies_effective_tenant_configuration(tmp_pa
         mcp_path="/mcp",
         registry=registry,
         configuration=configuration,
-        token_verifier=verifier,
+        access=RouteAccess(verifier),
     )
     app = server.http_app(path="/mcp")
 
@@ -505,7 +506,7 @@ async def test_a_tenant_bound_owner_token_still_administers_and_binds_its_tenant
         mcp_path="/mcp",
         registry=registry,
         configuration=configuration,
-        token_verifier=verifier,
+        access=RouteAccess(verifier),
     )
     app = server.http_app(path="/mcp")
 
@@ -617,7 +618,7 @@ async def test_reader_keys_use_the_playground_but_not_the_configuration(tmp_path
         mcp_path="/mcp",
         registry=registry,
         configuration=configuration,
-        token_verifier=verifier,
+        access=RouteAccess(verifier),
     )
     app = server.http_app(path="/mcp")
     reader = {"Authorization": f"Bearer {reader_token}"}
@@ -717,7 +718,7 @@ async def test_tool_playground_masks_and_logs_a_failure_inside_the_tool(
         mcp_path="/mcp",
         registry=registry,
         configuration=configuration,
-        token_verifier=verifier,
+        access=RouteAccess(verifier),
     )
     app = server.http_app(path="/mcp")
 
@@ -776,7 +777,7 @@ async def test_a_failing_verifier_denies_the_request_and_keeps_the_token_out_of_
         mcp_path="/mcp",
         registry=registry,
         configuration=configuration,
-        token_verifier=_TokenEchoingVerifier(),
+        access=RouteAccess(_TokenEchoingVerifier()),
     )
     app = server.http_app(path="/mcp")
 
@@ -813,7 +814,7 @@ async def test_tool_playground_refuses_a_body_nested_too_deep_to_parse(tmp_path)
         mcp_path="/mcp",
         registry=registry,
         configuration=configuration,
-        token_verifier=verifier,
+        access=RouteAccess(verifier),
     )
     app = server.http_app(path="/mcp")
     depth = 50_000

@@ -271,24 +271,7 @@ class SourceIngestionWorkflow:
                 completed_in_run += 1
                 if await self._stop_requested(request):
                     return await self._cancelled_result(request, discovery)
-                if end < discovery.document_count and (
-                    completed_in_run >= request.continue_after_batches
-                    or workflow.info().is_continue_as_new_suggested()
-                ):
-                    workflow.continue_as_new(
-                        replace(
-                            request,
-                            continuation=SourceContinuation(
-                                scan_id=discovery.scan_id,
-                                plan_reference=discovery.plan_reference,
-                                document_count=discovery.document_count,
-                                next_document_index=end,
-                                batch_number=self._batch_number,
-                                summary=self._summary,
-                                skipped_by_reason=self._skipped_by_reason,
-                            ),
-                        )
-                    )
+                self._continue_as_new_if_due(request, discovery, end, completed_in_run)
             if await self._stop_requested(request):
                 return await self._cancelled_result(request, discovery)
             result = await workflow.execute_activity(
@@ -311,14 +294,54 @@ class SourceIngestionWorkflow:
             await self._record_hard_cancellation(request)
             raise
         except (ActivityError, ChildWorkflowError) as error:
-            if is_cancelled_exception(error) and workflow.patched(_RECORDS_CANCELLATION_PATCH):
-                await self._record_hard_cancellation(request)
-                raise
-            await self._record_run_failure(request, error)
+            await self._record_failed_step(request, error)
             raise
         self._status = result.status
         await self._cleanup_source(request)
         return cast(SourceIngestionResult, result)
+
+    async def _record_failed_step(
+        self,
+        request: SourceIngestionInput,
+        error: ActivityError | ChildWorkflowError,
+    ) -> None:
+        """Record a failed batch or finalization as the run's cancellation or failure."""
+        if is_cancelled_exception(error) and workflow.patched(_RECORDS_CANCELLATION_PATCH):
+            await self._record_hard_cancellation(request)
+            return
+        await self._record_run_failure(request, error)
+
+    def _continue_as_new_if_due(
+        self,
+        request: SourceIngestionInput,
+        discovery: SourceDiscoveryResult,
+        end: int,
+        completed_in_run: int,
+    ) -> None:
+        """Continue as a new run from ``end`` once this run's batch budget is spent.
+
+        The budget is spent after ``continue_after_batches`` batches, or earlier when
+        Temporal suggests it. A run whose last batch ended at ``end`` goes on to
+        finalize instead.
+        """
+        if end < discovery.document_count and (
+            completed_in_run >= request.continue_after_batches
+            or workflow.info().is_continue_as_new_suggested()
+        ):
+            workflow.continue_as_new(
+                replace(
+                    request,
+                    continuation=SourceContinuation(
+                        scan_id=discovery.scan_id,
+                        plan_reference=discovery.plan_reference,
+                        document_count=discovery.document_count,
+                        next_document_index=end,
+                        batch_number=self._batch_number,
+                        summary=self._summary,
+                        skipped_by_reason=self._skipped_by_reason,
+                    ),
+                )
+            )
 
     async def _record_run_failure(
         self,

@@ -31,6 +31,7 @@ from harborrag_mcp_server.server.api_keys import (
     create_postgres_api_key_verifier,
 )
 from harborrag_mcp_server.server.http import (
+    RouteAccess,
     create_api_key_owner_verifier,
     create_local_token_verifier,
     parse_allowed_hosts,
@@ -239,8 +240,7 @@ def _register_routes(  # noqa: PLR0913 - the launched server's parts
             mcp_path=arguments.path,
             registry=registry,
             configuration=configuration,
-            token_verifier=auth,
-            limiter=limiter,
+            access=RouteAccess(auth, limiter),
         )
     for line in _announcement(arguments, ui=ui):
         print(line, file=sys.stderr)

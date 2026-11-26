@@ -150,19 +150,21 @@ def _source(
     credentials: dict[str, Any] | None = None,
     config: dict[str, Any] | None = None,
     tuning: dict[str, Any] | None = None,
-    status: str = "active",
-    detail: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    """Return an active 0048 sources row; merge ``_status`` into it for another status."""
     return {
         "id": source_id,
         "key": f"demo/{source_id}",
         "credentials": json.dumps(credentials or {}),
         "config": json.dumps(config or {}),
         "tuning": json.dumps(tuning or {}),
-        "status": status,
-        "detail": json.dumps(detail) if detail is not None else None,
         "now": _NOW,
-    }
+    } | _status("active")
+
+
+def _status(status: str, detail: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Return a sources row's status and status detail columns."""
+    return {"status": status, "detail": json.dumps(detail) if detail is not None else None}
 
 
 def test_0049_clears_every_kind_of_raw_value_and_keeps_references(tmp_path: Path) -> None:
@@ -185,19 +187,10 @@ def test_0049_clears_every_kind_of_raw_value_and_keeps_references(tmp_path: Path
                 },
                 tuning={"clientSecret": "demo-secret-000", "page_size": 50},
             ),
-            _source(
-                "deleting",
-                credentials={"token": "demo-token-001"},
-                status="deleting",
-                detail={"job_id": "job-1", "purge": True},
-            ),
+            _source("deleting", credentials={"token": "demo-token-001"})
+            | _status("deleting", {"job_id": "job-1", "purge": True}),
             _source("empty", credentials={"method": "none", "token": ""}),
-            _source(
-                "errored",
-                config={"token": "demo-token-002"},
-                status="error",
-                detail=unknown_type,
-            ),
+            _source("errored", config={"token": "demo-token-002"}) | _status("error", unknown_type),
             _source(
                 "clean",
                 credentials={
