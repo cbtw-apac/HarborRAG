@@ -130,6 +130,7 @@ def _planned_document() -> SimpleNamespace:
         connector_name="jira-main",
         configuration_fingerprint="config-v1",
         source_identity=SimpleNamespace(connector_type=connector_type),
+        run_settings=None,
     )
     return SimpleNamespace(document_id="doc-1", request=request)
 
@@ -156,7 +157,13 @@ def _build_activities() -> tuple[
     )
     connector_calls: list[tuple[str, str]] = []
 
-    async def connector(*, tenant_id: str, task_id: str, configuration_fingerprint: str) -> object:
+    async def connector(
+        *,
+        tenant_id: str,
+        task_id: str,
+        configuration_fingerprint: str,
+        run_settings: object = None,
+    ) -> object:
         connector_calls.append((task_id, configuration_fingerprint))
         return "connector"
 

@@ -13,6 +13,7 @@ from typing import Any, ClassVar
 from harborrag_adapters.parsers.common.limits import IMAGE_MAX_PIXELS
 from harborrag_adapters.parsers.common.normalization import strip_code_fences
 from harborrag_adapters.parsers.common.option_rules import (
+    BOOLEAN,
     TEXT,
     OptionRule,
     concealed,
@@ -42,6 +43,7 @@ parser_logger = get_parser_logger("image")
 DEFAULT_MAX_IMAGE_PIXELS = IMAGE_MAX_PIXELS
 
 _OPTION_RULES: Mapping[str, OptionRule] = {
+    "enabled": BOOLEAN,
     "lang": or_null(TEXT),
     "config": or_null(TEXT),
     "timeout": or_null(number_from(0)),
@@ -60,6 +62,7 @@ class OcrImageEngine(HarborImageEngine):
         suffixes: File suffixes the engine reads.
         content_types: Media types the engine reads.
         ocr_engine: ``liteparse``, ``rapidocr`` or ``pytesseract``, in any case.
+        enabled: Whether OCR runs at all; ``False`` returns empty content.
         lang: OCR language for ``liteparse`` and ``pytesseract``.
         config: Extra Tesseract arguments, for ``pytesseract`` only.
         timeout: Seconds ``pytesseract`` may run, 0 or more. None or 0 sets no
@@ -88,6 +91,7 @@ class OcrImageEngine(HarborImageEngine):
     )
 
     ocr_engine: str = "liteparse"
+    enabled: bool = True
     lang: str | None = None
     config: str | None = ""
     timeout: int | float | None = 60
@@ -129,6 +133,8 @@ class OcrImageEngine(HarborImageEngine):
     def parse(self, input: ParseInput) -> ParsedDocument:
         """Decode the image with Pillow, OCR it, and return extracted text."""
         parse_input = self.coerce_input(input)
+        if not self.enabled:
+            return self.empty_result(parse_input, ocr_engine=self.ocr_engine, lang=self.lang)
         try:
             from PIL import Image
         except ImportError as exc:

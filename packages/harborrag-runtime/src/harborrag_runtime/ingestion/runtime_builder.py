@@ -140,6 +140,17 @@ class IngestionRuntimeBuilder:
             artifact_reader,
         )
         chunk_reader = ChunkArtifactReader(artifact_reader)
+        boot_representations = RepresentationReuseService(
+            ChunkRepresentationEncoder(
+                embed_client,
+                BM25SparseEncoder(self._sparse_profile()),
+                RepresentationEncodingPolicy(
+                    logical_model=model,
+                    dense_profile_id=settings.dense_encoder_profile,
+                    dense_dimension=dimensions,
+                ),
+            )
+        )
         run_tools = RunTools(
             parser=parser,
             chunker=boot_chunker,
@@ -150,12 +161,8 @@ class IngestionRuntimeBuilder:
                 additional_strategies=self._chunking_strategies,
                 refiner=chunking.refiner,
             ),
-        )
-        dependencies = DocumentReleaseDependencies(
-            parser=parser,
-            normalizer=self.build_document_normalizer(),
-            chunker=boot_chunker,
-            representations=RepresentationReuseService(
+            representations=boot_representations,
+            build_representations=lambda batch_size: RepresentationReuseService(
                 ChunkRepresentationEncoder(
                     embed_client,
                     BM25SparseEncoder(self._sparse_profile()),
@@ -163,9 +170,16 @@ class IngestionRuntimeBuilder:
                         logical_model=model,
                         dense_profile_id=settings.dense_encoder_profile,
                         dense_dimension=dimensions,
+                        batch_size=batch_size,
                     ),
                 )
             ),
+        )
+        dependencies = DocumentReleaseDependencies(
+            parser=parser,
+            normalizer=self.build_document_normalizer(),
+            chunker=boot_chunker,
+            representations=boot_representations,
             control=control,
             raw_artifacts=RawDocumentArtifactRepository(artifacts, artifact_reader),
             canonical_artifacts=canonical_artifacts,
@@ -188,6 +202,7 @@ class IngestionRuntimeBuilder:
             failures=ingestion_failure_classifier(),
             parser_for=run_tools.parser_for,
             chunker_for=run_tools.chunker_for,
+            representations_for=run_tools.representations_for,
         )
 
         stages = DocumentStagePipeline(dependencies)

@@ -804,6 +804,62 @@ def test_build_registry_one_format_definition_keeps_every_route_of_its_family(
     assert _engine_names(family) == _engine_names(default_family)
 
 
+def test_build_registry_max_pages_caps_the_built_pdf_family() -> None:
+    registry = load_parser_catalog(
+        REPO_ROOT / "config" / "ingestion" / "parsers.yaml"
+    ).build_registry(max_pages=5)
+
+    family = registry.resolve("report.pdf", None)
+
+    assert family.page_limit.max_pages == 5
+
+
+def test_build_registry_ocr_overrides_the_image_engine_and_the_liteparse_backend() -> None:
+    registry = load_parser_catalog(
+        REPO_ROOT / "config" / "ingestion" / "parsers.yaml"
+    ).build_registry(ocr_enabled=False, ocr_languages=("vi", "en"))
+
+    image = registry.resolve("scan.png", None)
+    assert image.engines[0].enabled is False
+    assert image.engines[0].lang == "vi+en"
+
+    pdf = registry.resolve("report.pdf", None)
+    liteparse = pdf.backends[0]
+    assert liteparse.options.ocr_enabled is False
+    assert liteparse.options.ocr_language == "vi"
+    assert liteparse.supports_ocr is False
+
+
+def test_build_registry_without_ocr_overrides_keeps_todays_defaults() -> None:
+    registry = load_parser_catalog(
+        REPO_ROOT / "config" / "ingestion" / "parsers.yaml"
+    ).build_registry()
+
+    image = registry.resolve("scan.png", None)
+    assert image.engines[0].enabled is True
+
+    pdf = registry.resolve("report.pdf", None)
+    assert pdf.backends[0].options.ocr_enabled is True
+
+
+def test_build_registry_max_pages_leaves_other_families_untouched(tmp_path: Path) -> None:
+    config_path = _write_config(
+        tmp_path,
+        """
+        version: 1
+        parsers:
+          custom-image:
+            parser: image
+            settings:
+              ocr_engine: pytesseract
+        """,
+    )
+
+    registry = load_parser_catalog(config_path).build_registry(max_pages=5)
+
+    assert _engine_names(_single_engine_family(registry, "scan.png")) == ["pytesseract"]
+
+
 def test_build_registry_other_ocr_engine_replaces_the_default_image_engine(
     tmp_path: Path,
 ) -> None:

@@ -12,10 +12,18 @@ import pytest
 from temporalio.exceptions import ApplicationError
 
 from harborrag_core.chunking.tokenization import ApproximateTokenCounter
+from harborrag_core.contracts.errors import HarborConfigurationError
 from harborrag_core.domain.document import Document
 from harborrag_core.domain.element import DocumentElement
 from harborrag_core.domain.provenance import DocumentProvenance
+from harborrag_core.ingestion import SparseEncoderProfile
 from harborrag_core.ingestion.run_contracts import RunSettings
+from harborrag_engine.ingestion import (
+    BM25SparseEncoder,
+    ChunkRepresentationEncoder,
+    RepresentationEncodingPolicy,
+    RepresentationReuseService,
+)
 from harborrag_engine.ingestion.chunking import ChunkingRequest
 from harborrag_engine.ingestion.release.materialization import DocumentMaterializationStages
 from harborrag_runtime.config.chunking import default_chunking_settings
@@ -31,6 +39,26 @@ REPO_ROOT = Path(__file__).resolve().parents[5]
 CAP = 256
 
 
+class _FakeEmbedClient:
+    async def aembed(self, *, request: Any) -> Any:  # noqa: ANN401 - unused in these tests
+        raise NotImplementedError
+
+
+def _boot_representations(batch_size: int = 32) -> RepresentationReuseService:
+    return RepresentationReuseService(
+        ChunkRepresentationEncoder(
+            _FakeEmbedClient(),
+            BM25SparseEncoder(SparseEncoderProfile(profile_id="bm25-v1")),
+            RepresentationEncodingPolicy(
+                logical_model="embedding-model",
+                dense_profile_id="dense-v1",
+                dense_dimension=3,
+                batch_size=batch_size,
+            ),
+        )
+    )
+
+
 def _run_tools(*, parsers: Any = None, build_chunker: Any = None) -> RunTools:
     chunking = default_chunking_settings()
     return RunTools(
@@ -40,6 +68,8 @@ def _run_tools(*, parsers: Any = None, build_chunker: Any = None) -> RunTools:
         parsers=parsers or load_parser_catalog(REPO_ROOT / "config" / "ingestion" / "parsers.yaml"),
         build_chunker=build_chunker
         or (lambda config: build_default_chunker(config=config, refiner=chunking.refiner)),
+        representations=_boot_representations(),
+        build_representations=_boot_representations,
     )
 
 
@@ -130,7 +160,136 @@ def test_selected_backend_registry_is_built_once() -> None:
 
     assert tools.parser_for(run) is registry
     assert tools.parser_for(run) is registry
-    catalog.build_registry.assert_called_once_with(pdf_definition="pdf-docling")
+    catalog.build_registry.assert_called_once_with(
+        pdf_definition="pdf-docling", max_pages=None, ocr_enabled=None, ocr_languages=None
+    )
+
+
+def test_max_pdf_pages_alone_builds_a_capped_registry_on_the_enabled_backend() -> None:
+    registry = object()
+    catalog = SimpleNamespace(
+        enabled_pdf_backend=lambda: "liteparse",
+        pdf_definition_for=lambda backend: "pdf-liteparse",
+        build_registry=Mock(return_value=registry),
+    )
+    tools = _run_tools(parsers=catalog)
+    run = RunSettings("rev_1", max_pdf_pages=5)
+
+    assert tools.parser_for(run) is registry
+    assert tools.parser_for(run) is registry
+    catalog.build_registry.assert_called_once_with(
+        pdf_definition="pdf-liteparse", max_pages=5, ocr_enabled=None, ocr_languages=None
+    )
+
+
+def test_max_pdf_pages_caps_a_multi_engine_definition_in_place() -> None:
+    registry = object()
+    catalog = SimpleNamespace(
+        enabled_pdf_backend=lambda: None,
+        pdf_definition_for=lambda backend: None,
+        build_registry=Mock(return_value=registry),
+    )
+    tools = _run_tools(parsers=catalog)
+
+    assert tools.parser_for(RunSettings("rev_1", max_pdf_pages=5)) is registry
+    catalog.build_registry.assert_called_once_with(
+        pdf_definition=None, max_pages=5, ocr_enabled=None, ocr_languages=None
+    )
+
+
+def test_ocr_override_reaches_the_default_image_family_without_an_image_definition(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "parsers.yaml"
+    path.write_text(
+        "version: 1\nparsers:\n  pdf-liteparse:\n    parser: pdf\n"
+        "    engines:\n      - backend: liteparse\n",
+        encoding="utf-8",
+    )
+    catalog = load_parser_catalog(path)
+
+    overridden = catalog.build_registry(ocr_enabled=False, ocr_languages=("vi",))
+    plain = catalog.build_registry()
+
+    image = overridden.resolve("scan.png", None)
+    assert (image.engines[0].enabled, image.engines[0].lang) == (False, "vi")
+    assert plain.resolve("scan.png", None).engines[0].enabled is True
+    assert catalog.ocr_overrides_change_parsing(ocr_enabled=False, ocr_languages=None)
+    assert not catalog.ocr_overrides_change_parsing(ocr_enabled=True, ocr_languages=None)
+
+
+def test_ocr_override_builds_a_registry_with_both_the_image_engine_and_pdf_backend_capped() -> None:
+    tools = _run_tools()
+    run = RunSettings("rev_1", ocr_enabled=False, ocr_languages=("vi", "en"))
+
+    registry = tools.parser_for(run)
+
+    assert registry is not tools._parser
+    image = registry.resolve("scan.png", None)
+    assert image.engines[0].enabled is False
+    assert image.engines[0].lang == "vi+en"
+    pdf = registry.resolve("report.pdf", None)
+    assert pdf.backends[0].options.ocr_enabled is False
+    assert pdf.backends[0].options.ocr_language == "vi"
+
+
+def test_ocr_override_is_cached_and_independent_of_pdf_parser_override() -> None:
+    tools = _run_tools()
+
+    first = tools.parser_for(RunSettings("rev_1", ocr_enabled=False))
+    second = tools.parser_for(RunSettings("rev_2", ocr_enabled=False))
+    plain = tools.parser_for(RunSettings("rev_3"))
+
+    assert first is second
+    assert plain is tools._parser
+
+
+def test_overlap_override_builds_one_cached_chunker_distinct_from_a_cap_override() -> None:
+    tools = _run_tools()
+
+    overlap_only = tools.chunker_for(RunSettings("rev_1", chunk_overlap_tokens=10))
+    same_overlap = tools.chunker_for(RunSettings("rev_2", chunk_overlap_tokens=10))
+    cap_only = tools.chunker_for(RunSettings("rev_3", chunk_max_tokens=CAP))
+
+    assert overlap_only is not tools._chunker
+    assert overlap_only is same_overlap
+    assert overlap_only is not cap_only
+    assert tools.chunker_for(RunSettings("rev_4")) is tools._chunker
+
+
+def test_default_run_uses_the_boot_representation_encoder() -> None:
+    tools = _run_tools()
+    boot = tools._representations
+
+    assert tools.representations_for(None) is boot
+    assert tools.representations_for(RunSettings("rev_1")) is boot
+
+
+def test_embedding_batch_size_builds_one_cached_encoder_per_distinct_value() -> None:
+    tools = _run_tools()
+
+    first = tools.representations_for(RunSettings("rev_1", embedding_batch_size=8))
+    second = tools.representations_for(RunSettings("rev_2", embedding_batch_size=8))
+    other = tools.representations_for(RunSettings("rev_3", embedding_batch_size=16))
+
+    assert first is second
+    assert first is not other
+    assert first._encoder._policy.batch_size == 8
+    assert other._encoder._policy.batch_size == 16
+
+
+def test_representations_for_without_an_encoder_raises() -> None:
+    chunking = default_chunking_settings()
+    tools = RunTools(
+        parser=cast(Any, object()),
+        chunker=build_default_chunker(config=chunking.config),
+        chunking=chunking,
+        parsers=load_parser_catalog(REPO_ROOT / "config" / "ingestion" / "parsers.yaml"),
+        build_chunker=lambda config: build_default_chunker(config=config, refiner=chunking.refiner),
+    )
+
+    with pytest.raises(HarborConfigurationError):
+        tools.representations_for(None)
 
 
 @pytest.mark.asyncio
