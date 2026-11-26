@@ -1,3 +1,9 @@
+"""Object-store repositories for canonical documents and replayable projections.
+
+Artifacts are immutable. A reader brings records written by older releases to the
+current shape instead of rewriting the stored artifact.
+"""
+
 from __future__ import annotations
 
 import json
@@ -23,6 +29,9 @@ from harborrag_core.ingestion import (
 )
 from harborrag_core.storage import StorageOperationContext
 
+_RETIRED_PAYLOAD_KEYS = frozenset({"preview", "content_reference"})
+"""Payload keys older releases wrote and the current payload model no longer has."""
+
 
 class CanonicalDocumentArtifactRepository:
     """Persist and reload immutable canonical document recovery boundaries."""
@@ -44,6 +53,7 @@ class CanonicalDocumentArtifactRepository:
         context: StorageOperationContext,
         adopt_existing: bool = False,
     ) -> ArtifactReference:
+        """Store one canonical document, or adopt the identical one already stored."""
         return await self._writer.put(
             ImmutableArtifact(
                 bucket=ARTIFACT_BUCKET,
@@ -65,6 +75,7 @@ class CanonicalDocumentArtifactRepository:
         *,
         context: StorageOperationContext,
     ) -> Document:
+        """Reload the canonical document an artifact reference points to."""
         return load_canonical_document(await self._reader.get(reference, context=context))
 
 
@@ -87,6 +98,7 @@ class ProjectionArtifactRepository:
         relations: Sequence[GraphEdgeRecord],
         context: StorageOperationContext,
     ) -> ArtifactReference:
+        """Store a version's canonical relations as JSONL, sorted by relation ID."""
         payload = self._jsonl(
             relation.model_dump(mode="json")
             for relation in sorted(relations, key=lambda item: item.relation_id)
@@ -109,6 +121,7 @@ class ProjectionArtifactRepository:
         points: Sequence[VectorEvidenceRecord],
         context: StorageOperationContext,
     ) -> ArtifactReference:
+        """Store a version's vector points as JSONL, sorted by point ID."""
         payload = self._jsonl(
             point.model_dump(mode="json")
             for point in sorted(points, key=lambda item: item.point_id)
@@ -132,6 +145,7 @@ class ProjectionArtifactRepository:
         relations: Sequence[GraphEdgeRecord],
         context: StorageOperationContext,
     ) -> ArtifactReference:
+        """Store a version's graph nodes, then its edges, as one JSONL artifact."""
         values = (
             *(
                 {"record_type": "node", "value": node.model_dump(mode="json")}
@@ -167,6 +181,7 @@ class ProjectionArtifactRepository:
         payload: bytes,
         context: StorageOperationContext,
     ) -> ArtifactReference:
+        """Store one encoder profile's chunk representations for a version."""
         return await self._writer.put(
             ImmutableArtifact(
                 bucket=ARTIFACT_BUCKET,
@@ -189,6 +204,7 @@ class ProjectionArtifactRepository:
         encoder_profile: str,
         context: StorageOperationContext,
     ) -> ArtifactReference:
+        """Store a representation set under its own document and version."""
         return await self.put_representation(
             document_id=str(representations.document_id),
             document_version_id=str(representations.document_version_id),
@@ -203,6 +219,7 @@ class ProjectionArtifactRepository:
         *,
         context: StorageOperationContext,
     ) -> RepresentationSet:
+        """Reload the representation set an artifact reference points to."""
         return RepresentationSet.model_validate_json(
             await self._reader.get(reference, context=context)
         )
@@ -213,22 +230,13 @@ class ProjectionArtifactRepository:
         *,
         context: StorageOperationContext,
     ) -> tuple[VectorEvidenceRecord, ...]:
-        records: list[VectorEvidenceRecord] = []
-        for value in self._load_jsonl(await self._reader.get(reference, context=context)):
-            payload = value.get("payload")
-            record_kind = payload.get("record_kind") if isinstance(payload, Mapping) else None
-            if isinstance(payload, Mapping):
-                migrated_payload = dict(payload)
-                migrated_payload.pop("preview", None)
-                migrated_payload.pop("content_reference", None)
-                value = {**value, "payload": migrated_payload}
-            if record_kind == "route":
-                # Artifacts written before the route collection was retired still carry
-                # route points. They are no longer projected anywhere, so replaying such
-                # an artifact must skip them rather than fail to parse it.
-                continue
-            records.append(VectorEvidenceRecord.model_validate(value))
-        return tuple(records)
+        """Reload a version's vector points, migrating those older releases wrote."""
+        values = self._load_jsonl(await self._reader.get(reference, context=context))
+        return tuple(
+            VectorEvidenceRecord.model_validate(record)
+            for record in map(_current_vector_record, values)
+            if record is not None
+        )
 
     async def get_graph_projection(
         self,
@@ -236,6 +244,7 @@ class ProjectionArtifactRepository:
         *,
         context: StorageOperationContext,
     ) -> tuple[tuple[GraphNodeRecord, ...], tuple[GraphEdgeRecord, ...]]:
+        """Reload a version's graph nodes and edges, dropping retired fields."""
         nodes: list[GraphNodeRecord] = []
         relations: list[GraphEdgeRecord] = []
         for record in self._load_jsonl(await self._reader.get(reference, context=context)):
@@ -302,3 +311,23 @@ class ProjectionArtifactRepository:
         for record in records:
             reject_runtime_fields(record)
         return tuple(records)
+
+
+def _current_vector_record(value: dict[str, object]) -> dict[str, object] | None:
+    """Bring one stored vector point to the current shape, or None to skip it.
+
+    Older releases wrote route points, which are no longer projected anywhere, so
+    replaying their artifacts skips them rather than failing to parse. They also
+    wrote retired payload keys, which are dropped, and ``chunk_kind`` as one string,
+    which becomes a one-item list.
+    """
+    payload = value.get("payload")
+    if not isinstance(payload, Mapping):
+        return value
+    if payload.get("record_kind") == "route":
+        return None
+    migrated = {key: item for key, item in payload.items() if key not in _RETIRED_PAYLOAD_KEYS}
+    chunk_kind = migrated.get("chunk_kind")
+    if isinstance(chunk_kind, str):
+        migrated["chunk_kind"] = [chunk_kind]
+    return {**value, "payload": migrated}

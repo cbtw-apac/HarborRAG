@@ -37,6 +37,13 @@ class ImmutableEvidenceReader:
     ) -> tuple[EvidenceReadItem, ...]:
         """Read the requested evidence chunks the caller is authorized to see.
 
+        Args:
+            request: Chunks to read and the caller's access.
+            context: Storage context of the caller.
+
+        Returns:
+            One item per requested chunk, in request order.
+
         Raises:
             HarborCapabilityError: The immutable evidence reader is not configured.
         """
@@ -167,7 +174,7 @@ def _available_item(chunk: ChunkRecord) -> EvidenceReadItem:
         document_title=chunk.hierarchy.document_title,
         source_scope_id=chunk.source_scope_id,
         connector_type=chunk.connector_type.value,
-        chunk_kind=chunk.chunk_kind.value,
+        chunk_kind=tuple(kind.value for kind in chunk.chunk_kinds),
         ordinal=chunk.ordinal,
         section_path=chunk.hierarchy.section_path,
         citation_locator=chunk.citation_locator.model_dump(exclude_none=True),

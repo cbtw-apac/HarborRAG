@@ -150,7 +150,7 @@ class GetDocumentContextTool(ReaderTool):
                             "chunk_id": item.chunk_id,
                             "ordinal": item.ordinal,
                             "text": item.text,
-                            "chunk_kind": item.chunk_kind,
+                            "chunk_kind": list(item.chunk_kind),
                             "section_path": list(item.section_path),
                             "citation_locator": item.citation_locator,
                         }
@@ -197,7 +197,7 @@ class GetDocumentContextTool(ReaderTool):
             minimum=1,
             maximum=DOCUMENT_CONTEXT_LIMIT,
         )
-        requested_outline = boolean(arguments, "include_outline", False)
+        requested_outline = boolean(arguments, "include_outline", default=False)
         match_cursor_value(arguments, stored, "limit", requested_limit)
         match_cursor_value(arguments, stored, "include_outline", requested_outline)
         return {

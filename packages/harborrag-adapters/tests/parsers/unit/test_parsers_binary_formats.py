@@ -267,7 +267,7 @@ def test_epub_parser_excludes_nav_document_from_spine_content():
 
     document = EpubParser().parse(ParseInput(content=buffer.getvalue(), filename="book.epub"))
 
-    assert document.content == "Harbor Book\n\nChapter One\nChapter body text"
+    assert document.content == "Harbor Book\n\n# Chapter One\n\nChapter body text"
     assert document.content.count("Chapter One") == 1
     assert document.metadata["sections"] == 1
 

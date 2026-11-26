@@ -23,6 +23,8 @@ from harborrag_mcp_server.server.explorer import (
 )
 from harborrag_mcp_server.server.server import McpServer
 
+pytestmark = pytest.mark.unit
+
 fastmcp = pytest.importorskip("fastmcp")
 pytest.importorskip("prefab_ui")
 
@@ -44,7 +46,7 @@ def _hit(chunk_id: str, text: str, score: float) -> RetrievalResult:
             "document_id": "document-1",
             "document_version_id": "version-1",
             "record_kind": "evidence",
-            "chunk_kind": "text",
+            "chunk_kind": ["text"],
             "connector_type": "local",
             "citation_locator": {},
             "quality_score": None,
@@ -95,11 +97,11 @@ def _explorer(registry: McpServer):
 
 
 def _reader_token(tenants: list[str]) -> SimpleNamespace:
+    """Build a reader token; fastmcp 4.1 keys session state by its client, issuer and subject."""
     return SimpleNamespace(
         claims={"sub": "reader-1", "role": "reader", "tenants": tenants},
         client_id="client",
         scopes=["mcp:read"],
-        # fastmcp 4.1 keys session state by the token's (client_id, issuer, subject).
         subject="reader-1",
     )
 
@@ -146,6 +148,7 @@ def test_the_ui_server_requires_authentication_like_the_reader_server() -> None:
 
 @pytest.mark.asyncio
 async def test_the_rendered_ui_calls_only_registered_backend_tools() -> None:
+    """Evidence reaches the conversation only when the user chooses to send it."""
     async with fastmcp.Client(_explorer(_registry())) as client:
         registered = {tool.name for tool in await client.list_tools()}
         result = await client.call_tool(EXPLORER_ENTRY_TOOL, {"tenant_id": "tenant-1"})
@@ -157,7 +160,6 @@ async def test_the_rendered_ui_calls_only_registered_backend_tools() -> None:
     state = result.structured_content["state"]
     assert state["tenant_id"] == "tenant-1"
     assert state["tab"] == "search"
-    # Evidence reaches the conversation only when the user chooses to send it.
     assert '"action": "sendMessage"' in payload
     assert '"action": "updateContext"' in payload
     assert result.content[0].text

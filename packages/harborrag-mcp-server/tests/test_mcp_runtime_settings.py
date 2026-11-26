@@ -37,6 +37,7 @@ class FakeConfigProvider:
         self.levels: list[str] = []
 
     async def effective(self, tenant_id: str, level: SettingsLevel) -> EffectiveSettings:
+        """Return the configured override, recording which level was asked for."""
         del tenant_id
         self.levels.append(str(level))
         if self.override is None:
@@ -47,11 +48,14 @@ class FakeConfigProvider:
 
 
 class RecordingRetrieval:
+    """Retrieval facade that records each request and returns ``hits`` results."""
+
     def __init__(self, hits: int) -> None:
         self.hits = hits
         self.requests: list[object] = []
 
     async def search(self, request):
+        """Record the request and return the canned results."""
         self.requests.append(request)
         results = tuple(
             RetrievalResult(
@@ -62,7 +66,7 @@ class RecordingRetrieval:
                     "document_id": "document-1",
                     "document_version_id": "version-1",
                     "record_kind": "evidence",
-                    "chunk_kind": "text",
+                    "chunk_kind": ["text"],
                     "connector_type": "local",
                     "citation_locator": {},
                     "retrieval_source": "qdrant-authoritative",
@@ -163,28 +167,45 @@ class TenantTopKStore:
         self.snapshot = SettingsSnapshot(tenant_id, 1, {"tenant": {"retrieval.top_k": top_k}})
 
     async def load(self, tenant_id: str) -> SettingsSnapshot:
+        """Return the stored snapshot."""
         del tenant_id
         return self.snapshot
 
     async def latest_revision(self, tenant_id: str) -> int:
+        """Return the snapshot's revision."""
         del tenant_id
         return self.snapshot.revision
 
     async def ping(self) -> None:
+        """Report the store as reachable."""
         return None
 
 
 class RecordingRetrievalService:
+    """Retrieval service that records the ``top_k`` of each call and finds nothing."""
+
     def __init__(self) -> None:
         self.top_k: list[int] = []
 
     async def retrieve(self, query: str, *, tenant_id: str, top_k: int, **_: object):
+        """Record ``top_k`` and return an empty report."""
         del query, tenant_id
         self.top_k.append(top_k)
-        diagnostics = RetrievalDiagnostics(0, 0, 0, 0, top_k, 0, 0, False, 0.0)
+        diagnostics = RetrievalDiagnostics(
+            candidate_hits=0,
+            stale_candidates=0,
+            unpublished_candidates=0,
+            malformed_candidates=0,
+            search_window=top_k,
+            graph_nodes=0,
+            graph_relations=0,
+            graph_truncated=False,
+            duration_ms=0.0,
+        )
         return RuntimeRetrievalReport("retrieval-1", RetrievalLane.HYBRID, (), diagnostics)
 
     async def aclose(self) -> None:
+        """Release nothing; the fake holds no resources."""
         return None
 
 

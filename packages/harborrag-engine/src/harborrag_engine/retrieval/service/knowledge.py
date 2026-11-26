@@ -26,7 +26,7 @@ from harborrag_core.topology.search import TopologySearchPort
 from harborrag_engine.retrieval import ActiveVersionCandidateValidator
 
 from .permissions import RetrievalPermissions
-from .validation import required_text
+from .validation import required_text, required_text_values
 
 _MAX_TOPOLOGY_READ = 256
 
@@ -289,7 +289,7 @@ def _result(candidate: VectorSearchResult) -> RetrievalResult:
         "document_id": required_text(payload, "document_id"),
         "document_version_id": required_text(payload, "document_version_id"),
         "record_kind": required_text(payload, "record_kind"),
-        "chunk_kind": required_text(payload, "chunk_kind"),
+        "chunk_kind": required_text_values(payload, "chunk_kind"),
         "connector_type": required_text(payload, "connector_type"),
         "citation_locator": payload.get("citation_locator", {}),
         "quality_score": payload.get("quality_score"),
