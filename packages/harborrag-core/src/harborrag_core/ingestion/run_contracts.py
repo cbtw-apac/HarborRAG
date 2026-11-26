@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import TypeGuard
 
 from harborrag_core.ingestion.limits import (
     MAX_RETRY_DOCUMENT_IDS,
@@ -34,7 +35,27 @@ class RunKind(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class SourceSubmission:
-    """Secret-free request resolved against the configured connector catalog."""
+    """Secret-free request resolved against the configured connector catalog.
+
+    Attributes:
+        task_id: The run to start.
+        tenant_id: Tenant that owns the connection.
+        connector_name: Connection name the catalog resolves.
+        connection_id: Stored connection the run reads, when it has one.
+        source_scope_id: Scope inside the connection, or ``None`` for its default.
+        query: Filters that narrow what the connector lists.
+        force_reprocess: Reprocess documents whose identity is unchanged.
+        discovery_page_size: Items requested per discovery page.
+        discovery_concurrency: Discovery pages fetched at once.
+        document_concurrency: Documents processed at once; ``None`` defers to the
+            run settings, then the deployment.
+        missing_threshold: Consecutive completed scans an item must be missing from
+            before it is removed.
+        batch_size: Documents per batch; ``None`` defers to the run settings, then the
+            deployment.
+        continue_after_batches: Batches a source workflow completes before it
+            continues as new.
+    """
 
     task_id: str
     tenant_id: str
@@ -57,7 +78,7 @@ class RunSettings:
 
     ``None`` leaves the boot knob in charge.
 
-    Args:
+    Attributes:
         settings_revision: Revision label the values were resolved at.
         pdf_parser: PDF backend override.
         chunk_max_tokens: Cap on every chunking profile's hard maximum.
@@ -110,7 +131,11 @@ class RunSettings:
 
     @classmethod
     def from_json(cls, value: object) -> RunSettings | None:
-        """Rebuild from :meth:`to_json`; ``None`` for anything that is not a stored run."""
+        """Rebuild from :meth:`to_json`; ``None`` for anything that is not a stored run.
+
+        A field of the wrong type, such as a boolean where a count belongs, makes the
+        whole value ``None``, so a damaged request never pins a setting.
+        """
         if not isinstance(value, dict):
             return None
         revision = value.get("settings_revision")
@@ -127,25 +152,21 @@ class RunSettings:
         ocr_languages = value.get("ocr_languages")
         chunk_overlap_tokens = value.get("chunk_overlap_tokens")
         embedding_batch_size = value.get("embedding_batch_size")
-
-        def is_string_list(candidate: object) -> bool:
-            return isinstance(candidate, list) and all(isinstance(item, str) for item in candidate)
-
         if (
             not isinstance(revision, str)
             or not (pdf_parser is None or isinstance(pdf_parser, str))
-            or not (max_tokens is None or isinstance(max_tokens, int))
-            or not (concurrency is None or isinstance(concurrency, int))
-            or not (activity_timeout_seconds is None or isinstance(activity_timeout_seconds, int))
-            or not (max_attempts is None or isinstance(max_attempts, int))
-            or not (batch_size is None or isinstance(batch_size, int))
-            or not (max_document_mb is None or isinstance(max_document_mb, int))
-            or not (file_types is None or is_string_list(file_types))
-            or not (max_pdf_pages is None or isinstance(max_pdf_pages, int))
+            or not _is_optional_count(max_tokens)
+            or not _is_optional_count(concurrency)
+            or not _is_optional_count(activity_timeout_seconds)
+            or not _is_optional_count(max_attempts)
+            or not _is_optional_count(batch_size)
+            or not _is_optional_count(max_document_mb)
+            or not (file_types is None or _is_string_list(file_types))
+            or not _is_optional_count(max_pdf_pages)
             or not (ocr_enabled is None or isinstance(ocr_enabled, bool))
-            or not (ocr_languages is None or is_string_list(ocr_languages))
-            or not (chunk_overlap_tokens is None or isinstance(chunk_overlap_tokens, int))
-            or not (embedding_batch_size is None or isinstance(embedding_batch_size, int))
+            or not (ocr_languages is None or _is_string_list(ocr_languages))
+            or not _is_optional_count(chunk_overlap_tokens)
+            or not _is_optional_count(embedding_batch_size)
         ):
             return None
         return cls(
@@ -166,9 +187,41 @@ class RunSettings:
         )
 
 
+def _is_optional_count(value: object) -> TypeGuard[int | None]:
+    """Return whether ``value`` is ``None`` or an integer, refusing ``True`` and ``False``."""
+    return value is None or type(value) is int
+
+
+def _is_string_list(value: object) -> TypeGuard[list[str]]:
+    """Return whether ``value`` is a list of strings."""
+    return isinstance(value, list) and all(isinstance(item, str) for item in value)
+
+
 @dataclass(frozen=True, slots=True)
 class PreparedSourceSubmission:
-    """Resolved ingestion input without workflow history or provider options."""
+    """Resolved ingestion input without workflow history or provider options.
+
+    Attributes:
+        task_id: The run, at most 128 characters.
+        tenant_id: Tenant that owns the connection.
+        connector_name: Connection name the catalog resolved.
+        connector_type: Connector type of the connection, such as ``jira``.
+        connection_id: Stored connection the run reads.
+        source_scope_id: Scope inside the connection.
+        configuration_fingerprint: Fingerprint of the connection snapshot the run uses.
+        processing: The run's processing identity.
+        query: Filters that narrow what the connector lists.
+        force_reprocess: Reprocess documents whose identity is unchanged.
+        discovery_page_size: Items requested per discovery page.
+        discovery_concurrency: Discovery pages fetched at once.
+        document_concurrency: Documents processed at once.
+        missing_threshold: Consecutive completed scans an item must be missing from
+            before it is removed.
+        batch_size: Documents per batch, from 1 to 500.
+        continue_after_batches: Batches a source workflow completes before it
+            continues as new, from 1 to 100.
+        run_settings: Settings pinned for the run, or ``None`` for the boot values.
+    """
 
     task_id: str
     tenant_id: str
@@ -215,7 +268,15 @@ class PreparedSourceSubmission:
 
 @dataclass(frozen=True, slots=True)
 class IngestionRetryRequest:
-    """Request to retry the named failed documents of one finished run."""
+    """Request to retry the named failed documents of one finished run.
+
+    Attributes:
+        retry_task_id: The retry run to start.
+        original_task_id: The finished run whose documents are retried.
+        tenant_id: Tenant that owns both runs.
+        document_ids: Unique failed documents to retry, at least one.
+        document_concurrency: Documents processed at once, from 1 to 100.
+    """
 
     retry_task_id: str
     original_task_id: str

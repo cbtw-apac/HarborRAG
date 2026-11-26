@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from harborrag_core.config_store import SettingsLevel, revision_label
+from harborrag_core.config_store.durations import parse_iso8601_duration_seconds
 from harborrag_core.ingestion.run_contracts import RunSettings
 from harborrag_core.ports.config_store import ConfigProvider
-from harborrag_runtime.ingestion.durations import parse_iso8601_duration_seconds
 
 
 class RunSettingsResolver:

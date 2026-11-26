@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from harborrag_core.ingestion import IngestionTaskState
-from harborrag_core.ingestion.run_contracts import PreparedSourceSubmission
+from harborrag_core.ingestion.run_contracts import PreparedSourceSubmission, RunSettings
 from harborrag_core.ingestion.source_query import ProcessingProfileInput
 from harborrag_core.security import AccessContext
 from harborrag_runtime.config.errors import ConnectorConfigurationError
@@ -216,18 +216,19 @@ async def test_direct_executor_runs_and_closes_runtime(monkeypatch) -> None:
             configuration_fingerprint: str,
             run_settings: object = None,
         ):
-            calls.append((task_id, configuration_fingerprint))
+            calls.append((task_id, configuration_fingerprint, run_settings))
             return "connector"
 
         async def close(self) -> None:
             self.closed += 1
 
     runtime = Runtime()
+    pinned = RunSettings("rev_2", max_document_mb=5)
     source_input = SimpleNamespace(
         tenant_id="tenant-1",
         task_id="task-1",
         configuration_fingerprint="fingerprint-1",
-        run_settings=None,
+        run_settings=pinned,
     )
     monkeypatch.setattr(
         direct_module,
@@ -257,7 +258,7 @@ async def test_direct_executor_runs_and_closes_runtime(monkeypatch) -> None:
     assert runtime.started == 1
     assert runtime.closed == 1
     assert calls == [
-        ("task-1", "fingerprint-1"),
+        ("task-1", "fingerprint-1", pinned),
         (("converted", source_input), "connector"),
     ]
     assert result.task_id == "task-1"

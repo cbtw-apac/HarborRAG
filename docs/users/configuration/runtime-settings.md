@@ -66,9 +66,9 @@ What each key does:
   instead of reading every file. As with
   [File type filters](../connections.md#file-type-filters), the next full sync removes
   documents for the types it drops, and an incremental sync leaves them in place.
-- `capture.max_pdf_pages` replaces the `max_pages` of the enabled `parser: pdf`
-  definition in `config/ingestion/parsers.yaml` when that definition has a single
-  engine, as the shipped one does. A longer PDF is reported as failed.
+- `capture.max_pdf_pages` replaces the `max_pages` of the `parser: pdf` definition in
+  `config/ingestion/parsers.yaml` that parses the run's PDFs. A longer PDF is reported
+  as failed.
 - `parsing.pdf_parser` picks the PDF engine; `docling` needs extra setup, see
   [What reprocesses on the next sync](#what-reprocesses-on-the-next-sync).
 - `parsing.ocr.enabled` turns OCR on or off in the image parser and in the `liteparse`

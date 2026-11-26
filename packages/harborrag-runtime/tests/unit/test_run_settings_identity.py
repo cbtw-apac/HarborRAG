@@ -116,6 +116,10 @@ def test_ocr_comparison_reads_a_yaml_language_list_and_a_missing_switch_as_on(
                   - backend: docling
                     settings:
                       ocr_lang: [en, vi]
+              image-ocr:
+                parser: image
+                settings:
+                  lang: en+vi
             """
         ),
         encoding="utf-8",
@@ -134,6 +138,17 @@ def test_run_settings_json_round_trip() -> None:
     assert RunSettings.from_json(settings.to_json()) == settings
     assert RunSettings.from_json(RunSettings("rev_0").to_json()) == RunSettings("rev_0")
     assert RunSettings.from_json(None) is None
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["chunk_max_tokens", "document_concurrency", "batch_size", "max_attempts", "max_pdf_pages"],
+)
+def test_run_settings_from_json_refuses_a_boolean_count(field: str) -> None:
+    stored = RunSettings("rev_3").to_json()
+    stored[field] = True
+
+    assert RunSettings.from_json(stored) is None
 
 
 def test_run_settings_json_round_trip_with_capture_overrides() -> None:

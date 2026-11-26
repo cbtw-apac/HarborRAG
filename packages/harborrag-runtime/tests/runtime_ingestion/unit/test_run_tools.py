@@ -182,16 +182,40 @@ def test_max_pdf_pages_alone_builds_a_capped_registry_on_the_enabled_backend() -
     )
 
 
-def test_max_pdf_pages_without_a_single_engine_boot_definition_keeps_base_parser() -> None:
+def test_max_pdf_pages_caps_a_multi_engine_definition_in_place() -> None:
+    registry = object()
     catalog = SimpleNamespace(
         enabled_pdf_backend=lambda: None,
         pdf_definition_for=lambda backend: None,
-        build_registry=Mock(),
+        build_registry=Mock(return_value=registry),
     )
     tools = _run_tools(parsers=catalog)
 
-    assert tools.parser_for(RunSettings("rev_1", max_pdf_pages=5)) is tools._parser
-    catalog.build_registry.assert_not_called()
+    assert tools.parser_for(RunSettings("rev_1", max_pdf_pages=5)) is registry
+    catalog.build_registry.assert_called_once_with(
+        pdf_definition=None, max_pages=5, ocr_enabled=None, ocr_languages=None
+    )
+
+
+def test_ocr_override_reaches_the_default_image_family_without_an_image_definition(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "parsers.yaml"
+    path.write_text(
+        "version: 1\nparsers:\n  pdf-liteparse:\n    parser: pdf\n"
+        "    engines:\n      - backend: liteparse\n",
+        encoding="utf-8",
+    )
+    catalog = load_parser_catalog(path)
+
+    overridden = catalog.build_registry(ocr_enabled=False, ocr_languages=("vi",))
+    plain = catalog.build_registry()
+
+    image = overridden.resolve("scan.png", None)
+    assert (image.engines[0].enabled, image.engines[0].lang) == (False, "vi")
+    assert plain.resolve("scan.png", None).engines[0].enabled is True
+    assert catalog.ocr_overrides_change_parsing(ocr_enabled=False, ocr_languages=None)
+    assert not catalog.ocr_overrides_change_parsing(ocr_enabled=True, ocr_languages=None)
 
 
 def test_ocr_override_builds_a_registry_with_both_the_image_engine_and_pdf_backend_capped() -> None:

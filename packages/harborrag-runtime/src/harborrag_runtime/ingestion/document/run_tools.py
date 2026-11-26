@@ -56,6 +56,8 @@ class RunTools:
             The boot parser, or a registry whose PDF family is the pinned backend
             and/or ``capture.max_pdf_pages`` cap, with ``parsing.ocr.*`` applied
             to the image engine and to the ``liteparse``/``docling`` PDF backends.
+            The page cap reaches the enabled ``pdf`` definition whatever its number
+            of engines.
 
         Raises:
             ParserUnavailableError: ``parsing.pdf_parser`` names a backend with no
@@ -74,11 +76,7 @@ class RunTools:
             return self._parser
         effective_backend = backend or enabled_backend
         pdf_definition: str | None = None
-        if effective_backend is None:
-            if not has_ocr_override:
-                # No single-engine pdf definition at boot to vary max_pages on alone.
-                return self._parser
-        else:
+        if effective_backend is not None:
             pdf_definition = self._parsers.pdf_definition_for(effective_backend)
             if pdf_definition is None and backend is not None:
                 raise ParserUnavailableError(

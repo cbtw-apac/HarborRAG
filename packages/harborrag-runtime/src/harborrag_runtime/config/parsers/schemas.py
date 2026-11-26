@@ -343,8 +343,11 @@ class ParserCatalog:
                 family, ``pdf_definition`` names no definition, or a definition
                 fails to build.
         """
+        image_overrides = _image_ocr_overrides(ocr_enabled=ocr_enabled, ocr_languages=ocr_languages)
         configured: dict[str, tuple[str, HarborParser]] = {}
-        for config_name, definition in self._registry_definitions(pdf_definition).items():
+        for config_name, definition in self._registry_definitions(
+            pdf_definition, image_overrides=image_overrides
+        ).items():
             overrides: dict[str, object] | None = None
             pdf_backend_overrides: Mapping[str, Mapping[str, object]] | None = None
             if definition.parser == "pdf":
@@ -354,9 +357,7 @@ class ParserCatalog:
                     ocr_enabled=ocr_enabled, ocr_languages=ocr_languages
                 )
             elif definition.parser == "image":
-                overrides = _image_ocr_overrides(
-                    ocr_enabled=ocr_enabled, ocr_languages=ocr_languages
-                )
+                overrides = image_overrides
             parser = definition.build(
                 environment=environment,
                 overrides=overrides,
@@ -411,7 +412,9 @@ class ParserCatalog:
         image_overrides = (
             _image_ocr_overrides(ocr_enabled=ocr_enabled, ocr_languages=ocr_languages) or {}
         )
-        for definition in self._registry_definitions(pdf_definition).values():
+        for definition in self._registry_definitions(
+            pdf_definition, image_overrides=image_overrides
+        ).values():
             if definition.parser == "pdf" and any(
                 _overrides_change(
                     backend.settings,
@@ -428,16 +431,27 @@ class ParserCatalog:
                 return True
         return False
 
-    def _registry_definitions(self, pdf_definition: str | None) -> dict[str, ParserDefinition]:
-        """Return the enabled definitions, with ``pdf_definition`` in place of the ``pdf`` one."""
+    def _registry_definitions(
+        self,
+        pdf_definition: str | None,
+        *,
+        image_overrides: Mapping[str, object] | None = None,
+    ) -> dict[str, ParserDefinition]:
+        """Return the enabled definitions, with ``pdf_definition`` in place of the ``pdf`` one.
+
+        With ``image_overrides`` and no enabled ``image`` definition, a settings-free
+        ``image`` definition stands in for the default image family, so the overrides
+        reach it too.
+        """
         definitions = {name: item for name, item in self.parsers.items() if item.enabled}
-        if pdf_definition is None:
-            return definitions
-        selected = self.get(pdf_definition)
-        definitions = {
-            name: item for name, item in definitions.items() if item.parser != selected.parser
-        }
-        definitions[pdf_definition] = selected
+        if pdf_definition is not None:
+            selected = self.get(pdf_definition)
+            definitions = {
+                name: item for name, item in definitions.items() if item.parser != selected.parser
+            }
+            definitions[pdf_definition] = selected
+        if image_overrides and not any(item.parser == "image" for item in definitions.values()):
+            definitions[_DEFAULT_IMAGE_DEFINITION.name] = _DEFAULT_IMAGE_DEFINITION
         return definitions
 
     def build_harbor_parser(
@@ -469,6 +483,10 @@ constructor argument."""
 
 _IMAGE_OCR_ON_SWITCH = "enabled"
 """The image OCR engine's own on/off field."""
+
+_DEFAULT_IMAGE_DEFINITION = ParserDefinition(name="default-image", parser="image")
+"""The default image family as a definition: the image factory with no settings builds
+the same engine the default registry does."""
 
 _UNSET = object()
 """Stands in for a setting the YAML leaves out, so it never equals an override."""
