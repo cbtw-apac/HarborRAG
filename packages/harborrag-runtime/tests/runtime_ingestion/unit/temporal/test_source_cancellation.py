@@ -179,6 +179,9 @@ class _HeldCancelSignal(Interceptor):
     """Holds the parent's graceful-cancel signal to its batch until the test releases it.
 
     The workflow task stays open meanwhile, so the batch can close before the signal is sent.
+    The hold blocks only the parent's activation thread. A worker in debug mode runs
+    activations on the event loop instead, which stalls the batch and the test until the
+    task times out.
     """
 
     def __init__(self) -> None:
@@ -235,7 +238,6 @@ async def _source_run(
             activities=activities.all(),
             workflow_runner=UnsandboxedWorkflowRunner(),
             interceptors=interceptors,
-            debug_mode=True,
         )
         for queue in set(source.workflow_options.task_queues.as_tuple())
     ]
