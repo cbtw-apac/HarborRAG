@@ -100,6 +100,7 @@ class RetryActivitiesMixin:
                 configuration_fingerprint=require_fingerprint(
                     planned.request.configuration_fingerprint
                 ),
+                run_settings=planned.request.run_settings,
             ),
         )
 

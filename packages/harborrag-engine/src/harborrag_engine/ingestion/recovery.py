@@ -18,8 +18,8 @@ from harborrag_core.ingestion.source_query import ProcessingProfileInput, Source
 def source_from_task(task: IngestionTask) -> PreparedSourceSubmission:
     """Rebuild the safe workflow input for a retried durable submission.
 
-    The pinned ``ingestion.concurrency`` is restored from the run's settings; without
-    one the workflow default applies.
+    The pinned ``ingestion.concurrency`` and ``ingestion.batch_size`` are restored
+    from the run's settings; without one the workflow default applies.
     """
     request = task.request
     processing = _mapping(request.get("processing"), "processing")
@@ -29,6 +29,7 @@ def source_from_task(task: IngestionTask) -> PreparedSourceSubmission:
     run_settings = RunSettings.from_json(request.get("run_settings"))
     # TODO: store each run's resolved document_concurrency so recovery stops falling back to 8.
     concurrency = run_settings.document_concurrency if run_settings else None
+    batch_size = run_settings.batch_size if run_settings else None
     return PreparedSourceSubmission(
         task_id=task.task_id,
         tenant_id=_required_text(request, "tenant_id"),
@@ -53,6 +54,7 @@ def source_from_task(task: IngestionTask) -> PreparedSourceSubmission:
         ),
         force_reprocess=request.get("force_reprocess") is True,
         **({"document_concurrency": concurrency} if concurrency is not None else {}),
+        **({"batch_size": batch_size} if batch_size is not None else {}),
         run_settings=run_settings,
     )
 

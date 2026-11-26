@@ -69,6 +69,7 @@ class DocumentReleaseDependencies:
             so runtime supplies the infrastructure error types it treats as transient.
         parser_for: Picks the parser for a run's pinned settings.
         chunker_for: Picks the chunker for a run's pinned settings.
+        representations_for: Picks the representation encoder for a run's pinned settings.
     """
 
     parser: DocumentParserPort
@@ -88,3 +89,4 @@ class DocumentReleaseDependencies:
     failures: IngestionFailureClassifier
     parser_for: Callable[[RunSettings | None], DocumentParserPort] | None = None
     chunker_for: Callable[[RunSettings | None], BaseChunker] | None = None
+    representations_for: Callable[[RunSettings | None], RepresentationReuseService] | None = None

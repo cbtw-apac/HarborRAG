@@ -125,6 +125,50 @@ def test_rerank_true_is_accepted_with_a_rerank_model() -> None:
     assert change.to_value is True
 
 
+OVERLAP = "chunking.overlap_tokens"
+TICKETS = "connection:demo/demo-tickets"
+
+
+TENANT_OVERLAP = replace(
+    SNAPSHOT, overrides={**SNAPSHOT.overrides, "tenant": {KEY: 512, OVERLAP: 100}}
+)
+
+
+@pytest.mark.parametrize(
+    ("body", "field"),
+    [
+        ({OVERLAP: 256}, OVERLAP),
+        ({OVERLAP: 300, KEY: 300}, OVERLAP),
+        ({KEY: 100}, KEY),
+    ],
+)
+def test_overlap_at_or_above_max_tokens_is_refused(body: dict[str, object], field: str) -> None:
+    with pytest.raises(HarborValidationError, match="must be below") as raised:
+        plan(TICKETS, body, TENANT_OVERLAP)
+
+    assert raised.value.details == {"field": field}
+
+
+def test_max_tokens_is_not_compared_with_the_default_overlap() -> None:
+    (change,) = plan(TICKETS, {KEY: 64})
+
+    assert change.to_value == 64
+
+
+def test_overlap_check_uses_the_value_a_removed_override_falls_back_to() -> None:
+    snapshot = replace(
+        SNAPSHOT, overrides={**SNAPSHOT.overrides, TICKETS: {KEY: 256, OVERLAP: 100}}
+    )
+
+    removal, overlap = plan(TICKETS, {KEY: None, OVERLAP: 300}, snapshot)
+
+    assert (removal.key, removal.to_value) == (KEY, None)
+    assert (overlap.key, overlap.to_value) == (OVERLAP, 300)
+    with pytest.raises(HarborValidationError) as raised:
+        plan(TICKETS, {KEY: None, OVERLAP: 384}, snapshot)
+    assert raised.value.details == {"field": OVERLAP}
+
+
 def test_first_failure_in_sorted_key_order_wins() -> None:
     with pytest.raises(HarborValidationError) as raised:
         plan("tenant", {"retrieval.top_k": 0, KEY: 1})

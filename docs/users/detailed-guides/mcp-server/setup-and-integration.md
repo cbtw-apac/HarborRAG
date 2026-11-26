@@ -41,13 +41,13 @@ at `/v1/chat/completions`.
    ```
 
    This creates the git-ignored `env/` files with mode `0600` and writes a
-   random local bearer token to `HARBORRAG_MCP_BEARER_TOKEN` in
-   `env/.env.mcp`. The MCP wrapper reads `env/.env.database` and
-   `env/.env.mcp`, `env/.env.models` when it exists, and only `HARBORRAG_ENV`
-   from `env/.env.api`. The server never connects with the Postgres owner or
-   the MinIO root account of `env/.env.database`; it has read-only accounts of
-   its own, whose random passwords bootstrap writes there as
-   `POSTGRES_MCP_PASSWORD` and `MINIO_MCP_PASSWORD`.
+   random local bearer token, the **owner token**, to
+   `HARBORRAG_MCP_BEARER_TOKEN` in `env/.env.mcp`. The MCP wrapper reads
+   `env/.env.database` and `env/.env.mcp`, `env/.env.models` when it exists,
+   and only `HARBORRAG_ENV` from `env/.env.api`. The server never connects with
+   the Postgres owner or the MinIO root account of `env/.env.database`; it has
+   read-only accounts of its own, whose random passwords bootstrap writes there
+   as `POSTGRES_MCP_PASSWORD` and `MINIO_MCP_PASSWORD`.
 3. Create those read-only accounts once `scripts/deployment/dev.sh up` has
    started the stack, whose API applies the database migrations, and again
    after every upgrade:
@@ -264,13 +264,13 @@ accepts only when `HARBORRAG_ENV=dev`. Docker publishes the server on
 
 The wrapper first checks that `harborrag-data-network` exists, in stdio mode
 too. Without it, it says to run `scripts/deployment/dev.sh data` and exits with
-status 2. `--check` skips this check, because it runs with no network.
+status `2`. `--check` skips this check, because it runs with no network.
 
 Then it runs `harborrag-mcp --http --preflight` once in the foreground. The
 preflight loads the settings and connects Postgres, the object store, Qdrant
 and the graph store the way the server does at start-up. In `api_key` mode it
 also reads the reader-key table. Then it stops. When a step fails, nothing is
-started and the wrapper exits with status 2. The cause is one line:
+started and the wrapper exits with status `2`. The cause is one line:
 
 ```text
 HarborRAG MCP preflight failed: ValueError: environment variable HARBORRAG_EMBED_API_KEY is not set
@@ -291,8 +291,9 @@ server again. Compose stops earlier, with
 `run scripts/deployment/dev.sh mcp-access to set POSTGRES_MCP_PASSWORD`, when
 `env/.env.database` has no such value.
 
-The wrapper also prints a `Note:` line in these cases, in stdio mode too. A setting
-that has a default is never reported; left out of `env/.env.mcp`, it uses that default.
+The wrapper also prints a `Note:` line in these cases, in stdio mode too. A
+setting that has a default is never reported; left out of `env/.env.mcp`, it
+uses that default.
 
 | Note | What to do |
 | --- | --- |
@@ -305,7 +306,7 @@ says nothing about it.
 
 If the server starts but is not healthy within `HARBORRAG_MCP_STARTUP_TIMEOUT`
 seconds, the wrapper prints its last 20 log lines, stops it and exits with
-status 2. A running server comes back by itself after Docker or the host restarts.
+status `2`. A running server comes back by itself after Docker or the host restarts.
 
 Where the package is installed without a checkout, run the same check yourself
 before starting the service:
@@ -366,9 +367,9 @@ The Tool Playground on the status page runs any tool by hand. Each step
 unlocks the next:
 
 1. Open `http://127.0.0.1:8010/`.
-2. Under **Connect**, enter the bearer token from `env/.env.mcp`, or a reader
+2. Under **Connect**, enter the owner token from `env/.env.mcp`, or a reader
    key issued by `harborrag auth keys create` (server in `api_key` mode), and
-   select **Connect**. In `api_key` mode the bearer token is accepted only when
+   select **Connect**. In `api_key` mode the owner token is accepted only when
    `HARBORRAG_MCP_READER_TENANT_ID` names one tenant.
 3. Under **Choose a tenant**, pick one. A token bound to one tenant gets only
    that tenant: `HARBORRAG_MCP_READER_TENANT_ID` for the owner token, or the
@@ -416,8 +417,8 @@ works where the server can write its configuration file, such as
 
 ## Tenant-bound reader keys and shared corpus access
 
-For anything beyond one developer's loopback session, do not share the local
-bearer token. Give each person or workload its own **reader key**: a secret
+For anything beyond one developer's loopback session, do not share the owner
+token. Give each person or workload its own **reader key**: a secret
 bound to one tenant, with an expiry, that can list and run tools but cannot
 change the server.
 
@@ -522,14 +523,14 @@ select another tenant. Both HTTP modes bind to loopback; put TLS and any remote
 access at a reverse proxy on the same host, and list the proxy's host name in
 `HARBORRAG_MCP_ALLOWED_HOSTS`.
 
-The local `HARBORRAG_MCP_BEARER_TOKEN` authenticates a connection but does not
-grant corpus access by itself. On the shared tenant it reads the whole corpus
-when a tool call names that tenant. On any other tenant it reads only what its
-principal holds permissions for, which is nothing until permissions are
-imported. Restart the MCP server after you change the corpus lines; a running
-server keeps its previous access policy.
+The owner token (`HARBORRAG_MCP_BEARER_TOKEN`) authenticates a connection but
+does not grant corpus access by itself. On the shared tenant it reads the whole
+corpus when a tool call names that tenant. On any other tenant it reads only
+what its principal holds permissions for, which is nothing until permissions
+are imported. Restart the MCP server after you change the corpus lines; a
+running server keeps its previous access policy.
 
-`HARBORRAG_MCP_READER_TENANT_ID` limits what the local token reads, not what it
+`HARBORRAG_MCP_READER_TENANT_ID` limits what the owner token reads, not what it
 may administer: the owner keeps the configuration API and the browser editor,
 and a request that names no tenant (a catalog load or a tool call) is bound to
 that tenant instead of being refused. A tool call naming another tenant is
@@ -676,13 +677,13 @@ tenant is the request's own `tenant_id` field.
 | Document and chunk | `document_id`, `document_version_id`, `record_kind`, `chunk_kind`, `document_kind`, `language`, `relative_path` |
 | Connector and source item | `connector_type`, `source_scope_id`, `source_item_id`, `parent_source_item_id`, `attachment_id`, `graph_source_node_key` |
 | Connector container | `space_id`, `page_id`, `project_id`, `project_key`, `issue_key` |
-| Source descriptor | `status`, `status_category`, `item_type`, `priority`, `assignee`, `reporter`, `labels`, `components`, `created_at`, `updated_at` |
+| Source descriptor | `status`, `status_category`, `item_type`, `priority`, `assignee`, `reporter`, `labels`, `components`, `created_at`, `last_modified` |
 
 Matching rules:
 
 - A string matches exactly.
 - A list matches any of its members; its items must be unique strings.
-- `created_at` and `updated_at` take exact ISO-8601 strings, not ranges.
+- `created_at` and `last_modified` take exact ISO-8601 strings, not ranges.
 - Every indexed key above matches exactly. A range such as `{"gte": ...}` on
   one of them is rejected with `exact_match_only`.
 - Range bounds (`gte`, `gt`, `lte`, `lt`) apply only to `fields.<key>` and
@@ -692,7 +693,7 @@ Matching rules:
 {
   "source_scope_id": "jira-main",
   "status_category": ["To Do", "In Progress"],
-  "updated_at": "2026-10-01T00:00:00Z"
+  "last_modified": "2026-10-01T00:00:00Z"
 }
 ```
 
@@ -748,7 +749,7 @@ refuses to start when none is.
 ### Run the Explorer
 
 Run it like the reader server: it accepts the same flags and environment, and
-uses the same bearer token or reader keys. Over HTTP it listens on port `8011`
+uses the same owner token or reader keys. Over HTTP it listens on port `8011`
 by default, set by `HARBORRAG_MCP_UI_PORT`, and serves only `/healthz` besides
 the MCP endpoint. The status page and configuration API stay on the reader
 server.
@@ -1088,9 +1089,9 @@ Outside a checkout, create the same accounts yourself:
   `HARBORRAG_MCP_ALLOWED_HOSTS`, the server listens on every interface of the
   container's own network. The launcher's Compose file sets these, and Docker
   publishes the port on `127.0.0.1` only. Do not set them for a server you
-  start outside a container, and do not widen the published port. Static
-  tokens are for local development only: with one, the host list may hold only
-  loopback names.
+  start outside a container, and do not widen the published port. The owner
+  token is for local development only: while it is the only credential, the
+  host list may hold only loopback names.
 - **Host and Origin are checked.** The HTTP server refuses a request addressed
   to another host name (`421`) or sent from another origin (`403`), which
   stops a web page from reaching it through DNS rebinding. A reverse proxy

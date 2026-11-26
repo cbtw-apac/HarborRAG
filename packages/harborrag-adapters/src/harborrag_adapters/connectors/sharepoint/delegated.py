@@ -259,7 +259,10 @@ class DeviceCodeLogin:
                 continue
             if error:
                 raise AuthenticationError(
-                    _identity_error(payload, known_secrets=(str(device_code),))
+                    _identity_error(
+                        payload,
+                        known_secrets=(str(device_code), str(self.cache.tenant_id)),
+                    )
                 )
             refresh_token = payload.get("refresh_token")
             if not refresh_token:
@@ -316,7 +319,10 @@ class DeviceCodeLogin:
         returns_errors = error_payload is _ErrorPayload.RETURN
         if response.status_code >= 400 and not (returns_errors and "error" in payload):
             raise AuthenticationError(
-                _identity_error(payload, known_secrets=(data.get("device_code"),))
+                _identity_error(
+                    payload,
+                    known_secrets=(data.get("device_code"), str(self.cache.tenant_id)),
+                )
             )
         return payload
 

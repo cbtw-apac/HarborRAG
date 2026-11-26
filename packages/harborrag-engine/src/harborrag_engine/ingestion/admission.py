@@ -54,7 +54,7 @@ _RETRIEVAL_METADATA_FIELDS = frozenset(
     }
 )
 _PAYLOAD_SOURCE_FIELDS = frozenset(VectorPayload.model_fields) | frozenset(
-    {"issue_type", "source_created_at", "source_updated_at"}
+    {"issue_type", "updated_at", "source_created_at", "source_updated_at"}
 )
 
 
@@ -69,8 +69,9 @@ def _projected_source_fields(
     active payloads would keep the old value.
 
     For every connector this is each provenance field named like a payload
-    field, or like ``issue_type`` or a ``source_*_at`` time the payload falls
-    back to, and the document's creation and update times. A strategy that
+    field, or like ``issue_type``, the ``updated_at`` the payload stores as
+    ``last_modified``, or a ``source_*_at`` time the payload falls back to, and
+    the document's creation and update times. A strategy that
     copies fewer of them onto its chunks only gets an extra METADATA_CHANGED
     version, whose evidence vectors are reused. SharePoint also hashes the
     fields the chunk factory copies from its document.

@@ -47,7 +47,16 @@ from .source_activities import SourceActivitiesMixin
 
 
 class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
-    """Thin Temporal boundaries around durable ingestion application services."""
+    """Thin Temporal boundaries around durable ingestion application services.
+
+    Args:
+        runtime: Ingestion services, stores and connectors the activities call.
+        temporal_client: Client for native workflow pauses; ``None`` skips them.
+        telemetry: Ingestion metrics sink; a default one when ``None``.
+        settings: Runtime settings that scheduled firings are prepared from.
+        temporal_config: The config this worker polls with, so children go to
+            queues it serves.
+    """
 
     def __init__(
         self,
@@ -58,7 +67,6 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
         settings: RuntimeSettings | None = None,
         temporal_config: TemporalRuntimeConfig | None = None,
     ) -> None:
-        """The config this worker polls with, so children go to queues it serves."""
         self._runtime = runtime
         self._settings = settings
         self._temporal_config = temporal_config
@@ -75,7 +83,14 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
 
         The firing is skipped while the connection has a pending, running or paused
         run, or its scope a running scan. A run keeps dispatching and finalizing for
-        hours after its scan ends.
+        hours after its scan ends. The connection's pinned run settings also set the
+        run's document activity timeout and attempts.
+
+        Args:
+            request: The schedule's tenant, connection and source scope.
+
+        Returns:
+            The source workflow input, or no source when the firing is skipped.
 
         Raises:
             ApplicationError: Non-retryable when the worker lacks settings or a
@@ -121,7 +136,7 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
             return ScheduledSourcePreparation(source=None, source_scope_id=prepared.source_scope_id)
         source = replace(
             to_temporal_source(prepared),
-            workflow_options=temporal_config.workflow_options(),
+            workflow_options=temporal_config.workflow_options().for_run(prepared.run_settings),
         )
         return ScheduledSourcePreparation(source=source, source_scope_id=prepared.source_scope_id)
 
@@ -165,6 +180,7 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
             configuration_fingerprint=require_fingerprint(
                 planned.request.configuration_fingerprint
             ),
+            run_settings=planned.request.run_settings,
         )
         result = await self._runtime.stages.preparation.fetch_and_capture(
             planned.request,

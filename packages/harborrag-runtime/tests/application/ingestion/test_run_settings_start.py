@@ -124,6 +124,18 @@ def test_recovery_without_a_pinned_concurrency_keeps_the_default() -> None:
     assert source_from_task(task).document_concurrency == 8
 
 
+def test_recovery_runs_at_the_pinned_batch_size() -> None:
+    task = _stored_task(RunSettings("rev_4", None, None, None, None, None, 100))
+
+    assert source_from_task(task).batch_size == 100
+
+
+def test_recovery_without_a_pinned_batch_size_keeps_the_default() -> None:
+    task = _stored_task(RunSettings("rev_4", None, 256, None))
+
+    assert source_from_task(task).batch_size == 200
+
+
 def _stored_task(pinned: RunSettings) -> IngestionTask:
     return IngestionTask(
         task_id="run-1",

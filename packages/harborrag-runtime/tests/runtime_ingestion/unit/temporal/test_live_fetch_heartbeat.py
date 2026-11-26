@@ -49,6 +49,7 @@ async def test_fetch_heartbeats_before_the_plan_lookup_and_the_connector() -> No
         return SimpleNamespace(
             request=SimpleNamespace(
                 configuration_fingerprint="config-v1",
+                run_settings=None,
                 source_identity=SimpleNamespace(connector_type=SimpleNamespace(value="local")),
             )
         )

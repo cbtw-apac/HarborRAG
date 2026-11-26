@@ -104,7 +104,10 @@ class IngestionTemporalClient:
         request: SourceIngestionInput,
     ) -> WorkflowHandle[SourceIngestionInput, SourceIngestionResult]:
         """Start a source ingestion workflow and return its handle."""
-        request = replace(request, workflow_options=self._config.workflow_options())
+        request = replace(
+            request,
+            workflow_options=self._config.workflow_options().for_run(request.run_settings),
+        )
         try:
             return await self._client.start_workflow(
                 "harborrag.source_ingestion",
@@ -252,6 +255,9 @@ class IngestionTemporalClient:
         dispatches a workflow task that was scheduled when a native pause landed, so the
         run would hang.
 
+        Args:
+            task_id: The source run to pause.
+
         Raises:
             WorkflowNotRunningError: The run's workflow already closed.
             WorkflowNotFoundError: The run has no workflow.
@@ -276,6 +282,10 @@ class IngestionTemporalClient:
 
         A retry workflow has no graceful-cancel signal; Temporal cancellation makes it
         record the run as cancelled before it closes.
+
+        Args:
+            task_id: The run to cancel.
+            kind: Whether the run is a source run or a retry run.
 
         Raises:
             WorkflowNotRunningError: The run's workflow already closed.

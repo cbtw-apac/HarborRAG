@@ -11,8 +11,8 @@ HarborRAG reads its configuration from three places:
 - **Environment files** hold secrets and service addresses: the git-ignored files in
   `env/` of your repository checkout, which `scripts/deployment/dev.sh bootstrap`
   creates from the templates in `env-example/`.
-- **Runtime settings** are six keys an administrator changes while HarborRAG runs,
-  stored in the control database, the database where HarborRAG keeps its own state.
+- **Runtime settings** are keys an administrator changes while HarborRAG runs, stored
+  in the control database, the database where HarborRAG keeps its own state.
 
 ## Pages in this section
 
@@ -42,7 +42,7 @@ the root:
 
 | Folder | Files | Page |
 | --- | --- | --- |
-| `config/` | `settings.example.yaml` (the keys the git-ignored `settings.yaml` may set), `temporal.yaml` | [Runtime Settings](runtime-settings.md), [Temporal Configuration](../../../deploy/temporal/README.md) |
+| `config/` | `temporal.yaml`, and the optional, git-ignored `settings.yaml` that seeds runtime settings on first start | [Temporal Configuration](../../../deploy/temporal/README.md), [Runtime Settings](runtime-settings.md#seed-file-and-drift) |
 | `config/sources/` | `connectors.yaml`, `connectors.example.yaml`, `schedules.example.yaml` (copy to the git-ignored `schedules.yaml`) | [Connector Configuration](connector-config.md), [Scheduled Ingestion](../scheduled-ingestion.md) |
 | `config/ingestion/` | `parsers.yaml`, `chunking.yaml` | [Parser Configuration](parser-config.md), [Chunking Configuration](chunking-config.md) |
 | `config/graph/` | `build.yaml`, `ontologies/example.yaml` | [Graph Build Configuration](graph-build-config.md) |
@@ -73,7 +73,7 @@ loads: copy them, or pass their paths explicitly.
 | Which sources are ingested, or a source's URL or folder | Before the first start: `config/sources/connectors.yaml` and the variables it names in `env/.env.connector`. After it: `harborrag connections create` or `update`, or the API | [Connections](../connections.md). The CLI writes connections only once `HARBORRAG_CONTROL_DB_URL` points it at the stack's Postgres ([Run from a repository checkout](../cli-reference/README.md#run-from-a-repository-checkout)) |
 | How PDFs and images are parsed, and the OCR server | `config/ingestion/parsers.yaml`, `HARBORRAG_OCR_SERVER_URL` in `env/.env.parser` | Restart the API and the worker; the next sync of each connection reprocesses its documents |
 | Chunk sizes and profiles | `config/ingestion/chunking.yaml` | Restart the API and the worker; documents re-chunk on their next ingestion |
-| Retrieval size, reranking, the PDF engine, the chunk cap or concurrency for one tenant, project or connection | A runtime setting, over HTTP, with `harborrag settings set` or with `harborrag settings import` | Nothing; see [Runtime Settings](runtime-settings.md) |
+| Retrieval size or reranking; capture limits; the PDF engine or OCR; chunk size or overlap; embedding batch size; or ingestion concurrency, timeouts, attempts or batch size, for one tenant, project or connection | A runtime setting, over HTTP, with `harborrag settings set` or with `harborrag settings import` | Nothing; see [Runtime Settings](runtime-settings.md) |
 
 `harborrag doctor` validates the connector, parser, chunking and model files and names
 any blank variable the model catalog or an enabled remote connector needs.
@@ -83,10 +83,10 @@ any blank variable the model catalog or an enabled remote connector needs.
 ### Which environment files the CLI loads
 
 Run from a checkout, the CLI loads `env/.env.connector`, `env/.env.parser` and
-`env/.env.models`, plus the MinIO credentials, `HARBORRAG_LOCAL_SOURCE_ROOT`, an uncommented
-`HARBORRAG_CONTROL_DB_URL` line and, with it, the matching
-`HARBORRAG_SECRETS_ENCRYPTION_KEY` from `env/.env.database`, and
+`env/.env.models`. From `env/.env.database` it also loads the MinIO credentials,
+`HARBORRAG_LOCAL_SOURCE_ROOT`, an uncommented `HARBORRAG_CONTROL_DB_URL` line and, with
+it, the matching `HARBORRAG_SECRETS_ENCRYPTION_KEY`. From `env/.env.api` it loads
 `HARBORRAG_CORPUS_ACCESS_MODE`, `HARBORRAG_CORPUS_SHARED_TENANT_ID` and
-`HARBORRAG_TENANT_ID` (the CLI's last default tenant) from
-`env/.env.api`; a variable you export wins over every file. [Deployment](../../developers/deployment/README.md) lists the files
-each service reads.
+`HARBORRAG_TENANT_ID` (the CLI's last default tenant). A variable you export wins over
+every file. [Deployment](../../developers/deployment/README.md) lists the files each
+service reads.

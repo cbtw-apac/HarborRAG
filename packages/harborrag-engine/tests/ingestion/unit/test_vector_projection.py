@@ -22,6 +22,8 @@ from harborrag_engine.ingestion import (
 
 from .chunking_helpers import make_document, make_profile, make_request, make_service
 
+pytestmark = pytest.mark.unit
+
 
 def chunk_set(chunks: tuple[ChunkRecord, ...]) -> ChunkSetArtifacts:
     entries = tuple(
@@ -145,10 +147,9 @@ def test_vector_projection_requires_every_dense_vector() -> None:
 def test_vector_projection_carries_source_descriptors() -> None:
     """A caller narrows a result set by time, state, owner, and taxonomy.
 
-    Every one of these already reaches the chunk; the payload used to drop them,
-    so a live point could not be filtered or sorted on anything but identity.
+    A comment chunk carries its own author and dates, not the issue's, because the
+    comment is the evidence being cited.
     """
-
     result = make_service(
         make_profile(name="jira", strategy="jira", target=100, maximum=120),
         configuration_version="3",
@@ -215,10 +216,9 @@ def test_vector_projection_carries_source_descriptors() -> None:
     assert payload.project_name == "Harbor Ingestion"
     assert payload.labels == ("ingestion", "urgent")
     assert payload.components == ("worker",)
-    # The comment's own dates, not the issue's: it is the evidence being cited.
     assert payload.author == "Ada"
     assert payload.created_at == "2026-03-04T09:00:00+00:00"
-    assert payload.updated_at == "2026-03-05T09:00:00+00:00"
+    assert payload.last_modified == "2026-03-05T09:00:00+00:00"
 
 
 def test_vector_projection_falls_back_to_document_timestamps() -> None:
@@ -254,7 +254,7 @@ def test_vector_projection_falls_back_to_document_timestamps() -> None:
     )
 
     assert payload.created_at == "2026-01-01T00:00:00+00:00"
-    assert payload.updated_at == "2026-03-09T00:00:00+00:00"
+    assert payload.last_modified == "2026-03-09T00:00:00+00:00"
     assert payload.labels == ()
 
 
@@ -264,11 +264,10 @@ def test_every_evidence_point_of_an_issue_carries_its_typed_fields() -> None:
     The fields describe the issue, so each chunk of it inherits them, and they
     keep their type: a number stays a number so a range filter can match it.
     """
-
     fields = {
         "skill_set": "Data Engineering",
         "years_of_experience": 3.0,
-        "restricted_to": ["Aidan NELL", "Martin PAPY"],
+        "restricted_to": ["Alex Example", "Sam Sample"],
         "pd_consent": False,
     }
     result = make_service(
@@ -310,11 +309,11 @@ def test_every_evidence_point_of_an_issue_carries_its_typed_fields() -> None:
         assert record.payload.fields == {
             "skill_set": "Data Engineering",
             "years_of_experience": 3.0,
-            "restricted_to": ("Aidan NELL", "Martin PAPY"),
+            "restricted_to": ("Alex Example", "Sam Sample"),
             "pd_consent": False,
         }
         stored = record.payload.model_dump(mode="json", exclude_none=True)["fields"]
-        assert stored["restricted_to"] == ["Aidan NELL", "Martin PAPY"]
+        assert stored["restricted_to"] == ["Alex Example", "Sam Sample"]
         assert stored["pd_consent"] is False
 
 
@@ -351,9 +350,9 @@ def test_a_document_without_typed_fields_stores_no_fields_key() -> None:
 @pytest.mark.parametrize(
     "fields",
     (
-        {"skill_set": "  "},
-        {"skills": ("java", "")},
-        {"rate": float("nan")},
+        pytest.param({"skill_set": "  "}, id="blank-text"),
+        pytest.param({"skills": ("java", "")}, id="blank-list-entry"),
+        pytest.param({"rate": float("nan")}, id="non-finite-number"),
     ),
 )
 def test_payload_field_values_must_be_non_empty_and_finite(fields: dict[str, object]) -> None:
@@ -395,7 +394,6 @@ def test_an_attachment_chunk_names_the_item_it_is_attached_to() -> None:
     Its parent's item id is what lets a filter on the issue's fields reach it,
     so every one of its evidence points carries that id.
     """
-
     result = make_service(make_profile(target=100, maximum=120)).chunk(
         make_request(
             make_document(
@@ -428,7 +426,6 @@ def test_an_attachment_chunk_names_the_item_it_is_attached_to() -> None:
 
 def test_each_point_carries_its_graph_node_keys_from_the_same_version() -> None:
     """A vector hit joins the graph on stored keys, not on a re-derived source id."""
-
     from harborrag_core.chunking import RelationType
     from harborrag_core.ingestion import KnowledgeNodeKind
     from harborrag_engine.ingestion import GraphProjectionBuilder

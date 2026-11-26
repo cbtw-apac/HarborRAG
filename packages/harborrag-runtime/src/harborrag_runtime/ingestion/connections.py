@@ -153,13 +153,14 @@ class ConnectionResolver:
         return ResolvedConnection(snapshot, spec, run_settings)
 
 
-def build_connector(
+def build_connector(  # noqa: PLR0913 - the parts of one connection, plus the run's pinned settings
     snapshot: ConnectionSnapshot,
     secret_values: Mapping[str, str],
     *,
     parser: HarborParserRegistry | None = None,
     rate_limiter: ConnectorRateLimiter | None = None,
     destination_policy: DestinationPolicy | None = None,
+    run_settings: RunSettings | None = None,
 ) -> HarborConnector:
     """Construct the connector a snapshot describes.
 
@@ -170,12 +171,15 @@ def build_connector(
         rate_limiter: Shared limiter for connectors that use one.
         destination_policy: Hosts connectors may reach beyond public addresses; without
             one, connectors reach public addresses only.
+        run_settings: The run's pinned settings; its ``capture.*`` overrides narrow the
+            connection's own size/extension ceiling.
 
     Returns:
         A ready-to-connect connector facade.
 
     Raises:
-        ConnectorConfigurationError: The values are rejected or allow unparseable files.
+        ConnectorConfigurationError: The values are rejected or allow unparseable files,
+            or ``capture.file_types`` shares no extension with them.
         ConnectionValidationError: A secret reference has no resolved value.
     """
     return build_connector_from_parts(
@@ -188,6 +192,7 @@ def build_connector(
         parser=parser,
         rate_limiter=rate_limiter,
         destination_policy=destination_policy,
+        run_settings=run_settings,
     )
 
 
@@ -202,6 +207,7 @@ def build_connector_from_parts(  # noqa: PLR0913 - the parts of one connection
     parser: HarborParserRegistry | None = None,
     rate_limiter: ConnectorRateLimiter | None = None,
     destination_policy: DestinationPolicy | None = None,
+    run_settings: RunSettings | None = None,
 ) -> HarborConnector:
     """Construct a connector from validated parts; credentials may hold raw values.
 
@@ -223,6 +229,7 @@ def build_connector_from_parts(  # noqa: PLR0913 - the parts of one connection
         .tenant(tenant_id)
         .build()
     )
+    _narrow_capture_limits(config_object, run_settings)
     if parser is not None:
         _require_parseable_extensions(spec.source_type, config, parser)
     available: dict[str, object | None] = {
@@ -237,6 +244,51 @@ def build_connector_from_parts(  # noqa: PLR0913 - the parts of one connection
         if available.get(dependency) is not None
     }
     return HarborConnector(spec.provider, config=config_object, **kwargs)
+
+
+_CAPTURE_SIZE_FIELDS = ("max_file_size_bytes", "max_attachment_size_bytes")
+
+
+def _narrow_capture_limits(config_object: object, run_settings: RunSettings | None) -> None:
+    """Narrow a connector's own size/extension ceiling with the run's pinned capture settings.
+
+    The connection's stored config is a ceiling a run can only narrow, the same
+    rule ``_effective_query`` applies to query filters: ``capture.max_document_mb``/
+    ``capture.file_types`` can lower it further, never raise it past what the
+    connection itself configures.
+
+    Args:
+        config_object: The connector config, changed in place.
+        run_settings: The run's pinned settings; ``None`` leaves the config as is.
+
+    Raises:
+        ConnectorConfigurationError: ``capture.file_types`` shares no extension with
+            the connection's own list. An empty list would keep every extension, so
+            the run fails instead.
+    """
+    if run_settings is None:
+        return
+    if run_settings.max_document_mb is not None:
+        override_bytes = run_settings.max_document_mb * 1024 * 1024
+        for field_name in _CAPTURE_SIZE_FIELDS:
+            if hasattr(config_object, field_name):
+                current = getattr(config_object, field_name)
+                setattr(
+                    config_object,
+                    field_name,
+                    override_bytes if current is None else min(current, override_bytes),
+                )
+    if run_settings.file_types is not None and hasattr(config_object, "allowed_extensions"):
+        allowed = {normalize_extension(extension) for extension in run_settings.file_types}
+        current_extensions = config_object.allowed_extensions
+        narrowed = set(current_extensions) & allowed if current_extensions else allowed
+        if not narrowed:
+            raise ConnectorConfigurationError(
+                "capture.file_types shares no extension with the connection's allowed_extensions"
+            )
+        config_object.allowed_extensions = (
+            type(current_extensions)(narrowed) if current_extensions is not None else narrowed
+        )
 
 
 def _require_parseable_extensions(
@@ -295,9 +347,27 @@ class ConnectorPool:
         self._locks: dict[tuple[str, str, str], asyncio.Lock] = {}
 
     async def connector(
-        self, *, tenant_id: str, task_id: str, configuration_fingerprint: str
+        self,
+        *,
+        tenant_id: str,
+        task_id: str,
+        configuration_fingerprint: str,
+        run_settings: RunSettings | None = None,
     ) -> HarborConnector:
         """Return the run's connector, building it from its snapshot on first use.
+
+        Every activity of one run shares the connector, so the first call's
+        ``run_settings`` stay in force for the whole run.
+
+        Args:
+            tenant_id: Tenant of the run.
+            task_id: The run the connector belongs to.
+            configuration_fingerprint: Fingerprint of the run's connection snapshot.
+            run_settings: The run's pinned settings; its ``capture.*`` overrides
+                narrow the connection's own size and extension limits.
+
+        Returns:
+            The run's connector facade.
 
         Raises:
             ConnectorConfigurationError: The snapshot is unknown or its values are rejected.
@@ -310,7 +380,7 @@ class ConnectorPool:
         async with self._locks.setdefault(key, asyncio.Lock()):
             connector = self._entries.get(key)
             if connector is None:
-                connector = await self._build(tenant_id, configuration_fingerprint)
+                connector = await self._build(tenant_id, configuration_fingerprint, run_settings)
                 self._entries[key] = connector
                 await self._evict()
         self._locks.pop(key, None)
@@ -320,6 +390,13 @@ class ConnectorPool:
         self, *, tenant_id: str, configuration_fingerprint: str
     ) -> ConnectionSnapshot:
         """Return the stored snapshot behind a fingerprint.
+
+        Args:
+            tenant_id: Tenant that owns the connection.
+            configuration_fingerprint: Fingerprint of the connection revision.
+
+        Returns:
+            The connection snapshot.
 
         Raises:
             ConnectorConfigurationError: No snapshot has this fingerprint.
@@ -339,7 +416,9 @@ class ConnectorPool:
         self._entries.clear()
         await asyncio.gather(*(asyncio.to_thread(c.close) for c in entries), return_exceptions=True)
 
-    async def _build(self, tenant_id: str, fingerprint: str) -> HarborConnector:
+    async def _build(
+        self, tenant_id: str, fingerprint: str, run_settings: RunSettings | None = None
+    ) -> HarborConnector:
         """Load the snapshot, resolve its secrets and construct the connector."""
         snapshot = await self.snapshot(tenant_id=tenant_id, configuration_fingerprint=fingerprint)
         secret_values = await self._secrets.resolve_credentials(
@@ -352,6 +431,7 @@ class ConnectorPool:
             parser=self._parser,
             rate_limiter=self._rate_limiter,
             destination_policy=self._destination_policy,
+            run_settings=run_settings,
         )
         logger.info(
             "Connection connector built source_type=%s fingerprint=%s",
@@ -372,6 +452,12 @@ class ConnectorPool:
 
 def require_fingerprint(fingerprint: str | None) -> str:
     """Return a run's connection fingerprint.
+
+    Args:
+        fingerprint: The fingerprint the run recorded, if any.
+
+    Returns:
+        The fingerprint.
 
     Raises:
         ConnectorConfigurationError: The run predates connection revisions.

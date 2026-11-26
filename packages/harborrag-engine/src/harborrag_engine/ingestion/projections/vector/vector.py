@@ -24,6 +24,11 @@ from harborrag_core.ingestion import (
 from ..graph.graph_models import GraphProjectionBatch
 
 EVIDENCE_INDEX = "evidence"
+_TIME_FIELDS: tuple[tuple[str, str, str], ...] = (
+    ("created_at", "created_at", "source_created_at"),
+    ("last_modified", "updated_at", "source_updated_at"),
+)
+"""Payload key, chunk metadata key and document fallback key of each time field."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,7 +50,7 @@ class VectorProjectionInput:
 
 
 class VectorProjectionBuilder:
-    """Build the single evidence projection without external writes."""
+    """Builder of evidence points from canonical chunks, with no external writes."""
 
     def __init__(self) -> None:
         self._identity = DocumentIdentityBuilder()
@@ -105,9 +110,10 @@ class VectorProjectionBuilder:
         A chunk's own ``created_at`` and ``updated_at`` win, because a comment or
         an attachment is written and edited on its own clock. The document's
         times fill in otherwise, so every point can be narrowed or sorted by
-        time. ``item_type`` holds Jira's ``issue_type`` or another source's
-        ``item_type``, one name so a filter by kind need not branch per
-        connector. Blank text is left out.
+        time. The update time is stored as ``last_modified``. ``item_type``
+        holds Jira's ``issue_type`` or another source's ``item_type``, one name
+        so a filter by kind need not branch per connector. Blank text is left
+        out.
         """
         metadata = chunk.metadata
         payload: dict[str, object] = {
@@ -156,13 +162,12 @@ class VectorProjectionBuilder:
             text = _payload_text(metadata.get(field))
             if text is not None:
                 payload[field] = text
-        for field, fallback in (
-            ("created_at", "source_created_at"),
-            ("updated_at", "source_updated_at"),
-        ):
-            time = _payload_text(metadata.get(field)) or _payload_text(metadata.get(fallback))
+        for payload_field, metadata_field, fallback in _TIME_FIELDS:
+            time = _payload_text(metadata.get(metadata_field)) or _payload_text(
+                metadata.get(fallback)
+            )
             if time is not None:
-                payload[field] = time
+                payload[payload_field] = time
         parent = metadata.get("parent_source_item_id")
         if isinstance(parent, str) and parent.strip():
             payload["parent_source_item_id"] = parent
@@ -189,6 +194,10 @@ class VectorProjectionBuilder:
 
     @staticmethod
     def _text_sequence(value: object) -> tuple[str, ...]:
+        """Return the non-blank entries of a list or tuple as stripped text.
+
+        Any other value, a string included, gives an empty tuple.
+        """
         if isinstance(value, str) or not isinstance(value, (list, tuple)):
             return ()
         return tuple(text for item in value if item is not None and (text := str(item).strip()))
@@ -208,7 +217,7 @@ def _payload_text(value: object) -> str | None:
 
 
 def _graph_keys(graph: GraphProjectionBatch | None) -> tuple[dict[str, str], str | None]:
-    """Chunk id -> Chunk node key, and the version's source entity node key."""
+    """Return each chunk's Chunk node key and the version's source entity node key."""
     if graph is None:
         return {}, None
     chunk_nodes = {

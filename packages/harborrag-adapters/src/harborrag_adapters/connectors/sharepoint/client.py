@@ -333,7 +333,11 @@ class _RequestsGraphClient:
         contains the client secret or refresh token posted in ``form``.
         """
         token_url = identity_url(str(self.config.tenant_id), "token")
-        posted_secrets = (form.get("client_secret"), form.get("refresh_token"))
+        posted_secrets = (
+            form.get("client_secret"),
+            form.get("refresh_token"),
+            str(self.config.tenant_id),
+        )
         last_error: Exception | None = None
         for attempt in range(self.config.max_retries + 1):
             try:

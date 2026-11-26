@@ -257,10 +257,10 @@ def test_an_update_time_change_reaches_the_payload_and_the_retrieval_hash(
     first = _plan(_document(connector), connector)
     later = _plan(_document(connector, updated_at=datetime(2026, 2, 1, tzinfo=UTC)), connector)
 
-    assert {payload["updated_at"] for payload in _payloads(first, strategy)} == {
+    assert {payload["last_modified"] for payload in _payloads(first, strategy)} == {
         UPDATED.isoformat()
     }
-    assert {payload["updated_at"] for payload in _payloads(later, strategy)} == {
+    assert {payload["last_modified"] for payload in _payloads(later, strategy)} == {
         "2026-02-01T00:00:00+00:00"
     }
     assert _decision(first, later) == SourceAdmissionDecision.METADATA_CHANGED
