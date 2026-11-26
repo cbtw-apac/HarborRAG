@@ -72,8 +72,8 @@ def evidence_filters_schema() -> dict[str, object]:
         "type": "object",
         "description": (
             "Narrow evidence by indexed payload fields; all conditions must hold. A "
-            "string matches exactly and a list matches any member; created_at/updated_at "
-            "are exact ISO-8601 strings, not ranges. 'fields.<key>' filters a source "
+            "string matches exactly and a list matches any member; created_at and modified "
+            "(formerly updated_at) are exact ISO-8601 strings, not ranges.'fields.<key>' filters a source "
             "item's own typed field (e.g. fields.skill_set) and reaches its attachments; "
             "only fields a source scope declares as a facet (see list_sources) are "
             'indexed, and number-typed ones also take a range such as {"gte": 5}. '
