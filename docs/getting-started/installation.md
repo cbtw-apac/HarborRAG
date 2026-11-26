@@ -1,3 +1,4 @@
+-- Update test Manual sync document website --
 # Installation
 
 Choose how to install HarborRAG's Python packages, which extras to add, and which parser

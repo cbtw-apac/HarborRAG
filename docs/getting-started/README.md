@@ -1,3 +1,4 @@
+-- Update test Manual sync document website --
 # Getting Started
 
 This section is for anyone new to HarborRAG. Start with the [Quick Start](quick-start.md): one

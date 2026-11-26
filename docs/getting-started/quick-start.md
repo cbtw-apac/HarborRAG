@@ -1,3 +1,4 @@
+-- Update test Manual sync document website --
 # Quick Start
 
 In this tutorial you clone HarborRAG, start its local stack, ingest the repository's own

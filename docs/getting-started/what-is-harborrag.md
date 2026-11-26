@@ -1,3 +1,4 @@
+-- Update test Manual sync document website --
 # What is HarborRAG?
 
 HarborRAG is a provider-agnostic Retrieval-Augmented Generation (RAG) framework for
