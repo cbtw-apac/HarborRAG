@@ -67,8 +67,8 @@ at the start of every run.
 | `config/mcp_keys.yaml` | `config/mcp/keys.yaml` |
 | `config/mcp_keys.example.yaml` | `config/mcp/keys.example.yaml` |
 
-`config/settings.yaml`, `config/settings.example.yaml` and `config/temporal.yaml` stay
-where they are. `config/temporal.example.yaml` and `config/models.example.yaml` are
+`config/settings.yaml` and `config/temporal.yaml` stay where they are.
+`config/temporal.example.yaml` and `config/models.example.yaml` are
 removed; [Temporal configuration](../../deploy/temporal/README.md) and
 [Model configuration](configuration/model-config.md) now explain the values.
 `config/harborrag.example.yaml` is removed too, with no replacement.
@@ -897,28 +897,28 @@ deployment's environment variables and their effect do not change.
 
 ### Runtime settings
 
-Six settings (`retrieval.top_k`, `retrieval.rerank`, `parsing.pdf_parser`,
-`chunking.max_tokens`, `ingestion.concurrency`, `models.embedding`) can now be changed
-through `/v1/admin/settings` ([Runtime settings](configuration/runtime-settings.md)).
-Nothing changes at upgrade: a setting with no override keeps using the knob that governs
-it today (`config/mcp/server.yaml`, `HARBORRAG_CHAT_RETRIEVAL_TOP_K`,
-`config/ingestion/parsers.yaml`, `config/ingestion/chunking.yaml`,
-`config/temporal.yaml`), and no document is reprocessed.
+Retrieval, capture, parsing, chunking, embedding, ingestion and model settings can now be
+changed through `/v1/admin/settings`; [Runtime settings](configuration/runtime-settings.md)
+lists every key. Nothing changes at upgrade: a setting with no override keeps using the
+knob that governs it today (`config/mcp/server.yaml`, `HARBORRAG_CHAT_RETRIEVAL_TOP_K`,
+each connection's own filters and size limit, `config/ingestion/parsers.yaml`,
+`config/ingestion/chunking.yaml`, `config/temporal.yaml`), and no document is
+reprocessed.
 
 `GET /v1/admin/settings` shows the registry default for a setting with no override, even
 when you changed its old knob. To carry a changed knob over, create
 `config/settings.yaml` before the first start of the new API, with only the keys whose
-old knob you changed and your value for each, for example `retrieval.top_k: 8`. Do not
-copy `config/settings.example.yaml` whole: it lists every key you can set at its
-registry default, and every key in the seed file becomes an override that replaces its
-old knob, so a copied default would pin the default over a value you changed. The API
+old knob you changed and your value for each, for example `retrieval.top_k: 8`. Every
+key in the seed file becomes an override that replaces its old knob, so a key written at
+its default would pin the default over a value you changed. The API
 seeds the tenant `HARBORRAG_TENANT_ID` names from that file once, when the tenant has no
 settings revisions. Set `HARBORRAG_SETTINGS_SEED_PATH` to read the file from another
 path. After the seed, edits to the file only log a `config_yaml_drift` warning; change
 settings with the API or `harborrag settings import`.
 
-The first sync after any `parsing.*` or `chunking.*` override reprocesses that
-connection, because both feed the processing identity.
+The first sync after a `parsing.*` or `chunking.*` override that changes how documents
+are parsed or chunked reprocesses that connection, because both feed the processing
+identity.
 
 `retrieval.rerank: true` is accepted when the model catalog has a `rerank` section, as
 the shipped catalog now does; without one it is still refused with `422`. Nothing

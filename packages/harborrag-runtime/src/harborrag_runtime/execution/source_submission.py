@@ -32,7 +32,8 @@ class SourceSubmissionDefaults:
     """Execution policy supplied by the selected provider's composition.
 
     Args:
-        batch_size: Documents per batch when the run sets none.
+        batch_size: Documents per batch when neither the run nor the connection's
+            run settings set it.
         document_concurrency: Documents processed at once when neither the run nor
             the connection's run settings set it.
     """
@@ -76,7 +77,13 @@ def prepare_source_submission(
     )
     run_settings = connection.run_settings
     processing = build_processing_profile(settings, run_settings=run_settings)
-    batch_size = submission.batch_size if submission.batch_size is not None else defaults.batch_size
+    batch_size = (
+        submission.batch_size
+        if submission.batch_size is not None
+        else run_settings.batch_size
+        if run_settings is not None and run_settings.batch_size is not None
+        else defaults.batch_size
+    )
     document_concurrency = (
         submission.document_concurrency
         if submission.document_concurrency is not None

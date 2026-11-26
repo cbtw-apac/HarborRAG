@@ -225,6 +225,8 @@ def test_null_removes_override(env: _Env) -> None:
         ({"chunking.max_tokens": 300}, "project:demo", None, "If-Match"),
         ({"database.url": "postgres://x"}, "tenant", 'W/"rev-3"', "database.url"),
         ({"retrieval.rerank": True}, "tenant", 'W/"rev-3"', "retrieval.rerank"),
+        ({"chunking.overlap_tokens": 256}, _TICKETS, 'W/"rev-3"', "chunking.overlap_tokens"),
+        ({"capture.file_types": ["exe"]}, _TICKETS, 'W/"rev-3"', "capture.file_types"),
     ],
 )
 def test_validation_saves_nothing(
@@ -302,8 +304,10 @@ def test_schema_lists_registry_by_group(env: _Env) -> None:
     groups = response.json()["groups"]
     assert [(group["name"], group["title"]) for group in groups] == [
         ("retrieval", "Retrieval"),
+        ("capture", "Capture"),
         ("parsing", "Parsing"),
         ("chunking", "Chunking"),
+        ("embedding", "Embedding"),
         ("ingestion", "Ingestion"),
         ("models", "Models"),
     ]

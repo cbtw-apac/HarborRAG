@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-MAX_BATCH_SIZE = 300
+MAX_BATCH_SIZE = 500
 MAX_CONTINUE_AFTER_BATCHES = 100
 MAX_DISCOVERY_CONCURRENCY = 32
 MAX_DISCOVERY_PAGE_SIZE = 300
@@ -34,9 +34,9 @@ def validate_source_orchestration_limits(
     batch_size: int,
     continue_after_batches: int,
 ) -> None:
-    """Reject a batch size outside 1 to 300 or a batch continuation count outside 1 to 100."""
+    """Reject a batch size outside 1 to 500 or a batch continuation count outside 1 to 100."""
     if not 1 <= batch_size <= MAX_BATCH_SIZE:
-        raise ValueError("source batch_size must be between 1 and 300")
+        raise ValueError("source batch_size must be between 1 and 500")
     if not 1 <= continue_after_batches <= MAX_CONTINUE_AFTER_BATCHES:
         raise ValueError("continue_after_batches must be between 1 and 100")
 

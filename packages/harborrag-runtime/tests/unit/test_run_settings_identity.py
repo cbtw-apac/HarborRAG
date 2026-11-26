@@ -72,12 +72,114 @@ def test_non_default_pdf_parser_suffixes_parser_profile(shipped_settings: Runtim
     assert liteparse.parser_profile == GOLDEN_PARSER_PROFILE
 
 
+def test_overlap_override_changes_chunk_strategy(shipped_settings: RuntimeSettings) -> None:
+    pinned = build_processing_profile(
+        shipped_settings, run_settings=RunSettings("rev_1", chunk_overlap_tokens=10)
+    )
+
+    assert pinned.chunk_strategy != GOLDEN_CHUNK_STRATEGY
+    assert pinned.parser_profile == GOLDEN_PARSER_PROFILE
+
+
+@pytest.mark.parametrize(
+    ("overrides", "suffix"),
+    [
+        ({"ocr_enabled": False}, "+ocr-off"),
+        ({"ocr_languages": ("en", "vi")}, "+ocr-en.vi"),
+        ({"ocr_enabled": False, "ocr_languages": ("vi",)}, "+ocr-off-vi"),
+        ({"ocr_enabled": True, "ocr_languages": ("en",)}, ""),
+    ],
+)
+def test_ocr_override_suffixes_parser_profile_only_when_it_changes_a_parser(
+    shipped_settings: RuntimeSettings, overrides: dict[str, object], suffix: str
+) -> None:
+    profile = build_processing_profile(
+        shipped_settings, run_settings=RunSettings("rev_1", **overrides)
+    )
+
+    assert profile.parser_profile == f"{GOLDEN_PARSER_PROFILE}{suffix}"
+    assert profile.chunk_strategy == GOLDEN_CHUNK_STRATEGY
+
+
+def test_ocr_comparison_reads_a_yaml_language_list_and_a_missing_switch_as_on(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "parsers.yaml"
+    path.write_text(
+        dedent(
+            """
+            version: 1
+            parsers:
+              pdf-docling:
+                parser: pdf
+                engines:
+                  - backend: docling
+                    settings:
+                      ocr_lang: [en, vi]
+              image-ocr:
+                parser: image
+                settings:
+                  lang: en+vi
+            """
+        ),
+        encoding="utf-8",
+    )
+
+    catalog = load_parser_catalog(path)
+
+    assert not catalog.ocr_overrides_change_parsing(ocr_enabled=True, ocr_languages=("en", "vi"))
+    assert catalog.ocr_overrides_change_parsing(ocr_enabled=None, ocr_languages=("en",))
+    assert catalog.ocr_overrides_change_parsing(ocr_enabled=False, ocr_languages=None)
+
+
 def test_run_settings_json_round_trip() -> None:
     settings = RunSettings("rev_3", "docling", 256, 4)
 
     assert RunSettings.from_json(settings.to_json()) == settings
     assert RunSettings.from_json(RunSettings("rev_0").to_json()) == RunSettings("rev_0")
     assert RunSettings.from_json(None) is None
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["chunk_max_tokens", "document_concurrency", "batch_size", "max_attempts", "max_pdf_pages"],
+)
+def test_run_settings_from_json_refuses_a_boolean_count(field: str) -> None:
+    stored = RunSettings("rev_3").to_json()
+    stored[field] = True
+
+    assert RunSettings.from_json(stored) is None
+
+
+def test_run_settings_json_round_trip_with_capture_overrides() -> None:
+    settings = RunSettings(
+        "rev_3",
+        max_document_mb=5,
+        file_types=(".pdf", ".docx"),
+        max_pdf_pages=10,
+    )
+
+    rebuilt = RunSettings.from_json(settings.to_json())
+
+    assert rebuilt == settings
+    assert rebuilt.file_types == (".pdf", ".docx")
+
+
+def test_run_settings_json_round_trip_with_ocr_overrides() -> None:
+    settings = RunSettings("rev_3", ocr_enabled=False, ocr_languages=("vi", "en"))
+
+    rebuilt = RunSettings.from_json(settings.to_json())
+
+    assert rebuilt == settings
+    assert rebuilt.ocr_languages == ("vi", "en")
+
+
+def test_run_settings_json_round_trip_with_overlap_and_embedding_batch_size() -> None:
+    settings = RunSettings("rev_3", chunk_overlap_tokens=10, embedding_batch_size=8)
+
+    rebuilt = RunSettings.from_json(settings.to_json())
+
+    assert rebuilt == settings
 
 
 def test_catalog_pdf_selection(tmp_path: Path) -> None:
@@ -136,6 +238,71 @@ async def test_resolver_reports_overrides_only() -> None:
     )
 
     assert run_settings == RunSettings("rev_3", None, 256, None)
+
+
+@pytest.mark.asyncio
+async def test_resolver_reports_capture_overrides() -> None:
+    snapshot = SettingsSnapshot(
+        "tenant-a",
+        5,
+        {
+            "connection:p1/c1": {
+                "capture.max_document_mb": 5,
+                "capture.file_types": [".pdf", ".docx"],
+                "capture.max_pdf_pages": 10,
+            }
+        },
+    )
+
+    run_settings = await RunSettingsResolver(_FixedProvider(snapshot)).for_connection(
+        tenant_id="tenant-a", project_id="p1", connection_id="c1"
+    )
+
+    assert run_settings.max_document_mb == 5
+    assert run_settings.file_types == (".pdf", ".docx")
+    assert run_settings.max_pdf_pages == 10
+
+
+@pytest.mark.asyncio
+async def test_resolver_reports_ocr_overrides() -> None:
+    snapshot = SettingsSnapshot(
+        "tenant-a",
+        5,
+        {
+            "connection:p1/c1": {
+                "parsing.ocr.enabled": False,
+                "parsing.ocr.languages": ["vi", "en"],
+            }
+        },
+    )
+
+    run_settings = await RunSettingsResolver(_FixedProvider(snapshot)).for_connection(
+        tenant_id="tenant-a", project_id="p1", connection_id="c1"
+    )
+
+    assert run_settings.ocr_enabled is False
+    assert run_settings.ocr_languages == ("vi", "en")
+
+
+@pytest.mark.asyncio
+async def test_resolver_reports_overlap_and_embedding_batch_size_overrides() -> None:
+    snapshot = SettingsSnapshot(
+        "tenant-a",
+        5,
+        {
+            "connection:p1/c1": {"chunking.overlap_tokens": 10},
+            # embedding.batch_size is tenant+project only (no connection level),
+            # so its override must live at a level the key actually allows.
+            "project:p1": {"embedding.batch_size": 8},
+        },
+    )
+
+    run_settings = await RunSettingsResolver(_FixedProvider(snapshot)).for_connection(
+        tenant_id="tenant-a", project_id="p1", connection_id="c1"
+    )
+
+    assert run_settings.chunk_overlap_tokens == 10
+    assert run_settings.embedding_batch_size == 8
 
 
 def test_build_registry_swaps_in_the_selected_pdf_definition(tmp_path: Path) -> None:
