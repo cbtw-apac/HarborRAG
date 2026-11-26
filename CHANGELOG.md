@@ -129,6 +129,7 @@ action.
 - `harborrag_engine.testing.retrieval_fakes` ships the in-memory retrieval fakes (embedding client, vector, chunk, graph and topology repositories, `resources()` and `policy()`) that the engine and runtime retrieval tests share; it imports only core and engine and no test framework
 - Long code chunks keep the names of the class and function they belong to, and are searchable by them
 - The `default` and `concise` chat prompts ask the model to cite sources by their `[n]` number
+- **Breaking:** search filters and stored evidence call a document's last update time `last_modified` instead of `updated_at`; update saved filters, see the [upgrade guide](docs/users/upgrading.md#evidence-filters) [#143]
 
 #### harborrag-mcp-server
 

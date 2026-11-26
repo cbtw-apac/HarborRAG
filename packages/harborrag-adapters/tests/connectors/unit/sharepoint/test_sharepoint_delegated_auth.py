@@ -337,6 +337,30 @@ def test_device_code_login_error_never_echoes_the_device_code(tmp_path):
     assert device_code not in str(error.value)
 
 
+def test_device_code_login_error_never_echoes_the_tenant_id(tmp_path):
+    tenant_id = "ddcc32fa-6a5c-4ec4-9ee3-504d65e177f6"
+    session = FakeSession(
+        responses=[
+            FakeResponse(status_code=200, _json={"device_code": "dc", "interval": 1}),
+            FakeResponse(
+                status_code=400,
+                _json={
+                    "error": "invalid_request",
+                    "error_description": (
+                        f"AADSTS900023: Specified tenant identifier '{tenant_id}' is invalid."
+                    ),
+                },
+            ),
+        ]
+    )
+    login = DeviceCodeLogin(
+        _cache(tmp_path, tenant_id=tenant_id), session=session, sleep=lambda _s: None
+    )
+    with pytest.raises(AuthenticationError, match="invalid_request") as error:
+        login.run(prompt=lambda _m: None)
+    assert tenant_id not in str(error.value)
+
+
 def test_device_code_login_streams_and_rejects_an_oversized_response(tmp_path):
     session = FakeSession(
         responses=[

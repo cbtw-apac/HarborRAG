@@ -701,6 +701,17 @@ deployment's environment variables and their effect do not change.
   read-only there, so **Save** is disabled and `PUT /api/config` answers `409`.
   Edit `config/mcp/server.yaml` and select **Reload YAML**.
 
+#### Evidence filters
+
+- **A document's last update time is called `last_modified`.** Evidence is
+  stored under that name, and the `filters` of the MCP `vector_search` tool and
+  of chat requests take `last_modified` instead of `updated_at`. A filter on
+  `updated_at` is now refused. Update saved filters and agent prompts that name
+  `updated_at`. Stored documents keep the old name until a `force` re-ingest
+  reprocesses them, because an ordinary run skips unchanged documents. Run the
+  one in
+  [Re-index when the embedding model changes](#re-index-when-the-embedding-model-changes).
+
 ### HTTP API changes
 
 #### Routes, errors and limits
