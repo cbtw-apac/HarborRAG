@@ -29,6 +29,8 @@ from harborrag_core.domain.activity import ActivityEntry
 from harborrag_core.domain.connection import Connection, ConnectionStatus, require_connection_id
 from harborrag_core.domain.job import Job, JobStatus
 from harborrag_core.ingestion import IngestionTask
+from harborrag_core.schemas.ids import TenantId
+from harborrag_core.security import AccessContext
 from harborrag_core.security.secret_refs import stored_refs
 from harborrag_engine.control_plane.connection_views import (
     ingestion_view,
@@ -37,7 +39,11 @@ from harborrag_engine.control_plane.connection_views import (
 )
 from harborrag_engine.ingestion.models import IngestionCreateCommand
 from harborrag_runtime.composition import ControlPlaneRepositories
-from harborrag_runtime.config.connectors.models import ConnectionValidationError, source_types
+from harborrag_runtime.config.connectors.models import (
+    ConnectionValidationError,
+    FieldIssue,
+    source_types,
+)
 from harborrag_runtime.config.connectors.models.builder import validate_connection
 from harborrag_runtime.connections import (
     CredentialSecretWriter,
@@ -48,6 +54,7 @@ from harborrag_runtime.connections import (
 from harborrag_runtime.ingestion.connection_checks import ConnectionTestReport
 from harborrag_runtime.ingestion.connections import ConnectionUnavailableError
 
+from ..retrieval.access import corpus_mode_for
 from .active_runs import active_run
 from .connection_models import (
     ConnectionKey,
@@ -75,6 +82,7 @@ from .effect_recovery import defer_retirement, log_activity, retire_refs
 
 if TYPE_CHECKING:
     from harborrag_runtime.composition.connection_removal import ConnectionRemoval
+    from harborrag_runtime.config.settings import RuntimeSettings
 
 logger = logging.getLogger("harborrag.runtime.application.control_plane.connections")
 
@@ -87,11 +95,12 @@ class ConnectionService:
 
     Args:
         control_plane: Returns the control-plane repositories.
-        runs: Returns the run registry of connections.
+        runs: Returns the run registry of connections, which also answers source ACLs.
         ingestions: Starts ingestions and settles runs that ended unrecorded.
         removal: Returns the stores a connection removal clears.
         destination_policy: Hosts a connection test may reach beyond public addresses.
         instance_id: ID of this process, which names the holder of a connection sync lease.
+        settings: Settings that choose each tenant's corpus mode.
     """
 
     def __init__(  # noqa: PLR0913 - the stores and settings the service composes
@@ -103,6 +112,7 @@ class ConnectionService:
         removal: Callable[[], ConnectionRemoval],
         destination_policy: DestinationPolicy,
         instance_id: str,
+        settings: RuntimeSettings,
     ) -> None:
         self._control_plane = control_plane
         self._runs = runs
@@ -110,6 +120,7 @@ class ConnectionService:
         self._removal = removal
         self._destination_policy = destination_policy
         self._instance_id = instance_id
+        self._settings = settings
         self._background: set[asyncio.Task[None]] = set()
         self._removing: set[tuple[str, str]] = set()
 
@@ -117,8 +128,10 @@ class ConnectionService:
         """Return a connection's view and version.
 
         Raises:
+            ConnectionValidationError: ``connection_id`` is malformed.
             HarborNotFoundError: No such connection in the tenant.
         """
+        _require_connection_id(key)
         connection = await self._require(key)
         return await self._view(connection), connection.version
 
@@ -149,11 +162,24 @@ class ConnectionService:
         views = await read_connection_views(await self._runs(), connections, batch=True)
         return views, next_cursor
 
-    async def searchable(self, *, tenant_id: str, project_id: str) -> list[dict[str, Any]]:
-        """List the connections of one project as reader filter chips.
+    async def searchable(
+        self, *, tenant_id: str, project_id: str, principal_id: str
+    ) -> list[dict[str, Any]]:
+        """List the connections of one project the reader can search, as filter chips.
+
+        Under ``source_acl`` a connection is listed only when the reader may read one of
+        its source scopes, so one never ingested is not listed. ``tenant_shared`` lists
+        every connection.
+
+        Args:
+            tenant_id: Tenant of the project.
+            project_id: Project whose connections to list.
+            principal_id: Subject the source ACL checks, such as an API key's owner.
 
         Raises:
             HarborNotFoundError: The project does not exist in the tenant.
+            HarborConflictError: The reader may read more source scopes than the
+                permission store enumerates.
         """
         control_plane = self._control_plane()
         tenants = frozenset({tenant_id})
@@ -163,6 +189,8 @@ class ConnectionService:
             tenant_ids=tenants, project_id=project_id
         )
         runs = await self._runs()
+        live = [connection for connection in connections if connection.status != "deleting"]
+        readable = await self._readable(runs, tenant_id, principal_id, live)
         return [
             {
                 "connection_ref": connection.ref,
@@ -173,8 +201,33 @@ class ConnectionService:
                     tenant_id=tenant_id, connection_id=connection.source_key
                 ),
             }
+            for connection in readable
+        ]
+
+    async def _readable(
+        self,
+        runs: ConnectionRuns,
+        tenant_id: str,
+        principal_id: str,
+        connections: list[Connection],
+    ) -> list[Connection]:
+        """Keep the connections with a source scope the reader may read; all under ``tenant_shared``."""
+        access = AccessContext(
+            principal_id=principal_id,
+            tenant_id=TenantId(tenant_id),
+            corpus_mode=corpus_mode_for(self._settings, tenant_id),
+        )
+        if access.corpus_mode == "tenant_shared" or not connections:
+            return connections
+        allowed = set(await runs.allowed_source_scope_ids(tenant_id, access=access))
+        scopes = await runs.source_scope_ids_by_connection(
+            tenant_id=tenant_id,
+            connection_ids=[connection.source_key for connection in connections],
+        )
+        return [
+            connection
             for connection in connections
-            if connection.status != "deleting"
+            if allowed.intersection(scopes.get(connection.source_key, ()))
         ]
 
     async def put(  # noqa: PLR0913 - one body plus its preconditions
@@ -213,15 +266,17 @@ class ConnectionService:
 
         Raises:
             HarborNotFoundError: The project does not exist in the tenant.
-            ConnectionValidationError: The type is unknown, a field fails its schema,
-                an endpoint changed while a stored secret would be kept, or an ``api``
-                write sets a new ``env:`` reference or changes an operator-only field.
+            ConnectionValidationError: ``connection_id`` is malformed, the type is unknown,
+                a field fails its schema, an endpoint changed while a stored secret would
+                be kept, or an ``api`` write sets a new ``env:`` reference or changes an
+                operator-only field.
             HarborImmutableFieldError: The connection exists with another source type.
             HarborPreconditionFailedError: ``If-Match`` or ``If-None-Match`` does not hold.
             HarborConflictError: Without either, another write landed twice in a row
                 between reading the connection and saving it.
             ConnectionUnavailableError: The connection is being deleted.
         """
+        _require_connection_id(key)
         guarded = expected_version is None and not create_only
         for attempt in range(2 if guarded else 1):
             try:
@@ -260,7 +315,6 @@ class ConnectionService:
         """
         control_plane = self._control_plane()
         await self._require_project(key)
-        require_connection_id(key.connection_id)
         spec = source_types.get(write.source_type)
         existing = await control_plane.connections.get(
             tenant_id=key.tenant_id, project_id=key.project_id, connection_id=key.connection_id
@@ -342,11 +396,12 @@ class ConnectionService:
 
         Raises:
             HarborNotFoundError: No body and no saved connection, or the project is missing.
-            ConnectionValidationError: The values fail the source type's schema, change an
-                endpoint while a stored secret would be kept, name a stored secret the
-                field does not hold, or, from ``api``, set a new ``env:`` reference or
-                change an operator-only field.
+            ConnectionValidationError: ``connection_id`` is malformed, or the values fail
+                the source type's schema, change an endpoint while a stored secret would be
+                kept, name a stored secret the field does not hold, or, from ``api``, set a
+                new ``env:`` reference or change an operator-only field.
         """
+        _require_connection_id(key)
         control_plane = self._control_plane()
         existing = await control_plane.connections.get(
             tenant_id=key.tenant_id, project_id=key.project_id, connection_id=key.connection_id
@@ -426,17 +481,17 @@ class ConnectionService:
             tenant_id=connection.tenant_id,
         )
         runs = await self._runs()
-        await self._refuse_if_running(key.tenant_id, connection.source_key)
+        await self.refuse_if_running(key.tenant_id, connection.source_key)
         lease = f"connection-sync:{key.tenant_id}:{connection.source_key}"
         holder = f"{self._instance_id}:{uuid4().hex}"
         if not await self._control_plane().leases.try_acquire(
             lease, holder, ttl_seconds=SYNC_LEASE_TTL_SECONDS
         ):
-            await self._refuse_if_running(key.tenant_id, connection.source_key)
+            await self.refuse_if_running(key.tenant_id, connection.source_key)
             raise HarborAlreadyRunningError(
                 "an ingestion is starting for this connection", details={"ingestion_id": None}
             )
-        await self._refuse_if_running(key.tenant_id, connection.source_key)
+        await self.refuse_if_running(key.tenant_id, connection.source_key)
         accepted = await self._ingestions.submit(
             IngestionCreateCommand(
                 tenant_id=key.tenant_id,
@@ -466,9 +521,11 @@ class ConnectionService:
         """Start removing a connection in the background and return the job id.
 
         Raises:
+            ConnectionValidationError: ``connection_id`` is malformed.
             HarborNotFoundError: No such connection in the tenant.
             HarborAlreadyRunningError: An ingestion of the connection is running.
         """
+        _require_connection_id(key)
         control_plane = self._control_plane()
         connection = await self._require(key)
         active = await self._active_run(key.tenant_id, connection.source_key)
@@ -553,8 +610,12 @@ class ConnectionService:
             )
         return len(connections)
 
-    async def _refuse_if_running(self, tenant_id: str, source_key: str) -> None:
-        """Raise ``already_running`` naming the connection's active ingestion, if any."""
+    async def refuse_if_running(self, tenant_id: str, source_key: str) -> None:
+        """Refuse a new ingestion of a connection that has a pending, running or paused one.
+
+        Raises:
+            HarborAlreadyRunningError: An ingestion is active; ``details.ingestion_id`` names it.
+        """
         active = await self._active_run(tenant_id, source_key)
         if active is not None:
             raise HarborAlreadyRunningError(
@@ -669,6 +730,18 @@ class ConnectionService:
         task = asyncio.ensure_future(work)
         self._background.add(task)
         task.add_done_callback(self._background.discard)
+
+
+def _require_connection_id(key: ConnectionKey) -> None:
+    """Refuse a malformed ``connection_id`` before any lookup, as the HTTP path pattern does.
+
+    Raises:
+        ConnectionValidationError: The id does not match the ``connection_id`` pattern.
+    """
+    try:
+        require_connection_id(key.connection_id)
+    except ValueError as error:
+        raise ConnectionValidationError([FieldIssue("connection_id", str(error))]) from error
 
 
 def _finished(job: Job, status: JobStatus, error: str | None = None) -> Job:

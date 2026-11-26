@@ -15,12 +15,16 @@ from harborrag_core.summaries import SummaryFacet
 
 from .schema import DOCUMENT_VERSIONS, DOCUMENTS, SOURCE_SCANS, SOURCE_SCOPES
 from .summary_schema import SUMMARY_SCOPES
-from .topology.authorization import readable_snapshot
+from .topology.authorization import authorized_documents, readable_snapshot
 from .topology.policy_schema import PERMISSION_SNAPSHOTS
 
 
 class SourceCatalogReader:
-    """List only corpus scopes authorized by a current source permission snapshot."""
+    """List only corpus scopes authorized by a current source permission snapshot.
+
+    Under ``source_acl`` a source's document count and last ingestion time cover only
+    the documents the reader may read.
+    """
 
     _client: SQLAlchemyDBClient
 
@@ -47,7 +51,12 @@ class SourceCatalogReader:
             .group_by(SOURCE_SCANS.c.source_scope_id)
             .subquery("successful_source_scan")
         )
-        publication = (
+        shared = (
+            request.access is not None
+            and str(request.access.tenant_id) == request.tenant_id
+            and request.access.corpus_mode == "tenant_shared"
+        )
+        published = (
             select(
                 DOCUMENTS.c.tenant_id,
                 DOCUMENTS.c.source_scope_id,
@@ -60,19 +69,20 @@ class SourceCatalogReader:
                 DOCUMENT_VERSIONS.c.document_version_id == DOCUMENTS.c.active_document_version_id,
             )
             .where(DOCUMENTS.c.active_document_version_id.is_not(None))
-            .group_by(DOCUMENTS.c.tenant_id, DOCUMENTS.c.source_scope_id)
-            .subquery("source_publication")
         )
+        if not shared:
+            readable = authorized_documents(request.tenant_id, request.access).subquery(
+                "source_catalog_readable"
+            )
+            published = published.join(readable, readable.c.document_id == DOCUMENTS.c.document_id)
+        publication = published.group_by(
+            DOCUMENTS.c.tenant_id, DOCUMENTS.c.source_scope_id
+        ).subquery("source_publication")
         permission = PERMISSION_SNAPSHOTS.alias("source_catalog_acl")
         # The scope's applied summary policy is what declares its entity facets --
         # the same row the worker wrote the entity points under -- so the facets a
         # caller is shown are the ones ``find_entities`` can actually filter on.
         summary = SUMMARY_SCOPES.alias("source_catalog_summary")
-        shared = (
-            request.access is not None
-            and str(request.access.tenant_id) == request.tenant_id
-            and request.access.corpus_mode == "tenant_shared"
-        )
         if shared:
             statement = (
                 select(

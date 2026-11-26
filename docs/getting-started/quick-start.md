@@ -98,12 +98,16 @@ scripts/deployment/dev.sh bootstrap
 ```
 
 `bootstrap` copies seven templates from `env-example/` into `env/`, makes them readable only
-by you, and generates two secrets: `HARBORRAG_SECRETS_ENCRYPTION_KEY` in `env/.env.database`,
-which encrypts the source credentials HarborRAG stores, and a bearer token for the MCP server
-in `env/.env.mcp`. You should see a `Created env/...` line for each file, and among them:
+by you, and generates secrets: `HARBORRAG_SECRETS_ENCRYPTION_KEY` in `env/.env.database`,
+which encrypts the source credentials HarborRAG stores, two passwords in the same file for
+the MCP server's read-only database and object-store accounts, and a bearer token for the
+MCP server in `env/.env.mcp`. You should see a `Created env/...` line for each file, and
+among them:
 
 ```text
 Generated HARBORRAG_SECRETS_ENCRYPTION_KEY in env/.env.database; back it up: stored connection secrets cannot be read without it.
+Generated POSTGRES_MCP_PASSWORD in env/.env.database.
+Generated MINIO_MCP_PASSWORD in env/.env.database.
 Generated a protected MCP bearer token in env/.env.mcp.
 ```
 
@@ -125,8 +129,9 @@ that key can use. The two keys are separate settings so that chat and embedding 
 different accounts. All four lines are required: `config/models/models.yaml` reads every
 one of them when it loads. To call another OpenAI-compatible endpoint instead of OpenAI,
 also uncomment the `HARBORRAG_URL` line below them and set it to that endpoint's base
-URL; the keys and the model names are then that endpoint's. Leave every other `REPLACE_WITH_...` placeholder further down the file as it
-is; this tutorial does not use them.
+URL; the keys and the model names are then that endpoint's. Leave every other
+`REPLACE_WITH_...` placeholder further down the file as it is; this tutorial does not use
+them.
 
 Check the key and the model names before you go on, because a mistake here only shows up
 later, as failed documents in step 5:
@@ -263,8 +268,8 @@ lines returns the tenant to `source_acl`, where chat reads only sources the call
 permissions for; see
 [Read access inside a tenant](../users/configuration/workspace-mode.md#read-access-inside-a-tenant).
 
-Ask the chat model for an answer grounded in the
-passages that match your question. It calls the model endpoint, so it can cost a little:
+Ask the chat model for an answer grounded in the passages that match your question. It
+calls the model endpoint, so it can cost a little:
 
 ```bash
 uv run harborrag chat "Summarise what the HarborRAG documentation covers in three bullet points."

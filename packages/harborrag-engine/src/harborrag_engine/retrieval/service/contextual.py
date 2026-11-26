@@ -52,17 +52,26 @@ class ContextualEvidenceSearch:
         Returns nothing when the query vector does not match the profile dimension
         or carries filters: raw-only metadata predicates are not guaranteed to
         exist on generated points, so the filtered flat search answers instead.
+        Each artifact kind is enumerated on its own, so products of other kinds
+        never count against the budget of the kind searched.
+
+        Raises:
+            HarborConflictError: One kind has more active artifacts than the
+                enumeration budget allows.
         """
         if len(query.vector) != self._profile.dimension or query.filters is not None:
             return ()
-        records = await self._repository.active_derivations(
-            str(context.tenant_id), access=context.access, limit=_MAX_ARTIFACTS
-        )
         hits: list[_ProjectionHit] = []
         for kind, index_name in (
             ("contextual_chunk", self._profile.index_name),
             ("parent_description", self._profile.parent_index_name),
         ):
+            records = await self._repository.active_derivations(
+                str(context.tenant_id),
+                access=context.access,
+                artifact_kind=kind,
+                limit=_MAX_ARTIFACTS,
+            )
             manifests = _manifest_points(records, kind, index_name, self._profile)
             if manifests:
                 hits.extend(await self._search_index(query, manifests, index_name, context))

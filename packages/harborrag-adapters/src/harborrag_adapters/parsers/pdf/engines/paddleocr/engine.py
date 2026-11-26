@@ -67,7 +67,7 @@ class PaddleOCRPDFEngine(HarborPDFEngine):
             try:
                 result, pipeline_warnings = self._predict(paddleocr, str(path))
             except Exception as exc:  # noqa: BLE001 - external parser boundary
-                raise ParseError(f"PaddleOCR could not parse PDF: {exc}") from exc
+                raise ParseError(f"PaddleOCR could not parse PDF: {type(exc).__name__}") from exc
 
         content = content_from_any(result)
         return PDFParseResult(
@@ -130,7 +130,7 @@ class PaddleOCRPDFEngine(HarborPDFEngine):
                     self._active_pipeline_class = class_name
                     return pipeline(path), warnings
             except Exception as exc:  # noqa: BLE001 - fallback boundary, try next class
-                warnings.append(f"{class_name}: {exc}")
+                warnings.append(f"{class_name}: {type(exc).__name__}")
                 continue
 
         ocr_cls = getattr(paddleocr, "PaddleOCR", None)

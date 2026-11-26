@@ -601,14 +601,12 @@ async def test_pause_relay_times_out_without_acknowledgement(
 ) -> None:
     sdk = _SdkClient()
     sdk.source_handle.query.side_effect = lambda *_args, **_kwargs: _status()
-    sleep = AsyncMock()
-    monkeypatch.setattr(client_module.asyncio, "sleep", sleep)
+    monkeypatch.setattr(client_module, "_PAUSE_SETTLE_SECONDS", 0.0)
     client = IngestionTemporalClient(sdk, TemporalRuntimeConfig())
 
     with pytest.raises(WorkflowOperationError, match="pause relay did not settle"):
         await client.pause("task-1")
 
-    assert sleep.await_count == 300
     sdk.workflow_service.pause_workflow_execution.assert_not_awaited()
 
 

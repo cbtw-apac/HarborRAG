@@ -3,6 +3,8 @@
 ``progress()`` is a point-in-time snapshot, so this bridge is the diff loop that turns
 snapshots into the ordered, replayable stream behind ``GET /v1/admin/ingestions/{id}/events``:
 ``run.status``, ``stage.progress``, ``document.failed`` and ``run.completed``.
+Its snapshot and failure cursor live in the task summary. The task store keeps them when
+a summary is replaced (``PROGRESS_STATE_KEYS``), or events would be emitted twice.
 Stored and bus event names carry a ``task.<id>.`` routing prefix that the route strips.
 The ``control`` audit events (who asked for pause, resume or cancel) are stored but never
 streamed; the status change they cause reaches the stream as ``run.status``.
@@ -21,13 +23,13 @@ from harborrag_core.ingestion.stages import spec_stage
 from harborrag_core.ports.events import EventBusPort
 from harborrag_engine.control_plane.connection_views import ingestion_counters, ingestion_status
 from harborrag_engine.ingestion.presenters import TERMINAL_STATES
+from harborrag_runtime.ingestion.source.skips import FAILURE_CURSOR_KEY as _FAILURE_CURSOR_KEY
+from harborrag_runtime.ingestion.source.skips import PROGRESS_SNAPSHOT_KEY as _SNAPSHOT_KEY
 
 from .ports import PublicTaskStore
 
 logger = logging.getLogger("harborrag.runtime.application.ingestion.progress_bridge")
 
-_SNAPSHOT_KEY = "_last_progress_snapshot"
-_FAILURE_CURSOR_KEY = "_last_failure_cursor"
 _PUBLISH_STAGE = "publish"
 _UNKNOWN_CATEGORY = "unknown"
 _FAILED_PAGE_LIMIT = 200

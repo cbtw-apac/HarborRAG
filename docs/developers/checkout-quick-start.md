@@ -31,8 +31,9 @@ PostgreSQL, Qdrant, FalkorDB and MinIO clients that the stack commands below nee
 
 `uv run harborrag --help` lists the commands described in Quick Start step 1, and works
 without Temporal or any data service. The `harborrag` command runs only inside a repository
-checkout: elsewhere it stops with `harborrag: no project found. Run it inside a HarborRAG
-repository checkout, ...`.
+checkout: elsewhere it exits 1, and in a terminal it prints `harborrag: no project found.
+Run it inside a HarborRAG repository checkout, ...`. In a pipe it prints the same message in
+a JSON error envelope.
 
 `harborrag doctor` checks the checkout's catalogs and the local services, Temporal included,
 so its service lines fail until step 6 starts them.
@@ -250,9 +251,20 @@ scripts/deployment/mcp.sh --check
 ```
 
 That performs a real MCP handshake and prints the eleven advertised retrieval tools without
-opening provider connections. For normal use, point your MCP client at
-`scripts/deployment/mcp.sh`; for a browser playground, run `scripts/deployment/mcp.sh --http`
-and open <http://127.0.0.1:8010/>. See [MCP Tools](../users/detailed-guides/mcp-server/README.md).
+opening provider connections.
+
+The MCP server reads Postgres and MinIO with read-only accounts of its own, not the owner
+credentials in `env/.env.database`. Create them once, before the first `mcp.sh` start other
+than `--check`, and again after each upgrade:
+
+```bash
+scripts/deployment/dev.sh mcp-access
+```
+
+For normal use, point your MCP client at `scripts/deployment/mcp.sh`; for a browser
+playground, run `scripts/deployment/mcp.sh --http` and open <http://127.0.0.1:8010/>. See
+[MCP Tools](../users/detailed-guides/mcp-server/README.md) and
+[Read-only database and object-store accounts](../users/detailed-guides/mcp-server/setup-and-integration.md#read-only-database-and-object-store-accounts).
 
 ## Run the tests
 

@@ -23,6 +23,8 @@ MAX_LIFETIME: dict[str, timedelta] = {
 _NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,127}$")
 _OWNER_RE = re.compile(r"^(user|svc|team)-[a-z0-9][a-z0-9-]{0,120}$")
 _MAX_REASON = 256
+_MISS_TTL = timedelta(seconds=5)
+_MISS_CACHE_SIZE = 10_000
 
 
 def _utc_now() -> datetime:
@@ -42,7 +44,13 @@ class VerifiedKey:
 
 
 class ApiKeyVerificationService:
-    """Decide whether a presented key may read one tenant."""
+    """Decide whether a presented key may read one tenant.
+
+    A key ID with no stored row is remembered for a few seconds, so repeating a
+    made-up key does not cost a lookup each time. Only that miss is remembered:
+    a wrong secret, a revoked or expired key and a store outage are looked up on
+    every call.
+    """
 
     def __init__(
         self,
@@ -54,6 +62,7 @@ class ApiKeyVerificationService:
         self._reader = reader
         self._environment = environment
         self._clock = clock
+        self._misses: dict[str, datetime] = {}
 
     async def verify_key(self, raw_key: str) -> VerifiedKey | None:
         """None means deny. ``AuthStoreUnavailable`` propagates: deny, but distinguishable."""
@@ -61,8 +70,11 @@ class ApiKeyVerificationService:
         parsed = parse_key(raw_key)
         if parsed is None or parsed.environment != self._environment:
             return None  # malformed or from another environment: no lookup at all
+        if self._recently_missed(parsed.key_id):
+            return None
         record = await self._reader.get_by_key_id(parsed.key_id)
         if record is None:
+            self._remember_miss(parsed.key_id)
             return None
         if not hash_matches(raw_key, record.secret_hash):
             return None
@@ -83,6 +95,22 @@ class ApiKeyVerificationService:
             owner=record.owner,
             expires_at=record.expires_at,
         )
+
+    def _recently_missed(self, key_id: str) -> bool:
+        """Whether ``key_id`` had no stored row less than ``_MISS_TTL`` ago."""
+        expires_at = self._misses.get(key_id)
+        if expires_at is None:
+            return False
+        if expires_at > self._clock():
+            return True
+        del self._misses[key_id]
+        return False
+
+    def _remember_miss(self, key_id: str) -> None:
+        """Remember a key ID with no stored row, dropping the oldest entries when full."""
+        while len(self._misses) >= _MISS_CACHE_SIZE:
+            del self._misses[next(iter(self._misses))]
+        self._misses[key_id] = self._clock() + _MISS_TTL
 
 
 @dataclass(frozen=True, slots=True)

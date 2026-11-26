@@ -10,9 +10,9 @@ from harborrag_adapters.repositories.database import IngestionControlPlaneDataba
 from harborrag_core.contracts.errors import (
     HarborConflictError,
     HarborConnectionError,
+    IngestionActionStateError,
     IngestionAlreadyCompletedError,
     IngestionAlreadyPausedError,
-    IngestionAlreadyRunningError,
     IngestionIdempotencyConflictError,
 )
 from harborrag_core.ingestion import IngestionTaskState, TaskDocumentResult
@@ -484,8 +484,9 @@ async def test_resume_on_an_already_running_task_is_rejected(
     task_id = str(accepted["task_id"])
     await control.tasks.transition(task_id, IngestionTaskState.RUNNING)
 
-    with pytest.raises(IngestionAlreadyRunningError, match="already running"):
+    with pytest.raises(IngestionActionStateError, match="running") as raised:
         await service.resume(task_id)
+    assert raised.value.error_code == "invalid_state"
     assert temporal.resumed == []
 
 

@@ -10,6 +10,7 @@ from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as distribution_version
 from pathlib import Path
 from typing import Annotated, Any
+from uuid import uuid4
 
 import click
 import typer
@@ -31,8 +32,11 @@ from harborrag_app.cli.commands import (
     source_types,
 )
 from harborrag_app.cli.environment import load_project_environment
+from harborrag_app.cli.globals import requested_output
+from harborrag_app.cli.output import OutputFormat, print_error
 from harborrag_app.cli.project import ProjectError, activate_from_argv, activate_legacy_checkout
 from harborrag_app.cli.typer_app import new_typer
+from harborrag_app.operations.errors import ErrorBody
 from harborrag_core.observability.process_logging import (
     LEVEL_ENV_VAR,
     _ManagedStreamHandler,
@@ -51,7 +55,7 @@ _VALUE_TAKING_GLOBAL_OPTIONS = frozenset({"--project"})
 # `ingest` names only print their replacement.
 _PROJECT_OPTIONAL_COMMANDS = frozenset({"doctor", "source", "ingest"})
 _NO_PROJECT_MESSAGE = (
-    "harborrag: no project found. Run it inside a HarborRAG repository checkout, or pass "
+    "no project found. Run it inside a HarborRAG repository checkout, or pass "
     "--project DIR for a directory containing harborrag.yaml."
 )
 
@@ -216,7 +220,7 @@ def main(argv: list[str] | None = None) -> int:
                 activate_legacy_checkout() if project is None and _needs_catalogs(args) else None
             )
         except ProjectError as exc:
-            print(f"harborrag: {exc}", file=sys.stderr)
+            _report_project_failure(str(exc), args)
             return 1
         # Never configure a run from a directory the user cannot see they are in.
         if project is not None:
@@ -228,7 +232,7 @@ def main(argv: list[str] | None = None) -> int:
         elif _requires_project(args):
             # Fail here with guidance instead of letting a catalog loader explain a missing
             # file in Docker-image terms to someone who just ran `pip install harborrag`.
-            print(_NO_PROJECT_MESSAGE, file=sys.stderr)
+            _report_project_failure(_NO_PROJECT_MESSAGE, args)
             return 1
     _load_environment(args)
     _configure_cli_logging(os.environ.get(LEVEL_ENV_VAR, _DEFAULT_CLI_LOG_LEVEL))
@@ -242,6 +246,19 @@ def main(argv: list[str] | None = None) -> int:
     except SystemExit as exc:
         return _exit_code(exc.code)
     return 0
+
+
+def _report_project_failure(message: str, args: list[str]) -> None:
+    """Print why there is no usable project: plain text in table mode, else the error envelope.
+
+    The envelope carries ``500 internal_error``, the status of exit code 1, as a failed local
+    setup does.
+    """
+    output = requested_output(args, os.environ, stdout_is_tty=sys.stdout.isatty())
+    if output is OutputFormat.TABLE:
+        print(f"harborrag: {message}", file=sys.stderr)
+        return
+    print_error(ErrorBody(500, "internal_error", message), output=output, trace_id=uuid4().hex)
 
 
 def _announce(notice: str | None) -> None:

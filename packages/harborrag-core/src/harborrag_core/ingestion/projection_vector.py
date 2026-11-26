@@ -7,11 +7,12 @@ payload is never the only copy of a value.
 from __future__ import annotations
 
 import json
+import logging
 import re
 from hashlib import sha256
 from math import isfinite
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, ValidationInfo, field_validator, model_validator
 
 from harborrag_core.base import StrictModel
 from harborrag_core.chunking import (
@@ -26,6 +27,8 @@ from harborrag_core.schemas.vector import SparseVector
 
 _PAYLOAD_FIELD_KEY = re.compile(r"[a-z0-9][a-z0-9_]{0,127}")
 _MAX_PAYLOAD_FIELDS = 128
+
+logger = logging.getLogger("harborrag.core.ingestion.projection_vector")
 
 
 class VectorPayload(StrictModel):
@@ -166,20 +169,35 @@ class VectorPayload(StrictModel):
     @field_validator("fields")
     @classmethod
     def validate_fields(
-        cls, value: dict[str, str | float | bool | tuple[str, ...]] | None
+        cls,
+        value: dict[str, str | float | bool | tuple[str, ...]] | None,
+        info: ValidationInfo,
     ) -> dict[str, str | float | bool | tuple[str, ...]] | None:
-        """Reject too many fields, unnormalized keys, and blank or non-finite values.
+        """Keep the fields a filter can name, and reject blank or non-finite values.
 
         A key must be a normalized field name, so a dotted filter path such as
-        ``fields.skill_set`` is never ambiguous.
+        ``fields.skill_set`` is never ambiguous. A field with any other key, and
+        every field after the first 128 in key order, is left out with a warning
+        instead of failing the whole document version.
         """
         if value is None:
             return None
-        if len(value) > _MAX_PAYLOAD_FIELDS:
-            raise ValueError(f"vector payload carries more than {_MAX_PAYLOAD_FIELDS} fields")
+        named = sorted(key for key in value if _PAYLOAD_FIELD_KEY.fullmatch(key))
+        kept = frozenset(named[:_MAX_PAYLOAD_FIELDS])
+        if len(kept) < len(value):
+            logger.warning(
+                "Vector payload fields left out document_version_id=%s chunk_id=%s "
+                "fields=%d unnormalized_keys=%d over_limit=%d",
+                info.data.get("document_version_id"),
+                info.data.get("chunk_id"),
+                len(value),
+                len(value) - len(named),
+                len(named) - len(kept),
+            )
+            if not kept:
+                return None
+        value = {key: item for key, item in value.items() if key in kept}
         for key, item in value.items():
-            if _PAYLOAD_FIELD_KEY.fullmatch(key) is None:
-                raise ValueError(f"vector payload field key {key!r} is not a normalized name")
             if isinstance(item, float) and not isfinite(item):
                 raise ValueError(f"vector payload field {key!r} must be finite")
             texts = item if isinstance(item, tuple) else (item,) if isinstance(item, str) else ()

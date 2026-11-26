@@ -98,11 +98,8 @@ class JiraIssueAPI:
         )
         issues = list(response.get("issues") or [])
         next_offset = start_at + len(issues)
-        total = response.get("total")
-        done = (
-            not issues
-            or (total is not None and next_offset >= int(total))
-            or len(issues) < provider_limit
+        done = _is_last_offset_page(
+            response, page_count=len(issues), next_offset=next_offset, requested=provider_limit
         )
         return issues, None if done else f"offset:{next_offset}"
 
@@ -133,7 +130,11 @@ class JiraIssueAPI:
         return bool((permissions.get(permission) or {}).get("havePermission"))
 
     def get_issue(self, issue_key: str) -> dict[str, Any]:
-        """Fetch one issue with configured fields and expansion settings."""
+        """Fetch one issue with configured fields and expansion settings.
+
+        The issue's embedded comment lists lose their restricted comments, so the
+        stored source payload holds none of their text.
+        """
         issue_key = validate_issue_key(issue_key)
         response = self.client.get_json(
             f"issue/{issue_key}",
@@ -142,6 +143,7 @@ class JiraIssueAPI:
                 "expand": ",".join(self.issue_expand()),
             },
         )
+        _drop_restricted_embedded_comments(response)
         return response
 
     def get_issue_descriptor(self, issue_key: str) -> dict[str, Any]:
@@ -156,8 +158,8 @@ class JiraIssueAPI:
     def issue_comments(self, issue_key: str, issue: dict[str, Any]) -> list[dict[str, Any]]:
         """The comments embedded in an issue response, fetched only when that list is partial.
 
-        The result is what ``fetch_comments`` returns: the same comments, capped
-        at the same ``max_comments``.
+        The result is what ``fetch_comments`` returns: the same unrestricted
+        comments, capped at the same ``max_comments``.
         """
 
         embedded = (issue.get("fields") or {}).get("comment")
@@ -171,12 +173,16 @@ class JiraIssueAPI:
                 and total <= len(values)
             ):
                 comments: list[dict[str, Any]] = []
-                truncate_with_limit(comments, values, limit=self.config.max_comments)
+                truncate_with_limit(comments, _unrestricted(values), limit=self.config.max_comments)
                 return comments
         return self.fetch_comments(issue_key)
 
     def fetch_comments(self, issue_key: str) -> list[dict[str, Any]]:
-        """Fetch comments for one issue, truncated to the configured cap."""
+        """Fetch an issue's unrestricted comments, truncated to the configured cap.
+
+        A comment limited to a role or group is left out until per-comment access
+        rules exist, so ``max_comments`` counts only the comments that are indexed.
+        """
         issue_key = validate_issue_key(issue_key)
         comments: list[dict[str, Any]] = []
         start_at = 0
@@ -194,13 +200,18 @@ class JiraIssueAPI:
                 len(values),
                 total,
             )
-            truncated = truncate_with_limit(comments, values, limit=self.config.max_comments)
+            truncated = truncate_with_limit(
+                comments, _unrestricted(values), limit=self.config.max_comments
+            )
             if truncated:
                 return comments
             start_at += len(values)
-            if total is not None and start_at >= int(total):
-                return comments
-            if len(values) < self.config.page_size:
+            if _is_last_offset_page(
+                response,
+                page_count=len(values),
+                next_offset=start_at,
+                requested=self.config.page_size,
+            ):
                 return comments
 
     def fetch_changelog(self, issue_key: str) -> list[dict[str, Any]]:
@@ -229,10 +240,12 @@ class JiraIssueAPI:
             if truncated:
                 return histories
             start_at += len(values)
-            total = response.get("total")
-            if total is not None and start_at >= int(total):
-                return histories
-            if len(values) < self.config.page_size:
+            if _is_last_offset_page(
+                response,
+                page_count=len(values),
+                next_offset=start_at,
+                requested=self.config.page_size,
+            ):
                 return histories
 
     def issue_expand(self) -> tuple[str, ...]:
@@ -302,11 +315,85 @@ class JiraIssueAPI:
             yield from issues
 
             start_at += len(issues)
-            total = response.get("total")
-            if total is not None and start_at >= int(total):
+            if _is_last_offset_page(
+                response,
+                page_count=len(issues),
+                next_offset=start_at,
+                requested=self.config.page_size,
+            ):
                 return
-            if len(issues) < self.config.page_size:
-                return
+
+
+def _is_last_offset_page(
+    response: dict[str, Any],
+    *,
+    page_count: int,
+    next_offset: int,
+    requested: int,
+) -> bool:
+    """Return whether an offset-paged Jira response is the last page.
+
+    Jira's ``total`` decides when it is present. Otherwise a page shorter than the
+    ``maxResults`` Jira answered with is the last one; a server cap can lower that
+    below ``requested``.
+    """
+    if page_count == 0:
+        return True
+    total = _page_integer(response.get("total"))
+    if total is not None:
+        return next_offset >= total
+    served = _page_integer(response.get("maxResults"))
+    return page_count < (served if served is not None and served > 0 else requested)
+
+
+def _is_restricted(comment: object) -> bool:
+    """Return whether a comment's ``visibility`` limits it to a role or group."""
+    return isinstance(comment, dict) and comment.get("visibility") is not None
+
+
+def _unrestricted(comments: list[Any]) -> list[Any]:
+    """Keep the comments that every reader of the issue can see."""
+    return [comment for comment in comments if not _is_restricted(comment)]
+
+
+def _drop_restricted_embedded_comments(issue: dict[str, Any]) -> None:
+    """Remove restricted comments from the comment lists an issue response embeds.
+
+    ``renderedFields`` repeats each comment as HTML, possibly without its
+    ``visibility``, so those copies are matched by ID too.
+    """
+    pages = _embedded_comment_pages(issue)
+    restricted_ids = {
+        str(comment.get("id")) for page in pages for comment in page if _is_restricted(comment)
+    }
+    for page in pages:
+        page[:] = [
+            comment
+            for comment in _unrestricted(page)
+            if not (isinstance(comment, dict) and str(comment.get("id")) in restricted_ids)
+        ]
+
+
+def _embedded_comment_pages(issue: dict[str, Any]) -> list[list[Any]]:
+    """Return the ``comment.comments`` lists of an issue's raw and rendered fields."""
+    pages: list[list[Any]] = []
+    for section in ("fields", "renderedFields"):
+        fields = issue.get(section)
+        page = fields.get("comment") if isinstance(fields, dict) else None
+        comments = page.get("comments") if isinstance(page, dict) else None
+        if isinstance(comments, list):
+            pages.append(comments)
+    return pages
+
+
+def _page_integer(value: object) -> int | None:
+    """Return integer paging metadata, or None for a boolean or non-number."""
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        return None
 
 
 def _cursor_value(cursor: str | None, *, expected_kind: str) -> str | None:

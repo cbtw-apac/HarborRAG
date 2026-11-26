@@ -97,17 +97,22 @@ async def search_documents(  # noqa: PLR0913 - one keyword-only input per retrie
     context: MemoryContext,
     *,
     identity: MemoryIdentity,
+    acl_subject: str,
     settings: RuntimeSettings,
     observe_graph: bool,
     top_k: int,
     filters: Mapping[str, object],
     rerank: bool,
 ) -> RetrievalResponse:
-    """Search the current question within ``filters``, observing the graph or reranking as asked."""
+    """Search the current question within ``filters``, observing the graph or reranking as asked.
+
+    The document ACL checks ``acl_subject``, which can differ from the session owner
+    ``identity.principal_id``.
+    """
     return await runtime.retrieval.search(
         RetrievalRequest(
             access=AccessContext(
-                principal_id=identity.principal_id,
+                principal_id=acl_subject,
                 tenant_id=TenantId(identity.tenant_id),
                 corpus_mode=corpus_mode_for(settings, identity.tenant_id),
             ),

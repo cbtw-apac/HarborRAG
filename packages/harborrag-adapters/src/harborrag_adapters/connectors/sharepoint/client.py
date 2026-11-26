@@ -16,6 +16,7 @@ from harborrag_adapters.connectors.exceptions import (
     AuthorizationError,
     FetchError,
     RateLimitError,
+    RefusedResponseError,
 )
 from harborrag_adapters.connectors.policies.http import (
     DEFAULT_MAX_RETRY_DELAY_SECONDS,
@@ -104,19 +105,31 @@ class _RequestsGraphClient:
         response = self._request("GET", self._api_url(endpoint), params=params)
         try:
             payload = read_capped_json(response)
-        except (ValueError, ResponseTooLargeError) as exc:
+        except ResponseTooLargeError as exc:
+            raise RefusedResponseError(
+                f"Microsoft Graph response exceeded byte limit for {endpoint}"
+            ) from exc
+        except ValueError as exc:
             raise FetchError(f"Microsoft Graph returned non-JSON for {endpoint}") from exc
         if not isinstance(payload, dict):
             raise FetchError(f"Microsoft Graph returned invalid JSON for {endpoint}")
         return payload
 
     def get_bytes(self, endpoint: str) -> bytes:
-        """GET a Graph endpoint that returns file bytes, capped by size limit."""
+        """GET a Graph endpoint that returns file bytes, capped by size limit.
+
+        Raises:
+            RefusedResponseError: The body is larger than the configured size limit.
+            FetchError: The connection broke or the body ended early after the
+                headers arrived. It is retryable and names no URL.
+        """
         response = self._request("GET", self._api_url(endpoint), headers={"Accept": "*/*"})
         try:
             return read_capped_content(response, self.config.max_file_size_bytes)
         except ResponseTooLargeError as exc:
-            raise FetchError(str(exc)) from exc
+            raise RefusedResponseError(str(exc)) from exc
+        except requests.RequestException as exc:
+            raise FetchError(f"Microsoft Graph download failed: {type(exc).__name__}") from None
 
     def _request(
         self,
@@ -147,7 +160,9 @@ class _RequestsGraphClient:
             except requests.RequestException as exc:
                 last_error = exc
                 if attempt == self.config.max_retries:
-                    raise FetchError("Microsoft Graph request failed") from exc
+                    raise FetchError(
+                        f"Microsoft Graph request failed: {type(exc).__name__}"
+                    ) from None
                 self._sleep(attempt, exc)
                 continue
 
@@ -190,8 +205,9 @@ class _RequestsGraphClient:
         """Whether Graph asks for a longer wait than one retry may sleep.
 
         Retrying before ``Retry-After`` only earns another throttle, so such a
-        response ends the request instead and the item is skipped for a later
-        run.
+        response ends the request at once with its typed error instead of
+        retrying early. A listing then fails, so discovery is retried later
+        rather than finishing with files unseen.
         """
         if response.status_code not in _RETRYABLE_STATUS:
             return False
@@ -371,7 +387,7 @@ class _RequestsGraphClient:
                     label="Microsoft Graph",
                 )
             except ValueError as exc:
-                raise FetchError(str(exc)) from exc
+                raise RefusedResponseError(str(exc)) from exc
         return f"{self.config.graph_api_url}/{endpoint.lstrip('/')}"
 
     def _acquire(self) -> None:

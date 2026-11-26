@@ -1,0 +1,106 @@
+{
+  "events": [
+    {
+      "eventId": "1",
+      "eventTime": "2026-11-25T09:25:26.540Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_EXECUTION_STARTED",
+      "workflowExecutionStartedEventAttributes": {
+        "workflowType": {
+          "name": "harborrag.source_batch"
+        },
+        "taskQueue": {
+          "name": "harborrag-discovery"
+        },
+        "input": {
+          "payloads": [
+            {
+              "metadata": {
+                "encoding": "anNvbi9wbGFpbg=="
+              },
+              "data": "eyJiYXRjaF9udW1iZXIiOjAsImNvbm5lY3Rvcl9uYW1lIjoibG9jYWwtZG9jcyIsImRvY3VtZW50X2NvbmN1cnJlbmN5IjoyLCJlbmRfaW5kZXgiOjUsInBsYW5fcmVmZXJlbmNlIjp7ImJ1Y2tldCI6ImFydGlmYWN0cyIsImJ5dGVfbGVuZ3RoIjpudWxsLCJieXRlX29mZnNldCI6bnVsbCwiYnl0ZV9zaXplIjoxLCJrZXkiOiJzb3VyY2UtcGxhbnMvdGFzay1yZXBsYXkuanNvbiIsIm1lZGlhX3R5cGUiOiJhcHBsaWNhdGlvbi9qc29uIiwic2hhMjU2IjoiMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMCJ9LCJzdGFydF9pbmRleCI6MCwidGFza19pZCI6InRhc2stY2FuY2VsbGVkIiwidGVuYW50X2lkIjoidGVuYW50LXJlcGxheSIsIndvcmtmbG93X29wdGlvbnMiOnsicmV0cmllcyI6eyJkaXNjb3ZlcnkiOnsiYmFja29mZl9jb2VmZmljaWVudCI6Mi4wLCJpbml0aWFsX2ludGVydmFsX3NlY29uZHMiOjIuMCwibWF4aW11bV9hdHRlbXB0cyI6OCwibWF4aW11bV9pbnRlcnZhbF9zZWNvbmRzIjo2MC4wfSwiZG9jdW1lbnQiOnsiYmFja29mZl9jb2VmZmljaWVudCI6Mi4wLCJpbml0aWFsX2ludGVydmFsX3NlY29uZHMiOjIuMCwibWF4aW11bV9hdHRlbXB0cyI6NSwibWF4aW11bV9pbnRlcnZhbF9zZWNvbmRzIjoxMjAuMH19LCJ0YXNrX3F1ZXVlcyI6eyJkaXNjb3ZlcnkiOiJoYXJib3JyYWctZGlzY292ZXJ5IiwiaW5kZXgiOiJoYXJib3JyYWctaW5kZXgiLCJpbyI6ImhhcmJvcnJhZy1pbyIsIm1vZGVsIjoiaGFyYm9ycmFnLW1vZGVsIiwicGFyc2VyIjoiaGFyYm9ycmFnLXBhcnNlciIsInRyYW5zZm9ybSI6ImhhcmJvcnJhZy10cmFuc2Zvcm0ifX19"
+            }
+          ]
+        },
+        "workflowExecutionTimeout": "315360000s",
+        "workflowRunTimeout": "315360000s",
+        "workflowTaskTimeout": "10s",
+        "originalExecutionRunId": "7139f45c-5297-4109-8871-10b2ae1adeb0",
+        "identity": "harborrag-replay-recorder",
+        "firstExecutionRunId": "7139f45c-5297-4109-8871-10b2ae1adeb0",
+        "attempt": 1,
+        "firstWorkflowTaskBackoff": "0s",
+        "priority": {}
+      }
+    },
+    {
+      "eventId": "2",
+      "eventTime": "2026-11-25T09:25:26.540Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_TASK_SCHEDULED",
+      "workflowTaskScheduledEventAttributes": {
+        "taskQueue": {
+          "name": "harborrag-discovery"
+        },
+        "startToCloseTimeout": "10s",
+        "attempt": 1
+      }
+    },
+    {
+      "eventId": "3",
+      "eventTime": "2026-11-25T09:25:26.540Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_EXECUTION_SIGNALED",
+      "workflowExecutionSignaledEventAttributes": {
+        "signalName": "request_graceful_cancel",
+        "input": {},
+        "identity": "harborrag-replay-recorder"
+      }
+    },
+    {
+      "eventId": "4",
+      "eventTime": "2026-11-25T09:25:26.540Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_TASK_STARTED",
+      "workflowTaskStartedEventAttributes": {
+        "scheduledEventId": "2",
+        "identity": "harborrag-replay-recorder",
+        "historySizeBytes": "1221"
+      }
+    },
+    {
+      "eventId": "5",
+      "eventTime": "2026-11-25T09:25:26.550Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_TASK_COMPLETED",
+      "workflowTaskCompletedEventAttributes": {
+        "scheduledEventId": "2",
+        "identity": "harborrag-replay-recorder",
+        "binaryChecksum": "9aae667656c33ec445e2604e0b11b42c",
+        "sdkMetadata": {
+          "coreUsedFlags": [
+            2,
+            3,
+            1
+          ],
+          "sdkName": "temporal-python",
+          "sdkVersion": "1.30.0"
+        },
+        "meteringMetadata": {}
+      }
+    },
+    {
+      "eventId": "6",
+      "eventTime": "2026-11-25T09:25:26.550Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED",
+      "workflowExecutionCompletedEventAttributes": {
+        "result": {
+          "payloads": [
+            {
+              "metadata": {
+                "encoding": "anNvbi9wbGFpbg=="
+              },
+              "data": "eyJmYWlsZWQiOjAsInB1Ymxpc2hlZCI6MCwidW5jaGFuZ2VkIjowfQ=="
+            }
+          ]
+        },
+        "workflowTaskCompletedEventId": "4"
+      }
+    }
+  ]
+}

@@ -19,10 +19,6 @@ from harborrag_core.contracts.reader import (
     DocumentListResponse,
     EntityFindRequest,
     EntityFindResponse,
-    EntityResolveRequest,
-    EntityResolveResponse,
-    EvidenceFetchRequest,
-    EvidenceFetchResponse,
     EvidenceReadRequest,
     EvidenceReadResponse,
     GraphNodeResolveRequest,
@@ -33,18 +29,12 @@ from harborrag_core.contracts.reader import (
     GraphSubgraphResponse,
     GraphTripletRequest,
     GraphTripletResponse,
-    RelationSearchRequest,
-    RelationSearchResponse,
     RetrievalRequest,
     RetrievalResponse,
-    SemanticPathRequest,
-    SemanticPathResponse,
     SourceListRequest,
     SourceListResponse,
 )
 from harborrag_core.indexing import FilterOperator, VectorFilter, VectorFilterCondition
-from harborrag_core.security import AccessContext
-from harborrag_core.topology.records import CanonicalMention
 
 if TYPE_CHECKING:
     from harborrag_engine.retrieval.service.service import RuntimeRetrievalService
@@ -166,11 +156,6 @@ class KnowledgeFacade:
         service = await self._owner._retrieval_service()
         return await service.list_documents(request)
 
-    async def fetch_evidence(self, request: EvidenceFetchRequest) -> EvidenceFetchResponse:
-        """Return the requested chunks as retrieval results."""
-        service = await self._owner._retrieval_service()
-        return await service.fetch_evidence(request.chunk_ids, access=request.access)
-
     async def read_evidence(self, request: EvidenceReadRequest) -> EvidenceReadResponse:
         """Return the requested chunks with their provenance and availability."""
         service = await self._owner._retrieval_service()
@@ -194,46 +179,6 @@ class KnowledgeFacade:
         """Return the graph nodes that ``request``'s selector matches."""
         service = await self._owner._retrieval_service()
         return await service.resolve_graph_nodes(request)
-
-    async def resolve_entities(self, request: EntityResolveRequest) -> EntityResolveResponse:
-        """Return the canonical mentions of the named entity."""
-        service = await self._owner._retrieval_service()
-        return await service.resolve_entities(
-            request.name,
-            limit=request.limit,
-            access=request.access,
-        )
-
-    async def lookup_entities(
-        self,
-        *,
-        access: AccessContext,
-        entity_ids: tuple[str, ...] = (),
-        chunk_ids: tuple[str, ...] = (),
-    ) -> tuple[CanonicalMention, ...]:
-        """Return the canonical mentions of the given entities or chunks."""
-        service = await self._owner._retrieval_service()
-        return await service.lookup_entities(
-            entity_ids=entity_ids,
-            chunk_ids=chunk_ids,
-            access=access,
-        )
-
-    async def find_relations(self, request: RelationSearchRequest) -> RelationSearchResponse:
-        """Return the assertions that connect one canonical entity to others."""
-        service = await self._owner._retrieval_service()
-        return await service.find_semantic_relations(
-            request.entity_id,
-            predicates=request.predicates,
-            direction=request.direction,
-            limit=request.limit,
-            access=request.access,
-        )
-
-    async def find_paths(self, request: SemanticPathRequest) -> SemanticPathResponse:
-        """Return the assertion paths between two canonical entities."""
-        service = await self._owner._retrieval_service()
-        return await service.find_semantic_paths(request)
 
 
 _RANGE_OPERATORS = {

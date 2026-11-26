@@ -39,6 +39,8 @@ ErrorCategory = Literal[
 
 _SOURCE_CHECKS: tuple[CheckName, ...] = ("reachable", "auth", "permissions", "preview")
 _NOT_PERMITTED = frozenset({403, 404})
+_CLIENT_ERROR_STATUSES = range(400, 500)
+_NOT_REFUSED_STATUSES = frozenset({401, 403, 404, 408, 429})
 
 PREVIEW_SIZE = 5
 ENV_SECRET_MESSAGE = "the secret is read from the worker's environment; the API cannot check it"
@@ -190,7 +192,10 @@ def classify(error: BaseException, *, default: CheckName) -> tuple[CheckName, Er
 
     An error with no HTTP status means the source never answered, so it fails
     ``reachable`` whichever step raised it, as does a blocked private address,
-    whose message is HarborRAG's own; 403 and 404 fail ``permissions``.
+    whose message is HarborRAG's own. A rate limit is reported as one whatever
+    its status, since GitHub answers a secondary limit with 403. Any other 403
+    or 404 fails ``permissions``, as does another 4xx the error marks as not
+    retryable, such as a 400 or 422: the source answered and refused the request.
     """
     status = getattr(error, "status_code", None)
     prefix = f"{status} from the source: " if status else ""
@@ -198,14 +203,26 @@ def classify(error: BaseException, *, default: CheckName) -> tuple[CheckName, Er
         return "reachable", "unreachable", str(error)
     if isinstance(error, SourceAuthenticationError):
         return "auth", "auth_invalid", f"{prefix}the credentials were rejected"
-    if isinstance(error, SourceAuthorizationError) or status in _NOT_PERMITTED:
-        return "permissions", "forbidden", f"{prefix}the credentials cannot read this content"
     if isinstance(error, RateLimitError):
         return "reachable", "rate_limited", f"{prefix}the source is rate limiting requests"
+    if isinstance(error, SourceAuthorizationError) or status in _NOT_PERMITTED:
+        return "permissions", "forbidden", f"{prefix}the credentials cannot read this content"
+    if _refused_request(error, status):
+        return "permissions", "forbidden", f"{prefix}the source refused the request"
     if isinstance(error, TimeoutError):
         return "reachable", "unreachable", "the source did not answer in time"
     check = default if status else "reachable"
     return check, "unreachable", f"{prefix}the source could not be read ({type(error).__name__})"
+
+
+def _refused_request(error: BaseException, status: object) -> bool:
+    """Return whether the source answered a 4xx the error marks as not retryable."""
+    return (
+        getattr(error, "retryable", None) is False
+        and isinstance(status, int)
+        and status in _CLIENT_ERROR_STATUSES
+        and status not in _NOT_REFUSED_STATUSES
+    )
 
 
 def timed_out_report() -> ConnectionTestReport:

@@ -180,21 +180,6 @@ def test_content_file_item_raises_when_response_is_not_a_blob():
         api.content_file_item("src", ref="main")
 
 
-def test_record_for_path_resolves_repository_commit_and_item():
-    client = FakeGitHubClient()
-    add_repo_and_commit(client)
-    client.add(
-        "repos/acme/harbor-rag/contents/README.md",
-        {"type": "file", "path": "README.md", "sha": "sha-readme", "size": 7},
-    )
-    api = GitHubRepositoryAPI(config(), client)
-
-    record = api.record_for_path("README.md")
-
-    assert record.metadata["path"] == "README.md"
-    assert record.metadata["sha"] == "sha-readme"
-
-
 def test_resolve_repository_is_cached():
     client = FakeGitHubClient()
     client.add("repos/acme/harbor-rag", repo())

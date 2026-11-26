@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterator
-from pathlib import Path
 
 from harborrag_adapters.connectors.base import BaseConnector
 from harborrag_adapters.connectors.exceptions import (
@@ -24,6 +23,7 @@ from .filesystem import LocalFileSystem
 from .filesystem_paths import guess_mime_type
 from .mappers import build_document_metadata, path_from_record
 from .relations import LocalDocumentRelationResolver
+from .skips import path_digest
 
 logger = logging.getLogger("harborrag.adapters.connectors.local")
 
@@ -85,14 +85,17 @@ class LocalFileConnector(BaseConnector):
         path = record_path if record_path.is_absolute() else self.root_path / record_path
         if not path.is_relative_to(self.root_path):
             raise DocumentProcessingError(
-                f"Local path is outside configured source scope {self.root_path}: {path}"
+                f"Local path is outside configured source scope {self.root_path}: "
+                f"path_digest={path_digest(path)}"
             )
 
-        logger.info("Loading local file %s", path)
+        logger.info("Loading local file path_digest=%s", path_digest(path))
         try:
             snapshot = self._files.read_snapshot(path)
         except OSError as exc:
-            raise FetchError(f"Could not read local file {path}") from exc
+            raise FetchError(
+                f"Could not read local file path_digest={path_digest(path)}: {type(exc).__name__}"
+            ) from None
 
         metadata = build_document_metadata(
             path,
@@ -121,8 +124,3 @@ class LocalFileConnector(BaseConnector):
     def close(self) -> None:
         """Release the root descriptor held by the filesystem boundary."""
         self._files.close()
-
-    def load_by_paths(self, paths: list[str | Path]) -> Iterator[RawDocument]:
-        """Load files for callers that already have file paths."""
-        for path in paths:
-            yield self.load(self._files.record_for_path(path))

@@ -203,7 +203,7 @@ async def test_tenant_nodes_are_authorized_without_a_readable_neighbor() -> None
     """
 
     records = {"n-1": _tenant_node("n-1"), "n-2": _tenant_node("n-2")}
-    authorizer = ScopedAuthorizer(documents={"doc-1"})
+    authorizer = ScopedAuthorizer(documents={"doc-1"}, sources={"scope-1"})
 
     states = await apply_graph_permissions(
         records,

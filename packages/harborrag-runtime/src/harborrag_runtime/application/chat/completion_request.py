@@ -48,11 +48,13 @@ class CompletionCaller:
         tenant_id: Tenant the question is asked in.
         principal_id: Subject of the credential.
         user_id: End user who owns the session; the principal when ``None``.
+        acl_subject: Subject the document ACL checks, such as an API key's owner.
     """
 
     tenant_id: str
     principal_id: str
     user_id: str | None
+    acl_subject: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,12 +83,15 @@ class CompletionOutcome:
     replayed: bool
 
 
-def chat_options(request: CompletionRequest, *, user_id: str | None) -> ChatExecutionOptions:
+def chat_options(
+    request: CompletionRequest, *, user_id: str | None, acl_subject: str
+) -> ChatExecutionOptions:
     """The options of one completion request.
 
     Args:
         request: The question and its narrowing.
         user_id: The end user who owns the session.
+        acl_subject: Subject the document ACL checks.
 
     Returns:
         The chat service's options for the turn.
@@ -116,6 +121,7 @@ def chat_options(request: CompletionRequest, *, user_id: str | None) -> ChatExec
         session_id=request.session_id,
         system=ChatPrompt.DEFAULT,
         user_id=user_id,
+        acl_subject=acl_subject,
         mode=request.mode,
         project_ids=request.project_ids,
         connections=connections,

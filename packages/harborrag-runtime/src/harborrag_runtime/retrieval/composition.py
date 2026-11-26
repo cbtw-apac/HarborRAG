@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Awaitable, Callable
 
 from harborrag_adapters.models.embed import HarborEmbedClient, HarborEmbedClientConfig
@@ -34,13 +35,17 @@ from ..config.settings import RuntimeSettings
 from ..observability.model import IngestionTelemetry, build_model_telemetry
 from ..topology.embedding_profile import build_contextual_profile
 
+logger = logging.getLogger("harborrag.runtime.retrieval.composition")
+_UNBOUND_METRICS_PORTS: set[int | None] = set()
+
 
 async def connect_retrieval_service(
     settings: RuntimeSettings,
 ) -> RuntimeRetrievalService:
     """Connect Postgres, MinIO, Qdrant, and FalkorDB as one owned resource set.
 
-    Summary views are joined onto nodes only when summarization is enabled.
+    Summary views are joined onto nodes only when summarization is enabled. A
+    metrics port that cannot be bound leaves the service without its exporter.
     """
     settings = GraphBuildConfig.from_settings(settings).effective_settings(settings)
     embed_config = HarborEmbedClientConfig.from_file(settings.model_config_path)
@@ -74,7 +79,7 @@ async def connect_retrieval_service(
     graph_repository = build_knowledge_graph(settings)
     connected: list[Callable[[], Awaitable[None]]] = []
     try:
-        await telemetry.start()
+        await _start_metrics_exporter(telemetry, settings.metrics_port)
         connected.append(telemetry.close)
         for resource in (
             control,
@@ -140,6 +145,21 @@ async def connect_retrieval_service(
         ),
         telemetry=telemetry,
     )
+
+
+async def _start_metrics_exporter(telemetry: IngestionTelemetry, port: int | None) -> None:
+    """Start the metrics exporter, or warn once per port and go on without it.
+
+    A port that cannot be bound, for example because the worker holds it, must not
+    fail retrieval, and so every chat. The warning names the port only.
+    """
+    try:
+        await telemetry.start()
+    except OSError:
+        if port in _UNBOUND_METRICS_PORTS:
+            return
+        _UNBOUND_METRICS_PORTS.add(port)
+        logger.warning("Metrics port %s could not be bound; retrieval goes on without it", port)
 
 
 def _rerank_client(settings: RuntimeSettings) -> HarborRerankingClient | None:

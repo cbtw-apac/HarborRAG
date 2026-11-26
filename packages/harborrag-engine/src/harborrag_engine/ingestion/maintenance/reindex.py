@@ -23,6 +23,7 @@ from harborrag_core.ingestion import (
     SourceIdentity,
     identity_for_source,
 )
+from harborrag_core.ingestion.identity import legacy_identity_for_source
 from harborrag_core.ingestion.limits import validate_reindex_limit
 from harborrag_core.schemas.ids import DocumentId
 from harborrag_core.storage import StorageOperationContext
@@ -186,6 +187,13 @@ class DocumentReindexService:
         )
         source_identity = source_identity_from_canonical(canonical)
         if str(identity_for_source(source_identity)) != document_id:
+            if str(legacy_identity_for_source(source_identity)) == document_id:
+                logger.info(
+                    "Reindex skipped a document stored under its legacy ID; "
+                    "its next scan replaces it document_id=%s",
+                    document_id,
+                )
+                return False
             raise ValueError("canonical source identity does not match document")
         current_processing = processing_profile_from_canonical(
             canonical.provenance.extra.get("processing_profile")
@@ -252,7 +260,7 @@ def source_identity_from_canonical(document: Document) -> SourceIdentity:
     """Recover stable source identity without consulting a source connector."""
     metadata = document.provenance.extra
     required = {
-        name: str(metadata.get(name, "")).strip()
+        name: str(metadata.get(name, ""))
         for name in (
             "tenant_id",
             "connector_type",
@@ -261,14 +269,12 @@ def source_identity_from_canonical(document: Document) -> SourceIdentity:
             "source_scope_id",
         )
     }
-    missing = tuple(name for name, value in required.items() if not value)
+    missing = tuple(name for name, value in required.items() if not value.strip())
     if missing:
         raise ValueError("canonical source identity is incomplete: " + ", ".join(missing))
     binding_kind = BindingKind(str(metadata.get("binding_kind", BindingKind.ROOT.value)))
     parent = metadata.get("parent_source_item_id")
-    parent_source_item_id = (
-        str(parent).strip() if parent is not None and str(parent).strip() else None
-    )
+    parent_source_item_id = str(parent) if parent is not None and str(parent).strip() else None
     return SourceIdentity(
         tenant_id=required["tenant_id"],
         connector_type=ConnectorType(required["connector_type"]),

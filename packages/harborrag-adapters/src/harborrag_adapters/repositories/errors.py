@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from enum import StrEnum
 from typing import Any
 
-from harborrag_core.contracts.errors import StorageNotFoundError
+from harborrag_core.contracts.errors import HarborUnavailableError, StorageNotFoundError
 from harborrag_core.storage import StorageFamily
 
 
@@ -80,14 +81,8 @@ class HarborStorageConfigurationError(HarborStorageError):
     pass
 
 
-class HarborStorageConnectionError(HarborStorageError):
-    """Raised when a storage operation fails because of connection."""
-
-    pass
-
-
-class HarborStorageAuthenticationError(HarborStorageError):
-    """Raised when a storage operation fails because of authentication."""
+class HarborStorageConnectionError(HarborStorageError, HarborUnavailableError):
+    """A storage backend could not be reached or is unavailable; a retry may succeed."""
 
     pass
 
@@ -98,8 +93,8 @@ class HarborStorageAuthorizationError(HarborStorageError):
     pass
 
 
-class HarborStorageTimeoutError(HarborStorageError):
-    """Raised when a storage operation fails because of timeout."""
+class HarborStorageTimeoutError(HarborStorageError, HarborUnavailableError):
+    """A storage operation ran out of time; a retry may succeed."""
 
     pass
 
@@ -134,32 +129,8 @@ class HarborStorageValidationError(HarborStorageError):
     pass
 
 
-class HarborStorageTransactionError(HarborStorageError):
-    """Raised when a storage operation fails because of transaction."""
-
-    pass
-
-
-class HarborStorageMigrationError(HarborStorageError):
-    """Raised when a storage operation fails because of migration."""
-
-    pass
-
-
 class HarborStorageCapabilityError(HarborStorageError):
     """Raised when a storage operation fails because of capability."""
-
-    pass
-
-
-class HarborStorageSerializationError(HarborStorageError):
-    """Raised when a storage operation fails because of serialization."""
-
-    pass
-
-
-class HarborStorageIntegrityError(HarborStorageError):
-    """Raised when a storage operation fails because of integrity."""
 
     pass
 
@@ -192,3 +163,45 @@ class HarborUnsafeQueryError(HarborStorageValidationError):
     """Raised when HarborRAG detects unsafe query."""
 
     pass
+
+
+class StorageFailure(StrEnum):
+    """Kinds of backend failure an adapter translates a vendor error into."""
+
+    UNAVAILABLE = "backend unavailable"
+    TIMEOUT = "timed out"
+    RATE_LIMITED = "rate limited"
+    REJECTED = "request rejected"
+
+
+_FAILURE_ERRORS: dict[StorageFailure, tuple[type[HarborStorageError], bool]] = {
+    StorageFailure.UNAVAILABLE: (HarborStorageConnectionError, True),
+    StorageFailure.TIMEOUT: (HarborStorageTimeoutError, True),
+    StorageFailure.RATE_LIMITED: (HarborStorageRateLimitError, True),
+    StorageFailure.REJECTED: (HarborStorageValidationError, False),
+}
+
+
+def storage_failure_error(
+    failure: StorageFailure,
+    context: StorageErrorContext,
+    *,
+    status_code: str | int | None = None,
+) -> HarborStorageError:
+    """Build the storage error for one kind of backend failure.
+
+    The message names only the backend, operation and kind, never vendor text.
+
+    Args:
+        failure: What went wrong; every kind but ``REJECTED`` is retryable.
+        context: Context of the failed operation.
+        status_code: Vendor status code, kept on the context for diagnostics.
+
+    Returns:
+        The error to raise from the vendor exception.
+    """
+    error_type, retryable = _FAILURE_ERRORS[failure]
+    return error_type(
+        f"{context.backend} {context.operation} failed: {failure.value}",
+        context=replace(context, retryable=retryable, status_code=status_code),
+    )

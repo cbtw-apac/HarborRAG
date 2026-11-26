@@ -36,7 +36,7 @@ These terms are related but not interchangeable:
 | API roles and tenant grants | Implemented | Authenticated requests are checked against the tenants granted to the principal. Development mode can run without authentication. |
 | Tenant-specific MCP tool policy | Implemented | `config/mcp/server.yaml` can override tool enablement, defaults and limits per tenant. |
 | Tenant-isolated vector and graph retrieval | Implemented | Each tenant has its own Qdrant collections and its own FalkorDB graph. |
-| Tenant-isolated object and workflow-state storage | Implemented | Object keys, workflow state, checkpoints and leases include the tenant. |
+| Tenant-isolated object storage and ingestion records | Implemented | Object keys, and the documents, versions, sources and runs of the ingestion control plane, carry the tenant. |
 | Tenant-owned control-plane records | Implemented | Projects, connections, members, activity, jobs and settings carry the tenant. |
 | Tenant-owned connections | Implemented | Each connection belongs to one tenant and one project in the control database; ingestion finds it only in that tenant. |
 | Read access inside a tenant | Implemented | By default, serving needs current permission snapshots for both the source and the document; one configured tenant can instead share its whole corpus. See [Read access inside a tenant](#read-access-inside-a-tenant). |
@@ -52,11 +52,11 @@ These terms are related but not interchangeable:
 `harborrag_core.schemas.ids.TenantId` is the identifier HarborRAG's storage contracts
 share. HarborRAG's Pydantic contracts reject empty values and strip leading and trailing
 whitespace. Control-plane records reject whitespace, and the runtime environment
-validator is stricter still. Public API and Qdrant paths accept up to 128 characters,
-while the SQL workflow-state schemas use 64-character tenant columns. For compatibility
+validator is stricter still. The public API, Qdrant, FalkorDB, schedules and the
+control database's tenant columns all accept up to 128 characters. For compatibility
 with every built-in backend, use a portable identifier that:
 
-- is 1 to 64 characters long (128 is accepted only where a surface documents it);
+- is 1 to 128 characters long;
 - starts with an ASCII letter or digit;
 - contains only letters, digits, `.`, `_` or `-`;
 - contains no secret or personal data.
@@ -64,7 +64,7 @@ with every built-in backend, use a portable identifier that:
 The portable form matches this regular expression:
 
 ```text
-^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$
+^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$
 ```
 
 For example, use `engineering`, `tenant-7` or `acme.prod`. Tenant comparisons are exact,
@@ -109,7 +109,7 @@ tenant input:
 
 | Surface | Tenant input | Default | Authorization |
 | --- | --- | --- | --- |
-| CLI | `--tenant` | `HARBORRAG_TENANT_ID`, else the profile's `tenant`, else `DEFAULT` | The local CLI acts as `cli:<os-user>` with the `owner` role in every tenant; it checks no bearer-token grant, and asks before a write into a tenant with no data. |
+| CLI | `--tenant` | `HARBORRAG_TENANT_ID`, else the profile's `tenant`, else the `HARBORRAG_TENANT_ID` line of the checkout's `env/.env.api`, else `DEFAULT` | The local CLI acts as `cli:<os-user>` with the `owner` role in every tenant; it checks no bearer-token grant, and asks before a write into a tenant with no data. |
 | Python SDK ingestion and retrieval | `AccessContext.tenant_id` | None; required | The embedding application must authenticate and authorize the principal before it builds the context. |
 | `/v1` HTTP API | The credential's tenant grant; the `X-Tenant-Id` header picks one when the credential holds several | The credential's only tenant; `HARBORRAG_TENANT_ID` (`DEFAULT` unless set) for a `*` grant without the header | The API checks the principal's role and tenant grants. |
 | MCP tools | Top-level `tenant_id` argument | The tenant a single-tenant key or token is bound to | Authenticated transports check the token's tenant grant; a call naming another tenant is refused. |
@@ -142,17 +142,21 @@ harbor = HarborRAG.from_config("sdk.yaml")
 ```
 
 `HarborRAG.from_config` loads exactly the file it is given; the SDK does not search for
-one. Keep secrets in the process environment or a secret manager rather than in this
-file.
+one. Every key under `runtime:` must be a `RuntimeSettings` field, written in the same
+case, such as `tenant_id`. Any other key, a typo included, stops the load with
+`Unknown HarborRAG runtime configuration fields:` and the names, instead of falling
+back to a default. Keep secrets in the process environment or a secret manager rather
+than in this file.
 
 The CLI runs from a repository checkout: it walks up from the current directory to the
 checkout and runs from there, with the checkout's `config/` files and the `env/` files
 listed in
 [Run from a repository checkout](../cli-reference/README.md#run-from-a-repository-checkout).
 A directory found by walking up is accepted only when you own it and it is not
-world-writable. Every CLI command takes its tenant from `--tenant`, else from
-`HARBORRAG_TENANT_ID`, else from the `tenant` of the CLI profile in
-`~/.config/harborrag/config.yaml`, else `DEFAULT`; see
+world-writable. Every CLI command, `harborrag me` included, takes its tenant from
+`--tenant`, else from `HARBORRAG_TENANT_ID`, else from the `tenant` of the CLI profile
+in `~/.config/harborrag/config.yaml`, else from the `HARBORRAG_TENANT_ID` line of the
+checkout's `env/.env.api`, else `DEFAULT`; see
 [Global options](../cli-reference/README.md#global-options).
 
 Neither the SDK nor the CLI activates a tenant because a file or directory name matches
@@ -296,9 +300,10 @@ curl --fail-with-body \
 ```
 
 Without the header, such a credential gets `400 tenant_required`; a credential with one
-tenant acts in it, and a `*` credential acts in `DEFAULT`. A tenant the credential does
-not hold gets `403 tenant_forbidden`, whatever its role. Chat requests take the tenant
-the same way; the request body carries no tenant.
+tenant acts in it, and a `*` credential acts in the tenant `HARBORRAG_TENANT_ID` names
+(`DEFAULT` unless set). A tenant the credential does not hold gets
+`403 tenant_forbidden`, whatever its role. Chat requests take the tenant the same way;
+the request body carries no tenant.
 
 `HARBORRAG_AUTH_MODE=none` is a development-only mode that treats every request as an
 `owner` with access to every tenant. Production configuration refuses to start with
@@ -310,7 +315,11 @@ request from its claimed tenant alone.
 The authenticated API mode is `hmac`: the API verifies HS256-signed JWT bearer tokens.
 In that mode it also accepts an API key created with `harborrag auth keys create` (see
 [MCP setup](../detailed-guides/mcp-server/setup-and-integration.md)), as a `reader` of
-the key's one tenant. The settings are:
+the key's one tenant. Such a key reads documents as its owner, so the owner's source and
+document permissions decide what its chat answers cite. Chat sessions and
+`Idempotency-Key` replay are keyed by the owner too, not by the key ID, so the owner's
+other keys reach the same sessions. `/v1/me` and rate and capacity limits still use the
+key's own ID. The settings are:
 
 | Variable | Requirement or default | Purpose |
 | --- | --- | --- |
@@ -433,13 +442,12 @@ Retrieval, chat and the MCP tools apply one of two corpus access modes:
 The code default is `source_acl`, but the shipped `env-example/.env.api.example`,
 `env-example/.env.temporal.example` and `env-example/.env.mcp.example` set `tenant_shared`
 for `DEFAULT`, so a deployment created from them reads the whole corpus in chat and
-through MCP reader keys for `DEFAULT`. Remove the two lines to return the
-tenant to `source_acl`; a deployment created from older templates has no such lines and
-stays on `source_acl` until you add them. The API and the workers read these two variables
-from their own environment, and the CLI from a checkout reads them from `env/.env.api`.
-The MCP server reads them from `env/.env.mcp`.
-In the SDK, the application chooses the mode per request with `AccessContext.corpus_mode`.
-For the CLI, see
+through MCP reader keys for `DEFAULT`. Remove the two lines to return the tenant to
+`source_acl`; a deployment created from older templates has no such lines and stays on
+`source_acl` until you add them. The API and the workers read these two variables from
+their own environment, and the CLI from a checkout reads them from `env/.env.api`. The
+MCP server reads them from `env/.env.mcp`. In the SDK, the application chooses the mode
+per request with `AccessContext.corpus_mode`. For the CLI, see
 [Ask a grounded question](../cli-reference/README.md#ask-a-grounded-question); for MCP, see
 [Tenant-bound reader keys and shared corpus access](../detailed-guides/mcp-server/setup-and-integration.md#tenant-bound-reader-keys-and-shared-corpus-access).
 
@@ -524,13 +532,12 @@ Tenant isolation is enforced at several layers:
 | Layer | Isolation behavior |
 | --- | --- |
 | Control-plane repositories | Tenant-owned records carry `tenant_id`; repository contracts expose tenant-scope filters. |
-| Canonical SQL repositories | Documents, versions, chunks, events and outbox records store the tenant and use it in reads and ownership checks. |
+| Ingestion control plane | Documents, document versions, source scopes, runs and run events store the tenant and use it in reads and ownership checks. |
 | Qdrant | Each tenant has physically separate collections. `tenant_id` is deliberately not a payload filter. |
 | FalkorDB | Each tenant has a physically separate graph. `tenant_id` also takes part in node identity, uniqueness constraints, writes and retrieval filters. |
 | Filesystem and S3 object stores | Logical object keys sit below the tenant's namespace prefix, `{storage_namespace_prefix}_{tenant_id}/`. |
-| SQL and Redis workflow state | Workflow state, checkpoints, leases and fencing counters include the tenant in keys or ownership checks. |
 | Temporal ingestion | The tenant is stored in workflow and source inputs, so retries and resumed activities keep the original scope. |
-| Chat memory | Sessions and turns are keyed by tenant, principal and session ID. |
+| Chat memory | Sessions and turns are keyed by tenant, user and session ID. The principal that acted is kept for audit only. |
 | Model cache, singleflight and budgets | Model request metadata supplies `tenant_id`; configured policies can require it and partition state by tenant. |
 | MCP tool policy | The tenant selects effective enablement, defaults and limits after transport authorization; the runtime context still provides data isolation. |
 
@@ -591,13 +598,11 @@ Listing, reading, writing, presigning and deletion compute the prefix from
 `context.tenant_id`. This is namespacing, not encryption: bucket policy and
 infrastructure credentials must still prevent direct access that bypasses HarborRAG.
 
-### Relational and workflow-state isolation
+### Relational isolation
 
-Canonical and control-plane records store `tenant_id` in indexed columns, composite
-identities or explicit scope filters. Workflow-state adapters use the tenant in state,
-checkpoint, lease and fencing identities. Records passed to state repositories are
-checked against the operation context, so a record for tenant A cannot be written with
-tenant B's context.
+Control-plane and ingestion records store `tenant_id` in indexed columns, composite
+identities or explicit scope filters, and every tenant column accepts the full
+128-character tenant ID.
 
 The process normally shares one set of database credentials. Row-level tenant columns
 are therefore an application-enforced boundary, not a separate database account or
@@ -655,8 +660,8 @@ embedding application or the operator may need to create.
 ### Rename a tenant
 
 A tenant ID is a storage namespace, not a display label. HarborRAG has no atomic rename
-across SQL, Qdrant, FalkorDB, object storage, workflow state, chat memory, caches, token
-grants and MCP configuration.
+across SQL, Qdrant, FalkorDB, object storage, Temporal workflow histories, chat memory,
+caches, token grants and MCP configuration.
 
 When only the display name changes, keep the tenant ID and update the external display
 name. If the ID itself must change:
@@ -668,7 +673,7 @@ name. If the ID itself must change:
 4. create the new control-plane records and policy entries;
 5. reingest from the authoritative sources, or run a purpose-built, reviewed migration
    that rewrites every tenant-owned record and namespace;
-6. compare document, chunk, object, vector, graph, state and chat counts;
+6. compare document, chunk, object, vector, graph and chat counts;
 7. run positive and negative retrieval tests for both IDs;
 8. switch clients and token grants to the new ID;
 9. keep the old namespace for the required rollback window;
@@ -684,11 +689,10 @@ cover:
 
 - control-plane projects, connections, providers, members, activity, jobs, settings,
   ingestion runs and conversation memory;
-- canonical SQL documents, versions, chunks, events and outbox data;
+- ingestion records: documents, document versions, source scopes and run events;
 - each of the tenant's Qdrant collections;
 - the tenant's FalkorDB graph;
 - filesystem or S3 objects below the tenant's namespace prefix;
-- SQL or Redis workflow state, checkpoints, leases and fencing counters;
 - model-cache, budget, rate-limit and singleflight state, where configured;
 - Temporal workflow histories and external backups, under their own retention policies;
 - identity-provider grants, API tokens, MCP keys and MCP tenant overrides.
@@ -810,7 +814,7 @@ request must still use tenant-scoped repository operations.
 | API returns `401` | Check that the bearer token is present, signed with the configured HMAC secret, unexpired, within the maximum lifetime, and has the configured issuer and audience. |
 | API returns `403` | Confirm the role is sufficient and the token's `tenants` claim contains the exact requested tenant, or a deliberate `*`. |
 | API returns `404` for a known ingestion run | The API hides runs outside the principal's tenants; check the run's tenant and the token grant. |
-| API returns `422` for a tenant | Use 1 to 128 characters matching `^[A-Za-z0-9][A-Za-z0-9._-]*$`; use 64 or fewer for the widest backend compatibility. |
+| API returns `422` for a tenant | Use a tenant ID matching `^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`. |
 | API refuses to start with `auth_mode=none` | Production forbids disabled authentication; a development listener on a non-loopback address needs `HARBORRAG_ALLOW_INSECURE_DEV=true`. |
 | API refuses to start with `auth_mode=oidc` | OIDC/JWKS verification is not implemented; use `hmac` or an approved external boundary. |
 | MCP returns `owner role required` | A `reader` key can list and run tools but cannot change the server's configuration; use the owner token for the configuration editor and management API. |
@@ -823,7 +827,7 @@ request must still use tenant-scoped repository operations.
 | Object keys are not where you expect in the raw bucket | HarborRAG stores them below the tenant's namespace prefix, such as `harborrag_DEFAULT/`; read them through the object-store adapter. |
 | SDK data crosses a tenant boundary in an embedding application | Audit authentication and authorization before the `AccessContext` is built; the SDK trusts the context the host supplies. |
 | A model cache is bypassed or a budget request is rejected | Fill `ModelRequestMetadata.tenant_id` when the configured policy requires tenant isolation. |
-| Chat session lookup returns `404` | Confirm that the tenant, the authenticated principal and the session ID all match the session's owner. |
+| Chat session lookup returns `404` | Confirm that the tenant, the user and the session ID all match the session's owner. The user is the token's user claim, or an API key's owner. |
 | Changing `HARBORRAG_TENANT_ID` does not show old data | The setting changes the future fallback only; it does not migrate existing tenant data. |
 | A renamed tenant has partial data | A rename must migrate every persistence family; compare inventories, and return to the old ID until the migration is complete. |
 | A `.harbor` directory or a workspace name has no effect | Workspace profiles are not implemented. The CLI reads the configuration of the checkout it runs in, and its profile file sets only a default tenant and output format; the SDK and services read the configuration paths and environment they are given. |

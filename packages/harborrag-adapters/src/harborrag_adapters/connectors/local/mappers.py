@@ -47,6 +47,9 @@ def build_source_record(
     ``is_symlink`` must be captured by the caller before ``path`` is resolved —
     traversal resolves symlinks to their real target, so ``path.is_symlink()``
     here would always be ``False``.
+
+    The record is the stored discovery descriptor, and any change to it makes the
+    file METADATA_CHANGED, so it leaves out the access time that every read moves.
     """
     stat = path.stat()
     relative = relative_path(path, root_path)
@@ -70,7 +73,6 @@ def build_source_record(
             "size": stat.st_size,
             "created_at": created_at,
             "updated_at": updated_at,
-            "accessed_at": stat_datetime(stat.st_atime),
             "is_symlink": is_symlink,
         },
     )

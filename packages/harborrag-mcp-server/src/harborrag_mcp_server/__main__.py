@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from harborrag_core.invariants import HarborInvariantError
-from harborrag_mcp_server.audit import DEFAULT_AUDIT_PATH, McpAuditLog
+from harborrag_mcp_server.audit import DEFAULT_AUDIT_PATH, McpAuditLog, prepare_audit_directory
 from harborrag_mcp_server.configuration import McpConfigurationStore
 from harborrag_mcp_server.configuration.launch import load_launch_environment
 from harborrag_mcp_server.preflight import describe_startup_failure, start_and_stop
@@ -31,6 +31,7 @@ from harborrag_mcp_server.server.api_keys import (
     create_postgres_api_key_verifier,
 )
 from harborrag_mcp_server.server.http import (
+    RouteAccess,
     create_api_key_owner_verifier,
     create_local_token_verifier,
     parse_allowed_hosts,
@@ -41,6 +42,10 @@ from harborrag_mcp_server.server.http import (
     served_origins,
     validate_http_bind,
     validate_local_http_settings,
+)
+from harborrag_mcp_server.server.request_limits import (
+    CredentialLimiter,
+    request_limits_from_environment,
 )
 
 if TYPE_CHECKING:
@@ -192,9 +197,17 @@ def _prepare_arguments(
     if arguments.path is None:
         arguments.path = os.environ.get("HARBORRAG_MCP_PATH", "/mcp")
     arguments.allowed_hosts = parse_allowed_hosts(os.environ.get("HARBORRAG_MCP_ALLOWED_HOSTS"))
+    try:
+        arguments.request_limits = request_limits_from_environment(os.environ)
+    except ValueError as exc:
+        parser.error(str(exc))
     if arguments.config is None:
         arguments.config = _default_config_path()
     arguments.audit_path = Path(os.environ.get("HARBORRAG_MCP_AUDIT_PATH", DEFAULT_AUDIT_PATH))
+    try:
+        prepare_audit_directory(arguments.audit_path)
+    except OSError as exc:
+        parser.error(f"HARBORRAG_MCP_AUDIT_PATH: {exc}")
 
 
 def _register_routes(  # noqa: PLR0913 - the launched server's parts
@@ -212,12 +225,14 @@ def _register_routes(  # noqa: PLR0913 - the launched server's parts
     configuration API stay on the reader server, so one process owns writes to
     the configuration file.
     """
+    limiter = CredentialLimiter(arguments.request_limits)
     if ui:
         register_health_route(
             transport,
             mcp_path=arguments.path,
             tool_names=_tool_names(registry, ui=True),
             service="harborrag-mcp-ui",
+            limiter=limiter,
         )
     else:
         register_http_routes(
@@ -225,7 +240,7 @@ def _register_routes(  # noqa: PLR0913 - the launched server's parts
             mcp_path=arguments.path,
             registry=registry,
             configuration=configuration,
-            token_verifier=auth,
+            access=RouteAccess(auth, limiter),
         )
     for line in _announcement(arguments, ui=ui):
         print(line, file=sys.stderr)

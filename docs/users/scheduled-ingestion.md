@@ -131,11 +131,13 @@ connection's query excludes.
   configuration, such as its task queues, apply after the workers restart.
 - When the connection was removed, is being deleted or holds invalid values, the firing
   fails at once and is not retried.
-- When another ingestion of the same source scope is already running, such as a manual
-  ingestion or another schedule, the firing is skipped and recorded with outcome
-  `skipped` instead of failing. Repeated skips with no completed run mean the scope is
-  held by a long-running or stranded scan; the `HarborRAGScheduleKeepsSkipping` alert
-  reports this after a day.
+- When the connection already has a pending, running or paused ingestion, such as a
+  manual ingestion or another schedule's run, the firing is skipped and recorded with
+  outcome `skipped` instead of failing. A run keeps the connection busy until it
+  finishes, which can be hours after its scan ends, and a paused run until it is
+  resumed or cancelled. Repeated skips with no completed run mean the connection is
+  held by a long-running, paused or stranded run; the `HarborRAGScheduleKeepsSkipping`
+  alert reports this after a day.
 
 ## Schedules created in 1.x
 

@@ -23,7 +23,11 @@ from .config import (
 )
 from .connections import SharedConnectionLifecycle
 from .context import update_operation_context
-from .environment import expand_environment
+from .environment import (
+    catalog_has_rerank_model,
+    expand_environment,
+    require_set_variables,
+)
 from .errors import HarborNoHealthyDeploymentError
 from .lifecycle import (
     AsyncCloseCallback,
@@ -96,7 +100,6 @@ __all__ = [
     "ImmutableProviderRegistry",
     "InMemoryModelCache",
     "LangfuseTelemetry",
-    "LiteLLMTelemetryCallback",
     "MiddlewarePipeline",
     "ModelClientConfig",
     "ModelMiddleware",
@@ -131,6 +134,7 @@ __all__ = [
     "TelemetryHookLifecycle",
     "TelemetrySink",
     "TimeoutConfig",
+    "catalog_has_rerank_model",
     "close_async_callbacks",
     "close_async_resources",
     "close_callbacks",
@@ -141,6 +145,7 @@ __all__ = [
     "middleware_context",
     "prepare_config_section",
     "protect_sensitive_headers",
+    "require_set_variables",
     "resolve_secret_references",
     "reveal_headers",
     "reveal_secret",
@@ -148,14 +153,3 @@ __all__ = [
     "update_operation_context",
     "validate_base_url",
 ]
-
-
-def __getattr__(name: str) -> object:
-    # litellm_telemetry imports LiteLLM when it is installed; loading it lazily
-    # keeps a plain `import harborrag` (which reaches this package through the
-    # config loaders) from pulling in the optional provider stack.
-    if name == "LiteLLMTelemetryCallback":
-        from .litellm_telemetry import LiteLLMTelemetryCallback
-
-        return LiteLLMTelemetryCallback
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

@@ -1,7 +1,8 @@
 """Facade for source discovery, dispatch, retry, and finalization.
 
 Every terminal summary stored here replaces the task's summary, so each one
-keeps the discovery skip counts that status views read after the run ends.
+keeps the discovery skip counts that status views read after the run ends and
+the progress bridge's state.
 """
 
 from __future__ import annotations
@@ -37,7 +38,7 @@ from .documents import SourceDocumentService
 from .finalization import SourceFinalizationService
 from .operations import SourceDocumentOperations
 from .retry import SourceRetryService
-from .skips import carried_discovery_skips
+from .skips import carried_discovery_skips, carried_progress_state, run_skip_summary
 
 logger = logging.getLogger("harborrag.runtime.ingestion.source")
 
@@ -165,7 +166,8 @@ class SourceIngestionService(SourceDocumentOperations):
         """Converge a graceful workflow cancellation on durable task state.
 
         The open scan is cancelled first, so a cancel during discovery cannot
-        block later scans of the scope. The task keeps its summary.
+        block later scans of the scope. The task keeps its summary, with the
+        skips counted so far at discovery and per document.
         """
         if await self._control.source_scans.cancel_if_started(source_scan_id(task_id)):
             logger.info("Open source scan cancelled task_id=%s", task_id)
@@ -189,9 +191,18 @@ class SourceIngestionService(SourceDocumentOperations):
         await self._control.tasks.transition(
             task_id,
             IngestionTaskState.CANCELLED,
-            summary={**task.summary, "cancelled_at_safe_boundary": True},
+            summary={
+                **task.summary,
+                **await run_skip_summary(self._control, task_id),
+                "cancelled_at_safe_boundary": True,
+            },
         )
         logger.info("Source ingestion cancelled task_id=%s", task_id)
+
+    async def is_cancelled(self, task_id: str) -> bool:
+        """Whether the run is recorded as cancelled, as a Temporal cancel records it."""
+        task = await self._control.tasks.get(task_id)
+        return task is not None and task.status is IngestionTaskState.CANCELLED
 
     async def pause(self, task_id: str) -> None:
         """Pause a running ingestion task; a missing or paused task is left as is."""
@@ -213,7 +224,9 @@ class SourceIngestionService(SourceDocumentOperations):
         """Persist one terminal source-workflow failure without runtime details.
 
         The failed task keeps the counts of what discovery skipped, so status
-        views still show them. A task that already ended is left as it is.
+        views still show them, and the progress bridge's state. When finalization
+        recorded the stage it failed in, the task keeps that summary instead and
+        ``stage`` is ignored. A task that already ended is left as it is.
         """
         await self._control.source_scans.fail_if_started(
             source_scan_id(task_id),
@@ -235,11 +248,16 @@ class SourceIngestionService(SourceDocumentOperations):
         await self._control.tasks.transition(
             task_id,
             IngestionTaskState.FAILED,
-            summary={
-                "failed_stage": stage,
-                "error_code": error_code,
-                **carried_discovery_skips(task.summary),
-            },
+            summary=(
+                {**task.summary, "error_code": error_code}
+                if _finalization_failed(task.summary)
+                else {
+                    "failed_stage": stage,
+                    "error_code": error_code,
+                    **carried_discovery_skips(task.summary),
+                    **carried_progress_state(task.summary),
+                }
+            ),
         )
         logger.warning(
             "Source ingestion marked failed task_id=%s error_code=%s",
@@ -402,6 +420,12 @@ class SourceIngestionService(SourceDocumentOperations):
             if dimensions is None:
                 raise
             raise VectorIndexSchemaError(_schema_mismatch_message(error, *dimensions)) from error
+
+
+def _finalization_failed(summary: Mapping[str, object]) -> bool:
+    """Whether a finalization attempt recorded its failed stage and counts on the task."""
+    failed_stage = summary.get("failed_stage")
+    return isinstance(failed_stage, str) and bool(failed_stage)
 
 
 def _failure_stage(error: Exception, stage: str) -> str:

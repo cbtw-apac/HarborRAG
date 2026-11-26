@@ -253,6 +253,17 @@ class SourceCancellationInput:
 
 
 @dataclass(frozen=True, slots=True)
+class SourceCancellationResult:
+    """Skips of a source ingestion when it was cancelled.
+
+    Attributes:
+        skipped_by_reason: Items skipped at discovery or per document, by reason code.
+    """
+
+    skipped_by_reason: dict[str, int] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
 class SourcePauseInput:
     """Input to pause a source ingestion."""
 

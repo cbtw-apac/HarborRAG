@@ -82,7 +82,11 @@ def start_ingestion(  # noqa: PLR0913 - the run options plus the global options
     inline: Annotated[
         bool,
         typer.Option(
-            "--inline", help="Run the pipeline in this process without Temporal (development)."
+            "--inline",
+            help=(
+                "Run the pipeline in this process without Temporal (development); "
+                "409 already_running when the connection has an active run."
+            ),
         ),
     ] = False,
     tenant: TenantOption = None,
@@ -230,7 +234,7 @@ def resume_ingestion(  # noqa: PLR0913 - the run plus the global options
     config: ConfigOption = None,
     yes: YesOption = False,
 ) -> None:
-    """Resume a paused run; 409 invalid_state when its status does not allow it."""
+    """Resume a paused run, or a running one with a pending pause; else 409 invalid_state."""
     resolved = current_globals(
         tenant=tenant, output=output, profile=profile, config=config, yes=yes
     )

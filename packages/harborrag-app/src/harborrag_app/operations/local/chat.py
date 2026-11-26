@@ -15,6 +15,7 @@ from pydantic import ValidationError
 
 from harborrag_app.operations.contract import OPERATIONS
 from harborrag_app.operations.port import ChatCompletion
+from harborrag_app.operations.principal import Principal
 from harborrag_app.operations.schemas.chat import (
     ChatCompletionRequest,
     ChatCompletionResponse,
@@ -87,7 +88,10 @@ class ChatOps:
         outcome = await self._app_service.complete_chat_request(
             _completion_request(body, trace_id),
             caller=CompletionCaller(
-                scope.tenant_id, scope.principal.subject, scope.principal.user_id
+                scope.tenant_id,
+                scope.principal.subject,
+                scope.principal.user_id,
+                acl_subject(scope.principal),
             ),
             replay=ReplayKey(idempotency_key, body.idempotency_hash()),
             validate_body=ChatCompletionResponse.model_validate_json,
@@ -165,6 +169,16 @@ class ChatOps:
         return MessageList.model_validate(result.data)
 
 
+# TODO: move onto Principal once principal.py is open to this change.
+def acl_subject(principal: Principal) -> str:
+    """Return the subject document ACLs check: an API key's owner, else the subject.
+
+    MCP checks a key's owner too. Sessions and ``Idempotency-Key`` replay are keyed
+    by the owner as well. Rate and capacity limits still use the key ID.
+    """
+    return principal.user_id if principal.kind == "api_key" else principal.subject
+
+
 def _access(scope: Scope, session_id: str | None = None) -> MemoryAccess:
     """The caller's own conversation key, built only from verified claims."""
     return MemoryAccess(
@@ -217,7 +231,7 @@ def _stored_answer(outcome: CompletionOutcome) -> ChatCompletionResponse:
         ) from None
 
 
-# TODO: stream the answer as it is generated, with the Story 5 event names (Task 7).
+# TODO: send response.output_text.delta frames as the model generates, not one after it ends.
 async def _completion_frames(
     answer: ChatCompletionResponse, *, replayed: bool
 ) -> AsyncGenerator[bytes, None]:

@@ -17,6 +17,7 @@ from harborrag_core.ingestion import GraphEntityType
 
 from .source_projector_support import (
     BaseSourceProjector,
+    identity_value,
     mapping_value,
     portable_path,
     project_structure_chain,
@@ -80,7 +81,9 @@ class GitHubSourceProjector(BaseSourceProjector):
         self.edge(state, RelationType.CONTAINS, data_source, owner)
         self.edge(state, RelationType.CONTAINS, owner, repository)
 
-        relative_path = portable_path(text_value(extra, "path") or source_item_provider_id(state))
+        relative_path = portable_path(
+            identity_value(extra, "path") or source_item_provider_id(state)
+        )
         item = self.source_item(
             state,
             document,
@@ -266,7 +269,7 @@ class LocalSourceProjector(BaseSourceProjector):
         )
         self.edge(state, RelationType.CONTAINS, data_source, root)
         relative_path = portable_path(
-            text_value(extra, "relative_path") or source_item_provider_id(state)
+            identity_value(extra, "relative_path") or source_item_provider_id(state)
         )
         item = self.source_item(
             state,

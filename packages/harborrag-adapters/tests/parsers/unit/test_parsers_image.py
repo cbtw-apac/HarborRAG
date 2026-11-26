@@ -78,7 +78,8 @@ def test_image_parser_treats_no_ocr_text_as_empty_success(monkeypatch, caplog) -
 
     assert document.content == ""
     assert document.elements == []
-    assert "Parsed image OCR blank.png" in caplog.text
+    assert "Parsed image OCR input=" in caplog.text
+    assert "blank.png" not in caplog.text
     assert "content_chars=0 elements=0" in caplog.text
 
 
@@ -154,15 +155,13 @@ def test_image_parser_raises_typed_error_instead_of_crashing_on_decompression_bo
         ImageParser().parse(ParseInput(content=_png_bytes(), filename="huge.png"))
 
 
-def test_image_parser_reports_unreadable_image_with_filename_and_size_not_raw_bytesio_repr() -> (
-    None
-):
-    """Name the file and its size when Pillow cannot identify the image.
+def test_image_parser_reports_unreadable_image_with_size_not_raw_bytesio_repr() -> None:
+    """Give the size when Pillow cannot identify the image, and keep the name as data.
 
     Bytes Pillow cannot identify as any supported format (corrupt, truncated,
     or not actually an image) used to surface as a raw `UnidentifiedImageError:
-    cannot identify image file <_io.BytesIO object at 0x...>`, unreadable on
-    its own, with no clue which file failed.
+    cannot identify image file <_io.BytesIO object at 0x...>`. A file name can
+    name a person, so it stays on the error's ``filename`` attribute only.
     """
     garbage = b"not an image, just plain bytes"
 
@@ -170,7 +169,8 @@ def test_image_parser_reports_unreadable_image_with_filename_and_size_not_raw_by
         ImageParser().parse(ParseInput(content=garbage, filename="quarterly_report.png"))
 
     message = str(exc_info.value)
-    assert "quarterly_report.png" in message
+    assert "quarterly_report.png" not in message
+    assert getattr(exc_info.value, "filename", None) == "quarterly_report.png"
     assert str(len(garbage)) in message
     assert "_io.BytesIO" not in message
 
@@ -212,7 +212,8 @@ def test_image_past_pillows_bomb_ceiling_reports_the_configured_max_pixels(monke
         )
 
     assert exc_info.value.max_pixels == 15
-    assert "dashboard_export_over_limit.png" in str(exc_info.value)
+    assert exc_info.value.filename == "dashboard_export_over_limit.png"
+    assert "dashboard_export_over_limit.png" not in str(exc_info.value)
 
 
 def test_image_past_pillows_bomb_ceiling_names_the_ceiling_capping_max_pixels(

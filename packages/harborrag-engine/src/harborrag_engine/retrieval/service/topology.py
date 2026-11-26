@@ -120,7 +120,11 @@ class TopologyRetrieval:
         except Exception as error:
             logger.warning(
                 "Semantic expansion failed; returning authoritative flat results",
-                extra={"error_code": type(error).__name__},
+                extra={
+                    "error_code": type(error).__name__,
+                    "tenant_id": str(context.tenant_id),
+                    "request_id": context.idempotency_key,
+                },
             )
             return _fallback(batch, "topology_unavailable")
 
@@ -147,14 +151,7 @@ class TopologyRetrieval:
             _candidate(record) for record in records if _matches(record, evidence, context)
         )
         if self._contextual is not None and dense_vector is not None:
-            contextual = await self._contextual.search(
-                VectorSearchQuery(
-                    index_name="evidence",
-                    vector=list(dense_vector),
-                    top_k=self._policy.max_candidate_chunks,
-                ),
-                context=context,
-            )
+            contextual = await self._contextual_hits(self._contextual, dense_vector, context)
             semantic, evidence = _merge_contextual(
                 semantic, evidence, contextual, rrf_constant=self._policy.rrf_constant
             )
@@ -179,6 +176,33 @@ class TopologyRetrieval:
             evidence=evidence,
             diagnostics=diagnostics,
         )
+
+    async def _contextual_hits(
+        self,
+        contextual: ContextualSearchPort,
+        dense_vector: tuple[float, ...],
+        context: StorageOperationContext,
+    ) -> tuple[tuple[VectorSearchResult, TopologyEvidence], ...]:
+        """Search the generated views; a failure there leaves the graph candidates intact."""
+        try:
+            return await contextual.search(
+                VectorSearchQuery(
+                    index_name="evidence",
+                    vector=list(dense_vector),
+                    top_k=self._policy.max_candidate_chunks,
+                ),
+                context=context,
+            )
+        except Exception as error:
+            logger.warning(
+                "Contextual search failed; keeping graph candidates",
+                extra={
+                    "error_code": type(error).__name__,
+                    "tenant_id": str(context.tenant_id),
+                    "request_id": context.idempotency_key,
+                },
+            )
+            return ()
 
     async def finalize(
         self,

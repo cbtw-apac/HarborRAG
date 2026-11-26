@@ -405,9 +405,11 @@ async def test_testing_form_values_saves_nothing(
 @pytest.mark.asyncio
 async def test_list_and_searchable_hide_nothing_but_secrets(world: ConnectionWorld) -> None:
     await world.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u")
+    world.runs.scopes["demo/demo-tickets"] = ["scope-1"]
+    world.runs.readable["u"] = ("scope-1",)
 
     items, cursor = await world.service.list_page(tenant_id="acme")
-    chips = await world.service.searchable(tenant_id="acme", project_id="demo")
+    chips = await world.service.searchable(tenant_id="acme", project_id="demo", principal_id="u")
 
     assert [item["connection_ref"] for item in items] == ["demo/demo-tickets"] and cursor is None
     assert chips == [

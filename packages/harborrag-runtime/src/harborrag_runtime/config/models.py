@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
-import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-
-_VARIABLE_REFERENCE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)")
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,7 +50,8 @@ def has_rerank_model(path: str | Path) -> bool:
 
     The loader's errors propagate: ``OSError`` for an unreadable file,
     ``yaml.YAMLError`` for malformed YAML, ``ValueError`` for a document that is
-    not a mapping or a ``model`` that reads an unset variable with no default.
+    not a mapping, a duplicate key, an unknown top-level section or a ``model``
+    that reads an unset variable with no default.
 
     Args:
         path: YAML or JSON model catalog.
@@ -62,71 +60,31 @@ def has_rerank_model(path: str | Path) -> bool:
         Whether a ``rerank`` section is present and names at least one model.
 
     Raises:
-        ValueError: A named rerank model's provider requires an API key, and its
-            ``api_key`` reads a variable that is empty, so every rerank call would
-            be refused. A provider that needs no key, such as ``vllm`` or
-            ``litellm_proxy``, may leave it empty.
+        ValueError: A named rerank model's ``api_key`` reads a variable that is
+            empty, such as ``HARBORRAG_RERANKER_API_KEY``. Every provider refuses
+            it, because LiteLLM would send an ambient key such as ``COHERE_API_KEY``
+            instead. The message names the variable, never a value.
     """
-    from harborrag_adapters.models.runtime import expand_environment, load_config_document
+    from harborrag_adapters.models.runtime import catalog_has_rerank_model, load_config_document
 
-    document = load_config_document(path)
-    if "rerank" not in document:
-        return False
-    deployments = _rerank_deployments(document["rerank"])
-    if deployments is None:
-        return True
-    named = [item for item in deployments if str(expand_environment(item["model"])).strip()]
-    for deployment in named:
-        _require_rerank_key(deployment)
-    return bool(named)
+    return catalog_has_rerank_model(load_config_document(path))
 
 
-def _rerank_deployments(section: object) -> list[Mapping[str, Any]] | None:
-    """Return the rerank deployments that name a ``model``, or None for another shape."""
-    definitions = section.get("models") if isinstance(section, Mapping) else None
-    if not isinstance(definitions, Mapping) or not definitions:
-        return None
-    found: list[Mapping[str, Any]] = []
-    for definition in definitions.values():
-        deployments = definition.get("deployments") if isinstance(definition, Mapping) else None
-        if not isinstance(deployments, list) or not deployments:
-            return None
-        for deployment in deployments:
-            if not isinstance(deployment, Mapping) or "model" not in deployment:
-                return None
-            found.append(deployment)
-    return found
+def require_set_model_variables(values: object) -> None:
+    """Refuse a ``${VAR}`` reference in parsed catalog values whose variable is blank.
 
+    ``python -m harborrag_adapters.models validate`` applies the same rule to one
+    family's section. A ``${VAR:-default}`` reference is skipped.
 
-def _require_rerank_key(deployment: Mapping[str, Any]) -> None:
-    """Refuse an empty key variable when the deployment's provider requires a key.
+    Args:
+        values: The catalog, or part of it, as parsed from YAML or JSON.
 
-    An unknown provider is left to the loader, which names the supported ones.
+    Raises:
+        ValueError: ``NAME is blank``, naming every blank variable in sorted order.
     """
-    from harborrag_adapters.models.runtime import expand_environment
+    from harborrag_adapters.models.runtime import require_set_variables
 
-    key = deployment.get("api_key")
-    variables = _VARIABLE_REFERENCE.findall(key) if isinstance(key, str) else []
-    if not variables or str(expand_environment(key)).strip():
-        return
-    if _rerank_provider_requires_key(deployment.get("provider")):
-        raise ValueError(f"{', '.join(variables)} is empty, and the rerank model needs it")
-
-
-def _rerank_provider_requires_key(provider: object) -> bool:
-    """Whether the rerank provider registry marks ``provider`` as needing an API key."""
-    from harborrag_adapters.models.rerank.registry import (
-        HarborRerankProvider,
-        RerankProviderRegistry,
-    )
-    from harborrag_adapters.models.runtime import expand_environment
-
-    name = str(expand_environment(provider)).strip() if isinstance(provider, str) else ""
-    try:
-        known = HarborRerankProvider(name)
-    except ValueError:
-        return False
-    return RerankProviderRegistry.default().get(known).requires_api_key
+    require_set_variables(values)
 
 
 def _deployment_names(models: Mapping[str, Any]) -> tuple[str, ...]:

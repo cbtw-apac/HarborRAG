@@ -11,6 +11,7 @@ from harborrag_core.chunking import RelationType
 from harborrag_core.contracts.errors import HarborDeadlineExceeded
 from harborrag_core.ingestion import KnowledgeNodeKind
 from harborrag_core.retrieval import GraphAccessScope
+from harborrag_core.retrieval.graph import GraphDocumentAccess
 
 NODE_LABELS = {
     KnowledgeNodeKind.TENANT: "Tenant",
@@ -45,12 +46,19 @@ def access_predicate(variable: str) -> str:
     made the stub (and every link through it) flip with ingestion order. The stub holds
     only a provider id, and each link to it is still checked against its own declaring
     document. ``graph_visibility._record_authorized`` applies the same rule.
+
+    When the readable documents are too many to list, ``$documents_by_source_scope``
+    admits every document of the readable source scopes instead. That superset only
+    bounds the read: the caller still checks each returned document's permissions.
     """
 
     return f"""(
         $access_unrestricted
         OR ({variable}.document_id IS NOT NULL
             AND {variable}.document_id IN $authorized_document_ids)
+        OR ($documents_by_source_scope
+            AND {variable}.document_id IS NOT NULL
+            AND {variable}.source_scope_id IN $authorized_source_scope_ids)
         OR ({variable}.document_id IS NULL
             AND {variable}.external = true
             AND $tenant_visible)
@@ -71,6 +79,9 @@ def access_parameters(scope: GraphAccessScope | None) -> dict[str, Any]:
     return {
         "access_unrestricted": scope is None or scope.tenant_shared,
         "authorized_document_ids": list(scope.document_ids) if scope is not None else [],
+        "documents_by_source_scope": (
+            scope is not None and scope.document_access == GraphDocumentAccess.BY_SOURCE_SCOPE
+        ),
         "authorized_source_scope_ids": (list(scope.source_scope_ids) if scope is not None else []),
         "tenant_visible": scope.tenant_visible if scope is not None else True,
     }

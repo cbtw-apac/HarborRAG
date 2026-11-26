@@ -15,8 +15,9 @@ For the request and response contract, see [Chat](README.md).
 | `HARBORRAG_API_STREAM_TIMEOUT_SECONDS` | `600` | Lifetime of a streamed response body |
 
 Chat retrieval always runs hybrid search, which combines dense (embedding)
-and sparse (keyword) matching. Graph observation is optional and adds work only
-to `classic` turns; see [Retrieval and models](README.md#retrieval-and-models).
+and sparse (keyword) matching. `local_semantic` retrieval, with its bounded
+graph expansion, is optional and adds work only to `classic` turns; see
+[Retrieval and models](README.md#retrieval-and-models).
 
 ## Request rates and concurrency
 
@@ -79,7 +80,9 @@ in-memory fallback coordinates only one process.
 
 Send an `Idempotency-Key` header, 1 to 128 characters, on
 `POST /v1/chat/completions` to make a retry safe; the body takes no key. A key
-is scoped to the tenant and the signed user and is kept for 24 hours.
+is scoped to the tenant and the signed user and is kept for 24 hours. After
+that, the stored request and its answer are deleted when the next keyed request
+in the same tenant arrives, which removes up to 100 expired ones at a time.
 
 - The same key and body return the stored answer byte for byte, with no second
   model call; the `Idempotency-Replayed: true` header marks the replay.

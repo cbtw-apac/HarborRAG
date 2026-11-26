@@ -7,7 +7,7 @@ concrete service overrides only what it supports.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import AsyncGenerator, Mapping
+from collections.abc import Mapping
 
 from harborrag_memory.access import MemoryAccess
 
@@ -44,14 +44,6 @@ class BaseAppService(ABC):
     async def sync_ingestion_progress(self) -> int:
         """One progress-bridge poll tick where the concrete service supports it."""
         return 0
-
-    async def start_memory_extraction(self) -> None:
-        """Start background memory extraction where the service supports it."""
-        return None
-
-    async def drain_memory_extraction(self) -> None:
-        """Finish queued memory extraction where the service supports it."""
-        return None
 
     async def create_chat_session(  # noqa: PLR0913 - one component of the new session per argument
         self,
@@ -114,22 +106,6 @@ class BaseAppService(ABC):
         options: ChatExecutionOptions,
     ) -> AppResponse:
         """Generate one retrieval-grounded chat completion."""
-        raise NotImplementedError
-
-    def chat_stream(
-        self,
-        query: str,
-        *,
-        tenant_id: str,
-        principal_id: str,
-        options: ChatExecutionOptions,
-    ) -> AsyncGenerator[dict[str, object], None]:
-        """Stream one retrieval-grounded chat completion as ``{"kind": ...}`` events.
-
-        An ``AsyncGenerator`` rather than a bare iterator: the transport closes
-        the stream when its client goes away, and the implementation persists
-        the text it already delivered while handling that close.
-        """
         raise NotImplementedError
 
     async def run_ingestion(  # noqa: PLR0913 - the inline run options

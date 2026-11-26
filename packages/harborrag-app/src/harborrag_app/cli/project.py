@@ -20,6 +20,8 @@ from typing import Any
 import typer
 import yaml
 
+from harborrag_runtime.config.settings import RuntimeSettings
+
 logger = logging.getLogger("harborrag.app.cli.project")
 
 # The project main() activated for this process, so later code (doctor) reports it instead
@@ -312,6 +314,13 @@ def _load(root: Path) -> Project:
     runtime = raw.get("runtime") or {}
     if not isinstance(runtime, dict):
         raise ProjectConfigurationError(f"{marker}: 'runtime' must be a mapping")
+    unknown = sorted(
+        str(key) for key in runtime if str(key).lower() not in RuntimeSettings.model_fields
+    )
+    if unknown:
+        raise ProjectConfigurationError(
+            f"{marker}: unknown 'runtime' settings: {', '.join(unknown)}"
+        )
     return Project(root=root, runtime={str(key): value for key, value in runtime.items()})
 
 

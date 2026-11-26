@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from harborrag_adapters.repositories.private_directories import make_private_directories
+
 SQLITE_MEMORY = ":memory:"
 
 
@@ -38,19 +40,15 @@ def prepare_sqlite_database(database: str) -> str:
     operator had chosen -- stripping group and other access from a shared
     directory, or raising ``PermissionError`` on one the process does not own.
 
-    The parent's mode is now set only when this creates the directory. An
-    existing directory belongs to the operator; the database file is ours, so it
-    is always narrowed to 0600.
+    Each directory this creates, the parent and any missing one above it, is
+    mode 0700. An existing directory belongs to the operator and keeps its mode;
+    the database file is ours, so it is always narrowed to 0600.
     """
 
     resolved = _resolved(database)
     if resolved is None:
         return "sqlite+aiosqlite:///:memory:"
-    parent = resolved.parent
-    created = not parent.exists()
-    parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    if created:
-        os.chmod(parent, 0o700)
+    make_private_directories(resolved.parent)
     descriptor = os.open(
         resolved,
         os.O_RDWR | os.O_CREAT | getattr(os, "O_CLOEXEC", 0),

@@ -23,6 +23,7 @@ from harborrag_core.ingestion.connector_contracts import (
 logger = logging.getLogger("harborrag.adapters.connectors.local")
 
 _PATH_DIGEST_CHARS = 12
+SKIP_REASON_DELETED = "deleted"
 
 
 def path_digest(path: str | Path) -> str:
@@ -100,6 +101,10 @@ class LocalSkipReport:
     def unreadable(self, path: str | Path, *, error: OSError) -> None:
         """Record a path that could not be listed or stat'ed."""
         self.record(path, reason=SKIP_REASON_UNREADABLE, detail=f"unreadable: {error}")
+
+    def deleted(self, path: str | Path) -> None:
+        """Record a directory removed between being found and being listed."""
+        self.record(path, reason=SKIP_REASON_DELETED, detail="removed before it was listed")
 
     def out_of_scope(self, path: str | Path) -> None:
         """Record a path resolving outside the configured source scope."""

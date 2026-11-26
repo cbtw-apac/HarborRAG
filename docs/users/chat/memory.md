@@ -1,7 +1,7 @@
 # Conversation memory
 
 Look up what a chat turn remembers, who can read a chat session, how history is
-stored and browsed, and how long SDK memories live. A **session** is a
+stored, browsed and erased, and how long SDK memories live. A **session** is a
 conversation that keeps its history; an **exchange** is one question and its
 answer. Each chat turn in a session sends the model the latest **three completed
 exchanges** of that session. Older messages stay stored and can be browsed;
@@ -118,6 +118,27 @@ Renaming and deleting a session over HTTP, and the `/v1/memory/*` routes, are
 removed in 2.0.0 and answer `404`; they return with the v2.1 session and memory
 endpoints.
 
+## Erase a user's history
+
+2.0.0 has no HTTP route or CLI command that erases history. From Python,
+`MemoryAdministrationService.erase_user` in `harborrag_memory.administration`
+erases everything kept for one signed user in one tenant:
+
+- every chat session of the user, with its messages, title and session memories,
+  whether or not it produced a memory;
+- session memories left by sessions that are already gone;
+- the user's own memories, and the project and tenant memories the user wrote;
+- every stored completion request of the user, with or without a session,
+  including the stored answers that make retries safe.
+
+It returns an `ErasureReport`, whose `as_dict()` gives the counts `memories`,
+`index_points`, `sessions`, `conversation_messages_cleared` and
+`completion_requests`.
+
+While a session of the user is answering a turn, the erasure fails with a
+conflict (`HarborConflictError`); run it again once the turn ends. An erasure
+that fails partway can be run again, and it finishes what is left.
+
 ## SDK memory settings
 
 These variables configure the SDK memory facade, `HarborRAG.memory.*`. They do
@@ -132,11 +153,17 @@ not change the three-exchange window that chat completions use.
 | `HARBORRAG_MEMORY_RETENTION_DAYS_USER` | `365` | Expiry of user memories. |
 | `HARBORRAG_MEMORY_RETENTION_DAYS_PROJECT` | `0` | Expiry of project memories. |
 
-Retention is applied as an expiry time when a memory is written, and `0` means
-it never expires on its own. Expired memories are no longer recalled, searched
-or returned, but no background job deletes them: the rows stay in the control
-database until they are erased. A changed retention value applies only to
-memories written afterwards.
+Each retention variable takes 0 to 36,500 days; a larger value fails the
+settings check at startup. Retention is applied as an expiry time when a memory
+is written, and `0` means it never expires on its own. Expired memories are no
+longer recalled, searched or returned, but no background job deletes them: the
+rows stay in the control database until they are erased. A changed retention
+value applies only to memories written afterwards.
+
+`HARBORRAG_MEMORY_EXTRACTION_MIN_IMPORTANCE` and
+`HARBORRAG_MEMORY_DEDUP_THRESHOLD` are removed in 2.0.0, because nothing read
+them. The environment variables are ignored, and as keys under `runtime:` in
+`harborrag.yaml` or an SDK configuration file they are refused.
 
 ## See also
 

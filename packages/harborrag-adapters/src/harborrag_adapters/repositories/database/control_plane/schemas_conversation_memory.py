@@ -19,7 +19,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from harborrag_adapters.repositories.backends.sqlalchemy import UTCDateTime
 
-from .schemas import Base, JSONVariant
+from .schemas import Base
 
 
 class ConversationSessionRow(Base):
@@ -176,7 +176,7 @@ class MemoryRow(Base):
     principal_id: Mapped[str | None] = mapped_column(sa.String(512), nullable=True)
     session_id: Mapped[str | None] = mapped_column(sa.String(128), nullable=True)
     content: Mapped[str] = mapped_column(sa.Text, nullable=False)
-    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSONVariant, default=dict, nullable=False)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(sa.JSON, default=dict, nullable=False)
     importance: Mapped[float] = mapped_column(sa.Float, nullable=False)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)

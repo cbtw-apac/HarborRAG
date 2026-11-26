@@ -7,6 +7,7 @@ from uuid import uuid4
 from pydantic import ValidationError
 
 from harborrag_adapters.models.runtime.litellm_backend import build_provider_params
+from harborrag_adapters.models.runtime.provider import ProviderMetadata
 from harborrag_adapters.models.runtime.transport import reveal_headers
 from harborrag_core.models.errors import (
     HarborRerankConfigurationError,
@@ -41,6 +42,7 @@ _RESERVED_PARAMETERS = frozenset(
         "top_n",
     }
 )
+_VERSION_APPENDING_PROVIDERS = frozenset({"cohere", "litellm_proxy"})
 
 
 def normalize_rerank_documents(
@@ -182,7 +184,7 @@ def build_litellm_parameters(
     *,
     timeout: float,
     model_override: str | None = None,
-    litellm_provider: str | None = None,
+    metadata: ProviderMetadata,
 ) -> dict[str, Any]:
     """Translate one provider-neutral rerank request into LiteLLM parameters."""
 
@@ -197,9 +199,12 @@ def build_litellm_parameters(
         )
     parameters = build_provider_params(
         deployment,
-        litellm_provider=litellm_provider,
+        metadata=metadata,
         model=model_override,
     )
+    api_base = parameters.get("api_base")
+    if api_base and parameters.get("custom_llm_provider") in _VERSION_APPENDING_PROVIDERS:
+        parameters["api_base"] = _unversioned_base(api_base)
     deployment_headers = parameters.pop("extra_headers", {})
     request_headers = reveal_headers(request.custom_headers)
     optional: dict[str, Any] = {
@@ -219,3 +224,8 @@ def build_litellm_parameters(
     if headers:
         parameters["extra_headers"] = headers
     return parameters
+
+
+def _unversioned_base(api_base: str) -> str:
+    """Drop one trailing ``/v1``, since LiteLLM's Cohere route appends a version and ``/rerank``."""
+    return api_base.rstrip("/").removesuffix("/v1")

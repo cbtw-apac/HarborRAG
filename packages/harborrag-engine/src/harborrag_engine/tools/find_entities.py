@@ -200,13 +200,16 @@ class FindEntitiesTool(ReaderTool):
         if context is not None and principal_id != context.access.principal_id:
             raise PermissionError("tool principal does not match invocation context")
         try:
-            request = EntityFindRequest(
-                access=access(arguments, principal_id),
-                query=text(arguments, "query"),
-                facets=mapping(arguments, "facets"),
-                source_scope_ids=string_list(arguments, "source_ids"),
-                limit=integer(arguments, "limit", 10, minimum=1, maximum=ENTITY_FIND_LIMIT),
-            )
+            try:
+                request = EntityFindRequest(
+                    access=access(arguments, principal_id),
+                    query=text(arguments, "query"),
+                    facets=mapping(arguments, "facets"),
+                    source_scope_ids=string_list(arguments, "source_ids"),
+                    limit=integer(arguments, "limit", 10, minimum=1, maximum=ENTITY_FIND_LIMIT),
+                )
+            except ValueError as exc:
+                return failure(str(exc))
             response = await self.require_retrieval().find_entities(request)
             reasons = [*response.reasons, *(["candidate_limit"] if response.truncated else [])]
             return success(
@@ -230,9 +233,7 @@ class FindEntitiesTool(ReaderTool):
                 complete=not reasons,
                 reasons=reasons,
             )
-        except (HarborValidationError, ValueError) as exc:
-            return failure(str(exc))
-        except HarborCapabilityError as exc:
+        except (HarborValidationError, HarborCapabilityError) as exc:
             return failure(str(exc))
         except Exception:
             logger.exception("find_entities failed")

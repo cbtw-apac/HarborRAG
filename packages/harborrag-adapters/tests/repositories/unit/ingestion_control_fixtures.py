@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from harborrag_adapters.repositories.backends.sqlalchemy import SQLAlchemyDBClient
+from harborrag_adapters.repositories.backends.sqlite import prepare_sqlite_database
 from harborrag_adapters.repositories.database.ingestion_control import (
     IngestionControlPlaneDatabase,
 )
-from harborrag_adapters.repositories.database.sqlite.client import SQLiteDBClient
 from harborrag_core.chunking import ConnectorType
 from harborrag_core.ingestion import (
     AdmissionSnapshot,
@@ -19,9 +20,20 @@ from harborrag_core.ingestion import (
 )
 
 
+def sqlite_client(database: Path) -> SQLAlchemyDBClient:
+    return SQLAlchemyDBClient(
+        backend="sqlite",
+        url=prepare_sqlite_database(str(database)),
+        pool_size=None,
+        max_overflow=None,
+        pool_recycle_seconds=1800,
+        echo=False,
+    )
+
+
 def make_control_plane(tmp_path: Path) -> IngestionControlPlaneDatabase:
     return IngestionControlPlaneDatabase(
-        SQLiteDBClient(database=str(tmp_path / "control-plane.db")),
+        sqlite_client(tmp_path / "control-plane.db"),
         create_schema=True,
     )
 

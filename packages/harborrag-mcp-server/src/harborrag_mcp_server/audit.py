@@ -25,14 +25,8 @@ class McpAuditLog:
     def __post_init__(self) -> None:
         if self.max_entries < 1:
             raise ValueError("MCP audit max_entries must be positive")
-        if self.path is not None and not self.path.is_absolute():
-            # An MCP client launches the stdio server from a directory of its
-            # choosing, so a relative path put the trail somewhere different on
-            # every launch -- or in a directory the process could not make
-            # owner-only, which failed every tool call. Anchor it at the home
-            # directory, which is stable and is where the ownership rules the
-            # writer enforces can actually hold.
-            object.__setattr__(self, "path", Path.home() / self.path)
+        if self.path is not None:
+            object.__setattr__(self, "path", _anchored(self.path))
 
     def start(
         self,
@@ -139,6 +133,54 @@ class McpAuditLog:
 
 
 _SUPPORTS_DIR_FD = os.open in os.supports_dir_fd
+
+
+def _anchored(path: Path) -> Path:
+    """Anchor a relative audit path at the home directory.
+
+    An MCP client launches the stdio server from a directory of its choosing, so a
+    relative path would move the trail on every launch. The home directory is stable,
+    and the owner-only rules the writer enforces can hold there.
+    """
+    return path if path.is_absolute() else Path.home() / path
+
+
+def prepare_audit_directory(path: Path) -> None:
+    """Check the durable audit directory at start, creating it owner-only when missing.
+
+    Every audit write repeats these checks, so a directory that fails them would fail
+    every tool call. The mode of an existing directory is never changed.
+
+    Args:
+        path: Durable audit file; a relative path is anchored at the home directory.
+
+    Raises:
+        OSError: A component of the directory is a symlink or not a directory.
+        PermissionError: The directory is open to other users or owned by another user.
+    """
+    path = _anchored(path)
+    if not _SUPPORTS_DIR_FD:
+        path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        return
+    descriptor = _open_validated_parent_dir_fd(path)
+    try:
+        _require_private_directory(os.fstat(descriptor), path.parent)
+    finally:
+        os.close(descriptor)
+
+
+def _require_private_directory(metadata: os.stat_result, directory: Path) -> None:
+    """Refuse an audit directory that other users can enter or that another user owns."""
+    mode = stat.S_IMODE(metadata.st_mode)
+    if mode & 0o077:
+        raise PermissionError(
+            f"durable MCP audit directory must be owner-only (mode 0700): "
+            f"{directory} has mode {mode:04o}"
+        )
+    if not _owned_by_current_process(metadata):
+        raise PermissionError(
+            f"durable MCP audit directory must be owned by this process user: {directory}"
+        )
 
 
 def _open_audit_file(path: Path) -> int:
@@ -305,10 +347,7 @@ def _open_audit_file_dir_fd(path: Path) -> int:
             or _identity(directory_metadata) != _identity(named_directory_metadata)
         ):
             raise OSError("durable MCP audit directory must not be a symbolic link")
-        if stat.S_IMODE(directory_metadata.st_mode) & 0o077:
-            raise PermissionError("durable MCP audit directory must be owner-only")
-        if not _owned_by_current_process(directory_metadata):
-            raise PermissionError("durable MCP audit directory must be owned by this process user")
+        _require_private_directory(directory_metadata, path.parent)
 
         file_flags = (
             os.O_WRONLY

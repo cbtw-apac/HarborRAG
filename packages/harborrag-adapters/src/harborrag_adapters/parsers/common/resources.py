@@ -142,11 +142,14 @@ def read_parse_input_bytes(
 
 
 def _read_guarded_path(path: Path, *, max_bytes: int) -> bytes:
+    """Read a regular file through one descriptor; errors leave the path out, cause included."""
     flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
     try:
         descriptor = os.open(path, flags)
     except OSError as error:
-        raise ParseError("Parser path input could not be opened safely") from error
+        raise ParseError(
+            f"Parser path input could not be opened safely: {type(error).__name__}"
+        ) from None
     try:
         details = os.fstat(descriptor)
         if not stat.S_ISREG(details.st_mode):

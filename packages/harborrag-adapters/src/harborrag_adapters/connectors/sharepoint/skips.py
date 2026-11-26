@@ -180,6 +180,23 @@ def skip_reason_for_error(error: Exception) -> str | None:
     return None
 
 
+def listing_skip_reason(error: Exception) -> str | None:
+    """Map a failure to list or fetch an item during discovery to a skip reason.
+
+    Only a denied or deleted item is skipped. A throttled or failing listing
+    raises instead, so discovery retries rather than finishing a scan that
+    missed the files below it.
+
+    Args:
+        error: Failure raised while listing a folder or fetching an item.
+
+    Returns:
+        ``ACCESS_DENIED`` or ``DELETED``, or ``None`` when callers must re-raise.
+    """
+    reason = skip_reason_for_error(error)
+    return reason if reason in {ACCESS_DENIED, DELETED} else None
+
+
 class SharePointSkipRecorder:
     """Collect the items one discovery traversal skipped, and log each by ID.
 

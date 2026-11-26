@@ -44,9 +44,22 @@ at `/v1/chat/completions`.
    random local bearer token, the **owner token**, to
    `HARBORRAG_MCP_BEARER_TOKEN` in `env/.env.mcp`. The MCP wrapper reads
    `env/.env.database` and `env/.env.mcp`, `env/.env.models` when it exists,
-   and only `HARBORRAG_ENV` from `env/.env.api`. The server connects with the
-   `POSTGRES_*` and `MINIO_ROOT_*` accounts of `env/.env.database`.
-3. Decide what the server may read. The shipped `env/.env.mcp` sets these two
+   and only `HARBORRAG_ENV` from `env/.env.api`. The server never connects with
+   the Postgres owner or the MinIO root account of `env/.env.database`; it has
+   read-only accounts of its own, whose random passwords bootstrap writes there
+   as `POSTGRES_MCP_PASSWORD` and `MINIO_MCP_PASSWORD`.
+3. Create those read-only accounts once `scripts/deployment/dev.sh up` has
+   started the stack, whose API applies the database migrations, and again
+   after every upgrade:
+
+   ```bash
+   scripts/deployment/dev.sh mcp-access
+   ```
+
+   It creates or refreshes the `harborrag_mcp` Postgres role and the
+   `harborrag-mcp` MinIO user with those passwords. The details are in
+   [Read-only database and object-store accounts](#read-only-database-and-object-store-accounts).
+4. Decide what the server may read. The shipped `env/.env.mcp` sets these two
    lines, so every principal in the `DEFAULT` tenant, where your checkout's
    connections are imported, reads its whole published corpus, as `chat` does:
 
@@ -134,10 +147,11 @@ harborrag-mcp --http --env-file /etc/harborrag/reader.env --config /etc/harborra
 | `HARBORRAG_MCP_STARTUP_TIMEOUT` | Seconds `--http` waits for the health check (default `120`) |
 
 The database file supplies the Compose variables that build the backend
-addresses and credentials; the MCP file is required and the model file is
-optional. Compose reads the files as data, so no shell code in an env file
-runs. A model variable that no file sets is named before the server starts;
-see [Checks before the HTTP server starts](#checks-before-the-http-server-starts).
+addresses and the server's read-only credentials; the MCP file is required and
+the model file is optional. Compose reads the files as data, so no shell code
+in an env file runs. A model variable that no file sets is named before the
+server starts; see
+[Checks before the HTTP server starts](#checks-before-the-http-server-starts).
 
 ## Connect an MCP client
 
@@ -239,10 +253,12 @@ When the server is healthy, the wrapper prints
 (`scripts/deployment/mcp.sh down`).
 
 The container joins `harborrag-data-network` and reaches Postgres, the object
-store, Qdrant and the graph store by their service names there. Those
-addresses are fixed in `deploy/compose/docker-compose.mcp.yml` and use no TLS,
-which the server accepts only when `HARBORRAG_ENV=dev`. Docker publishes the
-server on `127.0.0.1`, on the port `HARBORRAG_MCP_PORT` names.
+store, Qdrant and the graph store by their service names there. It signs in to
+Postgres as the read-only `harborrag_mcp` role and to MinIO as the
+`harborrag-mcp` user. Those addresses are fixed in
+`deploy/compose/docker-compose.mcp.yml` and use no TLS, which the server
+accepts only when `HARBORRAG_ENV=dev`. Docker publishes the server on
+`127.0.0.1`, on the port `HARBORRAG_MCP_PORT` names.
 
 ### Checks before the HTTP server starts
 
@@ -258,8 +274,22 @@ started and the wrapper exits with status `2`. The cause is one line:
 
 ```text
 HarborRAG MCP preflight failed: ValueError: environment variable HARBORRAG_EMBED_API_KEY is not set
-HarborRAG MCP HTTP server was not started. The line above says why: a missing setting belongs in env/.env.mcp or env/.env.models, and an unreachable backend means the data services are not up yet ('scripts/deployment/dev.sh data').
+HarborRAG MCP HTTP server was not started. The line above says why: a missing setting belongs in env/.env.mcp or env/.env.models, an unreachable backend means the data services are not up yet ('scripts/deployment/dev.sh data'), and a refused login means the server's read-only accounts are missing ('scripts/deployment/dev.sh mcp-access').
 ```
+
+When Postgres refuses the read-only role, the preflight line names the cause,
+for example:
+
+```text
+HarborRAG MCP preflight failed: HarborUnavailableError: settings store is unreachable (cause: InvalidPasswordError)
+```
+
+`InvalidPasswordError` (a wrong or missing password) and
+`InvalidAuthorizationSpecificationError` (a role that may not log in yet) both
+mean the same step: run `scripts/deployment/dev.sh mcp-access`, then start the
+server again. Compose stops earlier, with
+`run scripts/deployment/dev.sh mcp-access to set POSTGRES_MCP_PASSWORD`, when
+`env/.env.database` has no such value.
 
 The wrapper also prints a `Note:` line in these cases, in stdio mode too. A
 setting that has a default is never reported; left out of `env/.env.mcp`, it
@@ -303,6 +333,21 @@ one with an `Origin` header from another site gets `403 Forbidden Origin`.
 To serve another name, such as a reverse proxy's, list it in
 `HARBORRAG_MCP_ALLOWED_HOSTS`, separated by commas. A name that is not
 loopback is accepted only with reader keys (`HARBORRAG_MCP_AUTH_MODE=api_key`).
+
+### Request limits
+
+Each credential, the owner token or a reader key, may send at most
+`HARBORRAG_MCP_RATE_LIMIT` requests per second (default `10`, also the burst)
+and have at most `HARBORRAG_MCP_MAX_INFLIGHT` running at once (default `4`).
+Both limits count `/mcp` and `/api/tools` together. A request over a limit is
+refused at once: `/mcp` answers with JSON-RPC error `-32000`, and `/api/tools`
+with `429` and a `Retry-After` header. stdio, `/healthz` and the status page
+are not limited, and each server process, such as the Explorer server, keeps
+its own budgets.
+
+To raise a limit, set its variable in `env/.env.mcp` and restart the server;
+`0` turns that limit off, and any value that is not `0` or a positive integer
+stops the launcher.
 
 ### Connect an HTTP client
 
@@ -382,9 +427,10 @@ change the server.
 1. Set `HARBORRAG_MCP_AUTH_MODE=api_key` in `env/.env.mcp` and restart the
    server.
 2. Inside your repository checkout, create a key. `auth keys create` requires
-   `--tenant`, `--owner` (`user-<name>`, `svc-<name>` or `team-<name>`), `--name` (the
-   device or workload) and `--expires-in`. `--tenant` names the tenant the key may read and
-   never defaults, so a mistyped tenant cannot mint a key in the wrong one:
+   `--tenant`, `--owner` (`user-<name>`, `svc-<name>` or `team-<name>`),
+   `--name` (the device or workload) and `--expires-in`. `--tenant` names the
+   tenant the key may read and never defaults, so a mistyped tenant cannot mint
+   a key in the wrong one:
 
    ```bash
    uv run harborrag auth keys create \
@@ -418,10 +464,10 @@ uv run harborrag auth keys revoke --tenant engineering --owner user-alex --reaso
 - A key is bound to the environment it was issued in and refused elsewhere.
   `mcp.sh` starts the server with the API's `HARBORRAG_ENV` from `env/.env.api`
   for that reason.
-- The server looks the key up on **every** request and caches nothing, so a
-  key created or revoked by the CLI takes effect on the next call, on every
-  replica, without a restart. If the database cannot be reached, the request
-  is refused.
+- The server looks the key up on **every** request and caches only a key ID
+  it found missing, for 5 seconds, so a key created or revoked by the CLI takes
+  effect on the next call, on every replica, without a restart. If the
+  database cannot be reached, the request is refused.
 - The tenant comes from the stored key, never from the client: a call naming
   another `tenant_id` is refused. In the status UI a reader key can load and
   run its own tenant's tools; the configuration editor and API stay
@@ -592,8 +638,10 @@ description and comments) carries the issue's typed custom fields under
   again, without reprocessing its attachments.
 - The key is the field's display name in snake case (`Story Points` ->
   `story_points`, `Budget ($)` -> `budget`). A name that collides with
-  another or with a reserved runtime key falls back to the field ID
-  (`fields.customfield_10042`).
+  another or with a reserved runtime key, or is longer than 128 characters in
+  snake case, falls back to the field ID (`fields.customfield_10042`). An issue
+  keeps at most 128 fields, the first in key order; the rest are left out with
+  a warning in the worker log.
 - Free-text custom fields are left out; they are searchable as evidence
   instead.
 
@@ -718,13 +766,16 @@ From a checkout, `scripts/deployment/mcp-ui.sh` runs it in Docker the way
 | `mcp-ui.sh --build ...` | Rebuilds the reader image and the Explorer layer first |
 
 The container comes from `deploy/compose/docker-compose.mcp-ui.yml`. It extends
-the reader service, so it gets the same env files, Docker network, database
-role, object-store credentials and read-only `config/` mount. Its image,
+the reader service, so it gets the same env files, Docker network, read-only
+database role and object-store user, and read-only `config/` mount. Its image,
 `deploy/docker/Dockerfile.mcp-ui`, is a thin layer over the reader image that
 adds only the locked `ui` extra. Its audit trail lives in its own
 `harborrag-mcp-ui-audit` volume.
 
-To run it without Docker from a checkout, start the data services first, then:
+To run it without Docker from a checkout, start the stack and run
+`scripts/deployment/dev.sh mcp-access` first. `--local-stack-root` then takes
+the read-only accounts' passwords from `env/.env.database`, and never its
+`HARBORRAG_CONTROL_DB_URL` line, which holds the host CLI's owner URL:
 
 ```bash
 uv sync --all-packages --extra ui
@@ -957,16 +1008,77 @@ non-root `harborrag` user, keeps the audit log under that user's home
 directory, and uses stdio by default.
 
 An MCP client that starts the container must keep stdin open with `-i` and
-provide the protected model and database environment plus reachable data
-service addresses.
+provide the protected model environment, a `HARBORRAG_CONTROL_DB_URL` for a
+read-only role, read-only object-store keys, and reachable data service
+addresses; see
+[Read-only database and object-store accounts](#read-only-database-and-object-store-accounts).
 
 The checked-in HTTP launcher publishes its port on `127.0.0.1` only, on
 purpose. Run `scripts/deployment/mcp.sh --http` for the status page and
 Tool Playground; do not publish an unauthenticated or remotely reachable
 development MCP endpoint from a container.
 
+## Read-only database and object-store accounts
+
+The MCP server is the most exposed HarborRAG process: it takes remote reader
+keys and tool arguments that a model wrote. So it reads with two accounts of
+its own and never gets the Postgres owner or the MinIO root credentials.
+
+| Account | Store | What it may do | Password in `env/.env.database` |
+| --- | --- | --- | --- |
+| `harborrag_mcp` role | Postgres control database | `SELECT` on the corpus tables, `mcp_api_keys`, `setting_overrides` and `setting_revisions`, and on the tables later migrations add. No `INSERT`, `UPDATE`, `DELETE`, DDL or row locks, and every session is read-only | `POSTGRES_MCP_PASSWORD` |
+| `harborrag-mcp` user | MinIO | Read objects in `harborrag-artifacts` (`s3:GetObject`, `s3:ListBucket`); nothing in `harborrag-raw`, no writes or deletes | `MINIO_MCP_PASSWORD` |
+
+The role cannot read the control-plane tables that hold secrets, connections,
+people, conversations or jobs; the server never reads them.
+`deploy/compose/postgres/mcp-reader-role.sql` lists them, and
+`deploy/compose/minio/mcp-reader-policy.json` is the MinIO policy.
+
+### Create or refresh the accounts
+
+Run this after the stack has started, and again after every upgrade:
+
+```bash
+scripts/deployment/dev.sh mcp-access
+```
+
+It prints:
+
+```text
+Granting the MCP server read-only access to PostgreSQL and MinIO...
+The MCP server reads as harborrag_mcp in PostgreSQL and harborrag-mcp in MinIO.
+Start or restart it to use them: scripts/deployment/mcp.sh --http
+```
+
+A password that is still blank, as in an `env/.env.database` older than these
+accounts, is generated first, with a line such as
+`Generated POSTGRES_MCP_PASSWORD in env/.env.database.` The command runs
+the role script as the Postgres owner inside the `postgres` container and
+`mc` inside the `minio` container, with the passwords passed through the
+environment and pipes, never on a command line. Every step is safe to repeat.
+
+- **Why after every upgrade.** Tables that later migrations create are
+  readable by default, and a rerun applies the new release's list of tables
+  the role must not read.
+- **A fresh database volume** runs the role script on its first start, without
+  a password, so the role exists but cannot log in until `mcp-access` runs.
+- **To change a password,** edit its value in `env/.env.database`, run
+  `scripts/deployment/dev.sh mcp-access`, then restart the server with
+  `scripts/deployment/mcp.sh down` and `scripts/deployment/mcp.sh --http`.
+
+Outside a checkout, create the same accounts yourself:
+
+1. Run the role script with `psql` 15 or later, as the role that runs the
+   migrations, with `POSTGRES_MCP_PASSWORD` set in its environment.
+2. Create a MinIO user and attach a policy made from the policy file.
+3. Give the server a `HARBORRAG_CONTROL_DB_URL` for `harborrag_mcp` and that
+   user's object-store keys.
+
 ## Security boundaries
 
+- **Read-only accounts.** The server reads Postgres as `harborrag_mcp` and
+  MinIO as `harborrag-mcp`; see
+  [Read-only database and object-store accounts](#read-only-database-and-object-store-accounts).
 - **No secrets key.** The server is not given
   `HARBORRAG_SECRETS_ENCRYPTION_KEY`, so it cannot decrypt stored connector
   credentials.

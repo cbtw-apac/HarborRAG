@@ -23,10 +23,11 @@ from harborrag_core.contracts.reader import (
     SourceListResponse,
 )
 from harborrag_core.ingestion import GraphNodeRecord, GraphOwnershipScope, SourceCatalogQuery
-from harborrag_core.retrieval import GraphNodeResolutionQuery
+from harborrag_core.retrieval import GraphNodeResolutionQuery, GraphNodeSelectorKind
 from harborrag_core.security import AccessContext
 from harborrag_core.storage import StorageOperationContext
 from harborrag_engine.retrieval import graph_access_scope
+from harborrag_engine.retrieval.graph_visibility import refuse_inexact_selector, store_truncated
 
 from .document_catalog import DocumentCatalogReader
 from .document_context import DocumentContextReader
@@ -36,6 +37,7 @@ from .summary_views import apply_summary_views
 
 _READ_DEADLINE_SECONDS = 10
 _EXTERNAL_STUB_KEY_PREFIX = "graph-v2-external-source-entity:"
+# TODO: keep denied documents from filling this window under the source-scope fallback
 _RESOLUTION_CANDIDATE_LIMIT = 100
 
 
@@ -102,6 +104,8 @@ class ReaderRetrieval:
 
         Raises:
             HarborCapabilityError: Graph retrieval is not configured.
+            HarborAuthorizationUnavailableError: Past the document enumeration budget,
+                the selector is a provider id or a title rather than a node key.
         """
         if self._resources.graph is None:
             raise HarborCapabilityError("graph retrieval is not configured")
@@ -122,7 +126,8 @@ class ReaderRetrieval:
         return GraphNodeResolveResponse(
             request_id,
             candidates,
-            raw.truncated or len(visible) > request.query.limit,
+            store_truncated(raw.truncated, query.access_scope)
+            or len(visible) > request.query.limit,
         )
 
     async def _authorized_resolution_query(
@@ -135,6 +140,8 @@ class ReaderRetrieval:
         access_scope = await graph_access_scope(topology, context)
         if access_scope is not None and not access_scope.tenant_visible:
             return None
+        if query.selector_kind != GraphNodeSelectorKind.NODE_KEY:
+            refuse_inexact_selector(access_scope)
         if access_scope is not None and query.source_scope_ids:
             allowed = set(query.source_scope_ids) & set(access_scope.source_scope_ids)
             if not allowed:
@@ -171,11 +178,8 @@ class ReaderRetrieval:
         sources = await topology.authorized_source_scope_ids(
             str(access.tenant_id), source_ids, access=access
         )
-        tenant_visible = bool(documents or sources)
         return tuple(
-            node
-            for node in nodes
-            if _node_visible(node, documents, sources, tenant_visible, tenant_readable)
+            node for node in nodes if _node_visible(node, documents, sources, tenant_readable)
         )
 
 
@@ -183,18 +187,18 @@ def _node_visible(
     node: GraphNodeRecord,
     documents: set[str],
     sources: set[str],
-    tenant_visible: bool,
     tenant_readable: bool,
 ) -> bool:
     """Decide whether a node is visible to the caller.
 
-    A shared external stub is visible to anyone who can read the tenant: its
-    ``source_scope_id`` is only the declarer projected last, so checking it would
-    flip the stub with ingestion order. This is the rule of
-    ``graph_visibility._record_authorized`` and the FalkorDB access predicate.
+    A tenant-owned node and a shared external stub are visible to anyone who can
+    read the tenant, whatever else the batch holds. A stub's ``source_scope_id`` is
+    only the declarer projected last, so checking it would flip the stub with
+    ingestion order. This is the rule of ``graph_visibility._record_authorized``
+    and the FalkorDB access predicate.
     """
     if node.ownership_scope == GraphOwnershipScope.TENANT:
-        return tenant_visible
+        return tenant_readable
     if node.document_id is not None:
         return str(node.document_id) in documents
     if node.node_key.startswith(_EXTERNAL_STUB_KEY_PREFIX):

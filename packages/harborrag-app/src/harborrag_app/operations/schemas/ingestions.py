@@ -3,25 +3,12 @@
 from __future__ import annotations
 
 from datetime import datetime
-from enum import StrEnum
 from typing import Annotated, Literal
 
 from pydantic import AwareDatetime, Field, field_validator, model_validator
 
 from harborrag_app.operations.schemas.common import ApiModel, VerbatimText
 from harborrag_app.operations.schemas.connections import IngestionOut
-
-
-class IngestionStatus(StrEnum):
-    """Lifecycle states of an ingestion run."""
-
-    PENDING = "PENDING"
-    RUNNING = "RUNNING"
-    PAUSED = "PAUSED"
-    SUCCESS = "SUCCESS"
-    PARTIAL = "PARTIAL"
-    FAILED = "FAILED"
-    CANCELLED = "CANCELLED"
 
 
 class IngestionPage(ApiModel):

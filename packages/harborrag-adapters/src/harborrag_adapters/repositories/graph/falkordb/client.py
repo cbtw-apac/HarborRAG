@@ -1,17 +1,41 @@
+"""FalkorDB client that owns the connection and translates redis outages.
+
+Only redis connection and timeout errors are translated. Redis ``ResponseError`` passes
+through, because provisioning tells "already exists" apart by its message.
+"""
+
 from __future__ import annotations
 
 import asyncio
 import inspect
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from typing import Any
 
-from harborrag_adapters.repositories.errors import MissingOptionalDependencyError
+from harborrag_adapters.repositories.errors import (
+    MissingOptionalDependencyError,
+    StorageErrorContext,
+    StorageFailure,
+    storage_failure_error,
+)
 from harborrag_adapters.repositories.lifecycle import AsyncLifecycle
+from harborrag_core.storage import StorageFamily
 
 try:
     from falkordb.asyncio import FalkorDB
 except ImportError:  # pragma: no cover - optional dependency
     FalkorDB = None
+
+_RedisConnectionError: Any
+_RedisTimeoutError: Any
+try:
+    from redis.exceptions import ConnectionError as RedisConnectionError
+    from redis.exceptions import TimeoutError as RedisTimeoutError
+except ImportError:  # pragma: no cover - installed with falkordb
+    _RedisConnectionError = _RedisTimeoutError = ()
+else:
+    _RedisConnectionError = RedisConnectionError
+    _RedisTimeoutError = RedisTimeoutError
 
 
 class FalkorDBClient(AsyncLifecycle):
@@ -90,21 +114,44 @@ class FalkorDBClient(AsyncLifecycle):
     async def ping(self) -> None:
         async with self._operation_slots:
             execute = getattr(self.raw, "execute_command", None)
-            if execute is not None:
-                # Reader credentials need PING, not tenant-wide GRAPH.LIST access.
-                await execute("PING")
-            else:
-                await self.raw.list_graphs()
+            with self._translated("ping"):
+                if execute is not None:
+                    # Reader credentials need PING, not tenant-wide GRAPH.LIST access.
+                    await execute("PING")
+                else:
+                    await self.raw.list_graphs()
 
     async def write(self, statement: str, parameters: Mapping[str, Any]) -> Any:
         """Execute one parameterized FalkorDB write query."""
         async with self._operation_slots:
-            return await self.graph.query(statement, params=dict(parameters))
+            with self._translated("write"):
+                return await self.graph.query(statement, params=dict(parameters))
 
     async def read(self, statement: str, parameters: Mapping[str, Any]) -> Any:
         """Execute one parameterized FalkorDB read-only query."""
         async with self._operation_slots:
-            return await self.graph.ro_query(statement, params=dict(parameters))
+            with self._translated("read"):
+                return await self.graph.ro_query(statement, params=dict(parameters))
+
+    @contextmanager
+    def _translated(self, operation: str) -> Iterator[None]:
+        """Raise a redis connection or timeout error as a transient storage error."""
+        try:
+            yield
+        except _RedisTimeoutError as error:
+            raise storage_failure_error(StorageFailure.TIMEOUT, self._context(operation)) from error
+        except _RedisConnectionError as error:
+            raise storage_failure_error(
+                StorageFailure.UNAVAILABLE, self._context(operation)
+            ) from error
+
+    def _context(self, operation: str) -> StorageErrorContext:
+        return StorageErrorContext(
+            family=StorageFamily.GRAPH,
+            backend=self.backend,
+            instance_name=self._graph_name,
+            operation=operation,
+        )
 
     async def create_unique_node_constraint(
         self,
@@ -117,17 +164,18 @@ class FalkorDBClient(AsyncLifecycle):
         if not label or not properties:
             raise ValueError("constraint label and properties must be non-empty")
         async with self._operation_slots:
-            return await self.raw.execute_command(
-                "GRAPH.CONSTRAINT",
-                "CREATE",
-                self._graph_name,
-                "UNIQUE",
-                "NODE",
-                label,
-                "PROPERTIES",
-                len(properties),
-                *properties,
-            )
+            with self._translated("create_unique_node_constraint"):
+                return await self.raw.execute_command(
+                    "GRAPH.CONSTRAINT",
+                    "CREATE",
+                    self._graph_name,
+                    "UNIQUE",
+                    "NODE",
+                    label,
+                    "PROPERTIES",
+                    len(properties),
+                    *properties,
+                )
 
     async def drop_unique_node_constraint(
         self,
@@ -140,14 +188,15 @@ class FalkorDBClient(AsyncLifecycle):
         if not label or not properties:
             raise ValueError("constraint label and properties must be non-empty")
         async with self._operation_slots:
-            return await self.raw.execute_command(
-                "GRAPH.CONSTRAINT",
-                "DROP",
-                self._graph_name,
-                "UNIQUE",
-                "NODE",
-                label,
-                "PROPERTIES",
-                len(properties),
-                *properties,
-            )
+            with self._translated("drop_unique_node_constraint"):
+                return await self.raw.execute_command(
+                    "GRAPH.CONSTRAINT",
+                    "DROP",
+                    self._graph_name,
+                    "UNIQUE",
+                    "NODE",
+                    label,
+                    "PROPERTIES",
+                    len(properties),
+                    *properties,
+                )

@@ -5,8 +5,10 @@ from typing import Any
 
 from harborrag_adapters.models.runtime.connections import SharedConnectionLifecycle
 from harborrag_adapters.models.runtime.lifecycle import ResourceOwnership
+from harborrag_adapters.models.runtime.litellm_backend import configure_litellm
 from harborrag_adapters.models.runtime.security import reveal_secret
 from harborrag_adapters.models.runtime.transport import reveal_headers
+from harborrag_core.models.headers import is_sensitive_header
 
 from ..backend_config import ChatBackendType, LiteLLMProxyConfig, ProxyAuthMode
 from .base import BaseLiteLLMChatBackend
@@ -31,7 +33,7 @@ _PROVIDER_CREDENTIAL_FIELDS = frozenset(
         "vertex_project",
     }
 )
-_AUTH_HEADER_NAMES = frozenset(
+_PROXY_KEY_HEADERS = frozenset(
     {
         "api-key",
         "authorization",
@@ -57,6 +59,7 @@ class LiteLLMProxyBackend(BaseLiteLLMChatBackend):
         """Store proxy credentials and bind LiteLLM's proxy-compatible entrypoints."""
 
         if completion is None or acompletion is None:
+            configure_litellm()
             import litellm
 
             completion = completion or litellm.completion
@@ -107,18 +110,24 @@ class LiteLLMProxyBackend(BaseLiteLLMChatBackend):
         return params
 
     def _reject_request_auth_headers(self, headers: dict[str, Any]) -> None:
-        """Keep caller-controlled headers from replacing proxy authentication."""
+        """Keep caller-controlled headers from replacing proxy authentication.
+
+        Any credential-like name is refused, such as ``X-Goog-Api-Key``, not only the
+        headers LiteLLM Proxy reads as its key.
+        """
 
         configured_name = (self._proxy.auth_header_name or "").lower()
-        denied = _AUTH_HEADER_NAMES | ({configured_name} if configured_name else set())
-        if any(name.lower() in denied for name in headers):
+        if any(is_sensitive_header(name) or name.lower() == configured_name for name in headers):
             raise ValueError("request headers cannot override LiteLLM Proxy authentication")
 
     @staticmethod
     def _remove_auth_headers(headers: dict[str, str], *, selected: str) -> None:
-        """Remove ambiguous configured credentials before installing the selected one."""
+        """Remove configured headers LiteLLM Proxy would also read as its key.
 
-        denied = _AUTH_HEADER_NAMES | {selected.lower()}
+        Other configured credential headers, such as a gateway's own, are kept.
+        """
+
+        denied = _PROXY_KEY_HEADERS | {selected.lower()}
         for name in tuple(headers):
             if name.lower() in denied:
                 del headers[name]

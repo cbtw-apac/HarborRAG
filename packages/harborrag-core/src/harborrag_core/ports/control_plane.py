@@ -211,9 +211,8 @@ class ActivityRepositoryPort(Protocol):
 class SettingsRepositoryPort(Protocol):
     """Single-document workspace settings (plan §5.5).
 
-    NOT tenant-scoped, despite ``SettingsRepositoryProvider`` below being a
-    ``TenantScopedRepositoryProvider`` and ``WorkspaceSettings`` carrying a
-    ``tenant_id``. Neither method takes a scope and the SQL adapter addresses
+    NOT tenant-scoped, despite ``WorkspaceSettings`` carrying a ``tenant_id``.
+    Neither method takes a scope and the SQL adapter addresses
     one fixed row, so in a multi-tenant deployment every tenant reads and
     overwrites the same document.
 
@@ -363,13 +362,3 @@ class TenantScopedRepositoryProvider(Protocol[TRepository_co]):
     """
 
     def for_access(self, access: AccessContext) -> TRepository_co: ...
-
-
-ProjectRepositoryProvider = TenantScopedRepositoryProvider[ProjectRepositoryPort]
-ConnectionRepositoryProvider = TenantScopedRepositoryProvider[ConnectionRepositoryPort]
-JobRepositoryProvider = TenantScopedRepositoryProvider[JobRepositoryPort]
-ActivityRepositoryProvider = TenantScopedRepositoryProvider[ActivityRepositoryPort]
-SettingsRepositoryProvider = TenantScopedRepositoryProvider[SettingsRepositoryPort]
-ProviderRepositoryProvider = TenantScopedRepositoryProvider[ProviderRepositoryPort]
-MemberRepositoryProvider = TenantScopedRepositoryProvider[MemberRepositoryPort]
-GraphConflictRepositoryProvider = TenantScopedRepositoryProvider[GraphConflictRepositoryPort]

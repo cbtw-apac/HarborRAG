@@ -208,7 +208,7 @@ mcp_launcher_main() {
             # missing setting is one line here and not a restart loop in the background.
             echo "Checking HarborRAG ${MCP_SERVER_LABEL} configuration..."
             "${service_compose[@]}" run --rm --no-deps -T "${MCP_SERVICE}" --http --preflight ||
-                fail "HarborRAG ${MCP_SERVER_LABEL} was not started. The line above says why: a missing setting belongs in ${MCP_ENV_FILE} or ${MODEL_ENV_FILE}, and an unreachable backend means the data services are not up yet ('scripts/deployment/dev.sh data')."
+                fail "HarborRAG ${MCP_SERVER_LABEL} was not started. The line above says why: a missing setting belongs in ${MCP_ENV_FILE} or ${MODEL_ENV_FILE}, an unreachable backend means the data services are not up yet ('scripts/deployment/dev.sh data'), and a refused login means the server's read-only accounts are missing ('scripts/deployment/dev.sh mcp-access')."
             echo "Starting HarborRAG ${MCP_SERVER_LABEL}..."
             if ! "${service_compose[@]}" up \
                 --no-build \

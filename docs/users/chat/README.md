@@ -120,10 +120,12 @@ What a turn may read:
 - `trace_id` is the request's trace ID (`X-Trace-Id`); the turn's model calls
   carry it into telemetry.
 - `answer` cites sources as `[n]`, one number per bracket. Citations are
-  numbered from 1 in the order the answer first cites them; every `[n]` has a
-  citation and every citation is cited. A list or range the model writes, such
-  as `[1, 3]` or `[2-3]`, becomes `[1][3]` or `[2][3]`; a number that names no
-  retrieved passage is removed from the answer with the space before it.
+  numbered from 1 in the order the answer first cites them, and every citation
+  is cited. A bracket the model writes is rewritten only when every number in it
+  names a retrieved passage: a list or range such as `[1, 3]` or `[2-3]` becomes
+  `[1][3]` or `[2][3]`. Every other bracket stays as written, such as a number
+  that names no passage (`[9]`, or a year such as `[2024]`), a list glued to a
+  word (`m[1, 2]`), and anything inside inline code or a code block.
 - Each citation names its `chunk_id` (the passage), `document_id` and
   `title`, a `snippet` of the passage of up to about 300 characters, and `url`
   or `page` when the source has one.
@@ -137,14 +139,14 @@ A session is titled automatically after its first exchange; see
 
 ## Choose a mode
 
-| Mode | Model calls | Graph observation |
+| Mode | Model calls | Retrieval mode |
 | --- | --- | --- |
-| `classic` | A request-scope check, then the answer | Per `HARBORRAG_CHAT_RETRIEVAL_GRAPH_SEARCH` |
-| `instant` | The answer only | Never |
+| `classic` | A request-scope check, then the answer | `local_semantic` while `HARBORRAG_CHAT_RETRIEVAL_GRAPH_SEARCH` is on, else `flat` |
+| `instant` | The answer only | `flat` |
 
-Both modes retrieve with the same settings. The `classic` scope check is a
-model call that allows questions about indexed knowledge, relevant source
-code, and the conversation:
+Apart from that, both modes retrieve with the same settings. The `classic`
+scope check is a model call that allows questions about indexed knowledge,
+relevant source code, and the conversation:
 
 - An unrelated creation request, for example "write a Python snake game", gets
   an ordinary `200` answer explaining the assistant's scope, with no citations
@@ -212,15 +214,18 @@ moves to its new event contract; do not build on them beyond this release.
 
 Chat searches the raw question with hybrid retrieval, which combines dense
 (embedding) and sparse (keyword) matching, within the connections the turn may
-read. Graph-enabled `classic` turns observe the graph around the passages
-found; a turn narrowed to projects or connections does not widen its results
-through the graph. The prompt separates conversation context from document
-evidence and tells the model to cite only the sources it uses.
+read. With `HARBORRAG_CHAT_RETRIEVAL_GRAPH_SEARCH` on, a `classic` turn
+retrieves in `local_semantic` mode, which adds passages found by a bounded
+graph expansion around the first hits; it does not return graph records. A
+turn narrowed to projects or connections, or given `filters`, keeps `flat`
+retrieval and does not widen its results through the graph. The prompt
+separates conversation context from document evidence and tells the model to
+cite only the sources it uses.
 
 | Setting | Default | Purpose |
 | --- | --- | --- |
 | `HARBORRAG_CHAT_RETRIEVAL_TOP_K` | `5` | Requested retrieval candidates; applies until `retrieval.top_k` is overridden for the session's project or the tenant ([Runtime settings](../configuration/runtime-settings.md)) |
-| `HARBORRAG_CHAT_RETRIEVAL_GRAPH_SEARCH` | `false` | Graph observation in `classic` mode |
+| `HARBORRAG_CHAT_RETRIEVAL_GRAPH_SEARCH` | `false` | `local_semantic` retrieval, with bounded graph expansion, in `classic` mode |
 | `HARBORRAG_CHAT_RETRIEVAL_MIN_RELEVANCE` | `0.0` | Optional evidence relevance threshold, compared with the retrieval similarity, never the rerank score |
 
 `retrieval.top_k` and `retrieval.rerank` are read on every turn, at the level of
@@ -311,7 +316,7 @@ How the command behaves:
 - `--mode` is `classic` (the default) or `instant`; `advanced` and `auto`
   pass validation but answer `422 mode_unavailable` until v2.1.0.
 - `--tenant` picks the tenant: `HARBORRAG_TENANT_ID`, else the CLI profile's,
-  else `DEFAULT`.
+  else the `HARBORRAG_TENANT_ID` line of `env/.env.api`, else `DEFAULT`.
 - `-o json` prints the completion body, the same as the HTTP answer; in a
   terminal it prints the answer and then one line per citation. An error goes
   to stderr as the HTTP error envelope, with the

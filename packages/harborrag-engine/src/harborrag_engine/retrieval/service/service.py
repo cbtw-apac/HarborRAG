@@ -15,16 +15,10 @@ from harborrag_core.contracts.errors import (
 from harborrag_core.contracts.reader import (
     EntityFindRequest,
     EntityFindResponse,
-    EntityResolveResponse,
-    EvidenceFetchResponse,
-    RelationSearchResponse,
-    SemanticPathRequest,
-    SemanticPathResponse,
 )
 from harborrag_core.indexing import VectorFilter, VectorSearchResult
 from harborrag_core.security import AccessContext
 from harborrag_core.storage import StorageOperationContext
-from harborrag_core.topology.records import CanonicalMention
 from harborrag_core.topology.search import RetrievalMode
 from harborrag_engine.ingestion.projections.vector import EVIDENCE_INDEX
 from harborrag_engine.retrieval import (
@@ -56,7 +50,6 @@ from harborrag_engine.retrieval.service.evidence import (
 )
 from harborrag_engine.retrieval.service.graph_observation import GraphObservation, GraphObserver
 from harborrag_engine.retrieval.service.graph_service import RuntimeGraphRetrievalMixin
-from harborrag_engine.retrieval.service.knowledge import KnowledgeRetrieval
 from harborrag_engine.retrieval.service.permissions import RetrievalPermissions
 from harborrag_engine.retrieval.service.reader_service import RuntimeReaderRetrievalMixin
 from harborrag_engine.retrieval.service.readers import ReaderResources, ReaderRetrieval
@@ -125,12 +118,6 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
         self._permissions = RetrievalPermissions(resources.topology_repository)
         self._candidate_validator = ActiveVersionCandidateValidator(resources.active_versions)
         self._vector_repository = resources.vector_repository
-        self._knowledge = KnowledgeRetrieval(
-            resources.topology_repository,
-            resources.vector_repository,
-            self._candidate_validator,
-            self._permissions,
-        )
         self._reader = ReaderRetrieval(
             ReaderResources(
                 vectors=resources.vector_repository,
@@ -454,57 +441,6 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
             visible,
             replace(_NO_CANDIDATES, candidate_count=len(visible), accepted_count=len(visible)),
         )
-
-    async def fetch_evidence(
-        self, chunk_ids: tuple[str, ...], *, access: AccessContext
-    ) -> EvidenceFetchResponse:
-        """Return the chunks the caller may read, as retrieval results."""
-        return await self._knowledge.fetch(chunk_ids, access=access)
-
-    async def resolve_entities(
-        self, name: str, *, limit: int, access: AccessContext
-    ) -> EntityResolveResponse:
-        """Return the canonical mentions of the named entity that the caller may read."""
-        return await self._knowledge.resolve_entities(name, limit=limit, access=access)
-
-    async def lookup_entities(
-        self,
-        *,
-        entity_ids: tuple[str, ...] = (),
-        chunk_ids: tuple[str, ...] = (),
-        access: AccessContext,
-    ) -> tuple[CanonicalMention, ...]:
-        """Return the canonical mentions of the given entities or chunks."""
-        return await self._knowledge.lookup_entities(
-            entity_ids=entity_ids,
-            chunk_ids=chunk_ids,
-            access=access,
-        )
-
-    async def find_semantic_relations(
-        self,
-        entity_id: str,
-        *,
-        predicates: tuple[str, ...],
-        direction: str,
-        limit: int,
-        access: AccessContext,
-    ) -> RelationSearchResponse:
-        """Return the assertions that connect one canonical entity to others."""
-        return await self._knowledge.find_relations(
-            entity_id,
-            predicates=predicates,
-            direction=direction,
-            limit=limit,
-            access=access,
-        )
-
-    async def find_semantic_paths(
-        self,
-        request: SemanticPathRequest,
-    ) -> SemanticPathResponse:
-        """Return the assertion paths between two canonical entities."""
-        return await self._knowledge.find_paths(request)
 
     @staticmethod
     def _retrieval_context(

@@ -10,9 +10,11 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from harborrag_adapters.connectors.policies.network import DestinationPolicy
+from harborrag_core.contracts.errors import HarborConflictError
 from harborrag_core.domain.project import Project
 from harborrag_core.domain.settings import WorkspaceSettings
 from harborrag_core.ingestion import IngestionTask, IngestionTaskState, TaskDocumentPage, TaskPage
+from harborrag_core.security import AccessContext
 from harborrag_core.testing.control_plane_fakes import (
     FakeActivityRepository,
     FakeConnectionRepository,
@@ -37,6 +39,7 @@ from harborrag_runtime.application.control_plane.connection_models import (
 )
 from harborrag_runtime.application.control_plane.connections import ConnectionService
 from harborrag_runtime.composition import ControlPlaneRepositories
+from harborrag_runtime.config.settings import RuntimeSettings
 
 CONNECTION_KEY = ConnectionKey(tenant_id="acme", project_id="demo", connection_id="demo-tickets")
 JIRA_WRITE = ConnectionWrite(
@@ -53,13 +56,32 @@ JIRA_WRITE = ConnectionWrite(
 
 @dataclass
 class Runs:
-    """In-memory ingestion runs keyed by connection."""
+    """In-memory ingestion runs keyed by connection, with scripted source grants.
+
+    Args:
+        readable: Source scopes each principal may read.
+        over_budget: Refuse every grant read as the store does past its enumeration budget.
+        grant_requests: Every access context a grant read asked about.
+    """
 
     active: IngestionTask | None = None
     tasks: dict[str, IngestionTask] = field(default_factory=dict)
     counts: dict[str, dict[str, int]] = field(default_factory=dict)
     progress_calls: list[str] = field(default_factory=list)
     batch_calls: list[tuple[str, ...]] = field(default_factory=list)
+    scopes: dict[str, list[str]] = field(default_factory=dict)
+    readable: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    over_budget: bool = False
+    grant_requests: list[AccessContext] = field(default_factory=list)
+
+    async def allowed_source_scope_ids(
+        self, tenant_id: str, *, access: AccessContext, limit: int = 10000
+    ) -> tuple[str, ...]:
+        """Return the principal's scripted scopes, or refuse past the budget."""
+        self.grant_requests.append(access)
+        if self.over_budget:
+            raise HarborConflictError("authorized source enumeration exceeds the configured budget")
+        return self.readable.get(access.principal_id, ())
 
     async def latest_for_connection(self, *, tenant_id: str, connection_id: str) -> Any:
         """Return the scripted active ingestion."""
@@ -86,6 +108,14 @@ class Runs:
         """Return the scripted progress per task and remember the call."""
         self.batch_calls.append(tuple(task_ids))
         return {task_id: self.counts.get(task_id, {"published": 1}) for task_id in task_ids}
+
+    async def source_scope_ids_by_connection(
+        self, *, tenant_id: str, connection_ids: Sequence[str]
+    ) -> dict[str, list[str]]:
+        """Return the scripted source scopes of each connection, ``[]`` for none."""
+        return {
+            connection_id: self.scopes.get(connection_id, []) for connection_id in connection_ids
+        }
 
     async def list_tasks(self, **_filters: Any) -> TaskPage:
         """Return every stored task as one page."""
@@ -209,8 +239,15 @@ def fake_control_plane(projects: list[Project], secrets: FakeSecrets) -> Control
     )
 
 
-def connection_world(projects: list[Project]) -> ConnectionWorld:
-    """Build a ``ConnectionService`` over fakes, with its doubles exposed."""
+def connection_world(
+    projects: list[Project], *, settings: RuntimeSettings | None = None
+) -> ConnectionWorld:
+    """Build a ``ConnectionService`` over fakes, with its doubles exposed.
+
+    Args:
+        projects: Projects the control plane holds.
+        settings: Settings that choose each tenant's corpus mode; the defaults when ``None``.
+    """
     secrets = FakeSecrets()
     runs = Runs()
     removal = Removal()
@@ -227,5 +264,6 @@ def connection_world(projects: list[Project]) -> ConnectionWorld:
         removal=lambda: removal,  # type: ignore[arg-type,return-value]
         destination_policy=DestinationPolicy(),
         instance_id="test",
+        settings=settings or RuntimeSettings(),
     )
     return ConnectionWorld(service, control_plane, secrets, runs, submitter, removal)

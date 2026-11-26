@@ -107,14 +107,12 @@ def validate_immutable_version(
         row["canonical_content_hash"],
         row["retrieval_metadata_hash"],
         row["processing_fingerprint"],
-        row["admission_change_key"],
     )
     expected = (
         str(candidate.document_id),
         candidate.fingerprints.canonical_content_hash,
         candidate.fingerprints.retrieval_metadata_hash,
         candidate.fingerprints.processing_fingerprint,
-        candidate.fingerprints.admission_change_key,
     )
     if actual != expected:
         raise HarborConflictError("document-version identity collision")

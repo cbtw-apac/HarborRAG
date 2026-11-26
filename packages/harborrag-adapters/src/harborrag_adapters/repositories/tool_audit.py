@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
+from harborrag_adapters.repositories.private_directories import make_private_directories
 from harborrag_core.contracts.tools import ToolInvocationContext
 
 
@@ -38,7 +39,7 @@ class JsonlToolExecutionAudit:
     def _append(self, event: dict[str, str]) -> None:
         path = self.path
         with self._lock:
-            path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            make_private_directories(path.parent)
             if path.parent.is_symlink():
                 raise OSError("tool audit directory must not be a symlink")
             descriptor = os.open(

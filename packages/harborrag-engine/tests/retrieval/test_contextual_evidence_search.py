@@ -64,7 +64,7 @@ class Authority:
         self.calls = []
 
     async def active_derivations(self, tenant_id, *, access=None, artifact_kind=None, limit=100):
-        self.calls.append((tenant_id, access))
+        self.calls.append((tenant_id, access, artifact_kind))
         return self.records
 
 
@@ -110,7 +110,10 @@ async def test_exact_manifest_points_are_filtered_before_search_and_mapped_back_
     result = await ContextualEvidenceSearch(authority, vectors, PROFILE).search(
         query(), context=CONTEXT
     )
-    assert authority.calls == [("tenant-1", CONTEXT.access)]
+    assert authority.calls == [
+        ("tenant-1", CONTEXT.access, "contextual_chunk"),
+        ("tenant-1", CONTEXT.access, "parent_description"),
+    ]
     scoped, context = vectors.search_calls[0]
     assert scoped.index_name == PROFILE.index_name
     assert context == CONTEXT

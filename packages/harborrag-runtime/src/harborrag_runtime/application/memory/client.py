@@ -15,7 +15,6 @@ from typing import TYPE_CHECKING
 from harborrag_memory.presenters import memory_data
 
 from ..schemas import AppResponse
-from .extraction import drain_extraction_queue
 
 if TYPE_CHECKING:
     from harborrag_core.ports.memory import MemoryScope
@@ -23,29 +22,12 @@ if TYPE_CHECKING:
     from harborrag_memory.administration import MemoryAdministrationService
     from harborrag_memory.directory import ConversationDirectoryService
 
-    from .extraction import MemoryExtractionQueue
-
 
 class MemoryAdminClientMixin:
-    """Forward conversation, memory, erasure, and extraction use cases."""
+    """Forward conversation, memory and erasure use cases."""
 
     _memory_admin: MemoryAdministrationService
     _conversation_directory: ConversationDirectoryService
-    _extraction: MemoryExtractionQueue | None
-
-    @property
-    def has_memory_extraction(self) -> bool:
-        """Report whether a background extraction queue is configured."""
-        return self._extraction is not None
-
-    async def start_memory_extraction(self) -> None:
-        """Start the background extraction workers (API lifespan only)."""
-        if self._extraction is not None:
-            await self._extraction.start()
-
-    async def drain_memory_extraction(self) -> None:
-        """Finish queued extraction work before the process exits."""
-        await drain_extraction_queue(self._extraction)
 
     async def list_memories(
         self,

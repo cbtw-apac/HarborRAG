@@ -25,7 +25,7 @@ from harborrag_runtime.application.chat.request_filters import FilterCondition, 
 
 pytestmark = [pytest.mark.unit, pytest.mark.asyncio]
 
-_CALLER = CompletionCaller("DEFAULT", "u_demo", "alex@example.com")
+_CALLER = CompletionCaller("DEFAULT", "u_demo", "alex@example.com", "u_demo")
 _HASH = "hash-of-the-body"
 
 

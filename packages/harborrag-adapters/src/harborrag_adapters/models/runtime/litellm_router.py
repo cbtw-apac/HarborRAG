@@ -4,9 +4,10 @@ from collections.abc import Callable, Mapping
 from typing import Any, cast
 
 from .config import CacheBackend, ModelClientConfig
-from .litellm_backend import build_provider_params, litellm_routing_strategy
+from .litellm_backend import build_provider_params, configure_litellm, litellm_routing_strategy
+from .provider import ProviderMetadata
 
-type ProviderResolver = Callable[[Any], str | None]
+type ProviderResolver = Callable[[Any], ProviderMetadata]
 type RouterFactory = Callable[..., Any]
 
 
@@ -25,6 +26,7 @@ def build_litellm_router(
 ) -> Any:
     """Build a LiteLLM Router while Harbor retains retry/fallback policy ownership."""
 
+    configure_litellm()
     from litellm.types.utils import BudgetConfig
 
     if router_factory is None:
@@ -38,7 +40,7 @@ def build_litellm_router(
                 continue
             params = build_provider_params(
                 deployment,
-                litellm_provider=provider_resolver(deployment),
+                metadata=provider_resolver(deployment),
             )
             limits = {
                 "rpm": deployment.rpm,

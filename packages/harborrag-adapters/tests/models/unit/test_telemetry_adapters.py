@@ -1,17 +1,12 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
 
-from harborrag_adapters.models.runtime.litellm_telemetry import (
-    LiteLLMTelemetryCallback,
-)
 from harborrag_adapters.models.runtime.telemetry import (
     OperationStatus,
-    TelemetryDispatcher,
     TelemetryEvent,
     TelemetryEventType,
 )
@@ -231,36 +226,3 @@ def test_opentelemetry_adapter_maps_attributes_events_and_error_status() -> None
     assert tracer.span.attributes["harborrag.cache.status"] == "miss"
     assert [name for name, _ in tracer.span.events] == ["cache_miss", "request_error"]
     assert tracer.span.ended
-
-
-def test_litellm_callback_emits_correlated_success_and_sanitized_failure() -> None:
-    sink = RecordingSink()
-    callback = LiteLLMTelemetryCallback(TelemetryDispatcher([sink]))
-    started = datetime.now(UTC)
-    finished = started + timedelta(milliseconds=25)
-    kwargs = {
-        "model": "openai/gpt-test",
-        "response_cost": 0.02,
-        "cache_hit": True,
-        "litellm_params": {
-            "metadata": {
-                "harborrag": {
-                    "request_id": "request-1",
-                    "operation": "chat",
-                    "logical_model": "primary",
-                }
-            }
-        },
-    }
-
-    callback.log_success_event(kwargs, {}, started, finished)
-    callback.log_failure_event(kwargs, RuntimeError("api_key=top-secret"), started, finished)
-
-    success, failure = sink.events
-    assert success.event_type is TelemetryEventType.PROVIDER_COMPLETE
-    assert success.request_id == "request-1"
-    assert success.latency_ms == pytest.approx(25)
-    assert success.estimated_cost_usd == 0.02
-    assert success.cache_status == "hit"
-    assert failure.event_type is TelemetryEventType.PROVIDER_ERROR
-    assert "top-secret" not in str(failure.error)

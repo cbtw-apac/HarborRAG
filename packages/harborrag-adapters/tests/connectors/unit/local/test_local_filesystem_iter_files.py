@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import os
 from pathlib import Path
 
@@ -87,7 +88,7 @@ def _block_iterdir(blocked: Path, monkeypatch) -> None:
 
     def maybe_raise(self):
         if os.path.realpath(str(self)) == resolved_blocked:
-            raise OSError("permission denied")
+            raise PermissionError(errno.EACCES, "permission denied")
         return original_iterdir(self)
 
     monkeypatch.setattr(Path, "iterdir", maybe_raise)

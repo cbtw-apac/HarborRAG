@@ -102,18 +102,18 @@ vector space and dimension.
 
 ## Repositories
 
-A repository is the adapter behind a storage port. Add a backend below the matching family:
+A repository is the adapter behind a storage port. The vector, graph and object-store
+families take a new backend in a provider folder:
 
 ```text
 repositories/vector/<provider>/
 repositories/graph/<provider>/
-repositories/cache/<provider>/
 repositories/object_store/<provider>/
-repositories/database/<provider>/
-repositories/state/<provider>/
 ```
 
-Implement the family's Harbor contract and its plugin and config pattern. A repository needs:
+Implement the family's Harbor contract (`HarborVectorRepository`, `HarborGraphRepository`
+or `HarborObjectStore`) and follow its plugin and config pattern, so the family client,
+such as `HarborVectorDBClient`, can build the backend by name. A repository needs:
 
 - an async lifecycle and async methods;
 - `StorageOperationContext` on data operations;
@@ -125,6 +125,13 @@ Implement the family's Harbor contract and its plugin and config pattern. A repo
 
 Use `repositories/`, not a new `stores/` family. Do not return raw provider responses by
 default.
+
+The relational stores are not provider families. `repositories/database/control_plane/`
+holds the control-plane repositories, and `repositories/database/ingestion_control/` holds
+the source-scan, document-version, task and publication repositories. Both use SQLAlchemy,
+so the database URL alone selects SQLite or PostgreSQL, and `control_plane/alembic/`
+migrates the tables of both. `repositories/backends/` holds the SQLAlchemy client and
+SQLite helpers they share. A change to these tables needs a migration, not a new backend.
 
 ### Selecting a storage provider in runtime
 
@@ -190,8 +197,8 @@ subpackage into an engine stage.
 ## Runtime services
 
 Configuration loading, provider composition, checkpoint coordination and durable workflow
-code go in `harborrag-runtime`. Reuse the core job and repository
-ports instead of adding runtime-owned copies.
+code go in `harborrag-runtime`. Reuse the core job and repository ports instead of adding
+runtime-owned copies.
 
 The catalog loaders in `harborrag_runtime.config` show the pattern: strict versioned schemas
 and `${NAME}` environment references. New composition code keeps construction explicit and
@@ -216,9 +223,9 @@ of core, adapters or engine.
 CLI and HTTP code call `BaseAppService`, which lives in `harborrag_runtime.application`.
 New application services (chat turns, ingestion commands, control-plane use cases) go in
 that package; `harborrag_app` keeps only the transports and the `operations/` layer, and
-conversation memory policy and its use cases live in `harborrag-memory`. The MCP server registers the shared
-reader tools from `harborrag_engine.tools`, bound to runtime's reader composition. Neither
-surface builds a provider client in a handler.
+conversation memory policy and its use cases live in `harborrag-memory`. The MCP server
+registers the shared reader tools from `harborrag_engine.tools`, bound to runtime's reader
+composition. Neither surface builds a provider client in a handler.
 
 Stored chat prompts belong under `harborrag_engine/chat/prompts/templates/`. To add a public
 prompt, add its UTF-8 Markdown template, add a stable name to `ChatPrompt` and its filename to

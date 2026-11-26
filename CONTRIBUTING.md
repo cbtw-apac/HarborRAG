@@ -247,8 +247,7 @@ A TODO names its scope and a concrete next action:
 # TODO(parsers/pdf): Preserve table bounding boxes exposed by layout-aware backends.
 ```
 
-Avoid vague notes such as `TODO: improve this`. `make provider-matrix` lists the scoped TODOs
-across the packages.
+Avoid vague notes such as `TODO: improve this`.
 
 ## Commits and pull requests
 

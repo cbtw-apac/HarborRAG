@@ -211,7 +211,7 @@ async def test_parse_falls_back_through_every_failure_kind_to_useful_engine() ->
     ]
     assert isinstance(result.attempts[0].error, NoExtractableTextError)
     assert result.warnings[1] == "missing_pdf: unavailable (install the pdf extra)"
-    assert result.warnings[2] == "crashing_pdf: failed (segfault in native layer)"
+    assert result.warnings[2] == "crashing_pdf: failed (RuntimeError)"
     assert result.warnings[3].startswith("short_pdf: ")
     assert result.warnings[-1] == "useful_pdf: minor glyph substitution"
 
@@ -232,7 +232,8 @@ async def test_parse_raises_aggregate_failure_when_no_engine_is_acceptable() -> 
         await parser.parse(_request(b"%PDF-1.4"))
 
     message = str(excinfo.value)
-    assert "crashing_pdf (failed (segfault in native layer))" in message
+    assert "crashing_pdf (failed (RuntimeError))" in message
+    assert "segfault" not in message
     assert "short_pdf" in message
 
 

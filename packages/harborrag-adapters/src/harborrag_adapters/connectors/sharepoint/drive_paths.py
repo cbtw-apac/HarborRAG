@@ -103,7 +103,7 @@ def validate_graph_id_segment(value: str, *, label: str) -> str:
     Drive item and site page IDs are opaque tokens such as
     ``01BYE5RZ6QN3ZWBTUFOFD3GSPGOHDJD36K``, ``D4648F06C91D9D3D!54927``, a GUID
     or the alias ``root``. An ID can come from the caller (query filters,
-    config ``item_ids``, ``load_by_ids``) or a stored record, and an HTTP client
+    config ``item_ids``) or a stored record, and an HTTP client
     collapses ``..`` segments before sending, so an unchecked ID such as
     ``../../../sites/<site>/drive/root`` would reach another site.
 

@@ -81,7 +81,9 @@ class MsPowerPointBinaryPresentationEngine(HarborPresentationEngine):
         except ParseError:
             raise
         except BINARY_DECODE_ERRORS as exc:
-            raise ParseError(f"{self.parser_engine} failed to parse PowerPoint: {exc}") from exc
+            raise ParseError(
+                f"{self.parser_engine} failed to parse PowerPoint: {type(exc).__name__}"
+            ) from exc
 
         sections: list[str] = []
         elements: list[DocumentElement] = []

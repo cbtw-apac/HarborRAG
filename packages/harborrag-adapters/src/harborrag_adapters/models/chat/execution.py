@@ -280,7 +280,7 @@ class ChatExecution:
             routed_request,
             timeout=remaining_timeout(self.config.timeouts.request_seconds),
             model_override=model_override,
-            litellm_provider=descriptor.litellm_provider,
+            metadata=descriptor,
         )
         parameters.update(self.cache.provider_parameters(decision))
         parameters["metadata"] = litellm_telemetry_metadata(

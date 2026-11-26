@@ -7,6 +7,7 @@ from uuid import uuid4
 from pydantic import ValidationError
 
 from harborrag_adapters.models.runtime.litellm_backend import build_provider_params
+from harborrag_adapters.models.runtime.provider import ProviderMetadata
 from harborrag_adapters.models.runtime.security import HeaderValue
 from harborrag_adapters.models.runtime.transport import reveal_headers
 from harborrag_core.models.embed import (
@@ -192,7 +193,7 @@ def build_litellm_parameters(
     inputs: list[str | list[int]],
     timeout: float,
     model_override: str | None = None,
-    litellm_provider: str | None = None,
+    metadata: ProviderMetadata,
 ) -> dict[str, Any]:
     """Translate one validated embedding batch into LiteLLM parameters."""
 
@@ -212,7 +213,7 @@ def build_litellm_parameters(
     )
     parameters = build_provider_params(
         deployment,
-        litellm_provider=litellm_provider,
+        metadata=metadata,
         model=model_override or model,
     )
     deployment_headers = parameters.pop("extra_headers", {})

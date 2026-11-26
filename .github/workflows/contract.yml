@@ -39,6 +39,7 @@ jobs:
           uv venv --clear
           uv pip install -e packages/harborrag-core \
             -e "packages/harborrag-adapters[control-plane]" \
+            -e packages/harborrag-memory \
             -e packages/harborrag-engine \
             -e packages/harborrag-runtime \
             -e "packages/harborrag-app[api]"
@@ -61,6 +62,7 @@ jobs:
             VIRTUAL_ENV=/tmp/base-venv uv pip install \
               -e /tmp/base/packages/harborrag-core \
               -e "/tmp/base/packages/harborrag-adapters[control-plane]" \
+              -e /tmp/base/packages/harborrag-memory \
               -e /tmp/base/packages/harborrag-engine \
               -e /tmp/base/packages/harborrag-runtime \
               -e "/tmp/base/packages/harborrag-app[api]"
@@ -125,5 +127,4 @@ jobs:
           path: |
             clients/typescript
             !clients/typescript/node_modules
-      # TODO(M0 follow-up): `npm publish` to the internal registry on tags,
-      # version pinned to the backend package version (plan ST10 item 4).
+      # TODO: npm publish the generated client to the internal registry on tags, versioned like the backend packages.
