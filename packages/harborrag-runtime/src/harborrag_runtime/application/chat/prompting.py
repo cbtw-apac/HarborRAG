@@ -6,30 +6,16 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 from harborrag_core.domain.identity import MemoryIdentity
-from harborrag_core.domain.retrieval import RetrievalResult
 from harborrag_core.models.chat import HarborChatMessage, HarborChatRequest
 from harborrag_core.ports.conversation import ConversationMessage
 from harborrag_core.ports.memory import Memory
 from harborrag_engine.chat.memory_block import memory_block
 from harborrag_runtime.memory import MemoryContext
 
-from .presenters import citation_data, citation_marker, source_heading
+from .presenters import citation_data
 
 if TYPE_CHECKING:
     from .evidence import ChatEvidence
-
-EVIDENCE_PREAMBLE = (
-    "Supporting evidence retrieved for this question. It may be irrelevant: "
-    "retrieval always returns its best matches, even when nothing in the "
-    "indexed material is about what was asked. Ignore any source that does "
-    "not bear on the question rather than letting it steer the answer."
-)
-"""Why the sources are offered rather than imposed.
-
-Request-scope admission and similarity filtering do not prove answerability.
-Hybrid rank scores are not relevance probabilities, and some lanes cannot
-report raw similarity. The model must still reject irrelevant evidence.
-"""
 
 NO_SOURCES = "No sources were retrieved for this question."
 
@@ -58,7 +44,6 @@ def build_chat_request(  # noqa: PLR0913 - explicit prompt assembly inputs
     query: str,
     *,
     identity: MemoryIdentity,
-    results: Sequence[RetrievalResult],
     context: MemoryContext | None = None,
     model: str | None = None,
     evidence: ChatEvidence | None = None,
@@ -82,6 +67,8 @@ def build_chat_request(  # noqa: PLR0913 - explicit prompt assembly inputs
 
     ``trace_id`` is the request's trace id, so the model call's telemetry is
     found by the id the caller was given.
+
+    ``evidence`` holds the turn's sources; without it the turn has none.
     """
     history = (
         evidence.history
@@ -93,11 +80,11 @@ def build_chat_request(  # noqa: PLR0913 - explicit prompt assembly inputs
     summary = context.summary if context else None
     memories = context.recalled if context else ()
     retrieval_query = context.standalone_query if context else None
-    selected_results = evidence.passages if evidence is not None else tuple(results)
+    selected_results = evidence.passages if evidence is not None else ()
     turn_prompt = (
         evidence.prompt
         if evidence is not None
-        else prompt_text(query, selected_results, summary=summary, memories=memories)
+        else prompt_text(query, summary=summary, memories=memories)
     )
     request = HarborChatRequest(
         messages=(
@@ -126,49 +113,18 @@ def build_chat_request(  # noqa: PLR0913 - explicit prompt assembly inputs
 
 def prompt_text(
     query: str,
-    results: Sequence[RetrievalResult],
     *,
     summary: str | None = None,
     memories: Sequence[Memory] = (),
 ) -> str:
-    """Fold retrieval into one explicitly delimited turn.
+    """Build the turn of a question that retrieval found no sources for.
 
-    The chat provider adapter renders every ``HarborChatMessage`` by role
-    only (`build_litellm_messages`) -- it does not special-case
-    ``context_kind``. Sending each chunk as its own
-    ``HarborChatMessage.retrieved_context(...)`` message would therefore
-    reach the model as an indistinguishable extra user turn. Folding
-    everything into one labeled block keeps context and question
-    unambiguous regardless of provider.
+    Without sources the model still gets the routing rule, so an unmatched
+    question is not answered from general knowledge as if it were grounded.
     """
     block = memory_block(summary, memories)
     prefix = f"{block}\n\n" if block else ""
-    if not results:
-        return f"{prefix}{NO_SOURCES}\n\n{ROUTING}\n\nQuestion: {query}"
-    context = "\n\n".join(
-        f"{_source_label(index, result)}\n{result.text}"
-        for index, result in enumerate(results, start=1)
-    )
-    return (
-        f"{prefix}{EVIDENCE_PREAMBLE}\n\nRetrieved context:\n{context}"
-        f"\n\n{ROUTING}\n\nQuestion: {query}"
-    )
-
-
-def _source_label(index: int, result: RetrievalResult) -> str:
-    """Identify one source by something a reader could tell apart.
-
-    A bare ``document_id`` is an opaque hash, so two pages that differ only
-    in scope -- an FE and a BE onboarding checklist -- reach the model as
-    indistinguishable sources and get merged into one answer. The title and
-    heading trail are already stored with the chunk; showing them is what
-    lets the model attribute a claim to the right document.
-
-    The id is kept as well: it is what the citation refers to, and a chunk
-    ingested before titles were surfaced has nothing else to be known by.
-    """
-    document_id = result.metadata.get("document_id", "unknown")
-    return f"{citation_marker(index, result)} {source_heading(result)} (document_id={document_id})"
+    return f"{prefix}{NO_SOURCES}\n\n{ROUTING}\n\nQuestion: {query}"
 
 
 def history_messages(messages: Sequence[ConversationMessage]) -> tuple[HarborChatMessage, ...]:

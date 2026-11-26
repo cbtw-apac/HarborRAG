@@ -5,7 +5,6 @@ from __future__ import annotations
 import pytest
 from sharepoint_test_helpers import (
     FakeGraphClient,
-    add_site_and_default_drive,
     config,
     drive,
     file_item,
@@ -172,16 +171,6 @@ def test_resolve_site_missing_id_raises():
 
     with pytest.raises(FetchError, match="did not include id"):
         api.resolve_site()
-
-
-def test_record_for_item_id_resolves_site_and_drive():
-    client = FakeGraphClient()
-    add_site_and_default_drive(client)
-    client.add("drives/drive1/items/file1", file_item("file1", "Guide.docx"))
-    api = SharePointDriveAPI(client, config())
-
-    record = api.record_for_item_id("file1")
-    assert record.metadata["item_id"] == "file1"
 
 
 def test_iter_site_drives_follows_pagination():

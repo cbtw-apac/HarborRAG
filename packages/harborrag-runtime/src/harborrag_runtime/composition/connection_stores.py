@@ -51,6 +51,9 @@ def build_connection_stores(settings: RuntimeSettings) -> ConnectionStores:
     Args:
         settings: Runtime settings with the control database URL and secrets key.
 
+    The engine checks each connection before use and takes the configured pool
+    size and overflow, like the API's.
+
     Returns:
         Stores over a lazily connecting engine.
 
@@ -76,7 +79,13 @@ def build_connection_stores(settings: RuntimeSettings) -> ConnectionStores:
     )
 
     key = secrets_encryption_key(settings)
-    engine = create_control_plane_engine(settings.control_db_url.get_secret_value())
+    engine = create_control_plane_engine(
+        settings.control_db_url.get_secret_value(),
+        pool_pre_ping=True,
+        pool_recycle=1800,
+        pool_size=settings.control_db_pool_size,
+        max_overflow=settings.control_db_max_overflow,
+    )
     sessions = create_session_factory(engine)
     return ConnectionStores(
         connections=SqlConnectionRepository(sessions),

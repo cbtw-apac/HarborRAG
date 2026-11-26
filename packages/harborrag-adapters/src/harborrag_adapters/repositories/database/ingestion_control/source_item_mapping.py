@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from harborrag_core.chunking import ConnectorType
 from harborrag_core.ingestion import (
     BindingKind,
@@ -20,6 +22,9 @@ from .row_values import (
     required_text,
 )
 
+_UNCOMPARED_METADATA = frozenset({"accessed_at"})
+"""Descriptor metadata every read moves; local descriptors stored by 2.0.0a releases carry it."""
+
 
 def registration_from_existing(
     existing: DatabaseRow | None,
@@ -30,7 +35,7 @@ def registration_from_existing(
     previous_descriptor = required_mapping(existing, "descriptor")
     if existing["admission_change_key"] != item.admission_change_key:
         decision = SourceAdmissionDecision.UPDATED
-    elif previous_descriptor != item.descriptor:
+    elif _compared(previous_descriptor) != _compared(item.descriptor):
         decision = SourceAdmissionDecision.METADATA_CHANGED
     else:
         decision = SourceAdmissionDecision.UNCHANGED
@@ -40,6 +45,19 @@ def registration_from_existing(
         previous_admission_change_key=str(existing["admission_change_key"]),
         previous_descriptor=previous_descriptor,
     )
+
+
+def _compared(descriptor: Mapping[str, object]) -> Mapping[str, object]:
+    """Return ``descriptor`` without the metadata that never counts as a change."""
+    metadata = descriptor.get("metadata")
+    if not isinstance(metadata, Mapping) or _UNCOMPARED_METADATA.isdisjoint(metadata):
+        return descriptor
+    return {
+        **descriptor,
+        "metadata": {
+            key: value for key, value in metadata.items() if key not in _UNCOMPARED_METADATA
+        },
+    }
 
 
 def stored_source_item_from_row(row: DatabaseRow) -> StoredSourceItem:

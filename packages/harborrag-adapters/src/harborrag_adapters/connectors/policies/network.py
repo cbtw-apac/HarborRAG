@@ -40,6 +40,11 @@ _NAT64_PREFIX = IPv6Network("64:ff9b::/96")
 _IPV4_COMPATIBLE_PREFIX = IPv6Network("::/96")
 _IPV4_TRANSLATED_PREFIX = IPv6Network("::ffff:0:0:0/96")
 _UNSPECIFIED_AND_LOOPBACK = IPv6Network("::/127")
+_NON_PUBLIC_IPV6 = (
+    IPv6Network("fec0::/10"),
+    IPv6Network("3fff::/20"),
+    IPv6Network("5f00::/16"),
+)
 _IPV4_MASK = 0xFFFFFFFF
 
 
@@ -123,7 +128,9 @@ class DestinationPolicy:
         """Refuse ``address`` unless it is public, or ``host`` or ``address`` is allowed.
 
         An IPv6 address that carries an IPv4 address (IPv4-mapped, IPv4-translated,
-        NAT64 or IPv4-compatible) is judged by the IPv4 address it carries.
+        NAT64 or IPv4-compatible) is judged by the IPv4 address it carries. Site-local
+        ``fec0::/10``, documentation ``3fff::/20`` and SRv6 ``5f00::/16`` addresses
+        are refused, although some Python versions count them as global.
 
         Args:
             host: Host name the address was resolved from.
@@ -134,7 +141,7 @@ class DestinationPolicy:
         """
         reached = ip_address(address.split("%", 1)[0])
         peer = _embedded_ipv4(reached) or reached
-        if peer.is_global and not peer.is_multicast:
+        if peer.is_global and not peer.is_multicast and not _is_listed_non_public(peer):
             return
         if host.casefold().rstrip(".") in self.hosts:
             return
@@ -144,6 +151,13 @@ class DestinationPolicy:
             f"{host} resolves to the private address {peer}; list the host or its network "
             f"in {ALLOWED_HOSTS_VARIABLE} to allow it"
         )
+
+
+def _is_listed_non_public(address: IPv4Address | IPv6Address) -> bool:
+    """Return whether an IPv6 address is in a range ``is_global`` may wrongly accept."""
+    return isinstance(address, IPv6Address) and any(
+        address in network for network in _NON_PUBLIC_IPV6
+    )
 
 
 def _embedded_ipv4(address: IPv4Address | IPv6Address) -> IPv4Address | None:

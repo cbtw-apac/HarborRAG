@@ -11,7 +11,6 @@ from confluence_test_helpers import (
     FakeConfluenceClient,
     cloud_config,
     full_content,
-    light_content,
 )
 
 from harborrag_adapters.connectors.confluence import ConfluenceConnector
@@ -287,13 +286,3 @@ def test_load_raises_for_live_doc_content_even_when_content_types_is_page():
 
     with pytest.raises(DocumentProcessingError, match="does not match content filters"):
         connector.load(SourceRecord("confluence://ENG/1", "text/html", "1"))
-
-
-def test_load_by_ids_loads_each_content_id():
-    client = FakeConfluenceClient()
-    client.add("content/1", light_content("1", "Page One"), full_content())
-    connector = ConfluenceConnector(cloud_config(), client=client)
-
-    documents = list(connector.load_by_ids(["1"]))
-
-    assert [d.id for d in documents] == ["confluence://ENG/1"]

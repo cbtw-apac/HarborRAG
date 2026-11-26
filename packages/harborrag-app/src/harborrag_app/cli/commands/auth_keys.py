@@ -79,9 +79,11 @@ def default_secret_output(name: str) -> Path:
 def check_secret_output(path: Path) -> None:
     """Prepare a safe destination before a key exists to deliver.
 
-    A missing parent directory is created owner-only rather than refused: the
-    common first run is a fresh operator machine. An existing directory that
-    other users can write to is still refused, and so is an existing file.
+    A missing parent directory is created owner-only rather than refused, and so
+    is each missing directory above it: the common first run is a fresh operator
+    machine, and the MCP server refuses to start when ``~/.harborrag``, its default
+    audit directory, is open to other users. An existing directory keeps its mode.
+    One that other users can write to is still refused, and so is an existing file.
     """
 
     if path.exists():
@@ -89,13 +91,20 @@ def check_secret_output(path: Path) -> None:
     parent = path.resolve().parent
     if not parent.exists():
         try:
-            parent.mkdir(mode=0o700, parents=True)
+            _make_private_directories(parent)
         except OSError as error:
             raise typer.BadParameter(f"cannot create {parent}: {type(error).__name__}") from None
     elif not parent.is_dir():
         raise typer.BadParameter(f"{parent} is not a directory")
     if parent.stat().st_mode & stat.S_IWOTH:
         raise typer.BadParameter(f"{parent} is world-writable; use a private directory")
+
+
+def _make_private_directories(directory: Path) -> None:
+    """Create ``directory`` and each missing directory above it with mode 0700."""
+    missing = [path for path in (directory, *directory.parents) if not path.exists()]
+    for path in reversed(missing):
+        path.mkdir(mode=0o700, exist_ok=True)
 
 
 def write_secret_file(path: Path, secret: str) -> None:

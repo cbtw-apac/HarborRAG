@@ -22,6 +22,7 @@ from harborrag_adapters.connectors.exceptions import (
     FetchError,
     ItemNotFoundError,
     RateLimitError,
+    RefusedResponseError,
 )
 from harborrag_adapters.connectors.policies.http import (
     ResponseTooLargeError,
@@ -152,7 +153,11 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
         response = self._request(method, url, **kwargs)
         try:
             payload = read_capped_json(response)
-        except (ValueError, ResponseTooLargeError) as exc:
+        except ResponseTooLargeError as exc:
+            raise RefusedResponseError(
+                f"{self._provider_label} response exceeded byte limit for {endpoint}"
+            ) from exc
+        except ValueError as exc:
             raise FetchError(
                 f"{self._provider_label} returned non-JSON response for {endpoint}"
             ) from exc
@@ -173,7 +178,7 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
         try:
             safe_url = require_same_origin_url(url, self.base_url, label=label)
         except ValueError as exc:
-            raise FetchError(str(exc)) from exc
+            raise RefusedResponseError(str(exc)) from exc
         response = self._request(
             "GET",
             safe_url,
@@ -188,7 +193,7 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
             caps = tuple(cap for cap in (configured_cap, max_bytes) if cap is not None)
             content = read_capped_content(response, min(caps) if caps else None)
         except ResponseTooLargeError as exc:
-            raise FetchError(str(exc)) from exc
+            raise RefusedResponseError(str(exc)) from exc
         return content or None
 
     def _follow_trusted_redirect(
@@ -207,7 +212,7 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
         location = redirect_location(response.headers.get("Location") or "")
         response.close()
         if not location or not _is_trusted_redirect(location, self.base_url):
-            raise FetchError(f"{label} refused HTTP redirect {response.status_code}")
+            raise RefusedResponseError(f"{label} refused HTTP redirect {response.status_code}")
         try:
             follow_up = self._redirect_session.get(
                 location,
@@ -217,14 +222,16 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
                 allow_redirects=False,
             )
         except requests.RequestException as exc:
-            raise FetchError(f"{label} redirect request failed") from exc
+            raise FetchError(f"{label} redirect request failed: {type(exc).__name__}") from None
         if follow_up.status_code >= 400:
             detail = safe_response_error_detail(follow_up)
             raise FetchError(
                 f"{label} redirect target failed with HTTP {follow_up.status_code}: {detail}"
             )
         if 300 <= follow_up.status_code < 400:
-            raise FetchError(f"{label} refused chained HTTP redirect {follow_up.status_code}")
+            raise RefusedResponseError(
+                f"{label} refused chained HTTP redirect {follow_up.status_code}"
+            )
         return follow_up
 
     def _request(
@@ -247,7 +254,9 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
             except requests.RequestException as exc:
                 last_error = exc
                 if attempt == self.config.max_retries:
-                    raise FetchError(f"{self._provider_label} request failed") from exc
+                    raise FetchError(
+                        f"{self._provider_label} request failed: {type(exc).__name__}"
+                    ) from None
                 self._sleep(attempt, exc)
                 continue
 
@@ -256,7 +265,7 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
             if response.status_code == 403:
                 raise AuthorizationError(safe_response_error_detail(response), status_code=403)
             if response.status_code == 429 and attempt == self.config.max_retries:
-                raise RateLimitError(safe_response_error_detail(response))
+                raise RateLimitError(safe_response_error_detail(response), status_code=429)
             if response.status_code not in _RETRYABLE_STATUS or attempt == self.config.max_retries:
                 if response.status_code == 404:
                     detail = safe_response_error_detail(response)

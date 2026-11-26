@@ -50,15 +50,6 @@ class WorkflowNotFoundError(WorkflowOperationError):
     """
 
 
-class WorkflowNotRetryableError(WorkflowOperationError):
-    """Raised when a retry names artifacts the run cannot retry.
-
-    The run workflow only checkpoints failed and quarantined artifacts, and
-    discards retry requests for anything else without a trace. Refusing those
-    up front keeps a no-op from being reported as a successful retry.
-    """
-
-
 class WorkflowNotRunningError(WorkflowOperationError):
     """Raised when a control action addresses a run that has already finished.
 

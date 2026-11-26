@@ -31,6 +31,7 @@ from harborrag_adapters.connectors.policies.http import (
     safe_error_detail,
 )
 from harborrag_adapters.connectors.policies.network import DestinationPolicy, guarded_session
+from harborrag_adapters.repositories.private_directories import make_private_directories
 
 from .permissions import token_claims
 
@@ -140,13 +141,15 @@ class DelegatedTokenCache:
 
         Each write gets its own exclusively created, owner-only temporary file,
         so concurrent saves never share or truncate one, and a file another
-        user pre-created in the cache directory is never written through.
+        user pre-created in the cache directory is never written through. Each
+        missing directory, ``~/.harborrag`` included, is created with mode 0700.
+        An existing one keeps its mode.
 
         Args:
             refresh_token: Refresh token to store.
             account: Signed-in account name stored with the token, when known.
         """
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+        make_private_directories(self.path.parent)
         payload = {
             "tenant_id": self.tenant_id,
             "client_id": self.client_id,

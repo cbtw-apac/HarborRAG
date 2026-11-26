@@ -327,7 +327,8 @@ class CanonicalChunkFactory:
         """Carry a local file's document dates onto each chunk.
 
         Local files have no source strategy that copies provenance dates, so this
-        uses the ``created_at`` and ``updated_at`` names of the vector payload.
+        sets the ``created_at`` and ``updated_at`` chunk keys the vector payload
+        stores as ``created_at`` and ``last_modified``.
         """
         if cls._connector_type(request) != ConnectorType.LOCAL:
             return {}

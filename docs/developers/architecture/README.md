@@ -235,18 +235,19 @@ Repository families are asynchronous and tenant-aware. Data operations require a
 | --- | --- |
 | Vector | Qdrant |
 | Graph | FalkorDB |
-| Cache | Memory, Redis |
 | Object store | Memory, filesystem, S3 |
-| Database | SQLite, PostgreSQL |
-| Workflow state | SQLite, Redis |
 
 Family clients build backends by provider name. Plugin and config modules isolate optional
 imports. Public methods return core schemas and sanitized health data, not raw SDK responses.
 
+The control-plane and ingestion-control databases are SQLAlchemy repositories under
+`repositories/database/`, not a provider family: the database URL selects SQLite or
+PostgreSQL, and one Alembic history migrates both.
+
 These implementations are the production persistence path. Runtime factories build the
-PostgreSQL or SQLite, object-store, Qdrant, FalkorDB, cache and state repositories and inject
-them behind core ports. Engine never imports `harborrag_adapters.repositories`: that would
-couple business policy to provider implementations and reverse the dependency direction.
+PostgreSQL or SQLite, object-store, Qdrant and FalkorDB repositories and inject them behind
+core ports. Engine never imports `harborrag_adapters.repositories`: that would couple
+business policy to provider implementations and reverse the dependency direction.
 
 The `object_store_provider`, `vector_provider` and `graph_provider` settings select the
 storage factories; the defaults are S3, Qdrant and FalkorDB. Plugins register factories

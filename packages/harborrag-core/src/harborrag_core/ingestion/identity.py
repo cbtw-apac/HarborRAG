@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from hashlib import sha256
+from unicodedata import normalize
 from urllib.parse import quote
 from uuid import UUID, uuid5
 
@@ -78,17 +79,41 @@ def reject_runtime_fields(value: object) -> None:
             reject_runtime_fields(item)
 
 
-def _with_exact_spacing(identity: dict[str, str], key: str, value: str) -> dict[str, str]:
-    """Add the exact form of a source value whose spacing identity encoding would change.
+def _normalization_changes(value: str) -> bool:
+    """Whether identity normalization changes the spacing or the Unicode form of ``value``."""
+    return bool(_LOSSY_SPACING.search(value)) or normalize("NFC", value) != value
 
-    ``encoded_identifier`` normalizes text. It trims a value and folds every run of
-    whitespace into one space, so two file paths that differ only in spacing would
-    share one identity. Their exact form, percent-encoded so normalization leaves it
-    alone, keeps them apart. A value whose spacing normalization keeps gets no extra
-    entry, so every identifier stored before keeps its value.
+
+def _with_exact_form(identity: dict[str, str], key: str, value: str) -> dict[str, str]:
+    """Add the exact form of a source value that identity encoding would change.
+
+    ``encoded_identifier`` normalizes text. It trims a value, folds every run of
+    whitespace into one space and composes it to Unicode NFC, so two file paths that
+    differ only in spacing or in Unicode form would share one identity. Their exact
+    form, percent-encoded so normalization leaves it alone, keeps them apart. A value
+    that normalization keeps gets no extra entry, so every identifier stored before
+    keeps its value.
     """
-    if _LOSSY_SPACING.search(value):
+    if _normalization_changes(value):
         identity[f"{key}_exact"] = quote(value, safe="")
+    return identity
+
+
+def _document_identity(
+    *,
+    tenant_id: str,
+    connector_type: ConnectorType,
+    connection_id: str,
+    source_item_id: str,
+) -> dict[str, str]:
+    """Return the identity inputs of a document ID, before any exact entry."""
+    identity = {
+        "connector_type": connector_type.value,
+        "connection_id": connection_id,
+        "source_item_id": source_item_id,
+    }
+    if tenant_id != "DEFAULT":
+        identity["tenant_id"] = tenant_id
     return identity
 
 
@@ -118,17 +143,16 @@ class DocumentIdentityBuilder:
         Returns:
             The document ID.
         """
-        identity = {
-            "connector_type": connector_type.value,
-            "connection_id": connection_id,
-            "source_item_id": source_item_id,
-        }
-        if tenant_id != "DEFAULT":
-            identity["tenant_id"] = tenant_id
+        identity = _document_identity(
+            tenant_id=tenant_id,
+            connector_type=connector_type,
+            connection_id=connection_id,
+            source_item_id=source_item_id,
+        )
         return DocumentId(
             encoded_identifier(
                 "document",
-                _with_exact_spacing(identity, "source_item_id", source_item_id),
+                _with_exact_form(identity, "source_item_id", source_item_id),
             )
         )
 
@@ -198,7 +222,7 @@ class DocumentIdentityBuilder:
         """Return the key of a source item or container node inside one source scope."""
         return encoded_identifier(
             "graph-v2-source-entity",
-            _with_exact_spacing(
+            _with_exact_form(
                 {
                     "tenant_id": tenant_id,
                     "source_scope_id": source_scope_id,
@@ -228,7 +252,7 @@ class DocumentIdentityBuilder:
         """
         return encoded_identifier(
             "graph-v2-external-source-entity",
-            _with_exact_spacing(
+            _with_exact_form(
                 {
                     "tenant_id": tenant_id,
                     "connector_type": connector_type,
@@ -360,3 +384,40 @@ def identity_for_source(source: SourceIdentity) -> DocumentId:
         connection_id=source.connection_id,
         source_item_id=source.source_item_id,
     )
+
+
+def legacy_identity_for_source(source: SourceIdentity) -> DocumentId:
+    """Return the document ID that 2.0.0a2 and earlier gave a source identity.
+
+    Those releases had no exact entry, so source item IDs that differ only in spacing
+    or in Unicode form shared one ID. For every other source item ID it equals
+    ``identity_for_source``.
+    """
+    return DocumentId(
+        encoded_identifier(
+            "document",
+            _document_identity(
+                tenant_id=source.tenant_id,
+                connector_type=source.connector_type,
+                connection_id=source.connection_id,
+                source_item_id=source.source_item_id,
+            ),
+        )
+    )
+
+
+def composed_owner_of_legacy_identity(source: SourceIdentity) -> SourceIdentity | None:
+    """Return the NFC spelling of ``source`` when it now owns the source's legacy ID.
+
+    2.0.0a2 and earlier gave a source item ID outside Unicode NFC the ID of its NFC
+    spelling, and published its document under it. That ID now belongs to the NFC
+    spelling. Returns None when the source item ID is already NFC, or when its NFC
+    spelling has another ID, as for an ID whose spacing normalization changes too.
+    """
+    composed = normalize("NFC", source.source_item_id)
+    if composed == source.source_item_id:
+        return None
+    spelling = source.model_copy(update={"source_item_id": composed})
+    if identity_for_source(spelling) != legacy_identity_for_source(source):
+        return None
+    return spelling

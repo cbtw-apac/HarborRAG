@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 from harborrag_mcp_server.server.http_responses import error_response
 
 if TYPE_CHECKING:
-    from fastmcp.server.auth import TokenVerifier
+    from fastmcp.server.auth import AccessToken, TokenVerifier
     from starlette.requests import Request
     from starlette.responses import Response
 
@@ -40,11 +40,6 @@ class Unauthorized(Exception):
 
 OWNER_ROLES: frozenset[str] = frozenset({"owner"})
 READER_ROLES: frozenset[str] = frozenset({"reader", "owner"})
-
-
-async def authenticated_owner(request: Request, token_verifier: TokenVerifier) -> str:
-    """Return the authenticated owner's principal id, or raise Unauthorized."""
-    return await authenticated_principal(request, token_verifier, roles=OWNER_ROLES)
 
 
 async def authenticated_principal(
@@ -94,9 +89,21 @@ async def authenticated_principal(
     request.state.token_role = role
     request.state.allowed_tenants = allowed_tenants(claims)
     request.state.token_scopes = frozenset(access.scopes or ())
+    request.state.credential_id = credential_id(access)
     subject = claims.get("sub")
     principal_id = subject if isinstance(subject, str) and subject.strip() else access.client_id
     return principal_id or "authenticated-owner"
+
+
+def credential_id(access: AccessToken) -> str:
+    """Return the ID of the credential a token came from, which keys its request budget.
+
+    The client ID names one key, while several keys can share an owner's subject.
+    """
+    if access.client_id:
+        return access.client_id
+    subject = (access.claims or {}).get("sub")
+    return subject if isinstance(subject, str) and subject.strip() else "authenticated-unknown"
 
 
 def allowed_tenants(claims: Mapping[str, object]) -> frozenset[str]:

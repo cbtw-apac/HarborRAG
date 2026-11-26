@@ -12,6 +12,12 @@ import yaml
 from .chat.configs import HarborChatClientConfig
 from .embed.configs import HarborEmbedClientConfig
 from .rerank.configs import HarborRerankClientConfig
+from .runtime import (
+    catalog_has_rerank_model,
+    load_config_document,
+    prepare_config_section,
+    require_set_variables,
+)
 
 type SupportedConfig = HarborChatClientConfig | HarborEmbedClientConfig | HarborRerankClientConfig
 
@@ -25,8 +31,9 @@ class ModelConfigCli:
         parser = _parser()
         args = parser.parse_args(argv)
         try:
-            config = _load_config(args.family, args.file, args.profile)
+            config = _load_config(args.family, args.file)
             if args.command == "validate":
+                _refuse_blank_keys(args.family, args.file)
                 print(f"valid {args.family} configuration: {args.file}")
                 return 0
             if args.command == "render":
@@ -54,20 +61,31 @@ def _parser() -> argparse.ArgumentParser:
         command = subcommands.add_parser(name)
         command.add_argument("file", type=Path)
         command.add_argument("--family", choices=("chat", "embed", "rerank"), required=True)
-        command.add_argument("--profile")
         if name == "render":
             command.add_argument("--format", choices=("json", "yaml"), default="yaml")
             command.add_argument("--output", type=Path)
     return parser
 
 
-def _load_config(family: str, path: Path, profile: str | None) -> SupportedConfig:
+def _load_config(family: str, path: Path) -> SupportedConfig:
     types: dict[str, type[SupportedConfig]] = {
         "chat": HarborChatClientConfig,
         "embed": HarborEmbedClientConfig,
         "rerank": HarborRerankClientConfig,
     }
-    return types[family].from_file(path, profile=profile)
+    return types[family].from_file(path)
+
+
+def _refuse_blank_keys(family: str, path: Path) -> None:
+    """Refuse what ``harborrag doctor`` refuses, within one family's section.
+
+    The loader accepts a blank ``${VAR}`` and a named rerank model with a blank key,
+    but building the client refuses both.
+    """
+    document = load_config_document(path)
+    require_set_variables(prepare_config_section(document, section=family, overrides=None))
+    if family == "rerank":
+        catalog_has_rerank_model(document)
 
 
 def _write_rendered(config: SupportedConfig, *, output: Path | None, format_name: str) -> None:

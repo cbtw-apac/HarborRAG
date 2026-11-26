@@ -68,23 +68,3 @@ async def test_failed_generation_leaves_the_conversation_unnamed():
     )
     assert not result.ok
     assert await memory.get_title(IDENTITY) is None
-
-
-@pytest.mark.asyncio
-async def test_stream_final_result_contains_the_generated_title():
-    service, memory = await setup(FakeChatFacade())
-    events = [
-        event
-        async for event in service.stream(
-            "Explain the release policy",
-            tenant_id="ACME",
-            principal_id="reader",
-            options=OPTIONS,
-        )
-    ]
-    assert events[-1]["kind"] == "result"
-    assert (
-        events[-1]["result"]["title"]
-        == await memory.get_title(IDENTITY)
-        == "Explain the release policy"
-    )

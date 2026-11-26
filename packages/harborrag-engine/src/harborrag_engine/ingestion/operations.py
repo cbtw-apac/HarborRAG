@@ -54,7 +54,7 @@ ACTION_WAIT_SECONDS: dict[str, int] = {"pause": 10, "resume": 10, "cancel": 30}
 ACTION_POLL_SECONDS = 0.5
 _ALLOWED_FROM: dict[str, frozenset[str]] = {
     "pause": frozenset({"queued", "running"}),
-    "resume": frozenset({"paused"}),
+    "resume": frozenset({"paused", "running"}),
     "cancel": frozenset({"queued", "running", "paused"}),
     "retry-failures": frozenset({"succeeded", "failed", "cancelled"}),
 }
@@ -356,8 +356,9 @@ class IngestionOperations:
 
         Raises:
             IngestionNotFoundError: No such run in the tenant.
-            IngestionActionStateError: The run's status does not allow ``action``, or
-                ``action`` pauses or resumes a retry run, which can only be cancelled.
+            IngestionActionStateError: The run's status does not allow ``action``,
+                ``action`` pauses or resumes a retry run, which can only be cancelled,
+                or it resumes a running run that holds no pause.
         """
         _require_allowed(action, await self.get(tenant_id=tenant_id, ingestion_id=ingestion_id))
         await getattr(self._actions, action)(ingestion_id, actor=actor)

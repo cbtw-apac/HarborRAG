@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import time
 import uuid
 from collections.abc import Callable, Iterator
 from typing import Any
@@ -65,8 +64,6 @@ from .skips import (
     log_skip,
     skip_reason_for_error,
 )
-
-_TIME_FOR_SHAREPOINT_CONNECTOR_TESTS = time
 
 
 class SharePointConnector(BaseConnector):
@@ -281,7 +278,7 @@ class SharePointConnector(BaseConnector):
         one of the item errors from ``skips``.
 
         Args:
-            record: Record from this connector's discovery or ``load_by_ids``.
+            record: Record from this connector's discovery.
 
         Returns:
             The page HTML or the file bytes, with SharePoint metadata.
@@ -387,7 +384,7 @@ class SharePointConnector(BaseConnector):
         file is never downloaded.
 
         Args:
-            record: File record from discovery or ``load_by_ids``.
+            record: File record from discovery.
             site: Resolved and allowed site payload.
 
         Returns:
@@ -505,18 +502,6 @@ class SharePointConnector(BaseConnector):
                 raise
             log_skip(reason, item_id=item_id, run_id=self.run_id)
             raise item_load_error(reason, exc, item_id=item_id, url=url) from exc
-
-    def load_by_ids(self, item_ids: list[str]) -> Iterator[RawDocument]:
-        """Load files for callers that already have drive item IDs.
-
-        Args:
-            item_ids: Drive item IDs in the configured drive.
-
-        Yields:
-            RawDocument: One raw document per item ID, in order.
-        """
-        for item_id in item_ids:
-            yield self.load(self._drive.record_for_item_id(item_id))
 
     @staticmethod
     def _item_ids_from_query(query: ConnectorQuery) -> list[str]:

@@ -1,4 +1,4 @@
-"""Who is calling: bearer tokens, API keys and the role and tenant checks on a principal.
+"""Who is calling: bearer tokens and API keys resolved to a principal.
 
 Every rejected credential gets the same ``401 unauthenticated`` message, whatever check
 failed. The order of a route's checks is set by ``auth.access.require_role``.
@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Mapping
 from ipaddress import ip_address
 from typing import Annotated, Protocol, cast
 
@@ -18,14 +17,12 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from harborrag_app.api.auth.base import BaseTokenVerifier
 from harborrag_app.api.auth.hmac import HmacTokenVerifier
 from harborrag_app.api.settings import ApiSettings
-from harborrag_app.operations.errors import TenantForbiddenError
 from harborrag_app.operations.principal import Principal
 from harborrag_core.contracts.errors import (
     HarborAuthError,
     HarborCapabilityError,
     HarborConfigurationError,
     HarborConnectionError,
-    HarborNotFoundError,
 )
 from harborrag_core.domain.identity import DEFAULT_USER
 from harborrag_core.domain.member import Role
@@ -242,23 +239,3 @@ async def get_principal(
             raise
         logger.info("Rejected a bearer credential: %s", exc)
         raise HarborAuthError(UNAUTHENTICATED) from None
-
-
-def authorize_tenant(principal: Principal, tenant_id: str) -> None:
-    """Reject a tenant named in a body or query that the credential does not hold.
-
-    Raises:
-        TenantForbiddenError: The credential does not hold ``tenant_id``.
-    """
-    if not principal.can_access_tenant(tenant_id):
-        raise TenantForbiddenError()
-
-
-def authorize_task_tenant(principal: Principal, task: Mapping[str, object]) -> None:
-    """Hide an ingestion task's existence when its tenant is outside the caller's scope.
-
-    Shared by the v1 and legacy ingestion routes so both authorize identically
-    against the same task-store record (``task["tenant"]``).
-    """
-    if not principal.can_access_tenant(str(task["tenant"])):
-        raise HarborNotFoundError("Ingestion task was not found")

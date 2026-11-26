@@ -63,7 +63,7 @@ class PyMuPDFEngine(HarborPDFEngine):
         try:
             document = pymupdf.open(stream=source_bytes, filetype="pdf")
         except Exception as exc:  # noqa: BLE001 - external parser boundary
-            raise ParseError(f"PyMuPDF could not open PDF: {exc}") from exc
+            raise ParseError(f"PyMuPDF could not open PDF: {type(exc).__name__}") from exc
 
         try:
             if getattr(document, "needs_pass", False):
@@ -89,7 +89,7 @@ class PyMuPDFEngine(HarborPDFEngine):
                 try:
                     page_text = compact_text(page.get_text("text") or "")
                 except Exception as exc:  # noqa: BLE001 - per-page isolation
-                    warnings.append(f"page {page_index} failed: {exc}")
+                    warnings.append(f"page {page_index} failed: {type(exc).__name__}")
                     continue
                 if not page_text:
                     continue

@@ -15,7 +15,6 @@ from harborrag_core.domain.identity import MemoryIdentity
 from harborrag_core.models.chat import HarborChatRequest
 from harborrag_core.ports.config_store import ConfigProvider
 from harborrag_core.ports.conversation import ConversationHistoryRepository
-from harborrag_core.ports.memory import MemoryIndex, MemoryRepository
 from harborrag_core.ports.usage import ModelUsageRepository
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.memory import MemoryContext
@@ -45,15 +44,13 @@ type RuntimeProvider = Callable[[], HarborRAG]
 class ChatTurnResources:
     """Every port one chat turn touches, bundled so helpers stay small.
 
-    ``usage`` is the durable per-request accounting ledger; like the long-term
-    memory ports it is optional, and a deployment without one still answers.
+    ``usage`` is the durable per-request accounting ledger; it is optional, and a
+    deployment without one still answers.
     """
 
     runtime_provider: RuntimeProvider
     settings: RuntimeSettings
     memory: ConversationHistoryRepository
-    memories: MemoryRepository | None = None
-    index: MemoryIndex | None = None
     usage: ModelUsageRepository | None = None
     config: ConfigProvider | None = None
 
@@ -103,6 +100,7 @@ async def prepare_turn(
         resources.runtime(),
         context,
         identity=identity,
+        acl_subject=options.acl_subject or identity.principal_id,
         settings=resources.settings,
         observe_graph=graph_enabled,
         top_k=await chat_top_k(resources.config, identity, resources.settings),
@@ -129,7 +127,6 @@ async def prepare_turn(
     request = build_chat_request(
         query,
         identity=identity,
-        results=results,
         context=context,
         model=options.model,
         evidence=evidence,

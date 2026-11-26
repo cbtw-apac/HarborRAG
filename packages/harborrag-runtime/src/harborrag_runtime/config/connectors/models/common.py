@@ -21,7 +21,10 @@ class HttpTuning(StrictModel):
         default=None, gt=0, description="Seconds to wait for one response"
     )
     max_retries: int | None = Field(
-        default=None, ge=0, description="Retries of a failed or rate-limited request"
+        default=None,
+        ge=0,
+        le=10,
+        description="Retries of a failed or rate-limited request, at most 10",
     )
     backoff_factor: float | None = Field(
         default=None,

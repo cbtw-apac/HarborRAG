@@ -19,10 +19,7 @@ from harborrag_core.domain.retrieval import RetrievalResult
 from harborrag_runtime.application.chat.presenters import (
     citation_data,
     citation_marker,
-    cited_evidence,
     cited_results,
-    evidence_data,
-    source_heading,
 )
 
 pytestmark = pytest.mark.unit
@@ -48,16 +45,8 @@ def test_only_the_marked_sources_are_returned() -> None:
     assert [result.id for result in used] == ["chunk-1", "chunk-3"]
 
 
-def test_evidence_preserves_text_markers_and_bounds_output_without_telemetry_content():
-    results = _results(2)
-    results[1].text = "line one\n" + "x" * 9000
-    evidence = cited_evidence(citation_marker(2, results[1]), results)
-    assert len(evidence) == 1
-    assert evidence[0]["content"] == results[1].text[:8000]
-    assert evidence[0]["content_truncated"] is True
-    assert evidence[0]["marker"] == citation_marker(2, results[1])
-    assert "content" not in citation_data(results[1])
-    assert evidence_data(1, results[0])["content"] == "body 1"
+def test_citation_data_carries_no_passage_content() -> None:
+    assert "content" not in citation_data(_results(1)[0])
 
 
 def test_only_the_server_generated_readable_marker_is_accepted() -> None:
@@ -135,7 +124,6 @@ def test_citation_data_includes_readable_document_section_and_location() -> None
         "location": "lines 40–46",
     }
     assert citation_marker(1, result) == "[1]"
-    assert source_heading(result) == '"Deployment Guide" — Operations > Rollback policy'
 
 
 def test_citation_uses_source_page_when_heading_and_range_are_missing() -> None:
@@ -151,7 +139,6 @@ def test_citation_uses_source_page_when_heading_and_range_are_missing() -> None:
     )
 
     assert citation_data(result)["location"] == "https://example.com/wiki/pages/123"
-    assert source_heading(result) == '"Project Charter"'
     result.metadata["citation_locator"] = {"uri": "javascript:alert(1)"}
     assert "location" not in citation_data(result)
 
@@ -216,79 +203,3 @@ async def test_completion_reports_only_the_sources_the_answer_cited() -> None:
     assert response.data["citations"][0]["snippet"] == "body 2"
     messages = await memory.recent_messages(identity, limit=2)
     assert json.loads(messages[-1].citations_json) == response.data["citations"]
-
-
-@pytest.mark.asyncio
-async def test_stream_ends_with_the_sources_the_answer_cited() -> None:
-    """A stream cannot gate the first frame, so it corrects itself at the end.
-
-    The opening ``citations`` event is emitted before any text exists, so it
-    can only ever be "what retrieval found". A second one after the answer
-    carries what was actually used, giving a client that overwrites its
-    sources panel the same meaning the JSON field has.
-
-    The opening frame keeps its meaning: everything retrieval found. The closing frame is a distinct
-    kind, so a client that appends rather than overwrites cannot mistake one for the other.
-    """
-
-    from harborrag_core.models.chat import HarborChatStreamChunk
-    from harborrag_core.models.chat.enums import StreamEventType
-    from harborrag_memory.tiers.in_memory import InMemoryConversationMemory
-    from harborrag_runtime.application.chat import (
-        ChatApplicationService,
-        ChatExecutionOptions,
-    )
-    from harborrag_runtime.config.settings import RuntimeSettings
-    from harborrag_runtime.memory import ConversationIdentity
-    from harborrag_runtime.testing.chat_fakes import (
-        FakeChatFacade,
-        FakeRetrievalFacade,
-        FakeRuntime,
-    )
-
-    class _CitingStream(FakeChatFacade):
-        async def _events(self):
-            results = _results(3)
-            yield HarborChatStreamChunk(
-                event=StreamEventType.TEXT_DELTA,
-                logical_model="primary",
-                provider="mock",
-                provider_model="mock-chat",
-                deployment="internal-deployment",
-                text_delta=f"Grounded in {citation_marker(2, results[1])}.",
-            )
-            yield HarborChatStreamChunk(
-                event=StreamEventType.COMPLETED,
-                logical_model="primary",
-                provider="mock",
-                provider_model="mock-chat",
-                deployment="internal-deployment",
-                finish_reason="stop",
-            )
-
-    identity = ConversationIdentity("ACME", "reader-1", "session-1", "reader-1")
-    memory = InMemoryConversationMemory()
-    await memory.create(identity)
-    service = ChatApplicationService(
-        lambda: FakeRuntime(_CitingStream(), FakeRetrievalFacade(_results(3))),  # type: ignore[arg-type]
-        RuntimeSettings(),
-        memory=memory,
-    )
-
-    events = [
-        event
-        async for event in service.stream(
-            "What does the policy say?",
-            tenant_id="ACME",
-            principal_id="reader-1",
-            options=ChatExecutionOptions(session_id="session-1", user_id="reader-1"),
-        )
-    ]
-
-    kinds = [event["kind"] for event in events]
-    assert kinds[0] == "citations"
-    opening = events[0]
-    assert [c["chunk_id"] for c in opening["citations"]] == ["chunk-1", "chunk-2", "chunk-3"]
-    assert kinds[-2:] == ["cited_sources", "result"]
-    assert [c["chunk_id"] for c in events[-2]["citations"]] == ["chunk-2"]
-    assert events[-1]["result"]["citations"] == events[-2]["citations"]

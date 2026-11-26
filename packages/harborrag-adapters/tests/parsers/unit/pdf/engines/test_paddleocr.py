@@ -86,7 +86,8 @@ def test_paddleocr_falls_back_when_predict_raises():
 
     assert result == "parsed doc.pdf"
     assert backend._active_pipeline_class == "PaddleOCRVL"
-    assert any("GPU init failure" in warning for warning in warnings)
+    assert "PPStructureV3: RuntimeError" in warnings
+    assert not any("GPU init failure" in warning for warning in warnings)
 
 
 class _NoneCombinerPipeline:

@@ -20,7 +20,8 @@ the stores the checkout's environment names, so it needs no running API.
 In local mode the CLI acts as the principal `cli:<os-user>`, with the role `owner` in
 every tenant (`*`). The projects and connections it writes, and the runs it starts
 through Temporal, record that principal in `created_by`, `updated_by` and
-`triggered_by`. `harborrag me` shows it:
+`triggered_by`. `harborrag me` shows it, with the tenant the other commands act in,
+resolved as [Global options](#global-options) describes:
 
 ```bash
 uv run harborrag me -o yaml
@@ -61,6 +62,9 @@ CLI's process without Temporal, for development.
   ```text
   Invalid value for REF: expected PROJECT_ID/CONNECTION_ID, for example default/harborrag-workspace; list them with harborrag connections list
   ```
+
+  A `CONNECTION_ID` that breaks the ID rules, such as `Bad_ID!`, is
+  `422 validation_error` on `connection_id`, exit 2, before any lookup, as over HTTP.
 
 - `create` sends `If-None-Match: *`, so it fails with `412` when the resource exists.
   `update` reads the current `ETag` and sends it as `If-Match`, so it fails with `412`
@@ -108,8 +112,8 @@ harborrag 2.0.0a2
 ```
 
 `--version` reads no project, environment file or database, so it works from any
-directory. `--install-completion` installs shell completion, and `--show-completion` prints it to
-copy or customize.
+directory. `--install-completion` installs shell completion, and `--show-completion`
+prints it to copy or customize.
 
 ### Set defaults in a profile
 
@@ -204,6 +208,13 @@ each field issue of a validation error and the first eight characters of the tra
 error 404 not_found: connection 'no-such' not found (trace 3877634d…)
 ```
 
+A project that cannot be used is reported the same way, as `internal_error` with exit
+code 1: no project found, a `--project` directory without `harborrag.yaml`, or an
+unknown key under `runtime:`. The CLI finds this before it parses the command, so it
+takes the format from the last `-o`, then `HARBORRAG_OUTPUT`, then the terminal default,
+and never from a profile. In table mode the error is the plain line
+`harborrag: MESSAGE`; see [Run from a repository checkout](#run-from-a-repository-checkout).
+
 A usage error is reported before any operation runs, as Click's usage message in every
 output format, and exits 2. That covers an unknown option, a malformed ref, a body file
 that does not validate, a profile that cannot be used, and a write into an empty tenant
@@ -242,13 +253,29 @@ directory that holds `config/sources/connectors.yaml`, and runs from there. `doc
 walks up the same way, so it gives the same report from any subfolder. When that is not
 the current directory and stderr is a terminal, the command says so on stderr:
 `harborrag: using repository checkout DIR`. A script that reads stderr does not see the
-notice; it is logged at `INFO` instead, so `HARBORRAG_LOG_LEVEL=INFO` shows it. A relative file path you type, such as `-f body.yaml`, `settings import FILE`,
-`settings export --file` or `--config`, still names the file in the directory you ran the
-command in. Outside a checkout and without a project directory, every command except
-`doctor` stops with exit 1; `doctor` reports the missing project instead.
+notice; it is logged at `INFO` instead, so `HARBORRAG_LOG_LEVEL=INFO` shows it. A
+relative file path you type, such as `-f body.yaml`, `settings import FILE`,
+`settings export --file` or `--config`, still names the file in the directory you ran
+the command in. Outside a checkout and without a project directory, every command
+except `doctor` stops with exit 1; `doctor` reports the missing project instead. In a
+terminal, or with `-o table`, the command prints:
 
 ```text
 harborrag: no project found. Run it inside a HarborRAG repository checkout, or pass --project DIR for a directory containing harborrag.yaml.
+```
+
+With `-o json` or `-o yaml`, with `HARBORRAG_OUTPUT`, or when stdout is not a terminal,
+such as in a pipe, it prints the error envelope instead:
+
+```json
+{
+  "error": {
+    "code": "internal_error",
+    "message": "no project found. Run it inside a HarborRAG repository checkout, or pass --project DIR for a directory containing harborrag.yaml.",
+    "details": null,
+    "trace_id": "b22e4257e1e54f35a8a86ba36035f489"
+  }
+}
 ```
 
 In a checkout, the CLI reads `env/.env.connector`, `env/.env.parser` and
@@ -256,14 +283,15 @@ In a checkout, the CLI reads `env/.env.connector`, `env/.env.parser` and
 uncommented `HARBORRAG_CONTROL_DB_URL` line and `HARBORRAG_LOCAL_SOURCE_ROOT`. From
 `env/.env.api` it reads only `HARBORRAG_CORPUS_ACCESS_MODE`,
 `HARBORRAG_CORPUS_SHARED_TENANT_ID` and `HARBORRAG_TENANT_ID`, the last as the default
-tenant described under [Global options](#global-options). It does not read `env/.env.temporal`. An exported
-variable always wins over a file.
+tenant described under [Global options](#global-options). It does not read
+`env/.env.temporal`. An exported variable always wins over a file.
 
 A command that writes refuses the checkout's local SQLite control database (the
 database that stores projects, connections and runs), exits 1 and names the fix. That
 covers `projects create`, `update` and `delete`; `connections create`, `update` and
 `delete`; every `ingestions` command that starts or changes a run; `failures retry`;
-`settings set` without `--dry-run`; `settings import --apply`; and `settings export --file`.
+`settings set` without `--dry-run`; and `settings import --apply`. `settings export`
+only reads the database, so it runs there too, with or without `--file`.
 To point the CLI at the stack's Postgres, uncomment the `HARBORRAG_CONTROL_DB_URL` line
 in `env/.env.database` (the template is `env-example/.env.database.example`), or export
 the variable. The CLI then also takes `HARBORRAG_SECRETS_ENCRYPTION_KEY` from that file,
@@ -289,6 +317,20 @@ run; `--project` is the explicit opt-in.
 In a project directory, settings are read in this order of precedence: shell
 environment, then the project `.env`, then `runtime:` in `harborrag.yaml`, then
 defaults.
+
+Every key under `runtime:` must be a runtime setting, such as `tenant_id` or
+`control_db_url`. The CLI exports these keys as `HARBORRAG_*` variables, so it compares
+them without regard to case. Any other key, a typo such as `contol_db_url` included,
+stops every command with exit 1 and names it, in a terminal or with `-o table` as this
+line, and elsewhere as the error envelope with `internal_error`:
+
+```text
+harborrag: /path/to/project/harborrag.yaml: unknown 'runtime' settings: contol_db_url
+```
+
+Keys that are not runtime settings, such as `local_source_root`, `log_level`,
+`connector_allowed_hosts`, `host`, `port`, `auth_mode` or an `mcp_` key, are refused the
+same way; set those in the environment or the project `.env` instead.
 
 ## Manage projects and connections
 
@@ -356,6 +398,9 @@ error.
   over HTTP passes.
 - `delete` removes the connection's documents, stored secrets and row in the
   background, and prints the job; `--purge` also drops its ingestion history.
+- `list --source-type` takes a source type exactly as the API names it: `jira`,
+  `confluence`, `sharepoint`, `local_file` or `github`. A provider alias or another
+  spelling, such as `local` or `Jira`, is `422 validation_error`, exit 2.
 
 `projects delete` removes only an empty project: while the project has connections it
 fails with `409 in_use`, exit 4, and removes nothing. `--cascade` also removes its
@@ -417,16 +462,20 @@ A run that does not exist is `404 not_found`, exit 3, as without `--watch`.
 
 `ingestions pause`, `resume` and `cancel` apply the same rules as the HTTP API and print
 the run. An action the run's status does not allow is `409 invalid_state`, exit 4, and
-changes nothing. `ingestions retry-failures` starts a new run of a finished run's failed
-items; `failures list` and `failures retry` work across runs. The rules are in
+changes nothing. `resume` works on a paused run, and on a running run that holds a
+pause it has not applied yet, such as one sent during discovery; it takes that pause
+back. `ingestions retry-failures` starts a new run of a finished run's failed items;
+`failures list` and `failures retry` work across runs. The rules are in
 [Start and control ingestions](../connections.md#start-and-control-ingestions).
 
 ### Run an ingestion in this process
 
 `ingestions start REF --inline` runs the pipeline in the CLI's process, without Temporal
 or a worker, for development. It refuses `--wait`, which it already does, and
-`--item-refs`. It prints the run's result, `{task_id, status, discovered, published,
-unchanged, failed, skipped}`, and exits 0 when `status` is `COMPLETED` or `PARTIAL`, else 8.
+`--item-refs`. Like a start through Temporal, it refuses a connection that has a
+pending, running or paused run with `409 already_running`, exit 4. It prints the run's
+result, `{task_id, status, discovered, published, unchanged, failed, skipped}`, and
+exits 0 when `status` is `COMPLETED` or `PARTIAL`, else 8.
 
 `--inline` reads the files on this machine, so a `local_file` connection's `source_path`
 must be an existing file or directory here; if it is not, `--inline` refuses the
@@ -448,14 +497,16 @@ its numbered citations; `-o json` prints the completion body.
 
 The CLI reads the corpus mode from the API's env file, so it answers from the same
 documents as HTTP chat. The shipped `env-example/.env.api.example` sets
-`HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared` and `HARBORRAG_CORPUS_SHARED_TENANT_ID=DEFAULT`,
-and from a checkout the CLI reads exactly those two lines, and the `HARBORRAG_TENANT_ID` line as its default tenant, of `env/.env.api` (the file named
-by `API_ENV_FILE` when you set it), and nothing else in that file. An exported variable
-outranks the file. Only the shared tenant reads the whole corpus; any other tenant stays on
-`source_acl`, where a caller with no source permissions gets no sources. To return the
-`DEFAULT` tenant to `source_acl`, remove both lines and restart the API. An `env/.env.api`
-created from an older template has neither line: add them, then restart the API.
-`harborrag doctor` shows the `corpus mode` for the tenant the CLI acts in.
+`HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared` and
+`HARBORRAG_CORPUS_SHARED_TENANT_ID=DEFAULT`. From a checkout the CLI reads exactly
+those two lines of `env/.env.api` (the file named by `API_ENV_FILE` when you set it),
+plus the `HARBORRAG_TENANT_ID` line as its default tenant, and nothing else in that
+file. An exported variable outranks the file. Only the shared tenant reads the whole
+corpus; any other tenant stays on `source_acl`, where a caller with no source
+permissions gets no sources. To return the `DEFAULT` tenant to `source_acl`, remove
+both lines and restart the API. An `env/.env.api` created from an older template has
+neither line: add them, then restart the API. `harborrag doctor` shows the
+`corpus mode` for the tenant the CLI acts in.
 
 Ask:
 
@@ -503,7 +554,8 @@ Tenants with data: DEFAULT
 
 A failed check prints the hint that fixes it. `doctor` exits 0 when every required
 check passes, 6 when only service checks failed, and 1 when a configuration check
-failed. A warning never changes the exit code. `-o json` prints `{"checks", "ready", "summary", "tenants", "diagnostics"}`.
+failed. A warning never changes the exit code. `-o json` prints
+`{"checks", "ready", "summary", "tenants", "diagnostics"}`.
 
 What to expect from a checkout:
 
@@ -578,23 +630,24 @@ dry_run: true
 ```
 
 With `--apply` it writes the changes as one revision whose source is `import`; into a
-tenant with no data it asks first, as any write does, so a script passes `--yes`. Boot-only keys are reported and skipped.
-`--prune` also removes stored overrides the file lacks, at any level. An invalid file
-exits 2, naming the file and the key, and applies nothing.
+tenant with no data it asks first, as any write does, so a script passes `--yes`.
+Boot-only keys are reported and skipped. `--prune` also removes stored overrides the
+file lacks, at any level. An invalid file exits 2, naming the file and the key, and
+applies nothing.
 
 ## Manage MCP reader keys
 
 ```bash
-uv run harborrag auth keys create --tenant DEFAULT --owner user-alex --name alex-laptop --expires-in 30d
+uv run harborrag auth keys create --tenant DEFAULT --owner user-alex --name alex-laptop --expires-in 7d
 uv run harborrag auth keys list --tenant DEFAULT
 uv run harborrag auth keys revoke --reason "laptop replaced" --key-id KEY_ID
 ```
 
 - `create` makes a hashed, tenant-bound reader key for an explicit `--tenant`, with a
-  lifetime such as `7d` or `12h`. The owner is `user-<name>`, `svc-<name>` or `team-<name>`. The secret goes only to a
-  new file, `~/.harborrag/keys/<name>.key` unless `--secret-output` names another, never
-  to the terminal. `--migrate` applies pending control-database migrations when the key
-  table is missing.
+  lifetime such as `7d` or `12h`. The owner is `user-<name>`, `svc-<name>` or
+  `team-<name>`. The secret goes only to a new file, `~/.harborrag/keys/<name>.key`
+  unless `--secret-output` names another, never to the terminal. `--migrate` applies
+  pending control-database migrations when the key table is missing.
 - `list` shows a tenant's keys with their state, never hashes or secrets.
 - `revoke` revokes one key by ID, or with `--tenant` and `--owner` every active key of
   one owner in a tenant. The reason is recorded in the audit trail.
@@ -605,14 +658,16 @@ and `{"keys": […]}` for `list`, in `-o table`, `json` or `yaml`. A failure is 
 [error envelope](#read-errors-and-exit-codes) with its exit code: `2` for a policy
 violation such as a lifetime over the limit, `3` for a key that does not exist, `4` when
 the database rejects the key row, and `6` when the key table is missing, behind or
-unreachable. `list` defaults `--tenant` like the resource commands, from `HARBORRAG_TENANT_ID` and
-else `DEFAULT`. `create` and `revoke` never default it: `create` needs an explicit
-`--tenant`, so a mistyped or forgotten tenant cannot mint a live key in the wrong tenant,
-and `revoke` needs `--key-id` alone, or `--owner` together with an explicit `--tenant`, so
-revoking every key of an owner cannot hit a default tenant by accident; both refuse with
-exit 2. `--secret-output -` is refused, because the secret goes only to a file. The
-operator notices of `auth keys` print on stderr only when the command succeeds, so a
-failure's stderr is the error envelope alone; the exception is the warning that the
+unreachable. `list` defaults `--tenant` like the resource commands; see
+[Global options](#global-options). `create` and `revoke` never default it: `create`
+needs an explicit `--tenant`, so a mistyped or forgotten tenant cannot mint a live key
+in the wrong tenant, and `revoke` needs `--key-id` alone, or `--owner` together with an
+explicit `--tenant`, so revoking every key of an owner cannot hit a default tenant by
+accident; both refuse with exit 2. `--secret-output -` is refused, because the secret
+goes only to a file.
+
+The operator notices of `auth keys` print on stderr only when the command succeeds, so
+a failure's stderr is the error envelope alone. The exception is the warning that the
 control database is the local SQLite default, which prints at once so a failure on the
 wrong database carries its hint.
 

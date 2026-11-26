@@ -7,8 +7,6 @@ from unicodedata import category
 from urllib.parse import urlsplit, urlunsplit
 
 from harborrag_core.domain.retrieval import RetrievalResult
-from harborrag_core.models.chat import HarborChatResponse, HarborChatStreamChunk
-from harborrag_core.models.cost import ModelCost
 
 
 def citation_data(result: RetrievalResult) -> dict[str, object]:
@@ -36,40 +34,6 @@ def citation_marker(index: int, result: RetrievalResult) -> str:
     """Return the ``[n]`` label the model cites passage ``index`` of its prompt with."""
     del result
     return f"[{index}]"
-
-
-def source_heading(result: RetrievalResult) -> str:
-    """Name the passage's document title and section (or page) as a reader would."""
-    metadata = result.metadata
-    title = (
-        display_text(metadata.get("document_title"), 256)
-        or display_text(metadata.get("document_id"), 128)
-        or "Untitled document"
-    )
-    section = " > ".join(_citation_section(metadata.get("section_path")))
-    location = section or _citation_location(metadata.get("citation_locator"))
-    return f'"{title}" — {location}' if location else f'"{title}"'
-
-
-def evidence_data(index: int, result: RetrievalResult) -> dict[str, object]:
-    """Return bounded authorized evidence to clients, never to telemetry metadata."""
-    return {
-        **citation_data(result),
-        "marker": citation_marker(index, result),
-        "content": result.text[:8000],
-        **({"content_truncated": True} if len(result.text) > 8000 else {}),
-    }
-
-
-def cited_evidence(
-    answer: str, results: Sequence[RetrievalResult]
-) -> tuple[dict[str, object], ...]:
-    """Return the evidence entries of the results whose ``[n]`` marker appears in ``answer``."""
-    return tuple(
-        evidence_data(index, result)
-        for index, result in enumerate(results, start=1)
-        if citation_marker(index, result) in answer
-    )
 
 
 def display_text(value: object, limit: int) -> str | None:
@@ -164,59 +128,3 @@ def cited_results(
         if readable in answer:
             cited.append(result)
     return tuple(cited)
-
-
-def chat_response_data(
-    response: HarborChatResponse,
-    results: Sequence[RetrievalResult] = (),
-    *,
-    session_id: str,
-    project_id: str | None = None,
-    memory_persisted: bool = True,
-) -> dict[str, object]:
-    """Project a provider response without leaking deployment metadata.
-
-    ``project_id`` echoes the validated project the turn was scoped to (or
-    None). ``memory_persisted`` is False when the answer was generated but could not
-    be appended to conversation memory; the answer is still returned.
-
-    ``citations`` are the sources the answer cited, not everything retrieval
-    returned: retrieval hands back its top-k regardless of relevance, so
-    reporting all of it claims evidence the answer never used.
-    """
-    return {
-        "completion_id": response.id,
-        "created": response.created,
-        "model": response.logical_model,
-        "provider": response.provider,
-        "provider_model": response.provider_model,
-        "message": {
-            "role": response.message.role.value,
-            "content": response.text,
-        },
-        "finish_reason": str(response.finish_reason),
-        "usage": response.usage.model_dump(mode="json"),
-        "cost": ModelCost().add_call(response.estimated_cost_usd).model_dump(mode="json"),
-        "latency_ms": response.latency_ms,
-        "retry_count": response.retry_count,
-        "fallback_count": response.fallback_count,
-        "citations": cited_evidence(response.text, results),
-        "session_id": session_id,
-        "project_id": project_id,
-        "memory_persisted": memory_persisted,
-    }
-
-
-def chat_stream_chunk_data(chunk: HarborChatStreamChunk) -> dict[str, object]:
-    """Project one stream chunk without leaking deployment/provider-error metadata."""
-    return {
-        "event": chunk.event.value,
-        "model": chunk.logical_model,
-        "provider": chunk.provider,
-        "provider_model": chunk.provider_model,
-        "content": chunk.text_delta,
-        "reasoning": chunk.reasoning_delta,
-        "finish_reason": chunk.finish_reason,
-        "usage": chunk.usage.model_dump(mode="json") if chunk.usage is not None else None,
-        "cost": ModelCost().add_call(chunk.estimated_cost_usd).model_dump(mode="json"),
-    }

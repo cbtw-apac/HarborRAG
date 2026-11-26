@@ -23,7 +23,6 @@ from harborrag_adapters.connectors.exceptions import (
     AuthenticationError,
     AuthorizationError,
     FetchError,
-    RateLimitError,
 )
 from harborrag_adapters.connectors.limits import DEFAULT_ALLOWED_EXTENSIONS
 from harborrag_adapters.connectors.sharepoint.permissions import reject_broad_permissions
@@ -318,8 +317,6 @@ def test_skipped_resets_between_discoveries():
     [
         (FetchError("gone", status_code=404), "DELETED"),
         (AuthorizationError("forbidden", status_code=403), "ACCESS_DENIED"),
-        (RateLimitError("slow down", status_code=429), "TRANSIENT_ERROR_MAX_RETRIES"),
-        (FetchError("boom", status_code=503), "TRANSIENT_ERROR_MAX_RETRIES"),
     ],
 )
 def test_direct_item_failures_are_skipped_and_the_run_continues(error, reason):
@@ -353,8 +350,6 @@ def _subfolder_tree(client: RaisingGraphClient) -> None:
     [
         (FetchError("gone", status_code=404), "DELETED"),
         (AuthorizationError("forbidden", status_code=403), "ACCESS_DENIED"),
-        (RateLimitError("slow down", status_code=429), "TRANSIENT_ERROR_MAX_RETRIES"),
-        (FetchError("boom", status_code=503), "TRANSIENT_ERROR_MAX_RETRIES"),
     ],
 )
 def test_a_failing_subfolder_is_skipped_and_its_siblings_still_crawl(error, reason):
@@ -380,15 +375,13 @@ def test_a_subfolder_failing_mid_pagination_keeps_the_pages_already_listed():
         "drives/drive1/items/big/children",
         {"value": [file_item("file1", "A.docx", parent_id="big")], "@odata.nextLink": "page2"},
     )
-    client.errors["page2"] = FetchError("boom", status_code=503)
+    client.errors["page2"] = FetchError("gone", status_code=404)
     connector = SharePointConnector(config(), client=client)
 
     records = list(connector.discover())
 
     assert [record.locator for record in records] == ["file1"]
-    assert [(skip.reason, skip.item_id) for skip in connector.skipped] == [
-        ("TRANSIENT_ERROR_MAX_RETRIES", "big")
-    ]
+    assert [(skip.reason, skip.item_id) for skip in connector.skipped] == [("DELETED", "big")]
 
 
 @pytest.mark.parametrize(

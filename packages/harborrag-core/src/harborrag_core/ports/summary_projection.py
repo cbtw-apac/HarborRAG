@@ -119,12 +119,3 @@ class SummaryExecutionRepositoryPort(SummaryCachePort, Protocol):
     ) -> None: ...
 
     async def tenant_inputs(self, lease: SummaryLease) -> tuple[SummaryBinding, ...]: ...
-
-
-class SummaryRepositoryPort(
-    SummaryExecutionRepositoryPort,
-    SummaryInputRepositoryPort,
-    SummaryReaderPort,
-    Protocol,
-):
-    """Compatibility aggregate for composition roots needing the full summary authority."""

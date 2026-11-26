@@ -24,7 +24,7 @@ MODULES = {
         "harborrag_adapters",
         "harborrag_adapters.connectors.registry",
         "harborrag_adapters.parsers.registry",
-        "harborrag_adapters.repositories.state.sql_base",
+        "harborrag_adapters.repositories.backends.sqlalchemy",
     ],
     "harborrag-memory": ["harborrag_memory", "harborrag_memory.context"],
     "harborrag-engine": [

@@ -249,8 +249,9 @@ the `HARBORRAG_` variables it reads most often; every runtime variable is in the
 | `HARBORRAG_CORPUS_SHARED_TENANT_ID` | unset | Tenant whose retrieval reads the shared corpus in `tenant_shared` mode |
 | `HARBORRAG_LOG_LEVEL` | `WARNING` for the CLI | Diagnostic logging |
 
-From a checkout the CLI reads only the two corpus-mode lines and the tenant line of `env/.env.api` (the file
-named by `API_ENV_FILE`), where an exported variable outranks the file; see
+From a checkout the CLI reads only the two corpus-mode lines and the tenant line of
+`env/.env.api` (the file named by `API_ENV_FILE`), where an exported variable outranks the
+file; see
 [Ask a grounded question](../../../../../docs/users/cli-reference/README.md#ask-a-grounded-question).
 
 `chat` reads its passages from the same object store the worker wrote them to. The
@@ -261,8 +262,9 @@ another deployment; then point `HARBORRAG_OBJECT_STORE_ENDPOINT_URL` at the work
 store.
 
 Plaintext connections to non-loopback services fail closed unless their explicit
-`HARBORRAG_*_ALLOW_INSECURE_REMOTE` development-network option is enabled. Do not use
-those opt-outs on an untrusted network.
+`HARBORRAG_*_ALLOW_INSECURE_REMOTE` development-network option is enabled, and that option
+counts only while `HARBORRAG_ENV` is `dev`. Do not use those opt-outs on an untrusted
+network.
 
 ## Keep the package boundary
 

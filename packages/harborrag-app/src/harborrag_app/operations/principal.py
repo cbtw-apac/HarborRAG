@@ -46,17 +46,6 @@ class Principal:
         """Return whether the principal may act on the tenant."""
         return "*" in self.tenant_ids or tenant_id in self.tenant_ids
 
-    @property
-    def tenant_scope(self) -> frozenset[str] | None:
-        """This principal's repository-layer filter: None means unrestricted.
-
-        Every control-plane repository read/delete takes a ``tenant_ids``
-        filter where None means "no restriction" -- reserved for trusted
-        system callers. Wildcard principals (dev/no-auth, "*") are the one
-        application-facing exception: they are meant to see every tenant.
-        """
-        return None if "*" in self.tenant_ids else self.tenant_ids
-
 
 def authorize_role(principal: Principal, minimum: Role) -> None:
     """Reject a principal below the minimum role.

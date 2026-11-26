@@ -50,11 +50,14 @@ async def run_inline(
     Raises:
         HarborNotFoundError: No such connection in the tenant.
         HarborValidationError: A ``local_file`` source path does not exist here.
+        HarborAlreadyRunningError: The connection already has a run in progress;
+            ``details.ingestion_id`` names it.
         HarborError: The run failed to run; the message is the reviewed public one.
     """
     scope.require(OPERATIONS["start_ingestion"].role)
     connection = await service.connection_service.stored(ref.key(scope.tenant_id))
     _refuse_a_source_path_not_here(connection)
+    await service.connection_service.refuse_if_running(scope.tenant_id, connection.source_key)
     response = await service.run_ingestion(
         tenant_id=scope.tenant_id,
         connector_name=connection.source_key,

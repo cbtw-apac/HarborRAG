@@ -116,7 +116,7 @@ def test_should_process_file_raises_for_path_outside_source_scope(tmp_path: Path
     outside = write_file(tmp_path / "outside.md")
     files = LocalFileSystem(config(source_root))
 
-    with pytest.raises(DocumentProcessingError, match="outside configured source scope"):
+    with pytest.raises(DocumentProcessingError, match="outside the configured source scope"):
         files.should_process_file(outside, ConnectorQuery())
 
 

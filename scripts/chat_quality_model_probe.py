@@ -124,7 +124,7 @@ def _request(probe: Probe) -> HarborChatRequest:
     results = _results(probe)
     if not results:
         return HarborChatRequest(
-            messages=(HarborChatMessage.user(prompt_text(probe.question, ())),),
+            messages=(HarborChatMessage.user(prompt_text(probe.question)),),
             sensitive=True,
             metadata=HarborChatMetadata(
                 tenant_id="QUALITY_PROBE",

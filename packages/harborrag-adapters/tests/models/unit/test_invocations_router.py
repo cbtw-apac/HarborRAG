@@ -10,6 +10,7 @@ from harborrag_adapters.models.chat.backends import (
     LiteLLMDirectBackend,
     LiteLLMRouterBackend,
 )
+from harborrag_adapters.models.chat.registry import ProviderRegistry
 from harborrag_adapters.models.embed.invocation import (
     LiteLLMEmbeddingInvocation,
     LiteLLMEmbeddingRouterInvocation,
@@ -275,7 +276,7 @@ def test_build_litellm_router_translates_deployments_budgets_and_cache() -> None
     result = build_litellm_router(
         config,
         models,
-        provider_resolver=lambda deployment: deployment.provider.value,
+        provider_resolver=lambda deployment: ProviderRegistry.default().get(deployment.provider),
         router_factory=factory,
     )
 

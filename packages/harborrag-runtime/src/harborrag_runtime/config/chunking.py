@@ -24,7 +24,6 @@ from harborrag_runtime.config.loading import read_yaml_file, require_string_mapp
 if TYPE_CHECKING:
     from harborrag_runtime.config.settings import RuntimeSettings
 
-CHUNKING_CONFIG_VERSION = 1
 DEFAULT_CONFIGURATION_VERSION = "canonical-source-policies"
 
 

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock
-
 import pytest
 
 from harborrag_runtime.config.temporal import TemporalRuntimeConfig
@@ -32,7 +30,7 @@ async def test_a_pause_pending_until_the_next_batch_boundary_is_accepted(
 ) -> None:
     sdk = _SdkClient()
     sdk.source_handle.query.side_effect = lambda *_args, **_kwargs: _pending()
-    monkeypatch.setattr(client_module.asyncio, "sleep", AsyncMock())
+    monkeypatch.setattr(client_module, "_PAUSE_SETTLE_SECONDS", 0.0)
     client = IngestionTemporalClient(sdk, TemporalRuntimeConfig())
 
     await client.pause("task-1")
@@ -47,7 +45,7 @@ async def test_a_pause_overtaken_by_cancellation_still_reports_failure(
 ) -> None:
     sdk = _SdkClient()
     sdk.source_handle.query.side_effect = lambda *_args, **_kwargs: _pending(cancel_requested=True)
-    monkeypatch.setattr(client_module.asyncio, "sleep", AsyncMock())
+    monkeypatch.setattr(client_module, "_PAUSE_SETTLE_SECONDS", 0.0)
     client = IngestionTemporalClient(sdk, TemporalRuntimeConfig())
 
     with pytest.raises(WorkflowOperationError, match="pause relay did not settle"):

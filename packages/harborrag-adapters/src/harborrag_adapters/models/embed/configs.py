@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, ClassVar, Self
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from harborrag_adapters.models.runtime.config import (
     ModelClientConfig,
@@ -16,7 +16,7 @@ from harborrag_adapters.models.runtime.model_config import (
     validate_logical_model_references,
     validate_unique_deployments,
 )
-from harborrag_adapters.models.runtime.provider import ProviderDeploymentConfig
+from harborrag_adapters.models.runtime.provider import ProviderDeploymentConfig, single_line
 from harborrag_core.models.capabilities import HarborEmbedCapabilities
 from harborrag_core.models.embed import EmbeddingEncodingFormat, EmbeddingPurpose
 
@@ -71,6 +71,12 @@ class HarborEmbedModelConfig(LogicalModelConfig):
     embedding_space: str | None = Field(default=None, min_length=1)
     deployments: tuple[HarborEmbedProviderConfig, ...]
     default_params: HarborEmbedDefaults = Field(default_factory=HarborEmbedDefaults)
+
+    @field_validator("embedding_space", mode="before")
+    @classmethod
+    def strip_line_padding(cls, value: Any) -> Any:
+        """Strip padding, such as a CRLF env file's trailing CR, and refuse inner line breaks."""
+        return single_line(value, field="embedding_space") if isinstance(value, str) else value
 
     @model_validator(mode="after")
     def ensure_deployments(self) -> Self:

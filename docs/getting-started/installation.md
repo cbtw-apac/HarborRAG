@@ -83,6 +83,7 @@ would leave out:
 ```bash
 python -m pip install -e packages/harborrag-core
 python -m pip install -e "packages/harborrag-adapters[control-plane]"
+python -m pip install -e packages/harborrag-memory
 python -m pip install -e packages/harborrag-engine
 python -m pip install -e "packages/harborrag-runtime[production]"
 python -m pip install -e "packages/harborrag-app[api]"
@@ -91,9 +92,11 @@ python -m pip install -e packages/harborrag
 python -m pip install -e ".[dev]"
 ```
 
-`harborrag-app` depends on `harborrag-memory`, so conversation memory is installed with the
-CLI. `make bootstrap` installs no Temporal client, so `harborrag ingestions start` and the
-other commands that reach Temporal also need the `temporal` extra of `harborrag-runtime`:
+`harborrag-runtime` and `harborrag-app` depend on `harborrag-memory`, the conversation
+memory package, so it is installed from the checkout before them; otherwise pip would look
+for that version on PyPI. `make bootstrap` installs no Temporal client, so
+`harborrag ingestions start` and the other commands that reach Temporal also need the
+`temporal` extra of `harborrag-runtime`:
 
 ```bash
 python -m pip install -e "packages/harborrag-runtime[production,temporal]"
@@ -199,8 +202,10 @@ section of the documentation.
 | `harborrag-mcp-ui` | `harborrag-mcp-server` | `harborrag-mcp-server[ui]` |
 
 A PyPI install puts these on your `PATH`. `harborrag --help` works anywhere, but the other
-`harborrag` commands run only inside a repository checkout; elsewhere they stop with
-`harborrag: no project found. Run it inside a HarborRAG repository checkout, ...`.
+`harborrag` commands run only inside a repository checkout. Elsewhere they exit 1, and in a
+terminal, or with `-o table`, they print
+`harborrag: no project found. Run it inside a HarborRAG repository checkout, ...`; in a pipe
+or a script they print the same message in a JSON error envelope.
 
 In a repository checkout, `uv sync --all-packages` installs the console scripts into the
 workspace environment, so prefix them with `uv run`:
@@ -276,7 +281,9 @@ It prints the names the public facade exports, such as `HarborRAG` and `Retrieva
   prerequisites that backend documents.
 - Model configuration fails with `environment variable <NAME> is not set`: every `${NAME}` in
   `config/models/models.yaml` is expanded when the file loads, so each one must be set. A set
-  but blank value loads and fails later at the provider; `harborrag doctor` reports it as blank.
+  but blank value is refused too: a blank model name when the catalog loads, and a blank key
+  when the model's client is built. `harborrag doctor` names each blank `${NAME}` reference,
+  and `python -m harborrag_adapters.models validate` does too for the family it checks.
 - uv uses an unwritable global cache in a restricted environment: set `UV_CACHE_DIR` to a
   writable project or temporary directory.
 

@@ -48,7 +48,7 @@ from .skips import (
     UNSUPPORTED_EXTENSION,
     SharePointItemSkippedError,
     SharePointSkipRecorder,
-    skip_reason_for_error,
+    listing_skip_reason,
 )
 
 logger = logging.getLogger("harborrag.adapters.connectors.sharepoint")
@@ -94,8 +94,8 @@ class SharePointDriveAPI:
     ) -> Iterator[SourceRecord]:
         """Yield records for a direct drive item ID, descending into folders.
 
-        A direct item that is gone, forbidden, or still failing after retries
-        is recorded as a skip so the other requested items still load. The
+        A direct item that is gone or forbidden is recorded as a skip so the
+        other requested items still load. A throttled or failing fetch raises. The
         ``ValueError`` for an unsafe ``item_id`` passes through from
         ``get_item``, the one for an item outside ``root_path`` from
         ``require_inside_root`` before anything is yielded or listed, and folder
@@ -114,13 +114,13 @@ class SharePointDriveAPI:
         Raises:
             AuthorizationError: Fetching the item is denied for a reason that is
                 not about this one item.
-            FetchError: Fetching the item fails for a reason that is not about
-                this one item.
+            FetchError: Fetching the item is throttled, fails transiently, or
+                fails for a reason that is not about this one item.
         """
         try:
             item = self.get_item(str(drive["id"]), item_id)
         except (AuthorizationError, FetchError) as exc:
-            reason = skip_reason_for_error(exc)
+            reason = listing_skip_reason(exc)
             if reason is None:
                 raise
             self.skips.record(reason, str(exc), item_id=item_id)
@@ -211,9 +211,10 @@ class SharePointDriveAPI:
         the Python call stack before ``query.limit`` stops discovery, and the
         yield order stays depth-first.
 
-        A subfolder whose listing fails for an item-level reason (deleted,
-        access denied, retries exhausted) is recorded as a skip and the walk
-        moves on, keeping whatever pages of it were already listed. The crawl
+        A subfolder whose listing is denied or whose folder was deleted is
+        recorded as a skip and the walk moves on, keeping whatever pages of it
+        were already listed. A throttled or failing listing raises, so the scan
+        is not taken as complete while the files below it are unseen. The crawl
         root carries no folder item, so a failure listing it stays fatal:
         nothing in scope is reachable. The ``ValueError`` for an unsafe item
         ID passes through from ``children_endpoint``.
@@ -232,8 +233,9 @@ class SharePointDriveAPI:
         Raises:
             AuthorizationError: Listing the crawl root is denied, or a folder
                 listing is denied for a reason that is not about that folder.
-            FetchError: Listing the crawl root fails, or a folder listing fails
-                for a reason that is not about that folder, such as a cycle.
+            FetchError: Listing the crawl root fails, a folder listing is
+                throttled or fails transiently, or it fails for a reason that is
+                not about that folder, such as a cycle.
         """
         drive_id = str(drive["id"])
         pending: list[tuple[str | None, str | None, dict[str, Any] | None]] = [
@@ -267,12 +269,12 @@ class SharePointDriveAPI:
                 pending.append((child_id, None, child))
 
     def _skip_failed_folder(self, folder: dict[str, Any], error: Exception) -> bool:
-        """Record a subfolder whose listing failed for an item-level reason.
+        """Record a subfolder whose listing was denied or whose folder was deleted.
 
-        Returns ``False`` for a failure that is not about this one folder, such
-        as a traversal cycle, so the caller re-raises it.
+        Returns ``False`` for any other failure, such as throttling, a 5xx answer
+        or a traversal cycle, so the caller re-raises it.
         """
-        reason = skip_reason_for_error(error)
+        reason = listing_skip_reason(error)
         if reason is None:
             return False
         self.skips.record(
@@ -681,28 +683,6 @@ class SharePointDriveAPI:
                 item_id=item_id,
                 url=item.get("webUrl"),
             )
-
-    def record_for_item_id(self, item_id: str) -> SourceRecord:
-        """Resolve a drive item ID inside the configured root and build its source record.
-
-        The ``ValueError`` for an unsafe ``item_id`` or an item outside
-        ``root_path``, and Graph request errors, pass through.
-
-        Args:
-            item_id: Drive item ID from the caller.
-
-        Returns:
-            The item's source record in the configured drive.
-        """
-        site = self.resolve_site()
-        drive = self.resolve_drive(site)
-        item = self.get_item(str(drive["id"]), item_id)
-        self.require_inside_root(item)
-        return build_source_record(
-            item,
-            site_id=str(site["id"]),
-            drive_id=str(drive["id"]),
-        )
 
 
 def _page_items(response: dict[str, Any], *, operation: str) -> list[dict[str, Any]]:

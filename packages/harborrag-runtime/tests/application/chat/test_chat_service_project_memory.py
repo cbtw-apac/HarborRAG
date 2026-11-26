@@ -121,36 +121,6 @@ async def test_chat_completion_writes_user_and_assistant_messages_with_citations
 
 
 @pytest.mark.asyncio
-async def test_chat_stream_writes_messages_with_completion_tokens() -> None:
-    memory = InMemoryConversationMemory()
-    await memory.create(IDENTITY)
-    service = _service(memory, results=RESULTS)
-
-    events = [
-        event
-        async for event in service.stream(
-            "Hello",
-            tenant_id="ACME",
-            principal_id="reader-1",
-            options=ChatExecutionOptions(session_id="session-1", user_id="reader-1"),
-        )
-    ]
-
-    assert events[0]["project_id"] is None
-    assert [event["kind"] for event in events] == [
-        "citations",
-        "chunk",
-        "chunk",
-        "cited_sources",
-        "result",
-    ]
-    _, assistant = await memory.recent_messages(IDENTITY, limit=2)
-    assert assistant.content == "Hello"
-    assert assistant.token_count == 1
-    assert assistant.citations_json is None
-
-
-@pytest.mark.asyncio
 async def test_a_one_off_question_reads_its_project_and_stores_nothing() -> None:
     memory = InMemoryConversationMemory()
     await memory.create(IDENTITY)
@@ -202,33 +172,6 @@ async def test_chat_completion_rejects_a_project_without_a_control_plane() -> No
             principal_id="reader-1",
             options=ChatExecutionOptions(user_id="reader-1", project_ids=("proj-1",)),
         )
-
-
-@pytest.mark.asyncio
-async def test_chat_stream_reports_unknown_project_as_terminal_error() -> None:
-    memory = InMemoryConversationMemory()
-    await memory.create(IDENTITY)
-    service = _service(memory, projects=FakeProjects())
-
-    events = [
-        event
-        async for event in service.stream(
-            "Hello",
-            tenant_id="ACME",
-            principal_id="reader-1",
-            options=ChatExecutionOptions(
-                session_id="session-1", user_id="reader-1", project_ids=("missing",)
-            ),
-        )
-    ]
-
-    assert events == [
-        {
-            "kind": "error",
-            "error": "HarborNotFoundError",
-            "error_type": "HarborNotFoundError",
-        }
-    ]
 
 
 @pytest.mark.asyncio

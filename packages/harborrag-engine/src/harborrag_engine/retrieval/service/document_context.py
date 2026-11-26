@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from harborrag_core.chunking import ChunkRecord
+from harborrag_core.chunking import ChunkRecord, RecordKind
 from harborrag_core.contracts.errors import HarborCapabilityError
 from harborrag_core.contracts.reader import (
     DocumentContextChunk,
@@ -127,6 +127,8 @@ class DocumentContextReader:
             self._validate_chunk(chunk, request, version_id, context)
             if title is None:
                 title = chunk.hierarchy.document_title
+            if chunk.record_kind != RecordKind.EVIDENCE:
+                continue
             size = len(chunk.content.encode("utf-8"))
             if chunks and used_bytes + size > _CONTENT_BUDGET_BYTES:
                 next_offset = index
@@ -140,6 +142,7 @@ class DocumentContextReader:
                 DocumentContextChunk(
                     chunk_id=str(chunk.chunk_id),
                     ordinal=chunk.ordinal,
+                    record_kind=chunk.record_kind,
                     text=chunk.content,
                     chunk_kind=tuple(kind.value for kind in chunk.chunk_kinds),
                     section_path=chunk.hierarchy.section_path,

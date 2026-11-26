@@ -284,7 +284,7 @@ async def test_telemetry_close_is_complete_in_raise_and_ignore_modes() -> None:
     assert events == ["first", "second"]
 
 
-def test_advanced_example_yaml_loads_base_and_profiles(
+def test_advanced_example_yaml_loads(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     environment = {
@@ -317,14 +317,12 @@ def test_advanced_example_yaml_loads_base_and_profiles(
         HarborRerankClientConfig,
     )
     base = tuple(config.from_file(path) for config in configs)
-    production = tuple(config.from_file(path, profile="production") for config in configs)
-    for chat, embed, rerank in (base, production):
-        validate_chat_configuration(chat)
-        validate_embed_configuration(embed)
-        validate_rerank_configuration(rerank)
+    chat, embed, rerank = base
+    validate_chat_configuration(chat)
+    validate_embed_configuration(embed)
+    validate_rerank_configuration(rerank)
 
     assert all(not config.cache.enabled for config in base)
     assert base[0].routing.engine is RoutingEngine.LITELLM_ROUTER
     assert base[1].routing.engine is RoutingEngine.HARBOR
     assert base[2].routing.engine is RoutingEngine.HARBOR
-    assert tuple(config.timeouts.request_seconds for config in production) == (90, 90, 90)

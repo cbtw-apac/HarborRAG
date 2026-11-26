@@ -42,7 +42,6 @@ class HarborEmbedCapabilities(StrictModel):
     encoding_format: bool = False
     purpose: bool = False
     supported_purposes: frozenset[EmbeddingPurpose] = frozenset()
-    max_input_tokens: int | None = Field(default=None, gt=0)
     max_batch_size: int | None = Field(default=None, gt=0)
     default_dimensions: int | None = Field(default=None, gt=0)
 

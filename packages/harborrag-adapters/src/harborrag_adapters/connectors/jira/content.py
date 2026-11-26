@@ -38,6 +38,8 @@ _FIELD_KEY_SEPARATORS = re.compile(r"[^a-z0-9]+")
 _FIELD_KEY_LETTERS = str.maketrans({"đ": "d", "ø": "o", "ł": "l", "æ": "ae", "œ": "oe"})
 """Latin letters NFKD does not decompose into a base letter plus a mark."""
 _MAX_FILTER_VALUE_CHARS = 256
+# TODO: import the payload key pattern from core once projection_vector exports it.
+_PAYLOAD_FIELD_KEY = re.compile(r"[a-z0-9][a-z0-9_]{0,127}")
 
 type FieldFilterValue = str | float | bool | list[str]
 
@@ -219,13 +221,14 @@ def filter_keys(fields: list[JiraCustomFieldMetadata]) -> dict[str, str]:
     ``fields.team`` names the same field on every issue whichever fields happen
     to hold a value there (a field's kind can depend on its value). Among names
     that normalize alike, the lowest field id in plain string order keeps the
-    readable key and the others fall back to their field id.
+    readable key and the others fall back to their field id. A name too long to be
+    a payload key, over 128 characters once normalized, falls back the same way.
     """
     keys: dict[str, str] = {}
     taken: set[str] = set()
     for field_id, name in sorted({field.field_id: field.name for field in fields}.items()):
         key = field_key(name)
-        if not key or key in taken or is_runtime_field(key):
+        if not _PAYLOAD_FIELD_KEY.fullmatch(key) or key in taken or is_runtime_field(key):
             key = field_key(field_id)
         keys[field_id] = key
         taken.add(key)

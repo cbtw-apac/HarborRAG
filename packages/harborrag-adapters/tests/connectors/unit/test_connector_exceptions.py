@@ -12,7 +12,6 @@ from harborrag_adapters.connectors.exceptions import (
     ConnectorNotInitializedError,
     DocumentProcessingError,
     FetchError,
-    HTTPRequestError,
     RateLimitError,
 )
 
@@ -56,18 +55,3 @@ def test_authentication_and_authorization_errors_carry_status_code(exc_type, cod
 def test_authentication_and_authorization_errors_default_status_code_to_none(exc_type):
     error = exc_type("denied")
     assert error.status_code is None
-
-
-def test_http_request_error_captures_context_and_message():
-    error = HTTPRequestError("https://example.com", status_code=503, message="down")
-    assert error.url == "https://example.com"
-    assert error.status_code == 503
-    assert error.message == "down"
-    assert str(error) == "HTTP request failed for https://example.com: down"
-
-
-def test_http_request_error_defaults_message_when_omitted():
-    error = HTTPRequestError("https://example.com")
-    assert error.status_code is None
-    assert error.message is None
-    assert str(error) == "HTTP request failed for https://example.com: Unknown error"

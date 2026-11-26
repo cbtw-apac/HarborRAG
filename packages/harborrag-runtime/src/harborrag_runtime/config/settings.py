@@ -14,6 +14,7 @@ import os
 from decimal import Decimal
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlsplit
 
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -53,6 +54,10 @@ _OBJECT_STORE_TRANSPORT = RemoteTransportPolicy(
     allowed_schemes=frozenset({"http", "https"}),
     secure_schemes=frozenset({"https"}),
 )
+QDRANT_DEFAULT_REST_PORT = 6333
+"""Port the Qdrant client dials for REST when ``HARBORRAG_QDRANT_URL`` names none."""
+QDRANT_DEFAULT_GRPC_PORT = 6334
+"""Port the Qdrant client dials for gRPC when ``HARBORRAG_QDRANT_GRPC_PORT`` is unset."""
 
 
 def is_blank_secret(value: SecretStr | None) -> bool:
@@ -68,7 +73,9 @@ def is_blank_secret(value: SecretStr | None) -> bool:
 class RuntimeSettings(MemorySettingsMixin, BaseSettings):
     """Environment-driven settings for runtime composition."""
 
-    model_config = SettingsConfigDict(env_prefix="HARBORRAG_", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_prefix="HARBORRAG_", extra="ignore", hide_input_in_errors=True
+    )
 
     # staging is held to every prod guard: each check below tests env != "dev".
     env: Literal["dev", "staging", "prod"] = "dev"
@@ -148,6 +155,7 @@ class RuntimeSettings(MemorySettingsMixin, BaseSettings):
     qdrant_url: str = "http://localhost:6333"
     qdrant_api_key: SecretStr | None = None
     qdrant_prefer_grpc: bool = True
+    qdrant_grpc_port: int | None = Field(default=None, ge=1, le=65_535)
     qdrant_allow_insecure_remote: bool = False
     falkordb_host: str = "localhost"
     falkordb_port: int = 6379
@@ -242,6 +250,14 @@ class RuntimeSettings(MemorySettingsMixin, BaseSettings):
             return None
         return value
 
+    @field_validator("qdrant_grpc_port", mode="before")
+    @classmethod
+    def _blank_grpc_port_is_unset(cls, value: object) -> object:
+        """Read a blank value, such as Compose's empty default, as no explicit gRPC port."""
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
     @model_validator(mode="after")
     def _warn_removed_environment(self) -> RuntimeSettings:
         for name, replacement in _REMOVED_ENVIRONMENT.items():
@@ -265,6 +281,32 @@ class RuntimeSettings(MemorySettingsMixin, BaseSettings):
         if os.environ.get("HARBORRAG_INGESTION_TENANT_ID"):
             raise ValueError("HARBORRAG_INGESTION_TENANT_ID was renamed to HARBORRAG_TENANT_ID")
         return data
+
+    @model_validator(mode="after")
+    def _require_explicit_qdrant_grpc_port(self) -> RuntimeSettings:
+        """Refuse a moved Qdrant REST port while gRPC would still dial the default port.
+
+        The message names neither the URL nor its port: what parses as a port can be
+        a fragment of an unencoded password.
+        """
+        if (
+            self.vector_provider != "qdrant"
+            or not self.qdrant_prefer_grpc
+            or self.qdrant_grpc_port is not None
+        ):
+            return self
+        try:
+            port = urlsplit(self.qdrant_url).port
+        except ValueError:
+            return self
+        if port is not None and port != QDRANT_DEFAULT_REST_PORT:
+            raise ValueError(
+                f"HARBORRAG_QDRANT_URL names a port other than {QDRANT_DEFAULT_REST_PORT}, "
+                f"but gRPC would still dial port {QDRANT_DEFAULT_GRPC_PORT} on that host; set "
+                "HARBORRAG_QDRANT_GRPC_PORT to the gRPC port of the same Qdrant, or "
+                "HARBORRAG_QDRANT_PREFER_GRPC=false to use REST only"
+            )
+        return self
 
     @model_validator(mode="after")
     def validate_secret_urls(self) -> RuntimeSettings:

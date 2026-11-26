@@ -1,9 +1,9 @@
 """Introspection and right-to-erasure over one caller's remembered data.
 
-Erasure spans conversation history, canonical memories and the memory vector
-index, which are keyed differently. A user's sessions are found through the
-memories they produced, so a session that produced none must be erased through
-the session endpoint. No caller deletes a GLOBAL memory here.
+Erasure spans conversation history, stored completion requests, canonical
+memories and the memory vector index, which are keyed differently. A user's
+sessions are found through the conversation listing, so a session that produced
+no memory is erased too. No caller deletes a GLOBAL memory here.
 
 Typical usage example:
 
@@ -25,7 +25,7 @@ from harborrag_core.contracts.errors import (
 )
 from harborrag_core.domain.pending_effect import PendingControlPlaneEffect
 from harborrag_core.ports.control_plane import PendingEffectRepositoryPort
-from harborrag_core.ports.conversation import ConversationIdentity
+from harborrag_core.ports.conversation import MAX_CONVERSATION_PAGE_LIMIT, ConversationIdentity
 from harborrag_core.ports.memory import MemoryOwner, MemoryQuery, MemoryScope
 
 from .erasure import SESSION_ERASURE, MemoryErasureJournal, stored_owner
@@ -38,9 +38,9 @@ logger = logging.getLogger("harborrag.memory.administration")
 
 _PAGE = 1_000
 _MAX_PASSES = 50
-"""Most pages one purge reads before it stops, 50k memories for one user.
+"""Most pages one purge or session erasure reads: 50k memories or 5k sessions of one user.
 
-Bounds a purge of a store that keeps growing while it is erased.
+Bounds an erasure of a store that keeps growing while it is erased.
 """
 _USER_SCOPES = (MemoryScope.USER,)
 _SESSION_SCOPES = (MemoryScope.SESSION,)
@@ -82,15 +82,17 @@ class ErasureReport:
     Attributes:
         memories: Canonical memory rows deleted.
         index_points: Memory vector index points deleted.
-        sessions: Conversation sessions the erasure reached.
-        conversation_messages_cleared: Sessions whose messages were cleared, not a
+        sessions: Conversation sessions deleted.
+        conversation_messages_cleared: Sessions whose messages were deleted, not a
             message count.
+        completion_requests: Stored completion requests deleted, with their answers.
     """
 
     memories: int = 0
     index_points: int = 0
     sessions: int = 0
     conversation_messages_cleared: int = 0
+    completion_requests: int = 0
 
     def as_dict(self) -> dict[str, int]:
         """Return the counts keyed by category, as the erasure endpoints report them."""
@@ -99,6 +101,7 @@ class ErasureReport:
             "index_points": self.index_points,
             "sessions": self.sessions,
             "conversation_messages_cleared": self.conversation_messages_cleared,
+            "completion_requests": self.completion_requests,
         }
 
 
@@ -298,11 +301,15 @@ class MemoryAdministrationService:
         return True
 
     async def erase_user(self, owner: MemoryOwner, *, actor: str) -> ErasureReport:
-        """Erase everything reachable for one end user within the tenant.
+        """Erase everything kept for one end user within the tenant.
 
-        User-scoped memories are purged first, and the sessions they came from
-        then lose their messages and session memories. A last pass erases PROJECT
-        and TENANT rows the user authored, which no visibility query reaches.
+        User-scoped memories are purged first. Every conversation session of the
+        user is then deleted with its messages and session memories, whether or not
+        it produced a memory, and session memories of sessions already gone are
+        purged too. A last pass erases PROJECT and TENANT rows the user authored,
+        which no visibility query reaches, then every stored completion request of
+        the user, with or without a session. Erasing again finishes an erasure that
+        failed partway.
 
         Args:
             owner: The caller, naming the tenant and the end user to erase.
@@ -313,38 +320,71 @@ class MemoryAdministrationService:
 
         Raises:
             HarborNotFoundError: ``owner`` names no end user.
+            HarborConflictError: A session of the user is answering a turn; erase
+                again once it ends.
         """
         target = owner.user_id
         if target is None:
             raise HarborNotFoundError("User was not found")
         user_owner = MemoryOwner(tenant_id=owner.tenant_id, user_id=target)
-        purged = await self._purge(user_owner, _USER_SCOPES)
-        memories = purged.memories
-        points = purged.index_points
-        for principal_id, session_id in sorted(purged.conversations):
-            session_owner = MemoryOwner(
-                tenant_id=owner.tenant_id,
-                user_id=target,
-                principal_id=principal_id,
-                session_id=session_id,
-            )
-            session_purge = await self._purge(session_owner, _SESSION_SCOPES)
-            memories += session_purge.memories
-            points += session_purge.index_points
-            await self._conversations.clear_messages(
-                ConversationIdentity(owner.tenant_id, principal_id, session_id, target)
-            )
-        authored = await self._purge(user_owner, _AUTHORED_SCOPES, stored_by_owner=True)
-        memories += authored.memories
-        points += authored.index_points
+        user_memories = await self._purge(user_owner, _USER_SCOPES)
+        session_memories, sessions = await self._erase_sessions(owner.tenant_id, target)
+        purged = [user_memories, session_memories]
+        remembered = {session_id for _, session_id in user_memories.conversations}
+        for session_id in sorted(remembered.difference(sessions)):
+            session_owner = dataclasses.replace(user_owner, session_id=session_id)
+            purged.append(await self._purge(session_owner, _SESSION_SCOPES))
+        purged.append(await self._purge(user_owner, _AUTHORED_SCOPES, stored_by_owner=True))
+        requests = await self._conversations.erase_completions(
+            tenant_id=owner.tenant_id, user_id=target
+        )
         report = ErasureReport(
-            memories=memories,
-            index_points=points,
-            sessions=len(purged.conversations),
-            conversation_messages_cleared=len(purged.conversations),
+            memories=sum(item.memories for item in purged),
+            index_points=sum(item.index_points for item in purged),
+            sessions=len(sessions),
+            conversation_messages_cleared=len(sessions),
+            completion_requests=requests,
         )
         _log_erasure("user", owner.tenant_id, actor, target, report)
         return report
+
+    async def _erase_sessions(
+        self, tenant_id: str, user_id: str
+    ) -> tuple[_Purged, tuple[str, ...]]:
+        """Delete every session of one end user, each after its session memories.
+
+        A session whose memories could not be purged is still listed for the next
+        erasure. Deleted sessions leave the listing, so each pass reads its first
+        page again until a pass deletes nothing.
+
+        Returns:
+            The session memories purged, and the ids of the sessions deleted.
+        """
+        memories = points = 0
+        deleted: list[str] = []
+        for _ in range(_MAX_PASSES):
+            page = await self._conversations.list_conversations(
+                tenant_id=tenant_id, user_id=user_id, limit=MAX_CONVERSATION_PAGE_LIMIT
+            )
+            before = len(deleted)
+            for row in page.conversations:
+                session_owner = MemoryOwner(
+                    tenant_id=tenant_id, user_id=user_id, session_id=row.session_id
+                )
+                session_purge = await self._purge(session_owner, _SESSION_SCOPES)
+                memories += session_purge.memories
+                points += session_purge.index_points
+                identity = ConversationIdentity(tenant_id, user_id, row.session_id, user_id)
+                if await self._conversations.delete(identity):
+                    deleted.append(row.session_id)
+            if len(deleted) == before:
+                return _Purged(memories, points), tuple(deleted)
+        logger.warning(
+            "Session erasure stopped after %d passes for tenant=%s; sessions may remain",
+            _MAX_PASSES,
+            tenant_id,
+        )
+        return _Purged(memories, points), tuple(deleted)
 
     async def _purge(
         self,

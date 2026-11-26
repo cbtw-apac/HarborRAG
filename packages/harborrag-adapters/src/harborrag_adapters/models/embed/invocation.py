@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from typing import Any, Protocol
 
+from harborrag_adapters.models.runtime.litellm_backend import configure_litellm
+
 EmbeddingCallable = Callable[..., Any]
 AsyncEmbeddingCallable = Callable[..., Awaitable[Any]]
 
@@ -38,6 +40,7 @@ class LiteLLMEmbeddingInvocation:
         """Store injected callables, defaulting to LiteLLM embedding functions."""
 
         if embedding is None or aembedding is None:
+            configure_litellm()
             import litellm
 
             embedding = embedding or litellm.embedding

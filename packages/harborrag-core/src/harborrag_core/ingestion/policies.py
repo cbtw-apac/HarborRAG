@@ -8,7 +8,7 @@ Start from: DocumentVersionTransitionPolicy, PublicationPolicy, IngestionFailure
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from harborrag_core.contracts.errors import (
     HarborConflictError,
@@ -126,6 +126,13 @@ _TRANSIENT_ERRORS: tuple[type[BaseException], ...] = (
     ConnectionError,
     TimeoutError,
 )
+
+
+def _permanent_category(failure: SafeFailure, error: Exception) -> FailureCategory:
+    """Return the category of a failure the error's own flag made non-retryable."""
+    if failure.category is FailureCategory.TRANSIENT and isinstance(error, SourceUnavailableError):
+        return FailureCategory.INVALID_CONFIGURATION
+    return failure.category
 
 
 class DocumentVersionTransitionPolicy:
@@ -286,7 +293,20 @@ class IngestionFailureClassifier:
         self._known_failures = (*known_failures, *_SIMPLE_FAILURES)
 
     def classify(self, stage: str, error: Exception) -> SafeFailure:
-        """Return the safe category, retry flag and code for ``error`` raised in ``stage``."""
+        """Return the safe category, retry flag and code for ``error`` raised in ``stage``.
+
+        An error whose own ``retryable`` flag is ``False``, such as a model error for a
+        rejected request, is never retried. The flag never makes a failure retryable.
+        A source error it makes permanent, such as a 400 or a refused response, is
+        ``INVALID_CONFIGURATION`` rather than ``TRANSIENT`` and keeps its code.
+        """
+        failure = self._classify(stage, error)
+        if failure.retryable and getattr(error, "retryable", None) is False:
+            return replace(failure, retryable=False, category=_permanent_category(failure, error))
+        return failure
+
+    def _classify(self, stage: str, error: Exception) -> SafeFailure:
+        """Classify ``error`` by its type and stage alone."""
         for error_type, category, retryable, code in self._known_failures:
             if isinstance(error, error_type):
                 return SafeFailure(category, retryable, code)

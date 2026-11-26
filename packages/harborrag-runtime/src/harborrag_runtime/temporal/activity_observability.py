@@ -84,7 +84,9 @@ class ActivityObservability:
         """Emit telemetry and convert domain failures into Temporal retry intent.
 
         A connector that declines one item names the standard skip reason; it rides in the
-        failure details so the document result can record it.
+        failure details so the document result can record it. The original error is not
+        chained, so its message, which can hold a file name or a signed URL, stays out of
+        Temporal history; the failure type carries its safe code.
 
         Args:
             stage: Activity stage name; must be in ``_ACTIVITY_STAGES``.
@@ -147,7 +149,7 @@ class ActivityObservability:
                     *details,
                     type=failure.code,
                     non_retryable=not failure.retryable,
-                ) from error
+                ) from None
             else:
                 logger.debug(
                     "Activity completed stage=%s workflow_id=%s activity_id=%s "

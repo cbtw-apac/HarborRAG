@@ -5,8 +5,6 @@ from __future__ import annotations
 import importlib.util
 import logging
 import os
-import re
-from collections.abc import Iterator
 from pathlib import Path
 from typing import Literal
 
@@ -23,6 +21,7 @@ from harborrag_runtime.config.connectors.models.local_file import (
     LOCAL_SOURCE_ROOT_VARIABLE,
     local_source_root,
 )
+from harborrag_runtime.config.models import has_rerank_model, require_set_model_variables
 from harborrag_runtime.config.settings import RuntimeSettings
 
 from .checks import Check
@@ -54,9 +53,6 @@ def _models_hint() -> str:
         f"Set the provider key in {env_hint('models')} "
         "(it is referenced as ${VAR} in config/models/models.yaml)."
     )
-
-
-_ENV_REFERENCE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
 
 _LOCAL_STACK_CLIENTS: tuple[tuple[str, str], ...] = (
@@ -164,26 +160,18 @@ def credentials_check(catalog: ConnectorCatalog) -> Check | None:
     )
 
 
-def _string_values(value: object) -> Iterator[str]:
-    if isinstance(value, str):
-        yield value
-    elif isinstance(value, dict):
-        for item in value.values():
-            yield from _string_values(item)
-    elif isinstance(value, list):
-        for item in value:
-            yield from _string_values(item)
-
-
 def models_check(path: Path) -> Check:
     """Check that the model catalog loads.
 
     The loader expands ``${VAR}`` eagerly but accepts an empty value, which would only surface as an
     authentication failure mid-ingestion. Name the blank variable now. Scan the parsed values, not
     the raw text: a `${VAR}` in a commented-out example section is never expanded, so it must not
-    fail the check. safe_load matches the model loader, which the catalog has just passed.
+    fail the check. safe_load is laxer than the model loader, which refuses duplicate keys and
+    unknown sections, but it reads the same values once that loader has accepted the catalog.
+    A named reranker whose key variable is empty fails too, as the MCP server and the API refuse
+    it; a ``${VAR:-}`` default hides that reference from the blank-variable scan.
 
-    The file can change or vanish between the two reads.
+    The file can change or vanish between the reads.
     """
     try:
         summary = describe_model_catalog(path)
@@ -197,16 +185,14 @@ def models_check(path: Path) -> Check:
         logger.debug("Model catalog %s could not be re-read", path, exc_info=True)
         detail = f"{path}: {check_error_detail(exc)}"
         return Check("models catalog", "config", "fail", detail, hint=_models_hint())
-    blank = sorted(
-        {
-            name
-            for value in _string_values(raw)
-            for name in _ENV_REFERENCE.findall(value)
-            if not os.environ.get(name, "").strip()
-        }
-    )
-    if blank:
-        detail = f"{', '.join(blank)} is blank"
+    try:
+        require_set_model_variables(raw)
+    except ValueError as exc:
+        return Check("models catalog", "config", "fail", str(exc), hint=_models_hint())
+    try:
+        has_rerank_model(path)
+    except (ValueError, OSError, yaml.YAMLError) as exc:
+        detail = f"{path}: {check_error_detail(exc)}"
         return Check("models catalog", "config", "fail", detail, hint=_models_hint())
     detail = f"chat={summary.chat_default} embed={summary.embed_default}"
     return Check("models catalog", "config", "ok", detail)

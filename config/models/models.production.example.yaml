@@ -116,21 +116,3 @@ rerank:
           provider: cohere
           model: cohere/REPLACE_WITH_RERANK_MODEL
           api_key: ${COHERE_API_KEY}
-
-profiles:
-  development:
-    chat:
-      timeouts:
-        request_seconds: 30
-      observability:
-        enabled: false
-  production:
-    chat:
-      timeouts:
-        request_seconds: 90
-    embed:
-      timeouts:
-        request_seconds: 90
-    rerank:
-      timeouts:
-        request_seconds: 90

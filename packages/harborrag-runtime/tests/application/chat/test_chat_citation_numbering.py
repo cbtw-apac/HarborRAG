@@ -37,11 +37,12 @@ def _numbered(pieces: list[str]) -> tuple[str, CitationNumbering]:
     return text, numbering
 
 
-def test_markers_are_numbered_by_first_appearance_and_unknown_ones_dropped() -> None:
+def test_markers_are_numbered_by_first_appearance_and_unknown_ones_kept() -> None:
     text, numbering = _numbered([ANSWER])
 
     assert text == (
-        "B [1], A [2], B again [1], none or, code a[12345], both [2][3] and [1][3] and."
+        "B [1], A [2], B again [1], none [7] or [0], code a[12345], both [2][3] and [1][3] "
+        "and [5, 6]."
     )
     assert [(c.n, c.chunk_id) for c in numbering.citations()] == [
         (1, "chk_2"),
@@ -50,11 +51,13 @@ def test_markers_are_numbered_by_first_appearance_and_unknown_ones_dropped() -> 
     ]
 
 
-def test_every_marker_has_a_citation_and_every_citation_a_marker() -> None:
+def test_every_citation_has_a_marker_and_every_other_marker_is_kept_as_written() -> None:
     text, numbering = _numbered([ANSWER])
 
     markers = {int(found) for found in re.findall(r"\[(\d{1,4})\]", text)}
-    assert markers == {citation.n for citation in numbering.citations()}
+    cited = {citation.n for citation in numbering.citations()}
+    assert cited <= markers
+    assert markers - cited == {7, 0}
 
 
 def test_a_marker_split_across_pieces_is_held_back_until_it_closes() -> None:
@@ -79,13 +82,13 @@ def test_every_split_into_up_to_three_pieces_gives_the_same_text() -> None:
 @pytest.mark.parametrize(
     ("answer", "expected"),
     [
-        ("See also [9].", "See also."),
-        ("Both [1, 9] and [9, 8] apply.", "Both [1] and apply."),
+        ("See also [9].", "See also [9]."),
+        ("Both [1, 9] and [9, 8] apply.", "Both [1, 9] and [9, 8] apply."),
         ("Range [1-3] here.", "Range [1][2][3] here."),
-        ("Too wide [1-300].", "Too wide."),
+        ("Too wide [1-300].", "Too wide [1-300]."),
     ],
 )
-def test_lists_and_ranges_are_split_and_dropped_markers_leave_no_gap(
+def test_lists_and_ranges_are_split_only_when_every_number_names_a_passage(
     answer: str, expected: str
 ) -> None:
     numbering = CitationNumbering(PASSAGES)
@@ -96,7 +99,7 @@ def test_lists_and_ranges_are_split_and_dropped_markers_leave_no_gap(
 def test_an_answer_without_passages_cites_nothing() -> None:
     numbering = CitationNumbering(())
 
-    assert numbering.feed("Your name is A [1].") + numbering.finish() == "Your name is A."
+    assert numbering.feed("Your name is A [1].") + numbering.finish() == "Your name is A [1]."
     assert numbering.citations() == ()
 
 

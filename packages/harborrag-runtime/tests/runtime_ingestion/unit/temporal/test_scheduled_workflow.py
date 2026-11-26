@@ -190,6 +190,7 @@ def _activities(
     *,
     busy: bool,
     prepare: Callable[[SourceSubmission], PreparedSourceSubmission] = _prepared,
+    active_run: object | None = None,
 ) -> tuple[activity_module.IngestionActivities, SimpleNamespace]:
     monkeypatch.setattr(
         activity_module,
@@ -197,9 +198,10 @@ def _activities(
         lambda _settings, submission, *, connection: prepare(submission),
     )
     scans = SimpleNamespace(has_running_scan=AsyncMock(return_value=busy))
+    records = SimpleNamespace(active_task=AsyncMock(return_value=active_run))
     resolver = SimpleNamespace(resolve=AsyncMock(return_value=SimpleNamespace()))
     runtime: Any = SimpleNamespace(
-        control=SimpleNamespace(source_scans=scans),
+        control=SimpleNamespace(source_scans=scans, connection_records=records),
         source_plans=None,
         connection_resolver=resolver,
     )
@@ -240,6 +242,23 @@ async def test_prepare_activity_reports_a_busy_scope(monkeypatch) -> None:
 
     assert preparation.source is None
     assert preparation.source_scope_id == "docs"
+
+
+@pytest.mark.asyncio
+async def test_prepare_activity_skips_while_the_connection_has_a_run_past_discovery(
+    monkeypatch,
+) -> None:
+    activities, _ = _activities(
+        monkeypatch, busy=False, active_run=SimpleNamespace(task_id="manual-1")
+    )
+
+    preparation = await activities.prepare_scheduled_source(_preparation_input())
+
+    assert preparation.source is None
+    assert preparation.source_scope_id == "docs"
+    activities._runtime.control.connection_records.active_task.assert_awaited_once_with(
+        tenant_id="tenant-1", connection_id="local-docs"
+    )
 
 
 @pytest.mark.asyncio

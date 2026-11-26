@@ -151,6 +151,7 @@ _CONTEXT_CHUNK = {
     "properties": {
         "chunk_id": {"type": "string", "minLength": 1},
         "ordinal": {"type": "integer", "minimum": 0},
+        "record_kind": {"type": "string", "enum": ["evidence"]},
         "text": {"type": "string"},
         "chunk_kind": {**_CHUNK_KINDS, "minItems": 1},
         "section_path": _SECTION_PATH,

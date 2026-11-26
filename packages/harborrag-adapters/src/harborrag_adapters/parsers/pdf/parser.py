@@ -13,6 +13,7 @@ from harborrag_adapters.parsers.common.models import ParserAttempt, ParseRequest
 from harborrag_adapters.parsers.common.utils import (
     get_parser_logger,
     input_label,
+    name_digest,
     parser_log_extra,
 )
 from harborrag_adapters.parsers.errors import EncryptedPdfError
@@ -25,6 +26,7 @@ from harborrag_adapters.parsers.pdf.normalization import PDFNormalizer
 from harborrag_adapters.parsers.pdf.page_limit import PdfPageLimit
 from harborrag_adapters.parsers.pdf.parser_failures import (
     TYPED_ENGINE_FAILURES,
+    engine_failure_reason,
     raise_pdf_failure,
 )
 from harborrag_adapters.parsers.pdf.parser_support import PDFParserSupportMixin
@@ -99,8 +101,8 @@ class HarborPDFParser(PDFParserSupportMixin, HarborParser):
 
         if self._is_empty_request(request):
             parser_logger.info(
-                "PDF input %s is empty (0 bytes); returning empty content",
-                request.filename or request.source_uri,
+                "PDF input name_digest=%s is empty (0 bytes); returning empty content",
+                name_digest(request.filename or request.source_uri),
             )
             metadata = request.options.get("metadata", {})
             return self._normalizer.normalize(
@@ -152,7 +154,7 @@ class HarborPDFParser(PDFParserSupportMixin, HarborParser):
                 continue
             except Exception as error:  # noqa: BLE001
                 duration_ms = (perf_counter() - started) * 1000
-                message = f"failed ({error})"
+                message = f"failed ({engine_failure_reason(error)})"
                 attempts.append(
                     ParserAttempt(
                         engine=engine.name,
@@ -163,10 +165,10 @@ class HarborPDFParser(PDFParserSupportMixin, HarborParser):
                 )
                 warnings.append(f"{engine.name}: {message}")
                 parser_logger.warning(
-                    "PDF engine %s failed for %s: %s",
+                    "PDF engine %s failed for name_digest=%s: %s",
                     engine.name,
-                    request.filename or request.source_uri,
-                    error,
+                    name_digest(request.filename or request.source_uri),
+                    engine_failure_reason(error),
                 )
                 continue
 
@@ -292,7 +294,7 @@ class HarborPDFParser(PDFParserSupportMixin, HarborParser):
                 continue
             except Exception as error:  # noqa: BLE001
                 duration_ms = (perf_counter() - started) * 1000
-                message = f"failed ({error})"
+                message = f"failed ({engine_failure_reason(error)})"
                 attempts.append(
                     ParserAttempt(
                         engine=engine.name,
@@ -306,7 +308,7 @@ class HarborPDFParser(PDFParserSupportMixin, HarborParser):
                     "PDF engine %s failed for %s: %s",
                     engine.name,
                     input_label(input),
-                    error,
+                    engine_failure_reason(error),
                 )
                 continue
 

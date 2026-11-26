@@ -18,7 +18,7 @@ from harborrag_mcp_server.__main__ import _http_auth
 from harborrag_mcp_server.audit import McpAuditLog
 from harborrag_mcp_server.configuration import McpConfiguration, McpConfigurationStore
 from harborrag_mcp_server.server import McpServer, create_mcp_server
-from harborrag_mcp_server.server.http import ADMIN_SCOPE, register_http_routes
+from harborrag_mcp_server.server.http import ADMIN_SCOPE, RouteAccess, register_http_routes
 from harborrag_runtime.config.settings import RuntimeSettings
 
 TOKEN = "local-test-token-that-is-at-least-32-bytes"
@@ -90,7 +90,7 @@ async def test_owner_token_bound_to_a_tenant_keeps_the_status_ui(
         mcp_path="/mcp",
         registry=registry,
         configuration=configuration,
-        token_verifier=verifier,
+        access=RouteAccess(verifier),
     )
     app = server.http_app(path="/mcp")
     headers = {"Authorization": f"Bearer {TOKEN}"}

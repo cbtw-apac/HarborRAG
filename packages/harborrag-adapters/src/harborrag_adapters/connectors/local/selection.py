@@ -26,7 +26,7 @@ from .filesystem_paths import (
     stat_datetime,
 )
 from .filters import extension_filter, path_filter
-from .skips import LocalSkipReport
+from .skips import LocalSkipReport, path_digest
 
 
 class LocalFileSelector:
@@ -75,7 +75,7 @@ class LocalFileSelector:
             return False
         if not self._within_source_scope(path):
             raise DocumentProcessingError(
-                f"Local path is outside configured source scope {self.root_path}: {path}"
+                f"Local path is outside the configured source scope: path_digest={path_digest(path)}"
             )
         return self.config.include_hidden or not is_hidden_path(path, self.root_path)
 
@@ -84,7 +84,10 @@ class LocalFileSelector:
             return path.stat()
         except OSError as exc:
             if self.config.fail_on_error:
-                raise FetchError(f"Could not stat local file {path}: {exc}") from exc
+                raise FetchError(
+                    f"Could not stat local file path_digest={path_digest(path)}: "
+                    f"{type(exc).__name__}"
+                ) from None
             self.skips.unreadable(path, error=exc)
             return None
 

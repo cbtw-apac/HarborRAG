@@ -6,7 +6,12 @@ import pytest
 
 from harborrag_core.chunking import ConnectorType
 from harborrag_core.chunking.identity import encoded_identifier
-from harborrag_core.ingestion.identity import DocumentIdentityBuilder
+from harborrag_core.ingestion import SourceIdentity
+from harborrag_core.ingestion.identity import (
+    DocumentIdentityBuilder,
+    identity_for_source,
+    legacy_identity_for_source,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -77,3 +82,51 @@ def test_external_source_entity_node_keys_differ_when_ids_differ_only_in_spacing
     }
 
     assert len(keys) == len(SPACING_VARIANTS)
+
+
+@pytest.mark.parametrize(
+    ("tenant_id", "source_item_id", "a2_document_id"),
+    [
+        (
+            "DEFAULT",
+            "docs/Q3  plan.md",
+            "document:cb03cc02e061eea6706445768184255fde836fc7e92f553cf45a7d825570c68e",
+        ),
+        (
+            "acme",
+            "docs/Q3 plan.md",
+            "document:76572d4b57589540e079c66303a6c8c487c718c5d50cc2f5cac29c65a6eaa21d",
+        ),
+        (
+            "acme",
+            " notes.md",
+            "document:459221fce0c3c83de85a2110e54fe760e7d011db6f7f2924a913a58af426ba0a",
+        ),
+    ],
+)
+def test_legacy_identity_is_the_id_2_0_0a2_gave_the_source_item(
+    tenant_id: str, source_item_id: str, a2_document_id: str
+) -> None:
+    """The pinned IDs were computed with the 2.0.0a2 release's identity code."""
+    source = SourceIdentity(
+        tenant_id=tenant_id,
+        connector_type=ConnectorType.LOCAL,
+        connection_id="local-docs",
+        source_item_id=source_item_id,
+        source_scope_id="scope-docs",
+    )
+
+    assert legacy_identity_for_source(source) == a2_document_id
+    assert identity_for_source(source) != a2_document_id
+
+
+def test_legacy_identity_equals_the_current_one_without_lossy_spacing() -> None:
+    source = SourceIdentity(
+        tenant_id="acme",
+        connector_type=ConnectorType.LOCAL,
+        connection_id="local-docs",
+        source_item_id="docs/Q3 plan.md",
+        source_scope_id="scope-docs",
+    )
+
+    assert legacy_identity_for_source(source) == identity_for_source(source)

@@ -5,14 +5,15 @@ parameters, so the options stay per-command and ``main()``'s argv scan is unaffe
 A flag beats its environment variable, which beats the profile, which beats the built-in
 default. These options carry what an HTTP call carries in its headers.
 
-Start from: current_globals (a command) or resolve_globals.
+Start from: current_globals (a command), resolve_globals, or requested_output (a failure
+reported before Click parses the arguments).
 """
 
 from __future__ import annotations
 
 import os
 import sys
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated
@@ -30,6 +31,8 @@ TENANT_ENV = "HARBORRAG_TENANT_ID"
 OUTPUT_ENV = "HARBORRAG_OUTPUT"
 PROFILE_ENV = "HARBORRAG_PROFILE"
 GLOBAL_OPTIONS_PANEL = "Global options"
+_OUTPUT_FLAGS = ("--output", "-o")
+_END_OF_OPTIONS = "--"
 
 TenantOption = Annotated[
     str | None,
@@ -46,8 +49,7 @@ TenantOption = Annotated[
 OutputOption = Annotated[
     OutputFormat | None,
     typer.Option(
-        "--output",
-        "-o",
+        *_OUTPUT_FLAGS,
         case_sensitive=False,
         help=f"Print a table, JSON or YAML (env {OUTPUT_ENV}; default: table in a terminal, "
         "else json).",
@@ -164,6 +166,53 @@ def current_globals(  # noqa: PLR0913 - one keyword per global option
         stdout_is_tty=sys.stdout.isatty(),
         stack_tenant=stack_tenant_id(),
     )
+
+
+def requested_output(
+    args: Sequence[str], environ: Mapping[str, str], *, stdout_is_tty: bool
+) -> OutputFormat:
+    """Resolve the output format from raw arguments, for a failure before Click parses them.
+
+    The last ``-o/--output`` wins, then ``HARBORRAG_OUTPUT``, then the terminal default. The
+    profile is not read, as loading it can fail too. A value that names no format counts as
+    absent.
+
+    Args:
+        args: Command-line arguments after the program name.
+        environ: Process environment.
+        stdout_is_tty: Whether stdout is a terminal, which makes ``table`` the default.
+
+    Returns:
+        The format to print the failure in.
+    """
+    terminal_default = OutputFormat.TABLE if stdout_is_tty else OutputFormat.JSON
+    return _flagged_output(args) or _output_format(environ.get(OUTPUT_ENV, "")) or terminal_default
+
+
+def _flagged_output(args: Sequence[str]) -> OutputFormat | None:
+    """Return the format the last ``-o/--output`` before ``--`` names, ``None`` when none does."""
+    long_flag, short_flag = _OUTPUT_FLAGS
+    found: OutputFormat | None = None
+    remaining = iter(args)
+    for arg in remaining:
+        if arg == _END_OF_OPTIONS:
+            break
+        if arg in _OUTPUT_FLAGS:
+            value = next(remaining, "")
+        elif arg.startswith(f"{long_flag}="):
+            value = arg.partition("=")[2]
+        elif arg.startswith(short_flag):
+            value = arg.removeprefix(short_flag)
+        else:
+            continue
+        found = _output_format(value) or found
+    return found
+
+
+def _output_format(value: str) -> OutputFormat | None:
+    """``value`` as a format, ignoring case and surrounding spaces; ``None`` when it names none."""
+    normalized = value.strip().lower()
+    return OutputFormat(normalized) if normalized in set(OutputFormat) else None
 
 
 def _environment_output(environ: Mapping[str, str]) -> OutputFormat | None:
