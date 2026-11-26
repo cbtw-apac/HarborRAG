@@ -13,7 +13,7 @@ today and why the code is split the way it is.
 The first public alpha release is **HarborRAG 2.0.0 Alpha 1** (Python package version
 `2.0.0a1`), dated August 27, 2026. The latest published release is **HarborRAG 2.0.0
 Alpha 2** (`2.0.0a2`), dated October 26, 2026. These docs describe the repository's current
-code, which has changed since 2.0.0a2; the [changelog](../../CHANGELOG.md) lists what changed
+code, which has changed since 2.0.0a2; the [changelog](../developers/architecture/../CHANGELOG.md) lists what changed
 in each release and since the last one.
 
 ## Capability status
