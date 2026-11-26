@@ -78,7 +78,7 @@ class VectorPayload(StrictModel):
     item_id: str | None = Field(default=None, description="SharePoint drive item of the document.")
     web_url: str | None = Field(default=None, description="Link to the document in SharePoint.")
     created_at: str | None = None
-    updated_at: str | None = None
+    modified: str | None = None
     resolved_at: str | None = None
     due_date: str | None = None
     status: str | None = None
@@ -136,7 +136,7 @@ class VectorPayload(StrictModel):
         "item_id",
         "web_url",
         "created_at",
-        "updated_at",
+        "modified",
         "resolved_at",
         "due_date",
         "status",

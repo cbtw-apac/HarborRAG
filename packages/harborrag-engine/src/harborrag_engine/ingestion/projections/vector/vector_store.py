@@ -58,7 +58,7 @@ EVIDENCE_PAYLOAD_INDEXES: tuple[str, ...] = (
     # narrowed to one owner; labels and components because they are the source's
     # own taxonomy.
     "created_at",
-    "updated_at",
+    "modified",
     "status",
     "status_category",
     "item_type",

@@ -156,13 +156,17 @@ class VectorProjectionBuilder:
             text = _payload_text(metadata.get(field))
             if text is not None:
                 payload[field] = text
-        for field, fallback in (
-            ("created_at", "source_created_at"),
-            ("updated_at", "source_updated_at"),
+        # (payload key, chunk metadata key, source fallback). The payload calls the
+        # update time "modified"; the chunk metadata keeps the source's "updated_at".
+        for payload_field, metadata_field, fallback in (
+            ("created_at", "created_at", "source_created_at"),
+            ("modified", "updated_at", "source_updated_at"),
         ):
-            time = _payload_text(metadata.get(field)) or _payload_text(metadata.get(fallback))
+            time = _payload_text(metadata.get(metadata_field)) or _payload_text(
+                metadata.get(fallback)
+            )
             if time is not None:
-                payload[field] = time
+                payload[payload_field] = time
         parent = metadata.get("parent_source_item_id")
         if isinstance(parent, str) and parent.strip():
             payload["parent_source_item_id"] = parent

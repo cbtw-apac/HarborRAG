@@ -203,7 +203,7 @@ def test_sharepoint_file_points_carry_the_source_metadata() -> None:
         "web_url": URL,
         "author": AUTHOR,
         "created_at": "2026-04-01T09:00:00+00:00",
-        "updated_at": "2026-05-01T06:30:00+00:00",
+        "modified": "2026-05-01T06:30:00+00:00",
     }
 
     for payload in _payloads(_plan(_file_document())):
@@ -249,7 +249,7 @@ def test_sharepoint_update_time_only_change_is_a_new_version_with_the_new_time()
     )
     for payload in _payloads(later):
         assert payload["document_version_id"] == str(later.candidate.document_version_id)
-        assert payload.get("updated_at") == "2026-06-01T10:00:00+00:00"
+        assert payload.get("modified") == "2026-06-01T10:00:00+00:00"
     assert (
         policy.after_normalization(active=active, fingerprints=repeat.candidate.fingerprints)
         == SourceAdmissionDecision.UNCHANGED

@@ -218,7 +218,7 @@ def test_vector_projection_carries_source_descriptors() -> None:
     # The comment's own dates, not the issue's: it is the evidence being cited.
     assert payload.author == "Ada"
     assert payload.created_at == "2026-03-04T09:00:00+00:00"
-    assert payload.updated_at == "2026-03-05T09:00:00+00:00"
+    assert payload.modified == "2026-03-05T09:00:00+00:00"
 
 
 def test_vector_projection_falls_back_to_document_timestamps() -> None:
@@ -254,7 +254,7 @@ def test_vector_projection_falls_back_to_document_timestamps() -> None:
     )
 
     assert payload.created_at == "2026-01-01T00:00:00+00:00"
-    assert payload.updated_at == "2026-03-09T00:00:00+00:00"
+    assert payload.modified == "2026-03-09T00:00:00+00:00"
     assert payload.labels == ()
 
 
