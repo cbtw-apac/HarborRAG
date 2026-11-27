@@ -3,7 +3,7 @@ on:
   release:
     types: [published]
   push:
-    branches: [main]
+    branches: [test/add_docs_dispatch_workflow]
     paths: ["docs/**", "README.md", "CHANGELOG.md", "CONTRIBUTING.md", "SECURITY.md",
             "pyproject.toml", "packages/*/README.md", "packages/*/pyproject.toml"]
   workflow_dispatch:
