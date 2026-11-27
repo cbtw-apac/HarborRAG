@@ -1,15 +1,14 @@
-"""Ports, policies, and value objects for the retrieval service.
+"""Ports, policies and value objects for the retrieval service.
 
-The read-side ports the retrieval service needs from storage, the policy it runs
-with, and the report it returns. Values only: no I/O and no adapter imports.
-
-Start from: RetrievalResources, RetrievalPolicy, RetrievalOptions.
+Values only. Nothing here performs I/O or imports an adapter.
 """
 
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping, Sequence
+from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
+from enum import StrEnum
 from typing import Protocol
 
 from harborrag_core.domain.retrieval import RetrievalResult
@@ -94,11 +93,26 @@ class SparseQueryEncoder(Protocol):
         ...
 
 
+class RetrievalStep(StrEnum):
+    """A traced step of one retrieval, named after the store or model it waits on."""
+
+    SPARSE_ENCODE = "sparse.encode"
+    DENSE_EMBED = "dense.embed"
+    VECTOR_QUERY = "vector.query"
+    GRAPH_EXPAND = "graph.expand"
+    EVIDENCE_LOAD = "evidence.load"
+    ASSEMBLY = "assembly"
+
+
 class RetrievalTelemetry(Protocol):
-    """Minimal metrics surface consumed by retrieval."""
+    """Metrics and tracing surface consumed by retrieval."""
 
     def record_stale_candidate_rejections(self, count: int) -> None:
         """Count candidates dropped because their document version is no longer active."""
+        ...
+
+    def retrieval_step(self, step: RetrievalStep) -> AbstractContextManager[object]:
+        """Trace one retrieval step for the duration of the ``with`` block."""
         ...
 
 
@@ -182,7 +196,7 @@ class GraphDocumentSummary:
 class RetrievalDiagnostics:
     """What one retrieval found and dropped, for operators.
 
-    Args:
+    Attributes:
         candidate_hits: Candidates the vector search returned.
         stale_candidates: Candidates dropped because their document has another
             active version.
@@ -223,7 +237,7 @@ class RetrievalDiagnostics:
 class RuntimeRetrievalReport:
     """Results of one ``RuntimeRetrievalService.retrieve`` call.
 
-    Args:
+    Attributes:
         request_id: Identifies this retrieval in logs and diagnostics.
         lane: Lane that ranked the results.
         results: Passages, best first, at most ``top_k``.
@@ -242,7 +256,7 @@ class RuntimeRetrievalReport:
 class RetrievalResources:
     """Stores and model clients that one ``RuntimeRetrievalService`` reads through.
 
-    Args:
+    Attributes:
         embed_client: Embeds the query for the dense lane.
         vector_repository: Vector store every lane searches.
         active_versions: Resolves each document's active version, so candidates
@@ -282,7 +296,7 @@ class RetrievalResources:
 class RetrievalPolicy:
     """Process-wide settings every retrieval runs with.
 
-    Args:
+    Attributes:
         embedding_model: Logical embedding model of the catalog that embeds queries.
         embedding_dimensions: Dense vector width; must match the index.
         normalize_embeddings: Normalize query embeddings before searching.
@@ -314,7 +328,7 @@ class RetrievalPolicy:
 class RetrievalOptions:
     """How one ``RuntimeRetrievalService.retrieve`` call searches.
 
-    Args:
+    Attributes:
         lane: Dense vectors, sparse terms, or both fused.
         filters: Evidence filter, already parsed from the request.
         observe_graph: Observe the knowledge graph around the results.

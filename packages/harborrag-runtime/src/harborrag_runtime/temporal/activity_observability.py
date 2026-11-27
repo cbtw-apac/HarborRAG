@@ -16,6 +16,12 @@ from temporalio.exceptions import ApplicationError
 
 from harborrag_core.ingestion import IngestionFailureClassifier
 from harborrag_core.invariants import HarborInvariantError
+from harborrag_core.observability.log_events import (
+    FailureKind,
+    log_context,
+    log_event,
+    log_failure,
+)
 from harborrag_engine.ingestion.chunking.schemas import ChunkingStatistics
 from harborrag_engine.ingestion.release.models import DocumentReleaseOutcome
 from harborrag_engine.ingestion.release.stage_models import (
@@ -31,8 +37,19 @@ from harborrag_runtime.ingestion.observability import (
     IngestionTelemetry,
     SubprocessOutcomeLabel,
 )
+from harborrag_runtime.observability.workflow_trace import workflow_trace
 
 logger = logging.getLogger("harborrag.runtime.temporal.activities")
+
+_PROGRAMMING_ERRORS = (
+    AssertionError,
+    AttributeError,
+    IndexError,
+    KeyError,
+    NameError,
+    NotImplementedError,
+    TypeError,
+)
 
 _ACTIVITY_STAGES = {
     "DiscoverSourceItems": IngestionStage.DISCOVERY,
@@ -104,43 +121,43 @@ class ActivityObservability:
             ) from None
         context = _activity_log_context()
         started_at = perf_counter()
-        logger.debug(
-            "Activity started stage=%s workflow_id=%s activity_id=%s attempt=%d",
-            stage,
-            context.workflow_id,
-            context.activity_id,
-            context.attempt,
-        )
-        with self._telemetry.stage(metric_stage, attempt=context.attempt):
+        with (
+            log_context(
+                stage=stage,
+                workflow_id=context.workflow_id,
+                activity_id=context.activity_id,
+                attempt=context.attempt,
+            ),
+            workflow_trace(context.workflow_id, context.run_id),
+            self._telemetry.stage(
+                metric_stage, attempt=context.attempt, attributes=context.span_attributes()
+            ) as observation,
+        ):
+            log_event(logger, "ingestion.activity_started", level=logging.DEBUG)
             try:
                 yield
             except ApplicationError as error:
                 self._record_verification_failure(metric_stage)
-                logger.error(
-                    "Activity failed stage=%s workflow_id=%s activity_id=%s "
-                    "attempt=%d error_code=%s error_type=%s",
-                    stage,
-                    context.workflow_id,
-                    context.activity_id,
-                    context.attempt,
-                    error.type or "application_error",
-                    type(error).__name__,
+                log_failure(
+                    logger,
+                    "ingestion.activity_failed",
+                    error,
+                    FailureKind.CLASSIFIED,
+                    error_code=error.type or "application_error",
                 )
                 raise
             except Exception as error:
                 self._record_verification_failure(metric_stage)
                 failure = self._failures.classify(stage, error)
-                logger.error(
-                    "Activity failed stage=%s workflow_id=%s activity_id=%s "
-                    "attempt=%d error_code=%s error_type=%s status_code=%s retryable=%s",
-                    stage,
-                    context.workflow_id,
-                    context.activity_id,
-                    context.attempt,
-                    failure.code,
-                    type(error).__name__,
-                    getattr(error, "status_code", None),
-                    failure.retryable,
+                observation.fail(error, code=failure.code, retryable=failure.retryable)
+                log_failure(
+                    logger,
+                    "ingestion.activity_failed",
+                    error,
+                    _failure_kind(error),
+                    error_code=failure.code,
+                    retryable=failure.retryable,
+                    category_kind=failure.category.value,
                 )
                 skip_reason = getattr(error, "skip_reason", None)
                 details = (skip_reason,) if isinstance(skip_reason, str) and skip_reason else ()
@@ -151,14 +168,11 @@ class ActivityObservability:
                     non_retryable=not failure.retryable,
                 ) from None
             else:
-                logger.debug(
-                    "Activity completed stage=%s workflow_id=%s activity_id=%s "
-                    "attempt=%d duration_ms=%.1f",
-                    stage,
-                    context.workflow_id,
-                    context.activity_id,
-                    context.attempt,
-                    (perf_counter() - started_at) * 1000,
+                log_event(
+                    logger,
+                    "ingestion.activity_completed",
+                    level=logging.DEBUG,
+                    duration_ms=round((perf_counter() - started_at) * 1000, 1),
                 )
 
     def record_discovery(
@@ -201,6 +215,10 @@ class ActivityObservability:
         An unchanged capture records nothing: publication is the terminal document outcome,
         including the idempotent no-op for unchanged versions, so counting the skip there
         keeps one document from incrementing the outcome twice.
+
+        Args:
+            capture: The capture stage's result.
+            connector_type: The connector that fetched the document.
 
         Raises:
             HarborInvariantError: A changed capture has no raw reference.
@@ -273,6 +291,10 @@ class ActivityObservability:
     def record_subprocess_outcome(self, stage: str, outcome: SubprocessOutcomeLabel) -> None:
         """Record how a stage's subprocess ended.
 
+        Args:
+            stage: Activity stage name; must be in ``_ACTIVITY_STAGES``.
+            outcome: How the subprocess ended.
+
         Raises:
             HarborInvariantError: The stage has no metric stage.
         """
@@ -292,12 +314,32 @@ class ActivityObservability:
 
 @dataclass(frozen=True, slots=True)
 class _ActivityLogContext:
+    """Where the current activity runs, for its logs and its span.
+
+    Attributes:
+        workflow_id: The workflow that scheduled the activity.
+        activity_id: The activity's ID within that workflow.
+        attempt: The activity attempt, starting at 1.
+        run_id: The workflow run, which selects the trace the span joins.
+        workflow_type: The workflow's registered type name.
+    """
+
     workflow_id: str
     activity_id: str
     attempt: int
+    run_id: str = "outside-temporal"
+    workflow_type: str = "outside-temporal"
+
+    def span_attributes(self) -> dict[str, str | int | float]:
+        """Return the workflow identity to put on the stage span."""
+        return {
+            "temporal.workflow_id": self.workflow_id,
+            "temporal.workflow_type": self.workflow_type,
+        }
 
 
 def _activity_log_context() -> _ActivityLogContext:
+    """Return the running activity's identity, or placeholders outside Temporal."""
     try:
         info = activity.info()
     except RuntimeError:
@@ -310,4 +352,13 @@ def _activity_log_context() -> _ActivityLogContext:
         workflow_id=info.workflow_id or "outside-workflow",
         activity_id=info.activity_id,
         attempt=info.attempt,
+        run_id=info.workflow_run_id or "outside-workflow",
+        workflow_type=info.workflow_type or "outside-workflow",
+    )
+
+
+def _failure_kind(error: Exception) -> FailureKind:
+    """Return UNEXPECTED, with its traceback, for a bug; CLASSIFIED for every known cause."""
+    return (
+        FailureKind.UNEXPECTED if isinstance(error, _PROGRAMMING_ERRORS) else FailureKind.CLASSIFIED
     )

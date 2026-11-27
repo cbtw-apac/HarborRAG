@@ -11,15 +11,17 @@ Proxy variables such as ``HTTPS_PROXY`` are ignored unless the operator sets
 addresses are checked; the proxy then decides where the request goes.
 
 Only ``DestinationPolicy.from_environ`` reads the environment, and the runtime calls
-it. A client built without a policy gets the default one, public addresses only.
+it. A client built without a policy gets the default one, public addresses only. A policy's
+response observer sees each request's connector, method, host and status code, never its
+path or query.
 """
 
 from __future__ import annotations
 
 import os
 import socket
-from collections.abc import Mapping
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
 from functools import lru_cache
 from ipaddress import IPv4Address, IPv4Network, IPv6Address, IPv6Network, ip_address, ip_network
 from typing import Any, Self
@@ -48,6 +50,27 @@ _NON_PUBLIC_IPV6 = (
 _IPV4_MASK = 0xFFFFFFFF
 
 
+@dataclass(frozen=True, slots=True)
+class ResponseObservation:
+    """What a response observer learns about one connector request.
+
+    Attributes:
+        connector: The connector type that sent the request, such as ``jira``.
+        method: The HTTP method.
+        host: The host the request went to; never the path or the query.
+        status_code: The HTTP status, or None when no response arrived.
+    """
+
+    connector: str
+    method: str
+    host: str
+    status_code: int | None
+
+
+type ResponseObserver = Callable[[ResponseObservation], None]
+"""Called after each connector request with its ``ResponseObservation``."""
+
+
 class BlockedDestinationError(FetchError):
     """A connector tried to reach a private address no allowed host covers; never retried."""
 
@@ -66,17 +89,20 @@ class DestinationPolicy:
         networks: Address ranges that are reachable although they are not public.
         use_proxy: Whether requests may go through the proxies named in the process
             environment.
+        on_response: Sees every request's connector, method, host and HTTP status.
 
     Attributes:
         hosts: Lower-case host names that are reachable although they are not public.
         networks: Address ranges that are reachable although they are not public.
         use_proxy: Whether requests may go through the proxies named in the process
             environment.
+        on_response: Sees every request's connector, method, host and HTTP status.
     """
 
     hosts: frozenset[str] = frozenset()
     networks: tuple[IPv4Network | IPv6Network, ...] = ()
     use_proxy: bool = False
+    on_response: ResponseObserver | None = field(default=None, compare=False)
 
     @classmethod
     def from_environ(cls, environ: Mapping[str, str] | None = None) -> Self:
@@ -175,10 +201,18 @@ def _embedded_ipv4(address: IPv4Address | IPv6Address) -> IPv4Address | None:
     return None
 
 
-def guarded_session(policy: DestinationPolicy) -> requests.Session:
-    """Return a session whose direct connections obey ``policy``."""
+def guarded_session(policy: DestinationPolicy, *, connector: str) -> requests.Session:
+    """Return a session whose direct connections obey ``policy``.
+
+    Args:
+        policy: The destinations the session may reach and its response observer.
+        connector: The connector type reported to the policy's response observer.
+
+    Returns:
+        A session with the guarded adapter mounted for HTTP and HTTPS.
+    """
     session = _GuardedSession()
-    adapter = _GuardedAdapter(policy)
+    adapter = _GuardedAdapter(policy, connector=connector)
     session.mount("http://", adapter)
     session.mount("https://", adapter)
     return session
@@ -217,10 +251,16 @@ class _GuardedSession(requests.Session):
 
 
 class _GuardedAdapter(HTTPAdapter):
-    """Adapter whose connection pools check each new socket's peer address."""
+    """Adapter whose connection pools check each new socket's peer address.
 
-    def __init__(self, policy: DestinationPolicy) -> None:
+    Args:
+        policy: The destinations this adapter may reach and its response observer.
+        connector: The connector type reported with each response.
+    """
+
+    def __init__(self, policy: DestinationPolicy, *, connector: str) -> None:
         self._policy = policy
+        self._connector = connector
         self._pools = _guarded_pools(policy)
         super().__init__()
 
@@ -256,9 +296,27 @@ class _GuardedAdapter(HTTPAdapter):
             target = urlparse(str(request.url))
             default_port = 443 if target.scheme == "https" else 80
             self._policy.check_host(target.hostname or "", target.port or default_port)
-        return super().send(
-            request, stream=stream, timeout=timeout, verify=verify, cert=cert, proxies=proxies
-        )
+        try:
+            response = super().send(
+                request, stream=stream, timeout=timeout, verify=verify, cert=cert, proxies=proxies
+            )
+        except requests.RequestException:
+            self._observe(request, None)
+            raise
+        self._observe(request, response.status_code)
+        return response
+
+    def _observe(self, request: requests.PreparedRequest, status_code: int | None) -> None:
+        """Report one request's outcome to the policy's response observer, if any."""
+        if self._policy.on_response is not None:
+            self._policy.on_response(
+                ResponseObservation(
+                    connector=self._connector,
+                    method=request.method or "GET",
+                    host=urlparse(str(request.url)).hostname or "",
+                    status_code=status_code,
+                )
+            )
 
     def init_poolmanager(self, *args: Any, **kwargs: Any) -> None:
         """Build the pool manager with this adapter's guarded pools."""

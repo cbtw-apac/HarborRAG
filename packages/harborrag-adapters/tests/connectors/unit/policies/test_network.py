@@ -15,8 +15,11 @@ from harborrag_adapters.connectors.policies.network import (
     USE_PROXY_VARIABLE,
     BlockedDestinationError,
     DestinationPolicy,
+    ResponseObservation,
     guarded_session,
 )
+
+pytestmark = pytest.mark.unit
 
 _LOOPBACK_REFUSED = r"private address (127\.0\.0\.1|::1);"
 """``localhost`` resolves to either loopback address first, depending on the host."""
@@ -109,10 +112,36 @@ def local_server() -> Iterator[str]:
 
 def test_the_session_checks_the_address_it_actually_connected_to(local_server: str) -> None:
     with pytest.raises(BlockedDestinationError, match=_LOOPBACK_REFUSED):
-        guarded_session(DestinationPolicy()).get(local_server, timeout=5)
+        guarded_session(DestinationPolicy(), connector="jira").get(local_server, timeout=5)
 
-    allowed = guarded_session(DestinationPolicy(hosts=frozenset({"localhost"})))
+    allowed = guarded_session(DestinationPolicy(hosts=frozenset({"localhost"})), connector="jira")
     assert allowed.get(local_server, timeout=5).status_code == 200
+
+
+def test_the_response_observer_sees_connector_method_host_and_status_but_no_path(
+    local_server: str,
+) -> None:
+    seen: list[ResponseObservation] = []
+    policy = DestinationPolicy(hosts=frozenset({"localhost"}), on_response=seen.append)
+    probe = socket.socket()
+    probe.bind(("127.0.0.1", 0))
+    closed_port = probe.getsockname()[1]
+    probe.close()
+    session = guarded_session(policy, connector="confluence")
+
+    session.get(f"{local_server}?title=Alex", timeout=5)
+    with pytest.raises(requests.ConnectionError):
+        session.post(f"http://localhost:{closed_port}/", timeout=5)
+
+    assert seen == [
+        ResponseObservation(
+            connector="confluence", method="GET", host="localhost", status_code=200
+        ),
+        ResponseObservation(
+            connector="confluence", method="POST", host="localhost", status_code=None
+        ),
+    ]
+    assert policy == DestinationPolicy(hosts=frozenset({"localhost"}))
 
 
 def test_a_blocked_destination_is_not_retried() -> None:
@@ -126,7 +155,9 @@ def test_a_closed_private_port_reads_the_same_as_an_open_one() -> None:
     probe.close()
 
     with pytest.raises(BlockedDestinationError, match=_LOOPBACK_REFUSED):
-        guarded_session(DestinationPolicy()).get(f"https://localhost:{port}/", timeout=5)
+        guarded_session(DestinationPolicy(), connector="jira").get(
+            f"https://localhost:{port}/", timeout=5
+        )
 
 
 @pytest.fixture
@@ -144,13 +175,13 @@ def dead_proxy(monkeypatch: pytest.MonkeyPatch) -> str:
 
 def test_a_proxy_variable_does_not_switch_the_guard_off(local_server: str, dead_proxy: str) -> None:
     with pytest.raises(BlockedDestinationError, match=_LOOPBACK_REFUSED):
-        guarded_session(DestinationPolicy()).get(local_server, timeout=5)
+        guarded_session(DestinationPolicy(), connector="jira").get(local_server, timeout=5)
 
 
 def test_an_opted_in_proxy_still_refuses_a_private_target(
     local_server: str, dead_proxy: str
 ) -> None:
-    proxied = guarded_session(DestinationPolicy(use_proxy=True))
+    proxied = guarded_session(DestinationPolicy(use_proxy=True), connector="jira")
 
     with pytest.raises(BlockedDestinationError, match=_LOOPBACK_REFUSED):
         proxied.get(local_server, timeout=5)

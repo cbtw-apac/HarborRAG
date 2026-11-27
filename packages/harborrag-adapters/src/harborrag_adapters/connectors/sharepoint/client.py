@@ -73,6 +73,8 @@ class _RequestsGraphClient:
         config: SharePoint site settings, including credentials and retry limits.
         rate_limiter: Shared limiter for Graph requests. A local one is used
             when omitted.
+        destination_policy: Hosts the client may reach and who observes its
+            responses. Public addresses only when omitted.
     """
 
     def __init__(
@@ -83,7 +85,9 @@ class _RequestsGraphClient:
         destination_policy: DestinationPolicy | None = None,
     ) -> None:
         self.config = config
-        self.session = guarded_session(destination_policy or DestinationPolicy())
+        self.session = guarded_session(
+            destination_policy or DestinationPolicy(), connector="sharepoint"
+        )
         self.session.headers.update({"Accept": "application/json"})
         self._rate_limit_identity = RateLimitIdentity.from_http_source(
             connector_type="sharepoint",
@@ -117,6 +121,12 @@ class _RequestsGraphClient:
 
     def get_bytes(self, endpoint: str) -> bytes:
         """GET a Graph endpoint that returns file bytes, capped by size limit.
+
+        Args:
+            endpoint: The Graph path, relative to the API root.
+
+        Returns:
+            The response body.
 
         Raises:
             RefusedResponseError: The body is larger than the configured size limit.

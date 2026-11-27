@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import replace
 from time import perf_counter
 from typing import TYPE_CHECKING
@@ -38,6 +39,7 @@ from harborrag_engine.retrieval.service.contracts import (
     RetrievalOptions,
     RetrievalPolicy,
     RetrievalResources,
+    RetrievalStep,
     RetrievalTelemetry,
     RuntimeRetrievalReport,
 )
@@ -82,8 +84,16 @@ if TYPE_CHECKING:
 
 
 class _NullRetrievalTelemetry:
+    """Retrieval telemetry that records nothing."""
+
     def record_stale_candidate_rejections(self, count: int) -> None:
+        """Drop the count."""
         del count
+
+    def retrieval_step(self, step: RetrievalStep) -> AbstractContextManager[object]:
+        """Return a context that traces nothing."""
+        del step
+        return nullcontext()
 
 
 class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrievalMixin):
@@ -242,16 +252,19 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
         )
         reranker = self._requested_reranker(selected, request_id)
         pool = rerank_pool(top_k) if reranker is not None else top_k
-        sparse_vector = (
-            self._sparse.encode_query(query).vector
-            if selected.lane in {RetrievalLane.SPARSE, RetrievalLane.HYBRID}
-            else None
-        )
-        dense_vector = (
-            await self._result_loader.dense_vector(query)
-            if selected.lane in {RetrievalLane.DENSE, RetrievalLane.HYBRID}
-            else None
-        )
+        step = self._telemetry.retrieval_step
+        with step(RetrievalStep.SPARSE_ENCODE):
+            sparse_vector = (
+                self._sparse.encode_query(query).vector
+                if selected.lane in {RetrievalLane.SPARSE, RetrievalLane.HYBRID}
+                else None
+            )
+        with step(RetrievalStep.DENSE_EMBED):
+            dense_vector = (
+                await self._result_loader.dense_vector(query)
+                if selected.lane in {RetrievalLane.DENSE, RetrievalLane.HYBRID}
+                else None
+            )
         facet_filter, chunk_filter = (
             split_facet_filters(selected.filters)
             if self._entities is not None
@@ -262,25 +275,26 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
         field_filter, chunk_filter = split_field_filters(chunk_filter)
         traced: tuple[str, ...] | None = None
         try:
-            if field_filter is not None:
-                traced = await self._traced_items(field_filter, context)
-                chunk_filter = SourceFieldTrace.scope(traced, chunk_filter)
-                selected = replace(selected, filters=chunk_filter)
-            search = (
-                await self._readable_search(
-                    AuthoritativeSearchRequest(
-                        lane=selected.lane,
-                        top_k=pool,
-                        dense_vector=dense_vector,
-                        sparse_vector=sparse_vector,
-                        filters=chunk_filter,
-                        dense_weight=self._policy.dense_weight,
-                    ),
-                    context,
+            with step(RetrievalStep.VECTOR_QUERY):
+                if field_filter is not None:
+                    traced = await self._traced_items(field_filter, context)
+                    chunk_filter = SourceFieldTrace.scope(traced, chunk_filter)
+                    selected = replace(selected, filters=chunk_filter)
+                search = (
+                    await self._readable_search(
+                        AuthoritativeSearchRequest(
+                            lane=selected.lane,
+                            top_k=pool,
+                            dense_vector=dense_vector,
+                            sparse_vector=sparse_vector,
+                            filters=chunk_filter,
+                            dense_weight=self._policy.dense_weight,
+                        ),
+                        context,
+                    )
+                    if traced != ()
+                    else AuthoritativeSearchResult((), _NO_CANDIDATES)
                 )
-                if traced != ()
-                else AuthoritativeSearchResult((), _NO_CANDIDATES)
-            )
         except StorageNotFoundError as exc:
             logger.info(
                 "Retrieval found no index for the tenant",
@@ -288,59 +302,67 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
             )
             raise no_indexed_content() from exc
         candidates = search.candidates
-        if self._entities is not None and traced != ():
-            candidates = await self._entities.expand(
-                candidates,
-                dense_vector,
+        with step(RetrievalStep.GRAPH_EXPAND):
+            if self._entities is not None and traced != ():
+                candidates = await self._entities.expand(
+                    candidates,
+                    dense_vector,
+                    context=context,
+                    facet_filter=facet_filter,
+                    chunk_filter=chunk_filter,
+                )
+            topology = await self._topology.prepare(
+                query,
+                await self._permissions.validate(candidates, context),
+                options=selected,
                 context=context,
-                facet_filter=facet_filter,
-                chunk_filter=chunk_filter,
+                dense_vector=dense_vector,
             )
-        topology = await self._topology.prepare(
-            query,
-            await self._permissions.validate(candidates, context),
-            options=selected,
-            context=context,
-            dense_vector=dense_vector,
-        )
-        loaded, load_failures = await self._result_loader.load_candidates(
-            topology.candidates,
-            request_id=request_id,
-        )
-        observation = (
-            await self._observer.observe(
-                await self._permissions.validate(search.candidates, context),
-                context=context,
+        with step(RetrievalStep.EVIDENCE_LOAD):
+            loaded, load_failures = await self._result_loader.load_candidates(
+                topology.candidates,
                 request_id=request_id,
-                memory_seeds=selected.graph_seeds,
             )
-            if selected.observe_graph and self._observer is not None
-            else GraphObservation()
-        )
-        loaded, topology_diagnostics = await self._topology.finalize(
-            topology, loaded, context=context
-        )
-        final_validation = await self._candidate_validator.validate(
-            tuple(candidate for candidate, _ in loaded)
-        )
-        permitted = await self._permissions.validate(final_validation.accepted, context)
-        active_candidate_ids = {str(candidate.id) for candidate in permitted}
-        distinct, late_duplicates = collapse_duplicates(
-            [result for candidate, result in loaded if str(candidate.id) in active_candidate_ids],
-            lambda result: duplicate_identity(result.metadata),
-            limit=pool,
-        )
-        results = list(distinct)
-        direct = topology.flat
-        if reranker is not None:
-            results = await reranker.rerank(query, results)
-            direct = in_result_order(direct, results)
-        if selected.mode != RetrievalMode.FLAT:
-            results, tokens, excluded = select_evidence(
-                results, direct, top_k=top_k, policy=self._policy.topology
+        with step(RetrievalStep.GRAPH_EXPAND):
+            observation = (
+                await self._observer.observe(
+                    await self._permissions.validate(search.candidates, context),
+                    context=context,
+                    request_id=request_id,
+                    memory_seeds=selected.graph_seeds,
+                )
+                if selected.observe_graph and self._observer is not None
+                else GraphObservation()
             )
-            topology_diagnostics = budget_diagnostics(topology_diagnostics, tokens, excluded)
-        results = results[:top_k]
+        with step(RetrievalStep.ASSEMBLY):
+            loaded, topology_diagnostics = await self._topology.finalize(
+                topology, loaded, context=context
+            )
+            final_validation = await self._candidate_validator.validate(
+                tuple(candidate for candidate, _ in loaded)
+            )
+            permitted = await self._permissions.validate(final_validation.accepted, context)
+            active_candidate_ids = {str(candidate.id) for candidate in permitted}
+            distinct, late_duplicates = collapse_duplicates(
+                [
+                    result
+                    for candidate, result in loaded
+                    if str(candidate.id) in active_candidate_ids
+                ],
+                lambda result: duplicate_identity(result.metadata),
+                limit=pool,
+            )
+            results = list(distinct)
+            direct = topology.flat
+            if reranker is not None:
+                results = await reranker.rerank(query, results)
+                direct = in_result_order(direct, results)
+            if selected.mode != RetrievalMode.FLAT:
+                results, tokens, excluded = select_evidence(
+                    results, direct, top_k=top_k, policy=self._policy.topology
+                )
+                topology_diagnostics = budget_diagnostics(topology_diagnostics, tokens, excluded)
+            results = results[:top_k]
         if final_validation.rejected_count:
             observation = GraphObservation()
         duration_ms = (perf_counter() - started) * 1_000

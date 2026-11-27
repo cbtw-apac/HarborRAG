@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from harborrag_core.invariants import HarborInvariantError
+from harborrag_core.observability.process_logging import configure_logging
 from harborrag_mcp_server.audit import DEFAULT_AUDIT_PATH, McpAuditLog, prepare_audit_directory
 from harborrag_mcp_server.configuration import McpConfigurationStore
 from harborrag_mcp_server.configuration.launch import load_launch_environment
@@ -28,6 +29,7 @@ from harborrag_mcp_server.server import (
 from harborrag_mcp_server.server.api_keys import (
     create_api_key_verifier,
     create_composite_verifier,
+    create_counting_verifier,
     create_postgres_api_key_verifier,
 )
 from harborrag_mcp_server.server.http import (
@@ -47,6 +49,8 @@ from harborrag_mcp_server.server.request_limits import (
     CredentialLimiter,
     request_limits_from_environment,
 )
+from harborrag_runtime.observability.export import TelemetryService, configure_telemetry_export
+from harborrag_runtime.observability.mcp_telemetry import shared_mcp_telemetry
 
 if TYPE_CHECKING:
     from fastmcp import FastMCP
@@ -305,7 +309,11 @@ def _compose_server(
     from harborrag_runtime.config.settings import RuntimeSettings
 
     settings = RuntimeSettings()
-    auth = _http_auth(parser, arguments, settings) if arguments.transport == "http" else None
+    auth = (
+        create_counting_verifier(_http_auth(parser, arguments, settings), shared_mcp_telemetry())
+        if arguments.transport == "http"
+        else None
+    )
     runtime = open_reader_application(settings)
     registry = McpServer(
         invoker=runtime.invoker,
@@ -467,6 +475,8 @@ def main(argv: Sequence[str] | None = None, *, ui: bool = False) -> int:
         return 0
     if arguments.preflight:
         return _preflight(parser, arguments, factory)
+    configure_logging()
+    configure_telemetry_export(TelemetryService.MCP_UI if ui else TelemetryService.MCP)
     server = _compose_server(parser, arguments, factory)
     transport = server.transport
     try:

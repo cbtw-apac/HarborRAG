@@ -106,5 +106,10 @@ async def test_retrieval_composition_with_a_busy_metrics_port_warns_once_and_con
     assert second is not None
     warnings = [record for record in caplog.records if record.levelno == logging.WARNING]
     assert len(warnings) == 1
-    assert str(busy_port) in warnings[0].getMessage()
-    assert "127.0.0.1" not in warnings[0].getMessage()
+    (warning,) = warnings
+    assert warning.__dict__["event"] == "retrieval.metrics_port_unavailable"
+    assert "error_type" in warning.__dict__
+    assert "HARBORRAG_METRICS_PORT" in warning.getMessage()
+    assert "dropped_fields" not in warning.__dict__
+    assert str(busy_port) not in warning.getMessage()
+    assert "127.0.0.1" not in warning.getMessage()

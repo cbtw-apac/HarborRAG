@@ -36,6 +36,7 @@ from harborrag_core.contracts.errors import HarborConfigurationError
 from harborrag_core.domain.identity import DEFAULT_TENANT_ID
 from harborrag_core.observability.process_logging import configure_logging
 from harborrag_runtime.application.composition.selection import select_app_service
+from harborrag_runtime.observability.export import TelemetryService, configure_telemetry_export
 
 if TYPE_CHECKING:
     from harborrag_runtime.application.composition.service import AppService
@@ -217,6 +218,7 @@ def create_fastapi_app(settings: ApiSettings | None = None) -> FastAPI:
     """
     settings = settings or ApiSettings()
     configure_logging()
+    configure_telemetry_export(TelemetryService.API)
     app = FastAPI(
         title="HarborRAG Control Plane API",
         version=__version__,

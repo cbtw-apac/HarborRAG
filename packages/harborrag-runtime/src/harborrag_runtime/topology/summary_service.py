@@ -26,6 +26,7 @@ from harborrag_core.ingestion import (
     GraphOwnershipScope,
     KnowledgeNodeKind,
 )
+from harborrag_core.observability.log_events import FailureKind, log_event, log_failure
 from harborrag_core.ports.description_generation import UsageAwareDescriptionPort
 from harborrag_core.ports.summary_projection import SummaryExecutionRepositoryPort
 from harborrag_core.ports.topology import TopologyBudgetRepositoryPort
@@ -68,10 +69,37 @@ type SummaryPlanLoader = Callable[
     [SummaryLease, SummarySnapshot], Awaitable[tuple[SummaryPlanNode, ...]]
 ]
 
+_RESERVED_EXTRA_INPUT_TOKENS = 2048
+"""Input tokens reserved per call beyond the counted packet JSON."""
+
+_MAX_RENEW_INTERVAL_SECONDS = 20
+"""Longest wait between lease renewals, however long the lease."""
+
+_MAX_ERROR_CODE_LENGTH = 128
+"""Longest error code a finished run records."""
+
+_MAX_FACET_VALUE_CHARS = 200
+"""Longest facet value copied onto a card."""
+
+_MAX_FACET_VALUES = 24
+"""Most values one facet keeps."""
+
+_MAX_FACET_DOCUMENT_IDS = 64
+"""Most source document IDs one facet records as its provenance."""
+
 
 @dataclass
 class BudgetedSummaryGenerator:
-    """Description generator that checks each call against the topology budget."""
+    """Description generator that checks each call against the topology budget.
+
+    Attributes:
+        delegate: The model that writes descriptions and reports its usage.
+        repository: Reserves budget for the lease's calls.
+        budget: Settles what each reserved call actually spent.
+        lease: The summary run the calls belong to.
+        settings: Runtime settings holding the cost ceilings.
+        spent_usd: What this run has spent so far, in US dollars.
+    """
 
     delegate: UsageAwareDescriptionPort
     repository: SummaryExecutionRepositoryPort
@@ -102,7 +130,10 @@ class BudgetedSummaryGenerator:
             reservation_id=uuid4().hex,
             purpose="parent_description",
             input_tokens=calls
-            * (ApproximateTokenCounter().count(description_prompt_json(packets)) + 2048),
+            * (
+                ApproximateTokenCounter().count(description_prompt_json(packets))
+                + _RESERVED_EXTRA_INPUT_TOKENS
+            ),
             output_tokens=calls * self._output_tokens(max_words),
             cost_usd=ceiling,
             operation_key=digest(
@@ -140,7 +171,18 @@ class BudgetedSummaryGenerator:
 
 @dataclass(frozen=True)
 class SummaryProjectionService:
-    """Generate and store summaries for one tenant's pending topology nodes."""
+    """Generate and store summaries for one tenant's pending topology nodes.
+
+    Attributes:
+        repository: Summary leases, snapshots and accepted cards.
+        budget: Settles what each model call spent.
+        settings: Runtime settings holding leases, timeouts and cost ceilings.
+        generator_factory: Builds the description model for one lease.
+        load_inputs: Loads the plan of nodes one lease summarizes.
+        entity_index: Makes entity cards searchable. ``None`` when the summary
+            worker has no vector backend, so cards are written and readable but
+            not searchable.
+    """
 
     repository: SummaryExecutionRepositoryPort
     budget: TopologyBudgetRepositoryPort
@@ -148,9 +190,6 @@ class SummaryProjectionService:
     generator_factory: Callable[[SummaryLease], UsageAwareDescriptionPort]
     load_inputs: SummaryPlanLoader
     entity_index: EntitySummaryIndex | None = None
-    """Absent when the deployment has no vector backend wired into the summary worker; cards are
-    still written and still readable, only not searchable.
-    """
 
     async def run_once(
         self,
@@ -184,29 +223,42 @@ class SummaryProjectionService:
             raise
         except Exception as error:
             blocked, code = _summary_failure(error)
-            details = {
-                "tenant_id": lease.tenant_id,
-                "source_scope_id": lease.source_scope_id,
-                "error_code": code,
-                "blocked": blocked,
-            }
             if blocked:
-                logger.info("Summary projection blocked", extra=details)
+                log_event(
+                    logger,
+                    "topology.summary_projection_blocked",
+                    tenant_id=lease.tenant_id,
+                    source_scope_id=lease.source_scope_id,
+                    error_code=code,
+                )
             else:
-                logger.warning("Summary projection attempt failed", exc_info=True, extra=details)
-            await self.repository.finish(lease, error_code=code[:128], blocked=blocked)
+                log_failure(
+                    logger,
+                    "topology.summary_projection_failed",
+                    error,
+                    FailureKind.EXPECTED,
+                    tenant_id=lease.tenant_id,
+                    source_scope_id=lease.source_scope_id,
+                    error_code=code,
+                )
+            await self.repository.finish(
+                lease, error_code=code[:_MAX_ERROR_CODE_LENGTH], blocked=blocked
+            )
             return "blocked" if blocked else "failed"
 
     async def _renew(self, lease: SummaryLease, heartbeat: Callable[[], None] | None) -> None:
+        """Heartbeat and renew the lease until the task is cancelled."""
+        renew_interval = min(_MAX_RENEW_INTERVAL_SECONDS, self.settings.topology_lease_seconds / 3)
         while True:
             if heartbeat:
                 heartbeat()
-            await asyncio.sleep(min(20, self.settings.topology_lease_seconds / 3))
+            await asyncio.sleep(renew_interval)
             await self.repository.renew(lease, lease_seconds=self.settings.topology_lease_seconds)
 
     async def _complete(self, lease: SummaryLease) -> None:
-        """``max_calls`` is configured per document; a scope run covers them all.
+        """Generate and accept every card of the lease's scope, wave by wave.
 
+        ``max_calls`` is configured per document, and a scope run covers them all.
         Spend is still bounded by the tenant's daily token/cost caps. Cards are generated in
         dependency waves: every section, then every document, then the entities. Within a wave
         nothing depends on anything else, so the tenant's card concurrency applies -- the old
@@ -253,7 +305,7 @@ class SummaryProjectionService:
             await self._publish_entities(lease, tuple(run.entities))
 
     async def _bounded_card(self, run: _Run, item: SummaryPlanNode) -> None:
-        """One card at a time per semaphore slot -- the model call *and* the accept.
+        """Produce one card inside a semaphore slot, the model call and the accept alike.
 
         Bounding only the model call let a wave of a few hundred shortcut cards open
         a database session each for ``accept`` at once and exhaust the control-plane
@@ -356,17 +408,18 @@ class SummaryProjectionService:
             await self.entity_index.publish(
                 lease.tenant_id, lease.source_scope_id, bindings, lease.policy.facets
             )
-        except Exception:
-            logger.exception(
-                "Entity summary index publication failed",
-                extra={
-                    "tenant_id": lease.tenant_id,
-                    "source_scope_id": lease.source_scope_id,
-                    "entities": len(bindings),
-                },
+        except Exception as error:  # noqa: BLE001 - the index publish is retried next build
+            log_failure(
+                logger,
+                "topology.entity_index_publish_failed",
+                error,
+                tenant_id=lease.tenant_id,
+                source_scope_id=lease.source_scope_id,
+                entity_count=len(bindings),
             )
 
     async def _complete_tenant(self, lease: SummaryLease) -> None:
+        """Generate and accept the tenant card from its children's cards."""
         repository = self.repository
         snapshot = await repository.snapshot(lease)
         children = await repository.tenant_inputs(lease)
@@ -461,7 +514,7 @@ def _shortcut(
     direct: tuple[ChunkRecord, ...],
     cards: dict[str, SummaryCard],
 ) -> tuple[SummaryCard, str] | None:
-    """A card that needs no model: the content already fits, or there is one child.
+    """Return a card that needs no model, when the content fits or there is one child.
 
     A section holding one 250-token comment does not need a model to say what it
     says; neither does an attachment entity whose only child is the document card
@@ -514,17 +567,17 @@ def _with_facets(
     for facet in policy.facets:
         values = tuple(
             dict.fromkeys(
-                value[:200]
+                value[:_MAX_FACET_VALUE_CHARS]
                 for member in fields.get(facet.field.strip().casefold(), ())
                 if (value := member.strip())
             )
-        )[:24]
+        )[:_MAX_FACET_VALUES]
         if not values:
             continue
         copied[facet.name] = SummaryAttribute(
             name=facet.name,
             values=values,
-            from_document_ids=tuple(sorted(document_ids))[:64],
+            from_document_ids=tuple(sorted(document_ids))[:_MAX_FACET_DOCUMENT_IDS],
         )
     if not copied:
         return card
@@ -532,7 +585,7 @@ def _with_facets(
 
 
 def _node_fields(node: GraphNodeRecord) -> dict[str, tuple[str, ...]]:
-    """Every field a facet may name on this node, keyed case-insensitively.
+    """Return every field a facet may name on this node, keyed case-insensitively.
 
     Standard issue attributes come first (``status``, ``priority``, ``labels``, ...):
     the pipeline stage of a candidate is the issue status, not a custom field. A
@@ -598,6 +651,7 @@ class _CoverageLedger:
         return cls(by_parent, orphans)
 
     def missing_for(self, kind: str, documents: tuple[str, ...]) -> tuple[str, ...]:
+        """Return the undelivered documents a ``kind`` node over ``documents`` covers."""
         found = {item for parent in documents for item in self.by_parent.get(parent, ())}
         if kind in {"DataSource", "Tenant"}:
             found.update(self.orphans)
@@ -620,6 +674,7 @@ def _summary_failure(error: BaseException) -> tuple[bool, str]:
 
 
 def _exception_leaves(error: BaseException) -> tuple[BaseException, ...]:
+    """Return the leaf exceptions of ``error``, flattening exception groups."""
     if isinstance(error, BaseExceptionGroup):
         return tuple(leaf for child in error.exceptions for leaf in _exception_leaves(child))
     return (error,)

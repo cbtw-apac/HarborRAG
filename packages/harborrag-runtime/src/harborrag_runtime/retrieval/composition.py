@@ -15,6 +15,7 @@ from harborrag_adapters.repositories.object_store import (
     ImmutableArtifactReader,
 )
 from harborrag_core.ingestion import SparseEncoderProfile
+from harborrag_core.observability.log_events import log_event
 from harborrag_engine.ingestion import BM25SparseEncoder
 from harborrag_engine.retrieval.service.contextual import ContextualEvidenceSearch
 from harborrag_engine.retrieval.service.contracts import RetrievalPolicy, RetrievalResources
@@ -37,6 +38,7 @@ from ..topology.embedding_profile import build_contextual_profile
 
 logger = logging.getLogger("harborrag.runtime.retrieval.composition")
 _UNBOUND_METRICS_PORTS: set[int | None] = set()
+"""Metrics ports this process already warned about; retrieval is connected per chat."""
 
 
 async def connect_retrieval_service(
@@ -151,15 +153,24 @@ async def _start_metrics_exporter(telemetry: IngestionTelemetry, port: int | Non
     """Start the metrics exporter, or warn once per port and go on without it.
 
     A port that cannot be bound, for example because the worker holds it, must not
-    fail retrieval, and so every chat. The warning names the port only.
+    fail retrieval, and so every chat. The warning names the setting, not its value.
     """
     try:
         await telemetry.start()
-    except OSError:
+    except OSError as error:
         if port in _UNBOUND_METRICS_PORTS:
             return
         _UNBOUND_METRICS_PORTS.add(port)
-        logger.warning("Metrics port %s could not be bound; retrieval goes on without it", port)
+        log_event(
+            logger,
+            "retrieval.metrics_port_unavailable",
+            level=logging.WARNING,
+            hint=(
+                "Retrieval runs without its metrics exporter; give this process a free "
+                "HARBORRAG_METRICS_PORT, or leave it unset, to export its metrics."
+            ),
+            error=error,
+        )
 
 
 def _rerank_client(settings: RuntimeSettings) -> HarborRerankingClient | None:

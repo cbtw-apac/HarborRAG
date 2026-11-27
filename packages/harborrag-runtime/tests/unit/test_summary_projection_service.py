@@ -1,6 +1,7 @@
 """Publish canonical artifacts, generate independently, re-ingest, and read safely."""
 
 import asyncio
+import logging
 from decimal import Decimal
 
 import pytest
@@ -16,6 +17,8 @@ from harborrag_engine.topology.summary_reducer import SummaryBudgetDeferred
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.topology.summary_inputs import SummaryInputLoader
 from harborrag_runtime.topology.summary_service import SummaryProjectionService
+
+pytestmark = pytest.mark.unit
 
 
 class Model:
@@ -40,11 +43,13 @@ class Model:
         )
 
 
-# Longer than a 60-word navigation card: a card this size needs the model. A
-# single short chunk is served verbatim now, with no model call to observe.
 LONG = " ".join(
     f"Sentence {index} describes one more capability of the Harbor service." for index in range(24)
 )
+"""Content longer than a 60-word navigation card, so its card needs the model.
+
+A single short chunk is served verbatim, with no model call to observe.
+"""
 
 
 def service(harness, model):
@@ -140,11 +145,23 @@ async def test_concurrent_summary_failures_prefer_infrastructure_error(tmp_path,
         assert await runner.run_once("DEFAULT") == "failed"
         status = await harness.control.summaries.status("DEFAULT")
         assert status[0]["error_code"] == "RuntimeError"
-        assert "Summary projection attempt failed" in caplog.text
+        (record,) = [
+            record
+            for record in caplog.records
+            if record.__dict__.get("event") == "topology.summary_projection_failed"
+        ]
+        assert record.levelno == logging.WARNING
+        assert record.__dict__["error_code"] == "RuntimeError"
+        assert record.__dict__["tenant_id"] == "DEFAULT"
 
 
 @pytest.mark.asyncio
 async def test_tenant_rollup_is_queued_by_reconcile_not_by_reads(tmp_path):
+    """A read reports the pending tenant card but never queues it.
+
+    Readers run under a read-only role. The worker's reconcile queues the card
+    once every source ACL it depends on is resolved and public.
+    """
     async with Harness(tmp_path) as harness:
         harness.include_graph = True
         await harness.publish()
@@ -160,9 +177,6 @@ async def test_tenant_rollup_is_queued_by_reconcile_not_by_reads(tmp_path):
             "DEFAULT", (key,), access=harness.access, source_scopes={key: "@tenant"}
         )
         assert views[key].status == "pending"
-        # A read reports the pending card but never queues it: readers run under a
-        # read-only role. The worker's reconcile queues it once every source ACL
-        # the card depends on is resolved and public.
         assert await runner.run_once("DEFAULT") == "idle"
         assert await harness.control.summaries.reconcile("DEFAULT") == 1
         assert await runner.run_once("DEFAULT") == "current"
@@ -195,11 +209,15 @@ async def test_publication_during_generation_cannot_publish_old_description(tmp_
 
 @pytest.mark.asyncio
 async def test_an_exhausted_call_allowance_pauses_briefly_and_the_next_run_continues(tmp_path):
-    """Content wider than the input budget is reduced in rounds -- several model
-    calls for one document -- so an allowance of one call per document runs out
-    mid-way. The run parks the scope for a second, not an hour, and the next run
-    resumes from the cached reductions instead of starting over."""
+    """An exhausted call allowance parks the scope briefly and the next run resumes.
 
+    Content wider than the input budget is reduced in rounds, several model calls
+    for one document, so an allowance of one call per document runs out mid-way.
+    The run parks the scope for a second, not an hour, and the next run resumes
+    from the cached reductions instead of starting over. Each resumed run gets one
+    more call and keeps every earlier reduction, so nothing is recomputed. The
+    worker's 5-second poll covers the one-second pause; the test waits it out.
+    """
     async with Harness(tmp_path) as harness:
         harness.include_graph = True
         wide = " ".join(
@@ -229,9 +247,6 @@ async def test_an_exhausted_call_allowance_pauses_briefly_and_the_next_run_conti
         assert scope["execution"] == "queued"
         assert (scope["available_at"] - utc_now()).total_seconds() <= 2
         assert len(model.calls) == 1
-        # Each resumed run gets one more call and keeps every earlier reduction. The
-        # scope comes back after one second, which the worker's 5-second poll
-        # covers; here we wait it out explicitly.
         outcomes = []
         for _ in range(12):
             await asyncio.sleep(1.1)
@@ -240,5 +255,4 @@ async def test_an_exhausted_call_allowance_pauses_briefly_and_the_next_run_conti
                 break
         assert outcomes[-1] == "current"
         assert "idle" not in outcomes
-        # One new model call per attempt: nothing was recomputed.
         assert len(model.calls) == len(outcomes) + 1

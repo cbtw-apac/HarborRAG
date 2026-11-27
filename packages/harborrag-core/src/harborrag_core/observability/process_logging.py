@@ -1,15 +1,12 @@
 """Process-wide logging configuration for HarborRAG entry points.
 
-Every HarborRAG module logs under the ``harborrag`` logger namespace, but no
-library module installs a handler. Without one, ``logging`` falls back to its
-last-resort handler at WARNING, so every ``logger.info`` and ``logger.debug``
-call in the runtime, workers, and transports is silently discarded -- which is
-how a Temporal worker container ends up emitting nothing at all.
+Only process entry points (the worker module, the CLI, the API factory, the MCP server)
+call :func:`configure_logging`. A library module that called it would take over logging
+for any application that embeds HarborRAG.
 
-Call :func:`configure_logging` from process entry points only (the worker
-module, the CLI entry point, the API factory). Importing modules must never
-call it: doing so would hijack logging configuration for applications that
-embed HarborRAG as a library.
+Typical usage example:
+
+    configure_logging()
 """
 
 from __future__ import annotations
@@ -22,22 +19,42 @@ from typing import TextIO
 ROOT_LOGGER_NAME = "harborrag"
 LEVEL_ENV_VAR = "HARBORRAG_LOG_LEVEL"
 DEFAULT_LEVEL = "INFO"
+TRACE_ID_FIELD = "trace_id"
+SPAN_ID_FIELD = "span_id"
 
 _LOG_FORMAT = "%(asctime)s %(levelname)-8s %(name)s %(module)s.%(funcName)s:%(lineno)d %(message)s"
 _DATE_FORMAT = "%Y-%m-%dT%H:%M:%S%z"
 
 
-class _ManagedStreamHandler(logging.StreamHandler):
-    """Marks the handler this module owns so repeat calls never stack handlers."""
+class _ManagedStreamHandler(logging.StreamHandler[TextIO]):
+    """The handler this module owns, so a repeated call never stacks handlers."""
+
+
+class _TraceContextFormatter(logging.Formatter):
+    """Format a record and append its trace and span IDs when a filter set them."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        """Return the formatted line, ending in ``trace_id=… span_id=…`` when traced."""
+        line = super().format(record)
+        trace_id = getattr(record, TRACE_ID_FIELD, None)
+        if not isinstance(trace_id, str):
+            return line
+        span_id = getattr(record, SPAN_ID_FIELD, "")
+        return f"{line} {TRACE_ID_FIELD}={trace_id} {SPAN_ID_FIELD}={span_id}"
 
 
 def resolve_level(level: str | int | None = None) -> int:
     """Resolve an explicit level, else ``HARBORRAG_LOG_LEVEL``, else INFO.
 
-    Unrecognised names fall back to INFO rather than raising: a typo in an
-    operator's environment variable must not stop a worker from booting.
-    """
+    An unrecognised name falls back to INFO, so a typo in an operator's environment
+    never stops a worker from starting.
 
+    Args:
+        level: A level name or number. The environment variable is read when omitted.
+
+    Returns:
+        The numeric logging level.
+    """
     candidate = level if level is not None else os.getenv(LEVEL_ENV_VAR, DEFAULT_LEVEL)
     if isinstance(candidate, int):
         return candidate
@@ -52,16 +69,19 @@ def configure_logging(
 ) -> logging.Logger:
     """Attach exactly one stream handler to the ``harborrag`` logger.
 
-    Idempotent: a repeated call re-applies the level to the handler this
-    module already installed instead of adding a second one, so a process that
-    configures logging twice still logs each record once.
+    A repeated call re-applies the level to the installed handler instead of adding
+    a second one. ``propagate`` is turned off because hosts such as uvicorn configure
+    the root logger themselves. Records go to stderr, so command output on stdout
+    stays parseable. A record that carries ``trace_id`` and ``span_id`` prints them
+    at the end of its line.
 
-    ``propagate`` is disabled because hosts such as uvicorn configure the root
-    logger themselves; propagating would emit every HarborRAG record twice.
-    Records go to stderr so that machine-readable command output on stdout
-    (``-o json``) stays parseable when logging is turned up.
+    Args:
+        level: A level name or number. ``HARBORRAG_LOG_LEVEL`` is read when omitted.
+        stream: Where records are written. Standard error when omitted.
+
+    Returns:
+        The configured ``harborrag`` logger.
     """
-
     logger = logging.getLogger(ROOT_LOGGER_NAME)
     resolved = resolve_level(level)
     logger.setLevel(resolved)
@@ -72,6 +92,6 @@ def configure_logging(
             return logger
     handler = _ManagedStreamHandler(stream if stream is not None else sys.stderr)
     handler.setLevel(resolved)
-    handler.setFormatter(logging.Formatter(_LOG_FORMAT, datefmt=_DATE_FORMAT))
+    handler.setFormatter(_TraceContextFormatter(_LOG_FORMAT, datefmt=_DATE_FORMAT))
     logger.addHandler(handler)
     return logger

@@ -14,6 +14,7 @@ from harborrag_runtime.application.chat.citations import (
     citation_record,
     snippet,
 )
+from harborrag_runtime.observability.chat_telemetry import CitationCheck
 
 pytestmark = pytest.mark.unit
 
@@ -129,3 +130,28 @@ def test_a_citation_names_its_document_and_locates_it_when_it_can() -> None:
         "https://example.test/a",
         4,
     )
+
+
+@pytest.mark.parametrize(
+    ("answer", "expected"),
+    [
+        ("A [1] and C [3], released in [2024].", CitationCheck.PASSED),
+        ("A [1] and a passage that does not exist [7].", CitationCheck.PARTIAL),
+        ("No markers at all.", CitationCheck.FAILED),
+        ("Only a year [2024].", CitationCheck.FAILED),
+    ],
+)
+def test_check_judges_whether_the_answer_cites_its_passages(
+    answer: str, expected: CitationCheck
+) -> None:
+    _, numbering = _numbered([answer])
+
+    assert numbering.check() is expected
+
+
+def test_check_is_none_when_there_were_no_passages_to_cite() -> None:
+    numbering = CitationNumbering(())
+    numbering.feed("A refusal with a stray [1].")
+    numbering.finish()
+
+    assert numbering.check() is None

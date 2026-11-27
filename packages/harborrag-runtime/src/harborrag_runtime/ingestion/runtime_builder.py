@@ -59,6 +59,7 @@ from harborrag_runtime.config.graph_build import GraphBuildConfig
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.config_store.run_settings import RunSettingsResolver
 from harborrag_runtime.connections import default_secret_resolver
+from harborrag_runtime.observability.parse_timing import TimedDocumentParser
 from harborrag_runtime.rate_limiting import build_connector_rate_limiter
 
 from .chunking_profile import build_refiner, default_chunking_config
@@ -176,7 +177,7 @@ class IngestionRuntimeBuilder:
             ),
         )
         dependencies = DocumentReleaseDependencies(
-            parser=parser,
+            parser=TimedDocumentParser(parser, telemetry),
             normalizer=self.build_document_normalizer(),
             chunker=boot_chunker,
             representations=boot_representations,
@@ -200,7 +201,7 @@ class IngestionRuntimeBuilder:
             vector_store=vector_store,
             graph_store=graph,
             failures=ingestion_failure_classifier(),
-            parser_for=run_tools.parser_for,
+            parser_for=lambda run: TimedDocumentParser(run_tools.parser_for(run), telemetry),
             chunker_for=run_tools.chunker_for,
             representations_for=run_tools.representations_for,
         )
@@ -220,7 +221,10 @@ class IngestionRuntimeBuilder:
                 revisions=stores.revisions,
                 secrets=default_secret_resolver(stores.secrets),
                 parser=parser,
-                destination_policy=DestinationPolicy.from_environ(),
+                destination_policy=replace(
+                    DestinationPolicy.from_environ(),
+                    on_response=telemetry.record_connector_response,
+                ),
                 rate_limiter=rate_limiter,
             ),
             connection_health=ConnectionHealth(stores.connections),

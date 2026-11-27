@@ -60,7 +60,9 @@ class _RequestsGitHubClient:
         destination_policy: DestinationPolicy | None = None,
     ) -> None:
         self.config = config
-        self.session = guarded_session(destination_policy or DestinationPolicy())
+        self.session = guarded_session(
+            destination_policy or DestinationPolicy(), connector="github"
+        )
         self.session.headers.update(
             {
                 "Accept": "application/vnd.github+json",
@@ -166,6 +168,9 @@ class _RequestsGitHubClient:
     def _raise_for_error_status(response: requests.Response) -> None:
         """Raise the typed error of a final 4xx or 5xx response; return on success.
 
+        Args:
+            response: The final response of a request.
+
         Raises:
             ItemNotFoundError: GitHub answered 404.
             FetchError: GitHub answered any other 4xx or 5xx status.
@@ -204,6 +209,9 @@ class _RequestsGitHubClient:
         Args:
             response: Response whose status and headers are checked.
             detail: The 403 body already read, since a streamed body reads only once.
+
+        Returns:
+            True when GitHub is rate-limiting the caller.
         """
         if response.status_code == 429:
             return True

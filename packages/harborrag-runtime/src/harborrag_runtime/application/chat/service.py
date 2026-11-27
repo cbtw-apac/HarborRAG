@@ -37,6 +37,11 @@ from harborrag_memory.usage import ModelCall, record_model_usage
 from harborrag_runtime.application.errors import failure_response
 from harborrag_runtime.application.schemas import AppResponse
 from harborrag_runtime.config.settings import RuntimeSettings
+from harborrag_runtime.observability.chat_telemetry import (
+    ChatTelemetry,
+    ChatTurnStatus,
+    shared_chat_telemetry,
+)
 
 from .citations import CitationNumbering
 from .completion import (
@@ -75,6 +80,7 @@ class ChatApplicationService:
         usage: Model usage ledger, when the deployment keeps one.
         config: Runtime settings provider for per-project retrieval overrides.
         catalog: Connection catalog that resolves a request's scope.
+        telemetry: Records each turn's outcome, timings and citation check.
     """
 
     def __init__(  # noqa: PLR0913 - one keyword-only collaborator per injected port
@@ -88,6 +94,7 @@ class ChatApplicationService:
         usage: ModelUsageRepository | None = None,
         config: ConfigProvider | None = None,
         catalog: ConnectionCatalog | None = None,
+        telemetry: ChatTelemetry | None = None,
     ) -> None:
         self._resources = ChatTurnResources(
             runtime_provider=runtime_provider,
@@ -99,6 +106,7 @@ class ChatApplicationService:
         self._projects = projects
         self._catalog = catalog
         self._locks = locks or SessionLocks(memory)
+        self._telemetry = telemetry or shared_chat_telemetry()
 
     async def validate_model(self, model: str | None, *, tenant_id: str) -> None:
         """Reject a model name this tenant may not use, before the turn starts.
@@ -111,6 +119,10 @@ class ChatApplicationService:
 
     async def validate_project(self, project_id: str | None, *, tenant_id: str) -> None:
         """Reject a project this tenant does not have.
+
+        Args:
+            project_id: The project the turn reads. None reads no project.
+            tenant_id: The tenant the project must belong to.
 
         Raises:
             HarborNotFoundError: ``project_id`` does not exist in ``tenant_id``.
@@ -127,6 +139,15 @@ class ChatApplicationService:
     ) -> AppResponse:
         """Answer one question and return the explorer completion body.
 
+        Args:
+            query: The question.
+            tenant_id: The tenant whose corpus answers it.
+            principal_id: Who asks.
+            options: Mode, model, scope and session of the turn.
+
+        Returns:
+            The completion body, or the unavailable-service envelope.
+
         Raises:
             HarborError: As ``answer`` raises; any other failure is answered as an
                 unavailable chat service.
@@ -136,7 +157,7 @@ class ChatApplicationService:
             async with contextlib.aclosing(events):
                 async for event in events:
                     if isinstance(event, TurnCompleted):
-                        return AppResponse(True, event.completion.data())
+                        return AppResponse(ok=True, data=event.completion.data())
         except HarborError:
             raise
         except Exception as exc:  # noqa: BLE001 - stable application envelope
@@ -159,7 +180,18 @@ class ChatApplicationService:
         exchange is stored under the completion's id before ``TurnCompleted``; a
         one-off question stores nothing. Every check that can refuse the turn runs
         before any model call. ``validate`` sees the completion before it is stored;
-        when it raises, nothing is stored and its error propagates.
+        when it raises, nothing is stored and its error propagates. Each turn's
+        outcome, timings and citation check are recorded as telemetry.
+
+        Args:
+            query: The question.
+            tenant_id: The tenant whose corpus answers it.
+            principal_id: Who asks.
+            options: Mode, model, scope and session of the turn.
+            validate: Checks the completion before it is stored.
+
+        Yields:
+            The passages found, the answer text, then the completion.
 
         Raises:
             HarborNotFoundError: The session does not exist for this caller.
@@ -172,6 +204,42 @@ class ChatApplicationService:
             ChatModelUnavailableError: The chat model did not answer, or answered nothing.
             HarborConnectionError: The answer could not be stored in the session.
         """
+        turn = self._telemetry.start_turn(options.mode, tenant_id=tenant_id)
+        events = self._answer(
+            query,
+            tenant_id=tenant_id,
+            principal_id=principal_id,
+            options=options,
+            validate=validate,
+        )
+        try:
+            async with contextlib.aclosing(events):
+                async for event in events:
+                    if isinstance(event, AnswerDelta):
+                        turn.answered()
+                    elif isinstance(event, TurnCompleted):
+                        turn.finish(ChatTurnStatus.OK)
+                    yield event
+        except GeneratorExit:
+            turn.finish(ChatTurnStatus.CANCELLED)
+            raise
+        except Exception as exc:
+            turn.finish(_failure_status(exc))
+            raise
+        except BaseException:
+            turn.finish(ChatTurnStatus.CANCELLED)
+            raise
+
+    async def _answer(
+        self,
+        query: str,
+        *,
+        tenant_id: str,
+        principal_id: str,
+        options: ChatExecutionOptions,
+        validate: Callable[[Completion], object] | None,
+    ) -> AsyncGenerator[TurnEvent, None]:
+        """Run one turn as ``answer`` describes, without its turn telemetry."""
         trace_id = options.trace_id or uuid4().hex
         options = replace(options, trace_id=trace_id)
         identity, scope = await self._admit(tenant_id, principal_id, options)
@@ -189,6 +257,9 @@ class ChatApplicationService:
             numbering = CitationNumbering(() if response is None else prepared.results)
             text = numbering.feed(response.text if response is not None else refusal or "")
             text += numbering.finish()
+            citation_check = numbering.check()
+            if citation_check is not None:
+                self._telemetry.record_citation_check(citation_check)
             if not text.strip():
                 raise ChatModelUnavailableError("The chat model returned no answer")
             yield AnswerDelta(text)
@@ -345,6 +416,13 @@ class ChatApplicationService:
                 "The answer could not be stored in the session's history"
             ) from exc
         await conversation_title(self._resources.memory, owner, prompt=query)
+
+
+def _failure_status(error: Exception) -> ChatTurnStatus:
+    """Return ``ERROR`` for a server-side failure and ``REFUSED`` for the caller's mistake."""
+    if isinstance(error, HarborUnavailableError | HarborConnectionError):
+        return ChatTurnStatus.ERROR
+    return ChatTurnStatus.REFUSED if isinstance(error, HarborError) else ChatTurnStatus.ERROR
 
 
 def _access(identity: MemoryIdentity) -> MemoryAccess:

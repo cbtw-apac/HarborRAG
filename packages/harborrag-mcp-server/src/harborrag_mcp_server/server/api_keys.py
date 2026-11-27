@@ -20,6 +20,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from harborrag_core.ports.api_keys import AuthStoreUnavailable
+from harborrag_runtime.observability.mcp_telemetry import AuthFailureReason, McpTelemetry
 
 if TYPE_CHECKING:
     from fastmcp.server.auth import TokenVerifier
@@ -30,6 +31,18 @@ logger = logging.getLogger("harborrag.mcp.server.api_keys")
 
 
 class ReaderKey(BaseModel):
+    """One reader key in the key file, stored as the name of its hash variable.
+
+    Attributes:
+        model_config: Refuses unknown fields and keeps the key immutable.
+        key_id: The key's public ID.
+        principal_id: Who the key authenticates.
+        tenant_id: The one tenant the key may read.
+        secret_hash_env: The environment variable that holds the key's SHA-256 hash.
+        expires_at: When the key stops working. None never expires.
+        revoked: Whether the key was revoked.
+    """
+
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     key_id: str = Field(min_length=1, max_length=128)
@@ -42,7 +55,10 @@ class ReaderKey(BaseModel):
     @field_validator("tenant_id")
     @classmethod
     def tenant_must_be_concrete(cls, value: str) -> str:
-        # Grants are stripped when read, so " * " would widen to every tenant too.
+        """Refuse the ``*`` wildcard and a tenant padded with spaces.
+
+        Grants are stripped when read, so ``" * "`` would widen to every tenant too.
+        """
         if value != value.strip():
             raise ValueError("MCP key tenant_id must not contain surrounding whitespace")
         if value == "*":
@@ -51,6 +67,14 @@ class ReaderKey(BaseModel):
 
 
 class KeyFile(BaseModel):
+    """The reader key file: a format version and up to 1000 keys.
+
+    Attributes:
+        model_config: Refuses unknown fields and keeps the file immutable.
+        version: The key file format version.
+        keys: The reader keys.
+    """
+
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     version: Literal[1] = 1
@@ -101,7 +125,6 @@ def _load_keys(path: Path, *, strict: bool = True) -> tuple[_ActiveKey, ...]:
     so a newly appended key would otherwise lock out every existing key.
     File-level errors (unreadable, not YAML, wrong envelope) still raise.
     """
-
     data = yaml.safe_load(path.read_text(encoding="utf-8"))
     envelope = _KeyFileEnvelope.model_validate(data)
     if strict:
@@ -146,7 +169,6 @@ def _signature(stat: os.stat_result) -> tuple[int, int, int, int]:
 
 def _cacheable_signature(stat: os.stat_result) -> tuple[int, int, int, int] | None:
     """The signature to cache a parse under, or ``None`` if it is too fresh to trust."""
-
     if time.time() - stat.st_mtime < _RACY_MTIME_SECONDS:
         return None
     return _signature(stat)
@@ -173,7 +195,6 @@ class _KeyFileCache:
 
     def current(self) -> tuple[_ActiveKey, ...]:
         """The keys to verify against; blocking, so callers run it off the loop."""
-
         with self._lock:
             try:
                 stat = self._path.stat()
@@ -204,7 +225,6 @@ class _KeyFileCache:
 
     def log_throttled(self, topic: str, level: int, message: str, *args: object) -> None:
         """Log ``message`` at most once per interval for each ``topic``."""
-
         now = time.monotonic()
         with self._log_lock:
             last = self._logged_at.get(topic)
@@ -264,7 +284,6 @@ def create_postgres_api_key_verifier(service: ApiKeyVerificationService) -> Toke
     caller can never widen its own tenant. An unreachable store denies the
     request; the outage is logged by type so it is not mistaken for a bad key.
     """
-
     from fastmcp.server.auth import AccessToken, TokenVerifier
 
     class PostgresApiKeyVerifier(TokenVerifier):
@@ -299,6 +318,28 @@ def create_postgres_api_key_verifier(service: ApiKeyVerificationService) -> Toke
     return PostgresApiKeyVerifier(required_scopes=["mcp:read"])
 
 
+def create_counting_verifier(verifier: TokenVerifier, telemetry: McpTelemetry) -> TokenVerifier:
+    """Count every bearer token ``verifier`` refuses, then answer exactly as it does.
+
+    Wrap the outermost verifier only. Inside a composite, a token one verifier
+    refuses can still be accepted by the next.
+    """
+    from fastmcp.server.auth import AccessToken, TokenVerifier
+
+    class CountingVerifier(TokenVerifier):
+        async def verify_token(self, token: str) -> AccessToken | None:
+            try:
+                access = await verifier.verify_token(token)
+            except Exception:
+                telemetry.record_auth_failure(AuthFailureReason.VERIFIER_ERROR)
+                raise
+            if access is None:
+                telemetry.record_auth_failure(AuthFailureReason.REJECTED_BEARER)
+            return access
+
+    return CountingVerifier(required_scopes=verifier.required_scopes)
+
+
 def create_composite_verifier(verifiers: Sequence[TokenVerifier]) -> TokenVerifier:
     """Accept a bearer that any one of ``verifiers`` accepts; the first match wins.
 
@@ -306,7 +347,6 @@ def create_composite_verifier(verifiers: Sequence[TokenVerifier]) -> TokenVerifi
     so the status UI keeps its configuration editor while every other caller
     presents a key. Each verifier applies its own claims; nothing is merged.
     """
-
     from fastmcp.server.auth import AccessToken, TokenVerifier
 
     if not verifiers:

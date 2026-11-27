@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from types import SimpleNamespace
 from typing import Any, Literal, cast
 from unittest.mock import Mock
@@ -31,9 +32,17 @@ from harborrag_runtime.temporal.activity_observability import (
 class RecordingSpan:
     def __init__(self) -> None:
         self.attributes: dict[str, object] = {}
+        self.events: list[tuple[str, dict[str, object]]] = []
+        self.status: object | None = None
 
     def set_attribute(self, key: str, value: object) -> None:
         self.attributes[key] = value
+
+    def add_event(self, name: str, attributes: dict[str, object]) -> None:
+        self.events.append((name, attributes))
+
+    def set_status(self, status: object) -> None:
+        self.status = status
 
 
 class RecordingSpanContext:
@@ -57,10 +66,12 @@ class RecordingSpanContext:
 class RecordingTracer:
     def __init__(self) -> None:
         self.names: list[str] = []
+        self.options: list[dict[str, object]] = []
         self.contexts: list[RecordingSpanContext] = []
 
-    def start_as_current_span(self, name: str) -> RecordingSpanContext:
+    def start_as_current_span(self, name: str, **options: object) -> RecordingSpanContext:
         self.names.append(name)
+        self.options.append(options)
         context = RecordingSpanContext(RecordingSpan())
         self.contexts.append(context)
         return context
@@ -130,8 +141,13 @@ def test_stage_observation_preserves_failures_and_marks_span() -> None:
             raise RuntimeError("source failure")
 
     output = generate_latest(telemetry.registry).decode()
+    span = tracer.contexts[0].span
     assert tracer.contexts[0].exception_type is RuntimeError
-    assert tracer.contexts[0].span.attributes["harborrag.ingestion.outcome"] == "failed"
+    assert tracer.options[0] == {"record_exception": False, "set_status_on_exception": False}
+    assert span.attributes["harborrag.ingestion.outcome"] == "failed"
+    assert span.attributes["error.type"] == "RuntimeError"
+    assert span.events == [("exception", {"exception.type": "builtins.RuntimeError"})]
+    assert "source failure" not in repr(span.status)
     assert 'outcome="failed"' in output
 
 
@@ -154,7 +170,7 @@ class _FailingSpanContext:
 
 
 class _FailingTracer:
-    def start_as_current_span(self, _name: str) -> _FailingSpanContext:
+    def start_as_current_span(self, _name: str, **_options: object) -> _FailingSpanContext:
         return _FailingSpanContext()
 
 
@@ -341,6 +357,26 @@ def test_application_error_is_preserved_and_verification_failure_is_counted() ->
     assert raised.value is error
     output = generate_latest(telemetry.registry).decode()
     assert "harborrag_ingestion_projection_verification_failures_total 1.0" in output
+
+
+def test_an_activity_failure_line_keeps_every_field_and_no_error_text(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A field with an unsafe name is dropped silently, so the failure line is checked whole."""
+    observability = ActivityObservability(IngestionTelemetry(registry=CollectorRegistry()))
+    caplog.set_level(logging.DEBUG)
+
+    with pytest.raises(Exception), observability.boundary("VerifyProjections"):
+        raise ConnectionError("store down at db.internal.example:5432")
+
+    (record,) = [
+        item for item in caplog.records if item.__dict__.get("event") == "ingestion.activity_failed"
+    ]
+    assert "dropped_fields" not in record.__dict__
+    assert record.__dict__["error_type"] == "ConnectionError"
+    assert record.__dict__["category_kind"]
+    assert record.__dict__["error_code"]
+    assert "db.internal.example" not in record.getMessage()
 
 
 def test_schedule_states_seed_outcome_series_so_the_first_failure_alerts() -> None:

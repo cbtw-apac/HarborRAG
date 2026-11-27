@@ -1,10 +1,15 @@
-"""Temporal workflows that run a source ingestion."""
+"""Temporal workflows that run a source ingestion.
+
+Workflow code stays deterministic: a change to the activities, children, timers or signals
+a run takes goes behind a ``workflow.patched`` marker, so recorded histories still replay.
+"""
 
 from __future__ import annotations
 
 import asyncio
 import contextlib
 import hashlib
+import logging
 from dataclasses import replace
 from datetime import timedelta
 from typing import Any, cast
@@ -20,6 +25,7 @@ from temporalio.exceptions import (
 from temporalio.workflow import ParentClosePolicy
 
 from harborrag_core.ingestion.run_contracts import RunKind
+from harborrag_core.observability.log_events import FailureKind, log_event, log_failure
 from harborrag_runtime.temporal.failure_handling import durable_failure
 
 from .maintenance_schemas import ProjectionCleanupResult
@@ -67,13 +73,12 @@ class ScheduledSourceIngestionWorkflow:
         self,
         request: ScheduledSourceIngestionInput,
     ) -> ScheduledSourceIngestionResult:
-        """Run the scheduled ingestion.
+        """Prepare the scheduled source run and run it as a child workflow.
 
-        Backfills reuse a past firing's workflow ID; the run ID keeps each execution its own task
-        and scan instead of replaying the old plan.
-
-        Another ingestion holds the scope; its scan covers this firing. Warn: repeated skips mean a
-        long-running or stranded scan.
+        Backfills reuse a past firing's workflow ID, so the task ID also derives from the run
+        ID. Each execution then gets its own task and scan instead of replaying the old plan.
+        A firing whose source scope another ingestion holds is skipped, because that scan
+        covers it.
         """
         info = workflow.info()
         scheduled_at = info.typed_search_attributes.get(
@@ -84,11 +89,12 @@ class ScheduledSourceIngestionWorkflow:
             if scheduled_at is not None
             else None
         )
-        workflow.logger.info(
-            "Scheduled ingestion started schedule_id=%s workflow_id=%s run_id=%s",
-            request.schedule_id,
-            info.workflow_id,
-            info.run_id,
+        log_event(
+            workflow.logger,
+            "temporal.scheduled_run_started",
+            schedule_id=request.schedule_id,
+            workflow_id=info.workflow_id,
+            run_id=info.run_id,
         )
         await _record_scheduled_run_metric(
             request.schedule_id,
@@ -111,12 +117,15 @@ class ScheduledSourceIngestionWorkflow:
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
             if preparation.source is None:
-                workflow.logger.warning(
-                    "Scheduled ingestion skipped; source scope busy schedule_id=%s "
-                    "workflow_id=%s source_scope_id=%s",
-                    request.schedule_id,
-                    info.workflow_id,
-                    preparation.source_scope_id,
+                log_event(
+                    workflow.logger,
+                    "temporal.scheduled_run_skipped",
+                    level=logging.WARNING,
+                    hint="Repeated skips mean a long-running or stranded scan holds the scope.",
+                    reason="source_scope_busy",
+                    schedule_id=request.schedule_id,
+                    workflow_id=info.workflow_id,
+                    source_scope_id=preparation.source_scope_id,
                 )
                 await _record_scheduled_run_metric(request.schedule_id, "skipped")
                 return ScheduledSourceIngestionResult(
@@ -130,34 +139,37 @@ class ScheduledSourceIngestionWorkflow:
                 result_type=SourceIngestionResult,
                 parent_close_policy=ParentClosePolicy.REQUEST_CANCEL,
             )
-            workflow.logger.info(
-                "Scheduled ingestion child started schedule_id=%s workflow_id=%s "
-                "run_id=%s child_workflow_id=%s",
-                request.schedule_id,
-                info.workflow_id,
-                info.run_id,
-                handle.id,
+            log_event(
+                workflow.logger,
+                "temporal.scheduled_run_child_started",
+                schedule_id=request.schedule_id,
+                workflow_id=info.workflow_id,
+                run_id=info.run_id,
+                child_workflow_id=handle.id,
             )
             result = cast(SourceIngestionResult, await handle)
         except (Exception, asyncio.CancelledError) as error:
             outcome = "cancelled" if is_cancelled_exception(error) else "failed"
-            workflow.logger.error(
-                "Scheduled ingestion %s schedule_id=%s workflow_id=%s run_id=%s error_type=%s",
-                outcome,
-                request.schedule_id,
-                info.workflow_id,
-                info.run_id,
-                type(error).__name__,
+            log_failure(
+                workflow.logger,
+                "temporal.scheduled_run_failed",
+                error,
+                FailureKind.CLASSIFIED,
+                outcome=outcome,
+                schedule_id=request.schedule_id,
+                workflow_id=info.workflow_id,
+                run_id=info.run_id,
             )
             await _record_scheduled_run_metric(request.schedule_id, outcome)
             raise
         outcome = _RESULT_OUTCOMES.get(result.status, "failed")
-        workflow.logger.info(
-            "Scheduled ingestion finished outcome=%s schedule_id=%s workflow_id=%s run_id=%s",
-            outcome,
-            request.schedule_id,
-            info.workflow_id,
-            info.run_id,
+        log_event(
+            workflow.logger,
+            "temporal.scheduled_run_finished",
+            outcome=outcome,
+            schedule_id=request.schedule_id,
+            workflow_id=info.workflow_id,
+            run_id=info.run_id,
         )
         await _record_scheduled_run_metric(request.schedule_id, outcome)
         return ScheduledSourceIngestionResult(
@@ -174,8 +186,10 @@ _RESULT_OUTCOMES = {
     "CANCELLED": "cancelled",
     "FAILED": "failed",
 }
-"""Termination and execution timeouts end the run without running workflow code, so they are never
-recorded here.
+"""Scheduled-run outcome of each source run status.
+
+Termination and execution timeouts end the run without running workflow code, so they are
+never recorded here.
 """
 
 
@@ -185,6 +199,7 @@ async def _record_scheduled_run_metric(
     *,
     schedule_to_start_seconds: float | None = None,
 ) -> None:
+    """Record a scheduled run's outcome metric without ever failing the run."""
     try:
         await workflow.execute_activity(
             "harborrag.record_scheduled_run_metrics",
@@ -197,15 +212,18 @@ async def _record_scheduled_run_metric(
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
     except Exception as error:
-        workflow.logger.warning(
-            "Scheduled run metric recording failed schedule_id=%s outcome=%s error_type=%s",
-            schedule_id,
-            outcome,
-            type(error).__name__,
+        log_failure(
+            workflow.logger,
+            "temporal.scheduled_run_metric_failed",
+            error,
+            FailureKind.EXPECTED,
+            schedule_id=schedule_id,
+            outcome=outcome,
         )
 
 
 def _scheduled_task_id(schedule_id: str, workflow_id: str, run_id: str) -> str:
+    """Derive the task ID of one scheduled execution from its schedule, workflow and run."""
     digest = hashlib.sha256(f"{schedule_id}:{workflow_id}:{run_id}".encode()).hexdigest()[:32]
     return f"scheduled-{digest}"
 
@@ -350,12 +368,9 @@ class SourceIngestionWorkflow:
     ) -> None:
         """Persist a hard batch or finalization failure before it closes the run.
 
-        A child batch, or finalization itself, can exhaust its retries and fail
-        hard. Without this, the failure propagated straight out of the workflow
-        with no `record_source_failure` call, so the control-plane task row stayed
-        RUNNING forever even though Temporal itself considered the run failed.
-
-        Like discovery: the closed workflow's get_status must say FAILED.
+        A child batch, or finalization itself, can exhaust its retries and fail hard.
+        Recording it moves the control-plane task row off RUNNING, and the closed
+        workflow's ``get_status`` says FAILED, as after a failed discovery.
         """
         if workflow.patched(_RUN_FAILURE_STATUS_PATCH):
             self._status = "FAILED"
@@ -374,6 +389,7 @@ class SourceIngestionWorkflow:
     async def _initial_state(
         self, request: SourceIngestionInput
     ) -> tuple[SourceDiscoveryResult, int]:
+        """Return the discovery and the first document index, continued or discovered anew."""
         continuation = request.continuation
         if continuation is not None:
             self._summary = continuation.summary
@@ -451,18 +467,20 @@ class SourceIngestionWorkflow:
         except FailureError as error:
             if is_cancelled_exception(error) or not workflow.patched(_CANCEL_CLOSED_BATCH_PATCH):
                 raise
-            workflow.logger.info(
-                "Graceful cancel skipped for closed batch workflow_id=%s", handle.id
+            log_event(
+                workflow.logger,
+                "temporal.batch_cancel_skipped",
+                reason="batch_closed",
+                batch_workflow_id=handle.id,
             )
 
     async def _stop_pause_relay(self, pause_relay: asyncio.Task[None]) -> None:
         """End the batch's pause relay without failing the run.
 
-        Cancelling a relay mid-step resolved its activity or signal as cancelled,
-        which escaped as an `ActivityError` and recorded a successful batch FAILED;
-        the cancelled activity also kept running and could commit after a later
-        resume. A busy relay now finishes its step, skipping the closed child, and
-        returns. An idle one has nothing in flight and is still cancelled.
+        A busy relay finishes its step, skipping the closed child, and returns. Its
+        activity or signal is never cancelled mid-step, so a successful batch is not
+        recorded FAILED and no cancelled activity commits after a later resume. An idle
+        relay has nothing in flight and is cancelled.
         """
         if self._relay_busy and workflow.patched(_PAUSE_RELAY_TEARDOWN_PATCH):
             self._relay_stopping = True
@@ -476,13 +494,12 @@ class SourceIngestionWorkflow:
         handle: workflow.ChildWorkflowHandle[Any, DocumentDispatchSummary],
         request: SourceIngestionInput,
     ) -> None:
-        """Forward this workflow's pause/resume signals to the active batch child.
+        """Forward this workflow's pause and resume signals to the active batch child.
 
-        Without this, a pause requested while a batch's document waves are
-        dispatching would sit unenforced until that batch drained on its own,
-        since the child has no way to observe the parent's `_paused` state.
-
-        Woken only to stop: the batch closed with nothing left to relay.
+        The child cannot see the parent's ``_paused`` state, so a pause requested while
+        a batch dispatches its document waves is enforced through this relay. The relay
+        returns when it is woken only to stop, because the batch closed with nothing
+        left to relay.
         """
         relayed = False
         while True:
@@ -505,9 +522,10 @@ class SourceIngestionWorkflow:
         *,
         paused: bool,
     ) -> None:
-        """Persisted even while stopping, so the task row matches `_paused`.
+        """Persist one pause or resume and relay it to the batch child.
 
-        A stopped relay leaves this to the batch boundary's own pause.
+        The state is persisted even while the relay stops, so the task row matches
+        ``_paused``. A stopped relay leaves the child to the batch boundary's own pause.
         """
         if not workflow.patched(_PAUSE_PERSISTENCE_PATCH):
             await self._signal_batch(handle, "pause" if paused else "resume")
@@ -540,7 +558,7 @@ class SourceIngestionWorkflow:
     ) -> None:
         """Send a signal to the batch child workflow.
 
-        Only a closed child rejects a signal: it closed before this workflow saw it finish, and
+        Only a closed child rejects a signal. It closed before this workflow saw it finish, and
         there is nothing left to pause or resume.
         """
         if self._relay_stopping:
@@ -550,10 +568,12 @@ class SourceIngestionWorkflow:
         except FailureError as error:
             if is_cancelled_exception(error) or not workflow.patched(_PAUSE_RELAY_TEARDOWN_PATCH):
                 raise
-            workflow.logger.info(
-                "Pause relay skipped signal=%s for closed batch workflow_id=%s",
-                name,
-                handle.id,
+            log_event(
+                workflow.logger,
+                "temporal.pause_relay_signal_skipped",
+                reason="batch_closed",
+                signal_type=name,
+                batch_workflow_id=handle.id,
             )
 
     async def _control_batch(
@@ -637,10 +657,18 @@ class SourceIngestionWorkflow:
                 retry_policy=temporal_retry_policy(request.workflow_options.retries.document),
                 result_type=ProjectionCleanupResult,
             )
-        except ActivityError:
-            workflow.logger.warning("Projection cleanup remains queued for source scope")
+        except ActivityError as error:
+            log_failure(
+                workflow.logger,
+                "temporal.source_cleanup_deferred",
+                error,
+                FailureKind.EXPECTED,
+                task_id=request.task_id,
+                source_scope_id=request.source_scope_id,
+            )
 
     async def _stop_requested(self, request: SourceIngestionInput) -> bool:
+        """Wait out a pause, persisting it, and return whether a cancel was requested."""
         if self._paused and not self._cancel_requested:
             self._status = "PAUSED"
             persist_pause = workflow.patched(_PAUSE_PERSISTENCE_PATCH)

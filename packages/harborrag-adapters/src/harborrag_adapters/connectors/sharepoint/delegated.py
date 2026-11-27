@@ -49,6 +49,10 @@ _PATH_SEGMENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 def require_plain_id(label: str, value: str) -> None:
     """Refuse an id that is not a plain name, so it cannot change a path.
 
+    Args:
+        label: The id's name, used in the error message.
+        value: The id to check.
+
     Raises:
         ValueError: ``value`` is not a GUID or a domain-like name.
     """
@@ -58,6 +62,13 @@ def require_plain_id(label: str, value: str) -> None:
 
 def identity_url(tenant_id: str, endpoint: str) -> str:
     """Return a Microsoft identity platform v2.0 OAuth endpoint for a tenant.
+
+    Args:
+        tenant_id: The Entra tenant, a GUID or a domain-like name.
+        endpoint: The OAuth endpoint name, such as ``token``.
+
+    Returns:
+        The endpoint's URL.
 
     Raises:
         ValueError: ``tenant_id`` is not a GUID or a domain-like name.
@@ -208,8 +219,9 @@ class DeviceCodeLogin:
     sleep: Callable[[float], None] = time.sleep
 
     def __post_init__(self) -> None:
+        """Build a guarded session when none was given."""
         if self.session is None:
-            self.session = guarded_session(self.destination_policy)
+            self.session = guarded_session(self.destination_policy, connector="sharepoint")
 
     def run(self, prompt: Callable[[str], None] = print) -> str | None:
         """Show the sign-in instructions, wait for the user, and store the token.

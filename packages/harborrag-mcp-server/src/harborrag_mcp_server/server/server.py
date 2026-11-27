@@ -24,6 +24,11 @@ from harborrag_engine.tools.references import KnowledgeReferenceStore
 from harborrag_mcp_server.audit import DEFAULT_AUDIT_PATH, McpAuditLog
 from harborrag_mcp_server.policy import McpToolPolicy
 from harborrag_mcp_server.server.base import BaseMcpServer, tool_reported_error
+from harborrag_runtime.observability.mcp_telemetry import (
+    McpTelemetry,
+    ToolCallStatus,
+    shared_mcp_telemetry,
+)
 
 if TYPE_CHECKING:
     from harborrag_core.ports.config_store import ConfigProvider
@@ -72,6 +77,7 @@ class McpServer(BaseMcpServer):
         known_tenants: Tenants this deployment was started with.
         tenant_directory: Finds the tenants that hold content. It crosses tenants,
             so only ``tenant_choices`` reads it.
+        telemetry: Traces and counts every tool call.
     """
 
     runtime: ReaderServices | None = None
@@ -86,6 +92,7 @@ class McpServer(BaseMcpServer):
     config_provider: ConfigProvider | None = None
     known_tenants: tuple[str, ...] = ()
     tenant_directory: TenantDirectory | None = None
+    telemetry: McpTelemetry = field(default_factory=shared_mcp_telemetry)
 
     def __post_init__(self) -> None:
         """Build the catalog and invoker left unset and reject an inconsistent setup."""
@@ -159,7 +166,7 @@ class McpServer(BaseMcpServer):
             if self.configuration.resolve(tool.spec.name, tenant_id).enabled
         ]
 
-    async def call_tool(  # noqa: C901 - audit and policy checks share one boundary
+    async def call_tool(
         self,
         name: str,
         arguments: dict[str, object] | None = None,
@@ -167,11 +174,12 @@ class McpServer(BaseMcpServer):
         principal_id: str = "in-process",
         context: ToolInvocationContext | None = None,
     ) -> dict[str, object]:
-        """Run one tool under configuration, policy and audit.
+        """Run one tool under configuration, policy, audit and telemetry.
 
         The tenant value is stripped once, so configuration, audit, schema
         validation and the access context all see the same tenant. Audit events
-        are written off the event loop, because each one is flushed to disk.
+        are written off the event loop, because each one is flushed to disk. The
+        call is traced, and its outcome, duration and result size are counted.
 
         Args:
             name: The tool to run.
@@ -186,6 +194,37 @@ class McpServer(BaseMcpServer):
             PermissionError: The tool is disabled or the tenant is not the caller's.
             ValueError: The tool is unknown, or the arguments break its schema or budget.
         """
+        tenant_id = str(context.access.tenant_id) if context is not None else None
+        with self.telemetry.tool_call(name, tenant_id=tenant_id) as call:
+            try:
+                result = await self._run_tool(
+                    name, arguments, principal_id=principal_id, context=context
+                )
+            except asyncio.CancelledError:
+                call.status = ToolCallStatus.CANCELLED
+                raise
+            except Exception as exc:
+                call.status = (
+                    ToolCallStatus.REFUSED if is_caller_correctable(exc) else ToolCallStatus.ERROR
+                )
+                raise
+            call.succeed(
+                result,
+                status=ToolCallStatus.TOOL_ERROR
+                if tool_reported_error(result)
+                else ToolCallStatus.OK,
+            )
+            return result
+
+    async def _run_tool(  # noqa: C901 - audit and policy checks share one boundary
+        self,
+        name: str,
+        arguments: dict[str, object] | None,
+        *,
+        principal_id: str,
+        context: ToolInvocationContext | None,
+    ) -> dict[str, object]:
+        """Run one tool under configuration, policy and audit, as ``call_tool`` describes."""
         payload = dict(arguments or {})
         tenant_value = payload.get("tenant_id")
         if isinstance(tenant_value, str):

@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version < '3.13' and sys_platform == 'darwin'",
@@ -2045,6 +2045,7 @@ markup = [
 ]
 opentelemetry = [
     { name = "opentelemetry-api" },
+    { name = "opentelemetry-exporter-otlp-proto-http" },
     { name = "opentelemetry-sdk" },
 ]
 parsers = [
@@ -2199,6 +2200,7 @@ requires-dist = [
     { name = "openpyxl", marker = "extra == 'spreadsheet'", specifier = ">=3.1.0" },
     { name = "opentelemetry-api", marker = "extra == 'opentelemetry'", specifier = ">=1.45.2,<2" },
     { name = "opentelemetry-api", marker = "extra == 'test'", specifier = ">=1.45.2,<2" },
+    { name = "opentelemetry-exporter-otlp-proto-http", marker = "extra == 'opentelemetry'", specifier = ">=1.45.1,<2" },
     { name = "opentelemetry-sdk", marker = "extra == 'opentelemetry'", specifier = ">=1.45.1,<2" },
     { name = "opentelemetry-sdk", marker = "extra == 'test'", specifier = ">=1.45.1,<2" },
     { name = "paddleocr", marker = "extra == 'parsers-all'", specifier = ">=3.0.0" },
@@ -2303,7 +2305,7 @@ durable = [
     { name = "harborrag-runtime", extra = ["temporal"] },
 ]
 production = [
-    { name = "harborrag-adapters", extra = ["chunking-code", "control-plane", "falkordb", "llm", "postgres", "qdrant", "s3"] },
+    { name = "harborrag-adapters", extra = ["chunking-code", "control-plane", "falkordb", "llm", "opentelemetry", "postgres", "qdrant", "s3"] },
     { name = "harborrag-runtime", extra = ["temporal"] },
 ]
 
@@ -2311,7 +2313,7 @@ production = [
 requires-dist = [
     { name = "click", specifier = ">=8.4.0,<9" },
     { name = "fastapi", marker = "extra == 'api'", specifier = ">=0.115" },
-    { name = "harborrag-adapters", extras = ["chunking-code", "control-plane", "falkordb", "llm", "postgres", "qdrant", "s3"], marker = "extra == 'production'", editable = "packages/harborrag-adapters" },
+    { name = "harborrag-adapters", extras = ["chunking-code", "control-plane", "falkordb", "llm", "opentelemetry", "postgres", "qdrant", "s3"], marker = "extra == 'production'", editable = "packages/harborrag-adapters" },
     { name = "harborrag-core", editable = "packages/harborrag-core" },
     { name = "harborrag-engine", editable = "packages/harborrag-engine" },
     { name = "harborrag-memory", editable = "packages/harborrag-memory" },
@@ -2442,7 +2444,7 @@ production = [
     { name = "harborrag-adapters", extra = ["chunking", "chunking-code", "control-plane", "falkordb", "langfuse", "llm", "opentelemetry", "parsers", "pdf-liteparse", "postgres", "qdrant", "redis", "s3", "tables"] },
 ]
 reader = [
-    { name = "harborrag-adapters", extra = ["control-plane", "falkordb", "llm", "postgres", "qdrant", "s3"] },
+    { name = "harborrag-adapters", extra = ["control-plane", "falkordb", "llm", "opentelemetry", "postgres", "qdrant", "s3"] },
 ]
 temporal = [
     { name = "temporalio" },
@@ -2452,7 +2454,7 @@ temporal = [
 requires-dist = [
     { name = "harborrag-adapters", editable = "packages/harborrag-adapters" },
     { name = "harborrag-adapters", extras = ["chunking", "chunking-code", "control-plane", "falkordb", "langfuse", "llm", "opentelemetry", "parsers", "pdf-liteparse", "postgres", "qdrant", "redis", "s3", "tables"], marker = "extra == 'production'", editable = "packages/harborrag-adapters" },
-    { name = "harborrag-adapters", extras = ["control-plane", "falkordb", "llm", "postgres", "qdrant", "s3"], marker = "extra == 'reader'", editable = "packages/harborrag-adapters" },
+    { name = "harborrag-adapters", extras = ["control-plane", "falkordb", "llm", "opentelemetry", "postgres", "qdrant", "s3"], marker = "extra == 'reader'", editable = "packages/harborrag-adapters" },
     { name = "harborrag-adapters", extras = ["llm"], marker = "extra == 'chat'", editable = "packages/harborrag-adapters" },
     { name = "harborrag-core", editable = "packages/harborrag-core" },
     { name = "harborrag-engine", editable = "packages/harborrag-engine" },

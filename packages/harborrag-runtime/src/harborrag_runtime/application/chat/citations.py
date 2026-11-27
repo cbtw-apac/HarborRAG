@@ -15,11 +15,13 @@ from collections.abc import Sequence
 
 from harborrag_core.domain.retrieval import RetrievalResult
 from harborrag_memory.messages import CitationRecord
+from harborrag_runtime.observability.chat_telemetry import CitationCheck
 
 from .presenters import citation_uri, display_text
 
 SNIPPET_LIMIT = 300
 _MAX_RANGE = 20
+_MAX_CITED_NUMBER = 100
 _ITEM = r"\d{1,4}(?:\s*[-–]\s*\d{1,4})?"
 _MARKER = re.compile(rf"\[\s*({_ITEM}(?:\s*,\s*{_ITEM})*)\s*\]")
 _HELD = re.compile(r"(?:\s*\[[\d\s,\-–]{0,40}|\s+|`+)$")
@@ -46,6 +48,7 @@ class CitationNumbering:
         self._pending = ""
         self._code_delimiter = ""
         self._previous = ""
+        self._dangling = 0
 
     def feed(self, text: str) -> str:
         """Return the renumbered text that no later piece can change."""
@@ -64,6 +67,21 @@ class CitationNumbering:
         """Return the cited passages, ``n`` ascending."""
         order = sorted(self._numbers.items(), key=lambda item: item[1])
         return tuple(citation_record(n, self._passages[index - 1]) for index, n in order)
+
+    def check(self) -> CitationCheck | None:
+        """Judge the citations of the answer fed so far.
+
+        Returns:
+            None when the answer had no passages to cite. ``FAILED`` when it cites
+            none of them, ``PARTIAL`` when it also has markers that name no passage,
+            and ``PASSED`` otherwise. A bracketed number above 100, such as a year,
+            is not taken for a marker.
+        """
+        if not self._passages:
+            return None
+        if not self._numbers:
+            return CitationCheck.FAILED
+        return CitationCheck.PARTIAL if self._dangling else CitationCheck.PASSED
 
     def _rewrite(self, text: str) -> str:
         """Renumber the markers of ``text`` that lie outside code, carrying code state on."""
@@ -93,8 +111,12 @@ class CitationNumbering:
             self._code_delimiter = ""
 
     def _renumber(self, marker: re.Match[str]) -> str:
-        indexes = None if _is_subscript(marker) else self._indexes(marker.group(1))
+        """Rewrite one marker that names passages, and count one that names none."""
+        if _is_subscript(marker):
+            return marker.group(0)
+        indexes = self._indexes(marker.group(1))
         if indexes is None:
+            self._dangling += _looks_cited(marker.group(1))
             return marker.group(0)
         numbers = [self._numbers.setdefault(index, len(self._numbers) + 1) for index in indexes]
         return "".join(f"[{number}]" for number in dict.fromkeys(numbers))
@@ -110,6 +132,12 @@ class CitationNumbering:
                 return None
             indexes.extend(range(low, high + 1))
         return indexes
+
+
+def _looks_cited(items: str) -> bool:
+    """Whether every number in a marker is small enough to be a passage number."""
+    numbers = re.findall(r"\d+", items)
+    return all(int(number) <= _MAX_CITED_NUMBER for number in numbers)
 
 
 def _is_subscript(marker: re.Match[str]) -> bool:

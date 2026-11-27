@@ -11,6 +11,7 @@ from collections.abc import Awaitable, Callable, Mapping
 from typing import TYPE_CHECKING
 
 from harborrag_mcp_server.server.http_responses import error_response
+from harborrag_runtime.observability.mcp_telemetry import AuthFailureReason, shared_mcp_telemetry
 
 if TYPE_CHECKING:
     from fastmcp.server.auth import AccessToken, TokenVerifier
@@ -30,12 +31,16 @@ class Unauthorized(Exception):
     Args:
         message: What to tell the caller.
         status_code: The HTTP status to answer with, 401 or 403.
+        reason: The refusal to count. None when the token verifier already counted it.
     """
 
-    def __init__(self, message: str, *, status_code: int) -> None:
+    def __init__(
+        self, message: str, *, status_code: int, reason: AuthFailureReason | None = None
+    ) -> None:
         super().__init__(message)
         self.message = message
         self.status_code = status_code
+        self.reason = reason
 
 
 OWNER_ROLES: frozenset[str] = frozenset({"owner"})
@@ -68,7 +73,9 @@ async def authenticated_principal(
     authorization = request.headers.get("authorization", "")
     scheme, separator, token = authorization.partition(" ")
     if scheme.lower() != "bearer" or not separator or not token.strip():
-        raise Unauthorized("missing bearer token", status_code=401)
+        raise Unauthorized(
+            "missing bearer token", status_code=401, reason=AuthFailureReason.MISSING_BEARER
+        )
     try:
         access = await token_verifier.verify_token(token.strip())
     except Exception as exc:  # noqa: BLE001 - a verifier's message or traceback may hold the token
@@ -84,8 +91,11 @@ async def authenticated_principal(
                 "owner role required: a reader key can list and run tools, not change "
                 "this server's configuration",
                 status_code=403,
+                reason=AuthFailureReason.ROLE_DENIED,
             )
-        raise Unauthorized("owner role required", status_code=403)
+        raise Unauthorized(
+            "owner role required", status_code=403, reason=AuthFailureReason.ROLE_DENIED
+        )
     request.state.token_role = role
     request.state.allowed_tenants = allowed_tenants(claims)
     request.state.token_scopes = frozenset(access.scopes or ())
@@ -166,6 +176,7 @@ def authorize_administration(request: Request) -> None:
     raise Unauthorized(
         "token is not authorized to administer this server",
         status_code=403,
+        reason=AuthFailureReason.ROLE_DENIED,
     )
 
 
@@ -175,6 +186,7 @@ def authorize_request_tenant(request: Request, tenant_id: str) -> None:
         raise Unauthorized(
             "token is not authorized for the requested tenant",
             status_code=403,
+            reason=AuthFailureReason.TENANT_DENIED,
         )
 
 
@@ -202,6 +214,7 @@ def authenticated(
             try:
                 principal_id = await authenticated_principal(request, token_verifier, roles=roles)
             except Unauthorized as exc:
+                _count_refusal(exc)
                 return error_response(
                     exc.message,
                     status_code=exc.status_code,
@@ -210,8 +223,15 @@ def authenticated(
             try:
                 return await handler(request, principal_id)
             except Unauthorized as exc:
+                _count_refusal(exc)
                 return error_response(exc.message, status_code=exc.status_code)
 
         return guarded
 
     return decorate
+
+
+def _count_refusal(refusal: Unauthorized) -> None:
+    """Count a refusal the token verifier has not already counted."""
+    if refusal.reason is not None:
+        shared_mcp_telemetry().record_auth_failure(refusal.reason)

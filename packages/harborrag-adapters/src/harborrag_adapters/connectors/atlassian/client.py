@@ -116,6 +116,8 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
         config: HTTP limits, retries and download cap of the connection.
         context: Base URL, labels, logger and rate-limit identity.
         rate_limiter: Shared rate limiter, else a local interval limiter.
+        destination_policy: Hosts the client may reach and who observes its
+            responses. Public addresses only when omitted.
     """
 
     def __init__(
@@ -129,9 +131,12 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
         self.config = config
         self.base_url = context.base_url.rstrip("/")
         self._destination_policy = destination_policy or DestinationPolicy()
-        self.session = guarded_session(self._destination_policy)
+        self._connector = context.provider_label.casefold()
+        self.session = guarded_session(self._destination_policy, connector=self._connector)
         self.session.headers.update({"Accept": "application/json"})
-        self._redirect_session = guarded_session(self._destination_policy)
+        self._redirect_session = guarded_session(
+            self._destination_policy, connector=self._connector
+        )
         self._owner_thread = get_ident()
         self._thread_sessions = local()
         self._sessions = {self.session, self._redirect_session}
@@ -308,7 +313,7 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
         session: requests.Session | None = getattr(self._thread_sessions, "session", None)
         if session is not None:
             return session
-        session = guarded_session(self._destination_policy)
+        session = guarded_session(self._destination_policy, connector=self._connector)
         session.headers.update(self.session.headers)
         session.auth = self.session.auth
         session.cookies.update(self.session.cookies)

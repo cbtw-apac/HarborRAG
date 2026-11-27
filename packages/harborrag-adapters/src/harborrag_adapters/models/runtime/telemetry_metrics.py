@@ -1,16 +1,28 @@
+"""OpenTelemetry metrics for model calls: requests, errors, tokens, latency and cost.
+
+Attributes are low-cardinality model and provider names only, never prompt or answer text.
+"""
+
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING
 
 from .telemetry import TelemetryEvent, TelemetryEventType
 
+if TYPE_CHECKING:
+    from opentelemetry.metrics import Meter
+
 
 class OpenTelemetryMetrics:
-    """Record sanitized Harbor model counters and latency histograms through one meter."""
+    """Record sanitized Harbor model counters and latency histograms through one meter.
 
-    def __init__(self, meter: Any) -> None:
-        """Create stable instruments without owning the application meter provider."""
+    The instruments are created once. The meter provider stays the application's.
 
+    Args:
+        meter: The meter the instruments are created on.
+    """
+
+    def __init__(self, meter: Meter) -> None:
         self._requests = meter.create_counter(
             "harborrag.model.requests", unit="1", description="Model request attempts"
         )
@@ -36,12 +48,11 @@ class OpenTelemetryMetrics:
             "harborrag.model.first_token", unit="ms", description="First output latency"
         )
         self._cost = meter.create_counter(
-            "harborrag.model.cost", unit="USD", description="Reported model cost"
+            "harborrag.model.cost", unit="usd", description="Reported model cost"
         )
 
     def record(self, event: TelemetryEvent) -> None:
         """Map one sanitized lifecycle event to low-cardinality metric attributes."""
-
         attributes = _metric_attributes(event)
         self._record_counts(event, attributes)
         self._record_timings(event, attributes)
