@@ -19,12 +19,19 @@ coordination around external side effects. The worker registers these workflow t
 | Workflow type | Purpose |
 | --- | --- |
 | `harborrag.source_ingestion` | One ingestion run of a connection |
-| `harborrag.scheduled_source_ingestion` | A run started by a schedule; see [Scheduled Ingestion](../../users/scheduled-ingestion.md) |
+| `harborrag.scheduled_source_ingestion` | A run started by a schedule declared in `config/sources/schedules.yaml`; see [Scheduled Ingestion](../../users/scheduled-ingestion.md#declare-schedules-in-a-file) |
 | `harborrag.source_batch` | A batch of discovered documents within a run |
 | `harborrag.document_ingestion` | One document's release |
 | `harborrag.retry_failures` | A retry of recorded failures |
 | `harborrag.document_retry` | One failed document's retry |
 | `harborrag.reindex` | A projection rebuild from canonical artifacts |
+
+The API registers one more workflow type, `harborrag.schedule_slot`: one slot of a
+schedule created with `/v1/admin/schedules`. Its worker runs inside the API process on
+the task queue `harborrag-schedules` (`HARBORRAG_SCHEDULE_TASK_QUEUE`), because a slot
+starts its run through the code path of `POST /v1/admin/ingestions`, which only the API
+composes. The ingestion worker does not register it; see
+[How a schedule runs](../../users/scheduled-ingestion.md#how-a-schedule-runs).
 
 Task queues, timeouts and worker settings are described in
 [Temporal configuration](../../../deploy/temporal/README.md).
@@ -106,7 +113,8 @@ surfaces. A production operator still has to define:
 - authentication, authorization, TLS and network trust boundaries;
 - secret storage, rotation and least-privilege provider credentials;
 - database and object-store backup, restore, retention and disaster recovery;
-- the Temporal namespace, task queues, worker rollout and replay compatibility policy;
+- the Temporal namespace, one per deployment, task queues, worker rollout and replay
+  compatibility policy;
 - resource limits, autoscaling, provider quotas, alerting and incident response;
 - tenant-isolation acceptance tests suited to the deployment.
 

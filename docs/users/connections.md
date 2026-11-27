@@ -19,7 +19,9 @@ operations (see the
   the source (`advanced`: request rate, paging, timeouts and retries) and a display
   `name`. Its address, the `connection_ref`, is `PROJECT_ID/CONNECTION_ID`, such as
   `demo/demo-tickets`; the CLI names connections by it.
-- **`source_key`**: the name that the Python SDK and schedules use for a connection. A
+- **`source_key`**: the name that the Python SDK and the schedules declared in
+  `config/sources/schedules.yaml` use for a connection; schedules created with
+  `/v1/admin/schedules` name it by `project_id` and `connection_id` instead. A
   connection imported from `config/sources/connectors.yaml` keeps its YAML key, such as
   `jira-main`. A connection created through the API or `harborrag connections create`,
   or one that existed before database migration 0041, has the form
@@ -307,7 +309,7 @@ These routes need the `editor` role, except the reader list.
 | `GET /v1/admin/connections` | Every connection in the tenant, those needing attention (`needs_reauth`, `error`) first. Filter with `project_id`, `source_type`, `status`; page with `limit` and `cursor`. |
 | `GET /v1/admin/projects/{project_id}/connections/{connection_id}` | One connection. Secrets come back as their status, never the value. The `ETag` header is the version. |
 | `PUT /v1/admin/projects/{project_id}/connections/{connection_id}` | Creates or overwrites the connection. `config` is replaced whole, and so is `advanced` unless it is left out. Send `If-Match` with the `ETag` you read to fail with `412` if someone changed it since, `If-Match: *` to update only, or `If-None-Match: *` to create only. `source_type` cannot change (`409 immutable_field`, `details` `{"field": "source_type"}`). A `PUT` that changes nothing stores nothing: the `ETag` and `updated_at` stay the same. Saving never starts an ingestion. |
-| `DELETE /v1/admin/projects/{project_id}/connections/{connection_id}` | Answers `202` with a `job_id`. In the background, the connection's documents leave Qdrant and the graph, then its stored secrets are deleted, then the row. `purge=true` also drops its Postgres history. |
+| `DELETE /v1/admin/projects/{project_id}/connections/{connection_id}` | Answers `202` with a `job_id`. In the background, the connection's schedules of `/v1/admin/schedules` are removed first, so no slot starts a run during the removal; then its documents leave Qdrant and the graph, then its stored secrets are deleted, then the row. `purge=true` also drops its Postgres history. |
 | `GET /v1/projects/{project_id}/connections` | Role `reader`: the project's connections, for filter chips. Under `source_acl` it lists only connections with a source the caller may read, so a connection never ingested, which has no source yet, is hidden; a caller who may read more than 10,000 sources gets `409 invalid_state`. Under `tenant_shared` it lists every connection. Each item's `documents` counts all of the connection's documents, not only the readable ones. |
 
 ## Start and control ingestions
@@ -669,3 +671,4 @@ These are gone in 2.0.0 and answer `404`, with no deprecated alias:
 | `/api/v1/sources*` | `/v1/admin/projects/{project_id}/connections/{connection_id}` |
 | `POST /v1/ingestions` | `POST /v1/admin/ingestions` |
 | `/v1/ingestions/{task_id}*` | `/v1/admin/ingestions/{ingestion_id}*` (`/stream` is `/events`; its `task.<id>.progress`, `.done` and `.control` events are now `run.status`, `stage.progress`, `document.failed` and `run.completed`) |
+| `/v1/schedules*` | `/v1/admin/schedules*`, which does not list the schedules created through the old routes; see [Schedules created in 1.x](scheduled-ingestion.md#schedules-created-in-1x) |

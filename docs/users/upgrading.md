@@ -50,6 +50,16 @@ what behaves differently afterwards and what scripts and clients must change.
   role. The next `scripts/deployment/dev.sh up` (or `dev.sh data`) pulls the images and
   recreates both containers. Their volumes are kept, so stored data stays, and the role
   script does not run on an existing volume.
+- Let every API replica reach Temporal and poll a new task queue. The API now runs the
+  worker that fires the slots of `/v1/admin/schedules`, on the task queue
+  `harborrag-schedules`; the ingestion workers need no change. A schedule's ID in
+  Temporal is unique only within its namespace, so deployments that share one Temporal
+  namespace overwrite each other's schedules when they use the same tenant and schedule
+  ID. Give each deployment its own namespace, with `connection.namespace` in
+  `config/temporal.yaml` or `HARBORRAG_TEMPORAL_NAMESPACE`.
+  `HARBORRAG_SCHEDULE_TASK_QUEUE` only changes the queue the API polls, and does not keep
+  deployments apart. See
+  [Scheduled ingestion](scheduled-ingestion.md#how-a-schedule-runs).
 
 ### Move the configuration files
 
@@ -357,7 +367,7 @@ start the new release.
 
 ### Upgrade the services in order
 
-The API applies migrations `0041`–`0049` when it starts. They run as one transaction
+The API applies migrations `0041`–`0050` when it starts. They run as one transaction
 that commits at the end, and nothing stops two API processes from migrating at the same
 time. Workers never migrate. Several migrations lock busy tables until the run commits,
 and only `0047`, `0048` and `0049` give up on Postgres after waiting 5 s for a lock:
@@ -373,6 +383,7 @@ and only `0047`, `0048` and `0049` give up on Postgres after waiting 5 s for a l
 | `0047` | Adds empty columns for a chat session's `project_id` and an answer's `mode`, `trace_id` and `feedback` | Brief locks on `conversation_sessions` and `conversation_messages`, 5 s timeout |
 | `0048` | Removes the `DEFAULT` server default from `tenant_id` on nine tables | `ACCESS EXCLUSIVE` on each of them, 5 s timeout |
 | `0049` | Clears raw secret values left in connection rows | Row locks on the rows it rewrites, 5 s timeout |
+| `0050` | Adds the empty `schedules` and `schedule_slots` tables | None |
 
 What the migrations change for stored data:
 
@@ -392,6 +403,11 @@ What the migrations change for stored data:
   [Set cleared credentials again](#set-cleared-credentials-again). Alembic's offline
   `--sql` mode leaves its data step out, so SQL rendered that way and applied by hand
   clears nothing; let the API apply `0049` against the database.
+- `0050` creates the tables behind
+  [`/v1/admin/schedules`](scheduled-ingestion.md), empty until a schedule is created. A
+  downgrade drops them with the schedules and slots they hold. The MCP server's
+  read-only role can read both tables until `mcp-access` runs again in step 5, which
+  revokes them.
 
 Upgrade in this order:
 
@@ -1249,7 +1265,9 @@ environment variables and their effect do not change.
   `/v1/connections`, `/v1/agent/*`, `/v1/retrieval/*`, `/v1/graph/*`, `/v1/memory/*`,
   `/v1/schedules/*`, `/v1/admin/projections/*` and
   `PATCH`/`DELETE /v1/chat/sessions/{session_id}`. MCP server tools replace agent and
-  retrieval access.
+  retrieval access. `/v1/admin/schedules` replaces `/v1/schedules/*`, and does not list
+  the schedules created through the old routes; see
+  [Schedules created in 1.x](scheduled-ingestion.md#schedules-created-in-1x).
 - **Probes and docs moved to the root:** `/healthz`, `/readyz`, `/docs` and
   `/openapi.json`.
 - **`/metrics` answers on the ops port** (`HARBORRAG_OPS_PORT`, 9465), only to a bearer
@@ -1502,13 +1520,14 @@ reads and lists everything, as before.
 
 ### Runtime settings
 
-Retrieval, capture, parsing, chunking, embedding, ingestion and model settings can now be
-changed through `/v1/admin/settings`; [Runtime settings](configuration/runtime-settings.md)
-lists every key. Nothing changes at upgrade: a setting with no override keeps using the
-knob that governs it today (`config/mcp/server.yaml`, `HARBORRAG_CHAT_RETRIEVAL_TOP_K`,
-each connection's own filters and size limit, `config/ingestion/parsers.yaml`,
+Retrieval, capture, parsing, chunking, embedding, ingestion, model and schedule settings
+can now be changed through `/v1/admin/settings`;
+[Runtime settings](configuration/runtime-settings.md) lists every key. Nothing changes
+at upgrade: a setting with no override keeps using the knob that governs it today
+(`config/mcp/server.yaml`, `HARBORRAG_CHAT_RETRIEVAL_TOP_K`, each connection's own
+filters and size limit, `config/ingestion/parsers.yaml`,
 `config/ingestion/chunking.yaml`, `config/temporal.yaml`), and no document is
-reprocessed.
+reprocessed. The schedule settings apply only to the new `/v1/admin/schedules`.
 
 `GET /v1/admin/settings` shows the registry default for a setting with no override, even
 when you changed its old knob. To carry a changed knob over, create

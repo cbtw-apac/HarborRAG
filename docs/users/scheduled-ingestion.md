@@ -1,28 +1,331 @@
 # Scheduled ingestion
 
-Run a connection's ingestion on a timetable, such as every night at 1:00. You declare
-schedules in `config/sources/schedules.yaml`, and the API applies the file to
-[Temporal Schedules](https://docs.temporal.io/schedule) each time it starts. A
-connection is one configured data source, and its `source_key` is the name schedules use
-for it; both are defined in [Connections](connections.md#terms-used-on-this-page).
+Run a connection's ingestion on a timetable, such as every hour or every night at 1:00.
+Create and manage schedules over HTTP with `/v1/admin/schedules`: the control database
+stores each schedule, and [Temporal](https://docs.temporal.io/schedule) fires its
+slots. A slot is one time a schedule comes due.
 
-Use the Temporal UI to inspect runs and for emergency administration, but do not edit a
-schedule that the file declares there: the next sync overwrites the change. Pause state
-is the exception. A sync pauses or unpauses an existing schedule only when its `paused`
-value in the file changes, so a pause applied during an incident survives restarts
-until someone unpauses it.
+Schedules can also be declared in `config/sources/schedules.yaml`, which the API applies
+each time it starts; see [Declare schedules in a file](#declare-schedules-in-a-file). The
+two kinds are separate: `/v1/admin/schedules` lists and changes only the schedules
+created through it.
 
 ## Before you start
 
 - The full local stack, with the API, Temporal and an ingestion worker running; see the
-  [Quick Start](../getting-started/quick-start.md).
-- The connection to schedule and its `source_key`. A connection imported from
-  `config/sources/connectors.yaml` uses its YAML key, such as `harborrag-workspace`; a
-  connection created through the API or `harborrag connections create`, or one that
-  existed before database migration 0041, uses `PROJECT_ID/CONNECTION_ID`, such as
-  `default/harborrag-workspace`.
+  [Quick Start](../getting-started/quick-start.md). The API fires the slots, so it needs
+  Temporal as well as the workers do.
+- The API's address. The examples use the local stack's `http://127.0.0.1:8000`.
+- A bearer token in `$TOKEN` whose role is `editor` or higher; see
+  [Configure API authentication](configuration/workspace-mode.md#configure-api-authentication).
+  On the local stack, `env/.env.api` sets `HARBORRAG_AUTH_MODE=none`, which treats every
+  request as `owner`, so leave out the `Authorization` header there. A credential that
+  holds several tenants also sends `X-Tenant-Id`.
+- The connection to schedule, named by its `project_id` and `connection_id`. The examples
+  use the connection `demo/demo-tickets`; replace it with one of yours, which
+  `GET /v1/admin/connections` or `harborrag connections list` lists. Terms such as
+  connection and connection ref are defined in
+  [Connections](connections.md#terms-used-on-this-page).
 
-## Declare a schedule
+## Create a schedule
+
+`PUT /v1/admin/schedules/{schedule_id}` creates the schedule that `schedule_id` names.
+This one starts an incremental ingestion of `demo/demo-tickets` every hour, each slot up
+to 5 minutes late at random:
+
+```bash
+curl -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -H "If-None-Match: *" \
+  http://127.0.0.1:8000/v1/admin/schedules/demo-tickets-hourly \
+  -d '{
+    "description": "Changed DEMO tickets every hour",
+    "input": {"project_id": "demo", "connection_id": "demo-tickets", "mode": "incremental"},
+    "interval": "PT1H",
+    "jitter": "PT5M"
+  }'
+```
+
+The answer is `201` with the schedule and an `ETag` header, such as `W/"rev-1"`.
+`If-None-Match: *` makes the call create-only: when the ID is taken, the answer is
+`409 already_exists` and nothing changes. Without the header, the same call creates the
+schedule or overwrites an existing one with `200`.
+
+A schedule ID is chosen by you and unique in the tenant: 1 to 63 lowercase letters,
+digits, `_` or `-`, starting with a letter or a digit (`^[a-z0-9][a-z0-9_-]{0,62}$`).
+
+A `cron` timetable runs at wall-clock times in a time zone. This schedule re-evaluates
+every document of the same connection each Sunday at 2:00 in Ho Chi Minh City, and waits
+for a run already in progress instead of skipping the slot:
+
+```bash
+curl -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -H "If-None-Match: *" \
+  http://127.0.0.1:8000/v1/admin/schedules/demo-tickets-weekly-full \
+  -d '{
+    "description": "Every DEMO ticket again each Sunday",
+    "input": {"project_id": "demo", "connection_id": "demo-tickets", "mode": "force"},
+    "cron": "0 2 * * 0",
+    "timezone": "Asia/Ho_Chi_Minh",
+    "if_running": "queue"
+  }'
+```
+
+### Schedule fields
+
+The body of the `PUT` is the whole schedule. Unknown fields are refused.
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| `description` | none | Free text, up to 200 characters. |
+| `operation` | `start_ingestion` | The operation each slot calls; `start_ingestion` is the only value. |
+| `input.project_id`, `input.connection_id` | required | The connection to ingest. |
+| `input.mode` | `incremental` | `incremental` skips unchanged documents; `force` evaluates every document again. See [Ingestion modes](ingestion-modes.md). `input` takes no other field, so `item_refs` and `updated_after` are refused. |
+| `interval` | none | Time between slots as an ISO 8601 duration, such as `PT1H`: at least `schedules.min_interval` (`PT15M` unless changed) and at most `P366D`. Set exactly one of `interval` and `cron`. |
+| `cron` | none | Five fields (minute, hour, day of month, month, day of week), or a macro such as `@hourly` or `@daily`. No two runs may come closer together than `schedules.min_interval`. |
+| `timezone` | `UTC` | IANA time zone that `cron` runs in, such as `Asia/Ho_Chi_Minh`. |
+| `jitter` | `PT0S` | Delays each slot at random by up to this long: at most half the interval, or half the shortest gap between `cron` runs, and at most `PT1H`. |
+| `if_running` | `skip` | What a slot does when the connection already has a pending, running or paused run: `skip` records the slot as skipped; `queue` waits and starts the run when that one ends. One slot waits at most: a later slot is skipped while one waits, and a waiting slot gives up after 24 hours. |
+| `catch_up` | `false` | How late a slot may still run, for example after an outage of Temporal or of every API replica: `false` allows less than a minute; `true` allows the interval, or the shortest gap between `cron` runs, 24 hours at most. `jitter` adds to both. A later slot is dropped and leaves no record. When several missed slots fall within the window, the first starts a run and the others are skipped or queued as `if_running` says. |
+| `pause_after_failures` | `3` | Pauses the schedule after this many failed runs in a row, 0 to 20; `0` never pauses it. |
+
+The check of the gap between `cron` runs reads only the minute and hour fields, so a gap
+that only the day fields create is not measured, and neither is a shift to or from
+daylight saving time.
+
+### When a `PUT` is refused
+
+Nothing is stored when a `PUT` is refused with a `4xx` status.
+
+| Status | Cause |
+| --- | --- |
+| `422 validation_error` | A field breaks the schema or a timetable rule. `details` lists each broken rule as `{field, issue}`: an `interval` under `schedules.min_interval` or over `P366D`; a `cron` expression that is invalid or runs closer together than `schedules.min_interval`; an unknown `timezone`; a `jitter` over its limit; both or neither of `interval` and `cron`; or `input.connection_id` when the connection already has `schedules.max_per_connection` schedules (5 unless changed). |
+| `422 reference_not_found` | The project or the connection does not exist; `details.field` is `input.project_id` or `input.connection_id`. |
+| `409 invalid_state` | The connection is being deleted. |
+| `409 already_exists` | `If-None-Match: *` and the ID is taken. |
+| `412 precondition_failed` | `If-Match` does not match the schedule's current `ETag`, or `If-Match: *` names a schedule that does not exist. |
+| `503 dependency_unavailable` | Temporal cannot be reached. A schedule the call was creating is not kept. An overwrite is stored, but its new timetable may not apply yet. Either way, send the same `PUT` again once Temporal answers. |
+
+## Check a schedule
+
+`GET /v1/admin/schedules/{schedule_id}` returns the schedule with its last 20 slots,
+newest first, and its `ETag`:
+
+```bash
+curl -i -H "Authorization: Bearer $TOKEN" \
+  http://127.0.0.1:8000/v1/admin/schedules/demo-tickets-hourly
+```
+
+Besides the fields you set, the schedule carries:
+
+| Field | Meaning |
+| --- | --- |
+| `connection_ref` | `project_id/connection_id` from `input`. |
+| `state` | `active` or `paused`. |
+| `paused` | `null` while active; otherwise `reason`, `by` (the subject who paused it, or `system` for an automatic pause) and `at`. |
+| `next_run_at` | When the next slot fires; `null` while the schedule is paused or while `schedules.enabled` is `false`. |
+| `consecutive_failures` | Failed runs in a row, counted toward `pause_after_failures`. |
+| `recent_slots` | The latest slots, skipped ones included: `due_at`, `outcome`, `reason`, `manual` (`true` for a slot that `trigger` started) and `run` (`type`, `id` and current `status` of the run involved, or `null`). |
+| `created_by`, `updated_by`, `created_at`, `updated_at` | Who wrote the schedule, read from the token, and when. |
+
+Each slot's `outcome` and `reason`:
+
+| `outcome` | `reason` | What happened |
+| --- | --- | --- |
+| `started` | `null` | The slot started the run in `run`. |
+| `skipped` | `already_running` | The connection had the run in `run`, and `if_running` is `skip`, or another slot was already waiting. |
+| `queued` | `already_running` | The slot waits for the run in `run` to end. When it starts its own run, a `started` slot with the same `due_at` is recorded. |
+| `skipped` | `disabled_by_setting` | `schedules.enabled` is `false`. |
+| `skipped` | `connection_deleting` | The connection is being deleted. |
+| `skipped` | `reference_not_found` | The project or the connection no longer exists. |
+
+A paused schedule fires no slots and records none, and a slot dropped after its catch-up
+window records nothing either.
+
+## List schedules
+
+`GET /v1/admin/schedules` lists the tenant's schedules, newest first. Each item carries
+only its latest slot in `recent_slots`; read one schedule for the last 20.
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://127.0.0.1:8000/v1/admin/schedules?connection_ref=demo/demo-tickets&state=active"
+```
+
+| Parameter | Meaning |
+| --- | --- |
+| `project_id` | Schedules of one project. |
+| `connection_ref` | Schedules of one connection, as `project_id/connection_id`. |
+| `operation` | `start_ingestion`. |
+| `state` | `active` or `paused`. |
+| `due_before` | Schedules whose `next_run_at` is earlier than this date-time, which needs a UTC offset, such as `2026-12-01T00:00:00Z`. |
+| `limit`, `cursor` | Page size, 1 to 100 (20 by default), and the `next_cursor` of the previous page. |
+
+## Change a schedule
+
+Read the schedule, then send the whole changed body with its `ETag` in `If-Match`:
+
+```bash
+curl -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -H 'If-Match: W/"rev-1"' \
+  http://127.0.0.1:8000/v1/admin/schedules/demo-tickets-hourly \
+  -d '{
+    "description": "Changed DEMO tickets every two hours",
+    "input": {"project_id": "demo", "connection_id": "demo-tickets", "mode": "incremental"},
+    "interval": "PT2H",
+    "jitter": "PT5M"
+  }'
+```
+
+The answer is `200` with the new `ETag`. A field you leave out returns to its default.
+An overwrite keeps the schedule's state, pause, failure count and slots, and the new
+timetable applies from the next slot. When someone else changed the schedule after your
+read, the answer is `412 precondition_failed`: read it again and retry. `If-Match: *`
+overwrites whatever version is stored, but never creates.
+
+## Pause, resume and trigger a schedule
+
+Pause a schedule, for example during a source's maintenance window:
+
+```bash
+curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  http://127.0.0.1:8000/v1/admin/schedules/demo-tickets-hourly/pause \
+  -d '{"reason": "Jira maintenance window"}'
+```
+
+The body is optional, and `reason` holds up to 200 characters; without one, the reason is
+`Paused by an operator`. The answer is `200` with the schedule, whose `paused` records
+the reason, who paused it and when. Pausing a paused schedule returns it unchanged, and a
+run already in progress keeps going.
+
+Resume it:
+
+```bash
+curl -X POST -H "Authorization: Bearer $TOKEN" \
+  http://127.0.0.1:8000/v1/admin/schedules/demo-tickets-hourly/resume
+```
+
+Resuming clears the pause and `consecutive_failures`, and answers `200` with the
+schedule. Resuming an active schedule changes nothing.
+
+Start one ingestion now with the schedule's input, even while the schedule is paused or
+`schedules.enabled` is `false`:
+
+```bash
+curl -X POST -H "Authorization: Bearer $TOKEN" \
+  http://127.0.0.1:8000/v1/admin/schedules/demo-tickets-hourly/trigger
+```
+
+The answer is `202` with the run, as `POST /v1/admin/ingestions` returns it, and a
+`Location` header such as `/v1/admin/ingestions/{ingestion_id}`. The slot is recorded
+with `manual: true`, and the run counts toward `pause_after_failures` like a scheduled
+one. A trigger is refused with:
+
+- `409 already_running` when the connection has a run, which `details.ingestion_id`
+  names;
+- `409 invalid_state` while the connection is being deleted;
+- `422 reference_not_found` when the project or the connection no longer exists, with
+  `details.field` set to `project_id` or `connection_id`.
+
+## Delete a schedule
+
+```bash
+curl -X DELETE -H "Authorization: Bearer $TOKEN" \
+  http://127.0.0.1:8000/v1/admin/schedules/demo-tickets-hourly
+```
+
+The answer is `204`. The schedule, its slots and its Temporal Schedule are removed; a run
+the schedule started keeps going. Deleting a connection, or a project with
+`cascade=true`, removes the connection's schedules before its data.
+
+## How a schedule runs
+
+- The control database holds each schedule. Its Temporal Schedule, with the ID
+  `harborrag-schedule:<tenant_id>:<schedule_id>`, only fires the slots: each slot starts
+  the workflow `harborrag.schedule_slot` on the task queue `harborrag-schedules`, or the
+  one `HARBORRAG_SCHEDULE_TASK_QUEUE` names.
+- A Temporal Schedule ID is unique only within its Temporal namespace, so give each
+  deployment its own namespace, with `connection.namespace` in `config/temporal.yaml` or
+  `HARBORRAG_TEMPORAL_NAMESPACE`. Two deployments in one namespace that use the same
+  tenant and schedule ID overwrite each other's Temporal Schedule, whatever their task
+  queues. A Temporal Schedule keeps the task queue it was written with, so after you
+  change `HARBORRAG_SCHEDULE_TASK_QUEUE`, send each schedule's `PUT` again.
+- The API process runs the worker for that queue, so every API replica polls it, and the
+  ingestion workers need no change. While Temporal is unreachable, no slot fires; the API
+  logs `Schedule slot worker failed; restarting in 30s` and tries again every 30 seconds.
+  While Temporal runs but no API replica polls the queue, for example during an API
+  restart, the slots that come due wait in Temporal. When an API returns, a slot still
+  within its catch-up window runs (see `catch_up` in [Schedule fields](#schedule-fields)),
+  and a later one is dropped; the API logs
+  `Schedule slot fired after its catch-up window schedule_id=<schedule_id>`.
+- Every write sets the Temporal Schedule too. While Temporal is unreachable, `PUT`,
+  `DELETE`, pause and resume answer `503 dependency_unavailable`; send the call again once
+  Temporal answers. Reading schedules does not need Temporal.
+- A slot starts its run through the same code path as `POST /v1/admin/ingestions`, with
+  the same checks, the same one-run-per-connection rule, the settings pinned to the run
+  (see [Run pinning](configuration/runtime-settings.md#run-pinning)) and the same
+  activity entry. The run's `triggered_by` is
+  `{"principal_type": "schedule", "principal_id": "<schedule_id>"}`.
+- After `pause_after_failures` failed runs in a row, the schedule pauses with
+  `paused.by` set to `system` and the reason
+  `Paused after <n> failed runs in a row (<error_category>)`, and the API logs
+  `Schedule paused after failed runs schedule_id=<schedule_id> failures=<n>`. A
+  succeeded run resets the count, a cancelled run leaves it as it is, and a run still
+  going after 7 days is not counted. Resume the schedule once the cause is fixed.
+- Do not edit these schedules in the Temporal UI: the next write from the API replaces
+  the whole Temporal Schedule.
+
+### Stop every schedule for maintenance
+
+The tenant setting `schedules.enabled: false` records every slot as `skipped` with the
+reason `disabled_by_setting`, and `next_run_at` reads `null`, until you set it back to
+`true`. It needs the `admin` role:
+
+```bash
+curl -X PATCH -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -H "If-Match: *" \
+  -d '{"schedules.enabled": false}' \
+  "http://127.0.0.1:8000/v1/admin/settings?level=tenant"
+```
+
+`schedules.min_interval` and `schedules.max_per_connection` set the limits a `PUT`
+checks; see [Runtime settings](configuration/runtime-settings.md#settings-and-their-levels).
+
+### Monitor schedules
+
+- `GET /v1/admin/schedules?state=paused` lists the paused schedules; `paused.by` is
+  `system` for those paused after failed runs.
+- `recent_slots` of a schedule shows what each slot did, and `run.id` is the
+  `ingestion_id` to read with `GET /v1/admin/ingestions/{ingestion_id}`.
+- The API log names the schedule in each line, such as
+  `Schedule slot skipped schedule_id=<schedule_id> reason=<reason>`. On the local stack:
+
+    ```bash
+    docker logs harborrag-api-api-1 2>&1 | grep -i schedule
+    ```
+
+The worker metrics and alerts in [Monitor declared runs](#monitor-declared-runs) do not
+cover the schedules of `/v1/admin/schedules`.
+
+## Declare schedules in a file
+
+`config/sources/schedules.yaml` declares schedules that the API applies to
+[Temporal Schedules](https://docs.temporal.io/schedule) each time it starts, so they can
+live in your deployment's version control. `/v1/admin/schedules` does not list them, and
+they run as described in [How a declared run works](#how-a-declared-run-works).
+
+A declared schedule names its connection by `source_key`. A connection imported from
+`config/sources/connectors.yaml` uses its YAML key, such as `harborrag-workspace`; a
+connection created through the API or `harborrag connections create`, or one that
+existed before database migration 0041, uses `PROJECT_ID/CONNECTION_ID`, such as
+`default/harborrag-workspace`.
+
+Use the Temporal UI to inspect declared runs and for emergency administration, but do
+not edit a declared schedule there: the next sync overwrites the change. Pause state is
+the exception. A sync pauses or unpauses an existing schedule only when its `paused`
+value in the file changes, so a pause applied during an incident survives restarts until
+someone unpauses it.
+
+### Write the file
 
 1. Copy the example file. The repository ignores `config/sources/schedules.yaml`, so
     keep your copy under your deployment's own version control:
@@ -56,9 +359,9 @@ until someone unpauses it.
     ```
 
     `source.connection_id` is the connection's `source_key` in `source.tenant`, not its
-    `PROJECT/CONNECTION` address. Leave `source_scope_id: null` so scheduled runs use the
-    same source scope as a run started with `POST /v1/admin/ingestions`; a different
-    scope is ingested and tracked separately.
+    `PROJECT_ID/CONNECTION_ID` address. Leave `source_scope_id: null` so scheduled runs
+    use the same source scope as a run started with `POST /v1/admin/ingestions`; a
+    different scope is ingested and tracked separately.
 
 3. Restart the API, for example with `scripts/deployment/dev.sh down` and then
     `scripts/deployment/dev.sh up`. The API reads the file only at startup. The Compose
@@ -67,7 +370,7 @@ until someone unpauses it.
     to `config/sources/schedules.yaml` relative to the working directory and is set to
     `/app/config/sources/schedules.yaml` in the API image and the Compose stack.
 
-## Check that the schedule exists
+### Check that the file applied
 
 The API log reports each sync:
 
@@ -76,8 +379,8 @@ docker logs harborrag-api-api-1 2>&1 | grep -i schedule
 ```
 
 A successful first sync of one schedule logs
-`Declared schedules synced created=1 updated=0 deleted=0 failed=0`; later restarts count it
-under `updated`. The schedule appears under **Schedules** in the Temporal UI, at
+`Declared schedules synced created=1 updated=0 deleted=0 failed=0`; later restarts count
+it under `updated`. The schedule appears under **Schedules** in the Temporal UI, at
 `http://localhost:8080` on the local stack. Other outcomes:
 
 - `No declarative schedule file at …; skipping schedule sync`: the API found no file at
@@ -91,7 +394,7 @@ under `updated`. The schedule appears under **Schedules** in the Temporal UI, at
 - While Temporal is unreachable, the API keeps retrying the sync in the background, and
   its own startup is not blocked.
 
-## Schedule file reference
+### Schedule file reference
 
 The file has `version: 1`, an optional `prune` and a `schedules` list. Unknown keys are
 rejected.
@@ -119,7 +422,7 @@ Intervals, jitter and catch-up windows are capped at 366 days. A source scope ru
 authoritative scan at a time, so the concurrent (`allow_all`) and cancelling
 (`cancel_other`, `terminate_other`) overlap policies are not supported.
 
-## How a scheduled run works
+### How a declared run works
 
 Each firing starts the `harborrag.scheduled_source_ingestion` workflow on the configured
 discovery task queue, which starts the normal `harborrag.source_ingestion` workflow as a
@@ -139,13 +442,7 @@ connection's query excludes.
   held by a long-running, paused or stranded run; the `HarborRAGScheduleKeepsSkipping`
   alert reports this after a day.
 
-## Schedules created in 1.x
-
-The `/v1/schedules` routes were removed in 2.0.0 and return `404`. Schedules created
-through them keep running, because a sync only deletes schedules the file created.
-Pause or delete them in the Temporal UI.
-
-## Monitor scheduled runs
+### Monitor declared runs
 
 Temporal appends each scheduled action time to the workflow ID, and sets the built-in
 `TemporalScheduledById` and `TemporalScheduledStartTime` search attributes, which you can
@@ -164,9 +461,10 @@ recording an outcome; find those in the Temporal UI.
 
 Worker Prometheus metrics include scheduled run outcomes, schedule-to-start latency,
 overlap skips, and actual versus configured pause state. Each worker describes every
-schedule every `HARBORRAG_SCHEDULE_METRICS_INTERVAL_SECONDS` (default 30) to export the
-pause and overlap gauges; with several worker replicas, set it to `0` on all but one to
-avoid duplicate Temporal load and series.
+schedule outside `/v1/admin/schedules` every
+`HARBORRAG_SCHEDULE_METRICS_INTERVAL_SECONDS` (default 30) to export the pause and
+overlap gauges; with several worker replicas, set it to `0` on all but one to avoid
+duplicate Temporal load and series.
 
 The monitoring Compose stack scrapes `temporal-worker:9464` every 15 seconds. Open
 `http://localhost:9090/graph` to query metrics and `http://localhost:9090/alerts` to see
@@ -181,3 +479,9 @@ firing alerts. The alert rules cover:
 The rules alone send no email or chat message: notification delivery needs an
 Alertmanager receiver; see Prometheus's
 [Alertmanager configuration](https://prometheus.io/docs/alerting/latest/configuration/).
+
+## Schedules created in 1.x
+
+The 1.x `/v1/schedules` routes answer `404`, and `/v1/admin/schedules` does not list the
+schedules created through them. Those schedules keep running, because a file sync
+deletes only schedules the file created. Pause or delete them in the Temporal UI.

@@ -17,7 +17,8 @@ Every way of starting a run sets the same switch:
 | HTTP API | `"mode": "force"` in the `POST /v1/admin/ingestions` body |
 | CLI | `harborrag ingestions start PROJECT_ID/CONNECTION_ID --mode force`, with or without `--inline` |
 | Python SDK | `IngestionRequest(force_reprocess=True)` |
-| Schedule | `mode: force` under `source:` in `config/sources/schedules.yaml`; see [Scheduled ingestion](scheduled-ingestion.md) |
+| Schedule over HTTP | `"mode": "force"` in the `input` of the `PUT /v1/admin/schedules/{schedule_id}` body; see [Schedule fields](scheduled-ingestion.md#schedule-fields) |
+| Schedule in a file | `mode: force` under `source:` in `config/sources/schedules.yaml`; see [Declare schedules in a file](scheduled-ingestion.md#declare-schedules-in-a-file) |
 
 Without one of these, a run is `incremental`. `PROJECT_ID/CONNECTION_ID` is the
 connection's ref, such as `default/harborrag-workspace`; see

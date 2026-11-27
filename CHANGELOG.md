@@ -24,6 +24,7 @@ Follow the [upgrade guide](docs/users/upgrading.md) before upgrading; entries ma
 - **Breaking:** migration `0049` clears the raw secret values that migration `0041` copied from a legacy source row into a connection's `credentials`, `config` or `advanced` settings, and marks each such connection `error` with the cleared fields in its `status_detail`; set them again as the [upgrade guide](docs/users/upgrading.md#set-cleared-credentials-again) shows. Migrations have no encryption key, so the values cannot move into the secrets store. It waits at most 5 s for its row locks on Postgres, and Alembic's offline `--sql` mode leaves its data step out
 - Structure-aware splitting of oversized text: code at syntax boundaries, Markdown at headings and fences, prose at sentence ends
 - Markdown code blocks record their language, and source code files keep their indentation and are chunked as code
+- Migration `0050` adds the empty `schedules` and `schedule_slots` tables behind `/v1/admin/schedules` and takes no lock on existing tables. The MCP server's read-only role reads the new tables until `scripts/deployment/dev.sh mcp-access` runs again, which revokes them, see the [upgrade guide](docs/users/upgrading.md#upgrade-the-services-in-order)
 
 #### harborrag-app
 
@@ -39,6 +40,8 @@ Follow the [upgrade guide](docs/users/upgrading.md) before upgrading; entries ma
 - `harborrag doctor` validates `config/ingestion/chunking.yaml`
 - `GET /v1/admin/failures` lists failed documents with `counts` per error category, and `POST /v1/admin/failures/retry` starts one retry run per original run
 - HTTP chat and `harborrag chat` rerank their passages when `retrieval.rerank` is on for the session's project, or else the tenant; `PATCH /v1/admin/settings` and `harborrag settings import` accept `retrieval.rerank: true` when the model catalog has a `rerank` section, and refuse it with `422 validation_error` otherwise
+- `/v1/admin/schedules` runs a connection's ingestion on an interval or a cron timetable, with the `editor` role: `GET /v1/admin/schedules` lists the tenant's schedules with their latest slot; `GET`, `PUT` and `DELETE /v1/admin/schedules/{schedule_id}` read a schedule with its last 20 slots, create or overwrite it (`ETag`, `If-Match`, `If-None-Match: *`) and remove it; `POST …/pause`, `…/resume` and `…/trigger` pause it, resume it, or start one run now. The CLI lists the seven operations as HTTP-only. See [Scheduled ingestion](docs/users/scheduled-ingestion.md)
+- The API runs the worker that fires schedule slots, so every API replica polls the Temporal task queue `harborrag-schedules`; when the worker fails, for example while Temporal is unreachable, the API logs it and starts it again after 30 s
 
 #### harborrag-core
 
@@ -46,6 +49,8 @@ Follow the [upgrade guide](docs/users/upgrading.md) before upgrading; entries ma
 - Runtime settings registry: `retrieval.top_k`, `retrieval.rerank`, `parsing.pdf_parser`, `chunking.max_tokens`, `ingestion.concurrency` and `models.embedding`, with tenant, project and connection levels
 - `RetrievalRequest.rerank` asks retrieval to rerank its passages with the model catalog's `rerank` model
 - `GraphAccessScope.document_access` says how a graph access scope admits a document's records: `listed`, the default, admits the documents in `document_ids`, and `by_source_scope` admits every document of the readable source scopes, for a reader with too many documents to list
+- Runtime settings `schedules.enabled`, `schedules.min_interval` and `schedules.max_per_connection`, at tenant level, applied `live`
+- `ScheduleRepositoryPort` and the `harborrag_core.domain.schedule` model store schedules and their recent slots
 
 #### harborrag-engine
 
@@ -65,6 +70,8 @@ Follow the [upgrade guide](docs/users/upgrading.md) before upgrading; entries ma
 - **Breaking:** ingestion requires the code grammars; the worker images and the `local` and `production` installs include them
 - Retrieval can rerank with the model catalog's `rerank` model: it fetches four times `top_k` passages (at most 100), keeps the first `top_k` in rerank order, and adds `rerank_score` to each result's metadata while `relevance` keeps the lane's similarity; a rerank provider error fails the retrieval
 - A warning when `HARBORRAG_SECRETS_ENCRYPTION_KEY` has spaces at its start or end; the key is still used as written, so stored secrets stay readable
+- Each schedule of `/v1/admin/schedules` gets a Temporal Schedule `harborrag-schedule:<tenant_id>:<schedule_id>` that starts the `harborrag.schedule_slot` workflow on the task queue `HARBORRAG_SCHEDULE_TASK_QUEUE` names (`harborrag-schedules` by default); the control database stays the source of truth
+- A schedule slot starts its run through the `POST /v1/admin/ingestions` code path, skips or queues it while the connection has a run, and pauses the schedule as `system` after `pause_after_failures` failed runs in a row; a slot that a worker picks up later than its catch-up window plus its jitter, such as after an outage of every API replica, is dropped without a record
 
 #### Deployment
 
@@ -146,6 +153,7 @@ Follow the [upgrade guide](docs/users/upgrading.md) before upgrading; entries ma
 - `POST /v1/admin/ingestions/{ingestion_id}/resume` and `harborrag ingestions resume` accept a `running` run whose workflow holds a pause it has not applied yet, such as a pause sent during discovery, and take the pause back; on a `running` run with no pending pause they answer `409 invalid_state`
 - `harborrag ingestions start --inline` refuses a connection with a pending, running or paused run with `409 already_running`, naming that run in `details.ingestion_id`, and exit `4`, as the API does
 - An ingestion's `counters.discovered` and `counters.skipped` include the items skipped at discovery, so `processed + skipped + failed` reaches `discovered` when every item is done, and the CLI's run tables show a `Skipped` column [#136]
+- An ingestion that a schedule of `/v1/admin/schedules` started has `triggered_by.principal_type` `schedule`, with the schedule's ID as `principal_id`
 
 #### harborrag-core
 
@@ -198,6 +206,7 @@ Follow the [upgrade guide](docs/users/upgrading.md) before upgrading; entries ma
 - A request to a private address the operator has not allowed fails as `document_release_destination_blocked`, and a write that Qdrant or S3 rejects with `400` as `document_release_storage_request_rejected`; both are invalid configuration and are not retried in the run. A failure-inbox retry still includes `document_release_storage_request_rejected`, for after the configuration is fixed
 - A run's `EXTRACTION_FAILED` skip count covers only parser rejections (`parser_rejected_document` and `document_unsupported`), no longer outages, a missing parser or cancellations at the parse stage
 - **Breaking:** a connection test whose source answers a `4xx` that is not retried, other than `401`, `403`, `404`, `408` and `429`, such as a `400` or `422`, fails its `permissions` check with `error_category` `forbidden` and `the source refused the request`, instead of `unreachable`; a refused response is still `unreachable`
+- Deleting a connection, or a project with `cascade=true`, removes the connection's schedules of `/v1/admin/schedules` before its data
 
 #### Deployment
 
