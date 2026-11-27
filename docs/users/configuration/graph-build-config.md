@@ -93,7 +93,7 @@ covers.
 | `sources[].ontology` | none | Ontology name from `ontologies:` ([Extraction vocabularies](#extraction-vocabularies)) |
 
 Facets, the filterable facts of an entity card, are also declared per source; see
-[Facets](../detailed-guides/mcp-server/setup-and-integration.md#facets-the-filterable-part-of-a-card).
+[Facets](../detailed-guides/mcp-server/search-and-explorer.md#facets-the-filterable-part-of-a-card).
 
 ## Summarization
 

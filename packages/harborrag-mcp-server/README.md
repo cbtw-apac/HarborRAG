@@ -40,7 +40,7 @@ You should see the eleven tool names:
 `scripts/deployment/mcp.sh --check` runs the same check in the container.
 `harborrag-mcp --preflight` goes one step further: it connects the configured backends once
 and reports a start-up failure in one line. To connect a client, follow
-[MCP Setup and Integration](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/detailed-guides/mcp-server/setup-and-integration.md#connect-an-mcp-client).
+[Connect an MCP client](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/detailed-guides/mcp-server/clients.md).
 
 ### How the wrapper's container reaches the data services
 
@@ -57,10 +57,10 @@ networking for this. Restart your MCP client after changing its MCP configuratio
   status page, a Tool Playground and a configuration editor. The HTTP endpoint is
   `http://127.0.0.1:8010/mcp` by default; `--host`, `--port` and `--path` change it, and a
   host that is not loopback is refused outside a development container. Both transports are covered in
-  [MCP Setup and Integration](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/detailed-guides/mcp-server/setup-and-integration.md).
+  [MCP quick start](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/detailed-guides/mcp-server/setup-and-integration.md).
 - **`harborrag-mcp-ui`**: the optional HarborRAG Explorer, an MCP App with a search UI,
   served as a second server. It needs the `ui` extra; see
-  [Explorer MCP UI server](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/detailed-guides/mcp-server/setup-and-integration.md#explorer-mcp-ui-server).
+  [Explorer MCP UI server](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/detailed-guides/mcp-server/search-and-explorer.md#explorer-mcp-ui-server).
 - **The eleven reader tools**: search, evidence fetch and document context, source and
   document listing, graph description, bounded graph search and node resolution, and
   entity ranking. What each one takes and returns is in
@@ -69,9 +69,9 @@ networking for this. Restart your MCP client after changing its MCP configuratio
 - **Tool configuration** in `config/mcp/server.yaml`: enabled tools, defaults and limits,
   globally and per tenant. Tenant names in the file may not carry surrounding whitespace.
   See
-  [Tool configuration](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/detailed-guides/mcp-server/setup-and-integration.md#tool-configuration).
+  [Tool configuration](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/detailed-guides/mcp-server/tool-configuration.md#tool-configuration).
 - **A container image**, `deploy/docker/Dockerfile.mcp`; see
-  [Container image](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/detailed-guides/mcp-server/setup-and-integration.md#container-image).
+  [Container image](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/detailed-guides/mcp-server/server-operations.md#container-image).
 
 ## Security and audit
 
@@ -85,7 +85,7 @@ networking for this. Restart your MCP client after changing its MCP configuratio
 - Over HTTP, tool calls accept a `reader` or `owner` token whose `tenants` claim holds
   the requested tenant, or the wildcard `*`. Changing the server's configuration needs
   the owner. Reader keys are covered in
-  [Tenant-bound reader keys](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/detailed-guides/mcp-server/setup-and-integration.md#tenant-bound-reader-keys-and-shared-corpus-access).
+  [Tenant-bound reader keys](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/detailed-guides/mcp-server/server-operations.md#tenant-bound-reader-keys-and-shared-corpus-access).
 - The transport audits every attempt and outcome to an owner-only JSONL file with a
   principal identifier and a digest of the arguments; raw arguments and tokens are never
   written. The runtime records each reader tool's execution outcome separately, in

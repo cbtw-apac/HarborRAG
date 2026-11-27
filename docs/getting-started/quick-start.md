@@ -1,17 +1,15 @@
 # Quick Start
 
-In this tutorial you clone HarborRAG, start its local stack, ingest the repository's own
-`docs/` folder, and ask a question about it. It takes about half an hour, most of it spent
-waiting for the first container build.
-
-HarborRAG reads documents from your sources, splits them into passages, and stores those
-passages so you can search them and chat over them. Everything in this tutorial runs on your
-machine, in Docker containers, except the language models, which you call at OpenAI or
-another OpenAI-compatible endpoint.
+Get a first answer with citations from HarborRAG in about half an hour. You'll run
+the services locally in Docker, index the repository's `docs/` folder and ask a
+question about it. Indexing and chat call a model provider, which may charge for use.
 
 ## Before you start
 
-Install these tools first. Each link goes to the tool's own installation guide.
+Have an API key that can call both a chat model and a model that produces
+1536-dimension embeddings. The default endpoint is OpenAI and the default embedding
+model is `text-embedding-3-small`. You can use another OpenAI-compatible endpoint and
+its model names. Allow about 1 GB for the Python packages and several GB for Docker images.
 
 | Tool | Why HarborRAG needs it | Check it with |
 | --- | --- | --- |
@@ -49,22 +47,6 @@ command in this tutorial inside your WSL distribution.
 
 </details>
 
-You also need an **API key for a model endpoint**. HarborRAG calls two models there, each
-with its own key setting, so one key can serve both:
-
-- a chat model, which writes answers;
-- an embedding model, which turns each passage into the 1536-dimension vector HarborRAG
-  searches. OpenAI's `text-embedding-3-small` writes that size, and the shipped
-  configuration expects it.
-
-The endpoint is OpenAI's unless you name another OpenAI-compatible one, such as a
-[LiteLLM proxy](https://docs.litellm.ai/docs/simple_proxy) gateway your team runs.
-[The shipped catalog](../users/configuration/model-config.md#the-shipped-catalog) explains
-how HarborRAG calls each model. Every model call goes to that endpoint, so ingesting
-documents and chatting both cost a little.
-
-Plan for about 1 GB of disk for the Python packages and several GB for the container images.
-
 ## 1. Clone the repository and install the CLI
 
 ```bash
@@ -73,49 +55,33 @@ cd HarborRAG
 uv sync --all-packages --extra production
 ```
 
-`uv sync` creates a `.venv/` folder inside the checkout and installs every HarborRAG package
-into it. The `production` extra adds the clients that the `harborrag` command needs to reach
-the stack: Temporal, PostgreSQL, Qdrant, FalkorDB and MinIO. The environment takes about
-800 MB.
-
-Run every command in this tutorial from the `HarborRAG` folder. Check that the command works:
+`uv sync` installs HarborRAG and the clients the CLI needs to reach the local stack.
+Run the rest of the tutorial from the `HarborRAG` folder. Check that the CLI works.
 
 ```bash
 uv run harborrag --help
 ```
 
-`uv run` runs a command inside `.venv/`. You should see the commands grouped by purpose:
-`me` and `doctor` under Setup and diagnostics; `auth` under Access; `chat` under Chat;
-and `projects`, `source-types`, `connections`, `ingestions`, `failures` and `settings`
-under Resources.
+The help lists commands including `connections`, `ingestions` and `chat`.
 
 ## 2. Create the environment files
 
-HarborRAG keeps its settings and credentials in an `env/` folder that Git ignores. Create it:
+Create the local settings and credentials in the Git-ignored `env/` folder.
 
 ```bash
 scripts/deployment/dev.sh bootstrap
 ```
 
-`bootstrap` copies seven templates from `env-example/` into `env/`, makes them readable only
-by you, and generates secrets: `HARBORRAG_SECRETS_ENCRYPTION_KEY` in `env/.env.database`,
-which encrypts the source credentials HarborRAG stores, two passwords in the same file for
-the MCP server's read-only database and object-store accounts, and a bearer token for the
-MCP server in `env/.env.mcp`. You should see a `Created env/...` line for each file, and
-among them:
+On a fresh checkout, `bootstrap` reports each new file with a `Created env/...` line.
+Back up `HARBORRAG_SECRETS_ENCRYPTION_KEY` from `env/.env.database` in a safe place.
+You'll need it to read stored connection credentials after a database restore.
 
-```text
-Generated HARBORRAG_SECRETS_ENCRYPTION_KEY in env/.env.database; back it up: stored connection secrets cannot be read without it.
-Generated POSTGRES_MCP_PASSWORD in env/.env.database.
-Generated MINIO_MCP_PASSWORD in env/.env.database.
-Generated a protected MCP bearer token in env/.env.mcp.
-```
+The script restricts the files to your user and generates the read-only account
+passwords and bearer token used by the [MCP server](../users/detailed-guides/mcp-server/setup-and-integration.md).
 
-Copy the key from `env/.env.database` somewhere safe.
+### Configure the model endpoint
 
-Two settings have no safe default, so fill them in now.
-
-**The model endpoint.** Open `env/.env.models`. The four lines at the top ship as:
+Open `env/.env.models` and locate these four lines.
 
 ```dotenv
 HARBORRAG_CHAT_MODEL=REPLACE_WITH_CHAT_MODEL
@@ -124,29 +90,30 @@ HARBORRAG_EMBED_MODEL=text-embedding-3-small
 HARBORRAG_EMBED_API_KEY=REPLACE_WITH_REAL_EMBED_API_KEY
 ```
 
-Set both key lines to your OpenAI API key, and `HARBORRAG_CHAT_MODEL` to a chat model
-that key can use. The two keys are separate settings so that chat and embedding can use
-different accounts. All four lines are required: `config/models/models.yaml` reads every
-one of them when it loads. To call another OpenAI-compatible endpoint instead of OpenAI,
-also uncomment the `HARBORRAG_URL` line below them and set it to that endpoint's base
-URL; the keys and the model names are then that endpoint's. Leave every other
-`REPLACE_WITH_...` placeholder further down the file as it is; this tutorial does not use
-them.
+Set `HARBORRAG_CHAT_MODEL` to a chat model your key can use and set both key lines.
+You can use the same key for chat and embeddings. Keep the embedding model shown above
+for OpenAI. For another OpenAI-compatible endpoint, use its model names and keys and set
+`HARBORRAG_URL` to its base URL. Leave the other placeholders as they are. See the
+[shipped model catalog](../users/configuration/model-config.md#the-shipped-catalog)
+for the available options.
 
-Check the key and the model names before you go on, because a mistake here only shows up
-later, as failed documents in step 5:
+If your endpoint lists models at `/models`, you can check the chat key and the
+available names before starting the stack.
 
 ```bash
-(set -a; . env/.env.models; curl -s -H "Authorization: Bearer $HARBORRAG_CHAT_API_KEY" "${HARBORRAG_URL:-https://api.openai.com/v1}/models")
+(
+  . env/.env.models
+  curl -fsS -H "Authorization: Bearer $HARBORRAG_CHAT_API_KEY" \
+    "${HARBORRAG_URL:-https://api.openai.com/v1}/models"
+)
 ```
 
-The parentheses read the file's values in a subshell, so they do not stay set in your shell.
-The response should list the two model names you entered. If embedding uses another key or
-endpoint, run the command again with the two `EMBED` variables.
+The response should list the model names you set. If you use a different embedding
+key, run the check again with `HARBORRAG_EMBED_API_KEY` in the header.
 
-**The control database.** The *control database* is the PostgreSQL database where HarborRAG
-records its sources and ingestion runs. Open `env/.env.database` and remove the `#` in front
-of the `HARBORRAG_CONTROL_DB_URL` line, so that it reads:
+### Point the CLI at PostgreSQL
+
+Open `env/.env.database` and remove the `#` in front of `HARBORRAG_CONTROL_DB_URL`.
 
 ```dotenv
 HARBORRAG_CONTROL_DB_URL="postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@127.0.0.1:${POSTGRES_PORT:-5432}/${POSTGRES_DB}"
@@ -165,36 +132,33 @@ on `127.0.0.1` only, so nothing outside your machine can reach it.
 scripts/deployment/dev.sh up
 ```
 
-`up` starts, in order:
-
-1. the data services: PostgreSQL, Qdrant (passage vectors), FalkorDB (the knowledge graph),
-   Redis, and MinIO (a copy of every source file);
-2. Temporal, the workflow engine that runs each ingestion as a durable workflow, with its web
-   UI;
-3. the ingestion workers, which do the work Temporal schedules;
-4. the HarborRAG API.
-
-The stack publishes its services on these ports of `127.0.0.1`: 5432 (PostgreSQL), 6333 and
-6334 (Qdrant), 6379 and 3000 (FalkorDB), 6380 (Redis), 9000 and 9001 (MinIO), 7233 and 8080
-(Temporal and its UI), and 8000 and 9465 (the API). If another program already uses one of
-them, `up` fails; stop that program, or change the matching `*_PORT` value in `env/` before
-you start.
-
-The first run builds the worker and API images, which takes several minutes. When the API
-answers, `up` prints, among its last lines:
+`up` starts the data services, the Temporal workflow engine, the ingestion workers
+and the HarborRAG API. The first run takes several minutes to build the worker and API
+images. Look for this line when the API is up.
 
 ```text
 HarborRAG API is healthy at http://127.0.0.1:8000/healthz
 ```
 
-At its first start the API imports `config/sources/connectors.yaml`, whose entries describe
-*connections*: sources HarborRAG can ingest, together with their settings. Each entry lands
-in the project `default`, under its YAML key. This tutorial uses the `harborrag-workspace`
-entry, which reads this repository's `docs/` folder and needs no credentials.
+On a new stack, the API imports the example *connections* from
+`config/sources/connectors.yaml`. A connection tells HarborRAG what to read.
+The example `harborrag-workspace` connection belongs to the `default` project and reads
+`docs/` without source credentials.
+
+<details markdown="1">
+<summary>If a port is already in use</summary>
+
+The default ports on `127.0.0.1` are 5432 (PostgreSQL), 6333 and 6334 (Qdrant),
+6379 and 3000 (FalkorDB), 6380 (Redis), 9000 and 9001 (MinIO), 7233 and 8080
+(Temporal and its UI), and 8000 and 9465 (the API and metrics).
+Free the port or change its matching `*_PORT` value in `env/` and rerun `up`.
+If you change the API port, use the new value in the next step.
+
+</details>
 
 ## 4. Check everything is in place
 
-Ask the API whether it can reach every service:
+Check that the API can reach its dependencies.
 
 ```bash
 curl http://127.0.0.1:8000/readyz
@@ -257,44 +221,48 @@ If every document fails, check the model values from step 2. For other errors, s
 
 ## 6. Ask a question
 
-The `harborrag` command searches as `cli:` followed by your user name on this machine,
-which has no permissions on individual sources. The `env/.env.api` that `bootstrap` created
-therefore sets `HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared` and
-`HARBORRAG_CORPUS_SHARED_TENANT_ID=DEFAULT`, which lets chat read everything ingested into
-the `DEFAULT` *tenant*, the isolated set of sources and data that this tutorial uses. The
-API and the ingestion workers (from `env/.env.temporal`) use the same setting, and the
-command reads these two lines from `env/.env.api`; nothing needs exporting. Removing the
-lines returns the tenant to `source_acl`, where chat reads only sources the caller has
-permissions for; see
-[Read access inside a tenant](../users/configuration/workspace-mode.md#read-access-inside-a-tenant).
-
-Ask the chat model for an answer grounded in the passages that match your question. It
-calls the model endpoint, so it can cost a little:
+Ask a question about the documents you just indexed.
 
 ```bash
 uv run harborrag chat "Summarise what the HarborRAG documentation covers in three bullet points."
 ```
 
-The answer cites its sources as `[1]`, `[2]` and so on, and below it lists each number with
-the title of the document it points to. An answer with no citations means the search found
-nothing: run `uv run harborrag doctor` and check that its `corpus mode` row says
-`tenant_shared`. If your `env/.env.api` came from an older checkout, add the two lines above
-to it and restart the API with `scripts/deployment/dev.sh api`.
+Look for citations such as `[1]` in the answer and the corresponding document
+titles below it.
 
-That is the whole loop: change documents, run `ingestions start`, then `chat`.
+<details markdown="1">
+<summary>If the answer has no citations</summary>
+
+Run `uv run harborrag doctor` and check that `corpus mode` says `tenant_shared`.
+The tutorial uses shared access so callers in `DEFAULT` can search all of its published
+documents. For a local stack created from an older template, set these lines in
+`env/.env.api` and run `scripts/deployment/dev.sh api` to apply them to the API. The CLI
+reads the same file on its next run.
+
+```dotenv
+HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared
+HARBORRAG_CORPUS_SHARED_TENANT_ID=DEFAULT
+```
+
+For deployments where readers need individual source permissions, see
+[Read access inside a tenant](../users/configuration/workspace-mode.md#read-access-inside-a-tenant).
+
+</details>
+
+When a document changes, run `ingestions start` again before asking about its new content.
 
 ## What you built
 
-You ran HarborRAG's full local stack, ingested a folder through a durable Temporal workflow,
-and chatted over it. Stop the stack with `scripts/deployment/dev.sh down`; add
-`--volumes` to discard the data as well.
+You ran HarborRAG locally, indexed the example documents and asked a question with
+citations. Stop the stack with `scripts/deployment/dev.sh down`. Add `--volumes` only
+when you want to discard the stored data.
 
-Next:
+### Where to go next
 
 - [Running HarborRAG from a checkout](../developers/checkout-quick-start.md) - restart and
   rebuild single services, drive ingestion runs, and run the tests.
 - [Connections](../users/connections.md) - add Jira, Confluence, SharePoint or GitHub sources.
-- [MCP setup and integration](../users/detailed-guides/mcp-server/setup-and-integration.md) -
+- [MCP quick start](../users/detailed-guides/mcp-server/setup-and-integration.md) -
   search HarborRAG from an IDE or an agent.
 - [CLI reference](../users/cli-reference/README.md) - every command and option.
 - [Troubleshooting](../users/troubleshooting/README.md) - fixes for common failures.

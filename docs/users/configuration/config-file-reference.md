@@ -145,8 +145,8 @@ stdio, `/healthz` and the status page are not limited. A limit that is not `0` o
 positive integer stops the launcher.
 
 `scripts/deployment/dev.sh bootstrap` creates `env/.env.mcp` with a generated bearer
-token. Reader keys, the status UI and the tool settings are covered in
-[MCP Setup and Integration](../detailed-guides/mcp-server/setup-and-integration.md).
+token. See [Operate the MCP server](../detailed-guides/mcp-server/server-operations.md) for reader keys and the status UI,
+or [Configure MCP tools](../detailed-guides/mcp-server/tool-configuration.md) for tool settings.
 
 ## Engine settings objects
 

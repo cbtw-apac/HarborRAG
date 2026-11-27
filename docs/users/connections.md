@@ -1,11 +1,42 @@
 # Connections
 
-Connect HarborRAG to a data source, such as a Jira project, a Confluence space, a
-SharePoint site, a GitHub repository or a local folder, then start, follow and retry its
-ingestions. You do this over the HTTP API, or from a terminal with the `harborrag`
-`projects`, `connections`, `ingestions` and `failures` commands, which call the same
-operations (see the
-[CLI reference](cli-reference/README.md#manage-projects-and-connections)).
+Connect HarborRAG to Jira, Confluence, SharePoint, GitHub or a local folder, then
+run an ingestion to index its contents.
+
+- [Test and ingest the example folder](#test-and-ingest-the-example-folder) on the
+  local stack from the Quick Start.
+- [Add a source over HTTP](#add-a-connection), starting with the API address,
+  project and [authentication requirements](#before-you-start).
+- [Add a source from the terminal](cli-reference/README.md#manage-projects-and-connections)
+  using the `harborrag` CLI from a checkout.
+- [Follow an ingestion](#start-and-control-ingestions) or
+  [retry failed documents](#review-and-retry-failures).
+
+## Test and ingest the example folder
+
+The [Quick Start](../getting-started/quick-start.md) sets up the local stack and
+imports `default/harborrag-workspace`. This connection indexes the repository's
+`docs/` folder. From the checkout, list the connection and test it through the local API.
+
+```bash
+uv run harborrag connections list --project-id default
+curl -fsS -X POST \
+  http://127.0.0.1:8000/v1/admin/projects/default/connections/harborrag-workspace/test
+```
+
+Look for `default/harborrag-workspace` in the list and `"ok": true` in the test
+response. The API checks the folder inside its container, where the example source is
+mounted. Use the API for this test when you run the CLI on the host.
+
+Start the ingestion and wait for its final status.
+
+```bash
+uv run harborrag ingestions start default/harborrag-workspace --wait
+```
+
+After the run succeeds, [ask a question about the indexed documents](chat/README.md).
+To read another folder, see [Local files](#local-files) for the path the worker must
+be able to access.
 
 ## Terms used on this page
 

@@ -128,7 +128,7 @@ Connectors do not synchronize permission snapshots yet, and 2.0.0 has no command
 tool that imports them (the runtime function `import_permissions` in
 `harborrag_runtime/topology/security_operations.py` has no operator entry point). Run a tenant
 whose corpus is deliberately shared in `tenant_shared` mode; see
-[MCP Setup and Integration](../../users/detailed-guides/mcp-server/setup-and-integration.md).
+[Shared corpus access](../../users/detailed-guides/mcp-server/server-operations.md#shared-corpus-access).
 
 ## Entering the graph
 

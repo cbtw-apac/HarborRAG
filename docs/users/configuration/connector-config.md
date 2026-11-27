@@ -266,7 +266,7 @@ The Jira connector reads `JIRA_TOKEN`, the variable `token_env` names.
 
 Each issue's typed custom fields become filterable `fields.<key>` values. How a field is
 named, and what happens to a very long name or to more than 128 fields on one issue, is
-in [Filter evidence by Jira fields](../detailed-guides/mcp-server/setup-and-integration.md#filter-evidence-by-jira-fields).
+in [Filter evidence by Jira fields](../detailed-guides/mcp-server/search-and-explorer.md#filter-evidence-by-jira-fields).
 
 ### Filter Jira and Confluence attachments by type
 

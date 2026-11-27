@@ -9,8 +9,8 @@ for evidence and document reads and `memory` for conversation context.
 
 - A repository checkout with the local stack running, set up as in the
   [Quick Start](../../getting-started/quick-start.md). The checkout's workspace already
-  includes every HarborRAG package, so run your scripts from the checkout root with
-  `uv run python <your-script>.py`. Installing the packages into another environment is
+  includes every HarborRAG package and the Temporal client used below. Run scripts
+  from the checkout root. Installing the packages into another environment is
   described in [Installation](../../getting-started/installation.md).
 - A connection to ingest. A connection is one configured data source, and its
   `source_key` is the name the SDK uses for it; see
@@ -32,11 +32,16 @@ that way.
 
 ## Ingest and search
 
+Save this example as `search_docs.py`. It submits the ingestion to Temporal, so the
+worker does the indexing and can read the example folder mounted at `/data/sources`.
+Your Python process then searches the indexed passages.
+
 ```python
 import asyncio
 
 from harborrag import (
     AccessContext,
+    ExecutionMode,
     HarborRAG,
     HarborRAGConfig,
     IngestionRequest,
@@ -49,7 +54,8 @@ async def main() -> None:
         principal_id="user-1", tenant_id="DEFAULT", corpus_mode="tenant_shared"
     )
 
-    async with HarborRAG(HarborRAGConfig()) as harbor:
+    config = HarborRAGConfig(execution_mode=ExecutionMode.TEMPORAL)
+    async with HarborRAG(config) as harbor:
         result = await harbor.ingestion.run(
             IngestionRequest(access=access, connector_name="harborrag-workspace")
         )
@@ -65,12 +71,32 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-What each part does:
+Run it from the checkout root. With the Quick Start's environment files and default
+ports, this sets the values for the script in a subshell.
 
-- `HarborRAGConfig()` takes its settings from the environment and runs ingestion inline
-  (`execution_mode: direct`). `HarborRAG.from_config("<path>.yaml")` loads a file with
-  `execution_mode`, `discover_plugins` and `runtime` keys instead, and rejects any other
-  key. Entering the context starts the executor; leaving it closes the runtime.
+```bash
+(
+  set -a
+  . env/.env.database
+  . env/.env.models
+  export HARBORRAG_OBJECT_STORE_ACCESS_KEY_ID="$MINIO_ROOT_USER"
+  export HARBORRAG_OBJECT_STORE_SECRET_ACCESS_KEY="$MINIO_ROOT_PASSWORD"
+  uv run python search_docs.py
+)
+```
+
+The script prints the ingestion status and counts first, followed by the matching
+passages.
+
+### How the example works
+
+- `HarborRAGConfig` reads its runtime settings from the environment. The default
+  execution mode is `direct`. For inline ingestion of local files, use a connection
+  whose path exists on the machine running Python. The Quick Start connection uses
+  a path inside the worker container, which is why the example selects Temporal.
+- `HarborRAG.from_config("<path>.yaml")` loads `execution_mode`, `discover_plugins`
+  and `runtime` from a file. Entering the context starts the executor. Leaving it
+  closes the runtime.
 - `AccessContext` names the caller (`principal_id`) and the tenant it acts in
   (`tenant_id`); there is no ambient tenant. A tenant is the isolation boundary that owns
   data; see [Tenant and workspace status](../configuration/workspace-mode.md). The SDK

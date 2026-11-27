@@ -3,6 +3,12 @@
 Run HarborRAG's HTTP API, find its routes, and look up its errors, authentication, limits
 and settings. These are contributor notes for the `harborrag_app.api` package.
 
+- [Start the local API and check that it responds](#install-and-run).
+- [Find where a route is wired](#composition) and [export the OpenAPI contract](#openapi).
+- For application examples, see [Chat](../../../../../docs/users/chat/README.md),
+  [Connections](../../../../../docs/users/connections.md), and
+  [Runtime settings](../../../../../docs/users/configuration/runtime-settings.md).
+
 The package is HarborRAG's FastAPI boundary. It validates HTTP input, authenticates
 callers, delegates each operation to transport-neutral code it shares with the CLI, and
 maps results onto stable HTTP responses. Connector execution, parsing, chunking, indexing
@@ -85,7 +91,7 @@ its lowest role.
 | `POST` | `/v1/admin/failures/retry` | `editor` | Retry failures by `ids` or `filter`; one run per original run; `409` when none match |
 | `GET` | `/v1/admin/settings` | `editor` for `connection:` levels, else `admin` | Read the overrides or the effective values at a `level` |
 | `PATCH` | `/v1/admin/settings` | `admin` | Change settings at a `level`, with `If-Match` |
-| `GET` | `/v1/admin/settings/schema` | `editor` | The six runtime settings by group: type, range, levels, when a change applies, description |
+| `GET` | `/v1/admin/settings/schema` | `editor` | The runtime settings by group: type, range, levels, when a change applies, description |
 | `GET` | `/v1/admin/projects` | `admin` | Projects in the tenant, cursor-paged |
 | `GET` `PUT` `DELETE` | `/v1/admin/projects/{project_id}` | `admin` | Read, create or update, delete a project |
 | `GET` | `/v1/projects/{project_id}/connections` | `reader` | Connections a reader can search in a project |

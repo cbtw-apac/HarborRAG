@@ -97,7 +97,7 @@ What a turn may read:
   "session_id": "ses_9a1c",
   "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
   "mode": "classic",
-  "answer": "Two issues cover it: DEMO-11 [1] and DEMO-12 [2].",
+  "answer": "DEMO-11 describes how to deploy the worker on Kubernetes [1].",
   "citations": [
     {
       "n": 1,
@@ -197,7 +197,7 @@ is in [Retry without duplicates](limits.md#retry-without-duplicates).
 `or`, nested filters and the other operators are `422 validation_error` on
 field `filters` in this release. The indexed fields and the `fields.<key>`
 naming are listed in
-[Filter keys for `vector_search`](../detailed-guides/mcp-server/setup-and-integration.md#filter-keys-for-vector_search).
+[Filter keys for `vector_search`](../detailed-guides/mcp-server/search-and-explorer.md#filter-keys-for-vector_search).
 
 ## Stream the answer
 
@@ -329,7 +329,7 @@ Every option is in the
 ## Migration
 
 This is a breaking HTTP change; stored sessions and history are preserved.
-[Upgrading: Chat](../upgrading.md#chat) lists every route, field and event that
+[Upgrading: Chat](../upgrading-2-0-0-clients.md#chat) lists every route, field and event that
 changed, including the removed `/v1/agent/*` routes, `max_steps` and
 `response.agent.progress`, and the new session and completion shapes. Also
 replace these in clients:

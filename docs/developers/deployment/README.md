@@ -1,18 +1,18 @@
 # Deployment
 
-Understand how HarborRAG's local stacks fit together, which service reads which environment
-file, how to run the optional monitoring stack and build the CLI and MCP images, and what a
-production deployment still needs.
+Choose the part of the HarborRAG stack you want to run or inspect.
 
-The deployment assets are at mixed maturity. The database Compose file supports local adapter
-smoke tests, the Temporal Compose file provides a runnable PostgreSQL-backed development
-server, and `scripts/deployment/dev.sh` composes those services with the control-plane API.
-The checked-in API, CLI, worker and MCP Dockerfiles are runnable local images. A production
-topology and remote MCP exposure still need operator-owned composition and security policy.
+| Goal | Start here |
+| --- | --- |
+| Start HarborRAG for the first time | [Quick Start](../../getting-started/quick-start.md) |
+| Start or rebuild selected services | [Run the API and worker](#run-the-api-and-worker) |
+| Check which files a process reads | [Prepare the environment files](#prepare-the-environment-files) |
+| Add metrics and dashboards | [Run the monitoring stack](#run-the-monitoring-stack) |
+| Build a CLI or MCP image | [Build the CLI and MCP images](#build-the-cli-and-mcp-images) |
+| Plan a staging or production deployment | [Production prerequisites](#what-a-production-deployment-still-needs) |
 
-To start the stack for the first time, follow the [Quick Start](../../getting-started/quick-start.md);
-to start, stop and rebuild one service at a time, see
-[Running HarborRAG from a checkout](../checkout-quick-start.md#6-start-the-services).
+The checked-in Compose files and images run the local development stack. Production
+topology and remote MCP exposure need operator-owned deployment and security controls.
 
 ## Prepare the environment files
 
@@ -21,13 +21,25 @@ templates in `env-example/`, with mode `0600`. It also generates the secrets enc
 the local MCP bearer token and the passwords of the MCP server's read-only accounts. Prefer
 it to copying templates by hand. Each service reads these files:
 
-| Service | Reads |
+| Process | Environment files in `env/` |
 | --- | --- |
-| Data services (`docker-compose.database.yml`) | `env/.env.database` |
-| Temporal server and worker (`docker-compose.temporal.yml`) | `env/.env.database` and `env/.env.temporal`; the worker also receives `env/.env.connector`, `env/.env.parser` and `env/.env.models` |
-| API (`docker-compose.yml`) | `env/.env.database`, `env/.env.temporal`, `env/.env.connector`, `env/.env.models` and `env/.env.api`; the container itself receives only `env/.env.api` and `env/.env.models` |
-| MCP server (`scripts/deployment/mcp.sh`) | `env/.env.mcp` (required) and `env/.env.models`; from `env/.env.database` only `POSTGRES_DB` and the passwords of its read-only accounts, `POSTGRES_MCP_PASSWORD` and `MINIO_MCP_PASSWORD`, never the Postgres owner or the MinIO root credentials; from `env/.env.api` only `HARBORRAG_ENV`, so it accepts the reader keys the API's environment issued |
-| Host `harborrag` command in a checkout | `env/.env.connector`, `env/.env.parser` and `env/.env.models`; from `env/.env.database` only the MinIO credentials, `HARBORRAG_LOCAL_SOURCE_ROOT` and an uncommented `HARBORRAG_CONTROL_DB_URL` line with its encryption key; from `env/.env.api` only `HARBORRAG_CORPUS_ACCESS_MODE`, `HARBORRAG_CORPUS_SHARED_TENANT_ID` and `HARBORRAG_TENANT_ID`, the last as its default tenant |
+| Data services | `.env.database` |
+| Temporal server | `.env.database`, `.env.temporal` |
+| Temporal worker | `.env.database`, `.env.temporal`, `.env.connector`, `.env.parser`, `.env.models` |
+| API container | `.env.api`, `.env.models` |
+| MCP launcher | `.env.mcp`, optional `.env.models`, selected values from `.env.database` and `.env.api` |
+| Host CLI in a checkout | `.env.connector`, `.env.parser`, `.env.models`, selected values from `.env.database` and `.env.api` |
+
+- **API:** Compose also reads `.env.database`, `.env.temporal`, and `.env.connector` to
+  set values it passes to the container. The API and worker must use the same control
+  database and secrets encryption key.
+- **MCP:** The launcher takes the database name and its own read-only Postgres and MinIO
+  passwords from `.env.database`. It uses `HARBORRAG_ENV` from `.env.api` so it accepts
+  reader keys issued in the same environment.
+- **CLI:** From `.env.database` it takes MinIO credentials, the local source root, and an
+  uncommented control database URL with its encryption key. From `.env.api` it takes the
+  two corpus-access settings and the default tenant. See
+  [CLI checkout configuration](../../users/cli-reference/README.md#run-from-a-repository-checkout).
 
 `HARBORRAG_SECRETS_ENCRYPTION_KEY` in `env/.env.database` encrypts stored connector credentials
 in the control database, and the API and the Temporal worker must read the same value. The
@@ -55,7 +67,7 @@ When upgrading an existing checkout:
   start the MCP server. It writes `POSTGRES_MCP_PASSWORD` and `MINIO_MCP_PASSWORD` to
   `env/.env.database` when they are blank, and creates or refreshes the read-only accounts the
   server connects with. Run it after every upgrade and after `dev.sh down --volumes`; see
-  [Read-only database and object-store accounts](../../users/detailed-guides/mcp-server/setup-and-integration.md#read-only-database-and-object-store-accounts).
+  [Read-only database and object-store accounts](../../users/detailed-guides/mcp-server/server-operations.md#read-only-database-and-object-store-accounts).
 - Monitoring uses a separate `env/.env.monitoring`. Create it from
   `env-example/.env.monitoring.example` and set `GRAFANA_ADMIN_PASSWORD`, as in
   [Run the monitoring stack](#run-the-monitoring-stack).
@@ -91,9 +103,9 @@ FalkorDB 4.20.1 can create and restore the knowledge-graph uniqueness constraint
 snapshot, but crashes when Redis replays the asynchronous `GRAPH.CONSTRAINT` command from
 AOF. The separate Redis service keeps AOF persistence.
 
-`dev.sh` accepts a `DATABASE_ENV_FILE` override and passes the selected file to Docker
-Compose. Change the example passwords before using the stack outside an isolated developer
-machine.
+`dev.sh` accepts a checkout-relative `DATABASE_ENV_FILE` override and passes the file to
+Docker Compose. Change the example passwords before using the stack outside an isolated
+developer machine.
 
 Every port is published on `HARBORRAG_DATA_BIND_ADDRESS`, `127.0.0.1` by default. Keep it on
 loopback: Qdrant, Redis and FalkorDB run without authentication, so anyone who reaches their
@@ -110,6 +122,9 @@ Use the repository smoke runner in
 public APIs.
 
 ## Run the API and worker
+
+Run one API process per deployment so every connected client receives live ingestion events.
+The event bus is in memory. You can scale ingestion by adding worker replicas.
 
 `scripts/deployment/dev.sh` is the entrypoint for the local stack. `up` starts the data
 services, Temporal, a Temporal worker and the API, and returns only after the API process

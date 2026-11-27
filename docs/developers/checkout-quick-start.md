@@ -1,16 +1,22 @@
 # Running HarborRAG from a checkout
 
-Work on HarborRAG itself once the [Quick Start](../getting-started/quick-start.md) has your
-checkout and its local stack running. This page shows how to explore the code without
-services, start and rebuild one service at a time, drive ingestion runs, and run the tests.
+Use this guide to develop in a HarborRAG checkout. Choose a starting point based on
+what you want to try.
 
-Run every command from the root of the checkout unless a step says otherwise.
+| Goal | Start here |
+| --- | --- |
+| Read the code, try a parser, or run unit tests without Docker | [Explore a checkout without services](#explore-a-checkout-without-services) |
+| Run ingestion, chat, or test a service change against the databases | [Run the full stack](#run-the-full-stack) |
+| Find the test command for your change | [Run the tests](#run-the-tests) |
+
+Run commands from the checkout root unless a step gives a different directory.
 
 ## Requirements
 
-The [Quick Start prerequisites](../getting-started/quick-start.md#before-you-start) cover what
-this page needs: Git, uv, Docker Engine with Compose v2, OpenSSL and an API key for a model endpoint.
-The workspace pins Python 3.12 in `.python-version`.
+For the service-free path, clone the repository and install Git and uv. The workspace pins
+Python 3.12 in `.python-version`. For the full stack, also prepare Docker Compose, OpenSSL,
+and access to the chat and embedding models listed in the
+[Quick Start prerequisites](../getting-started/quick-start.md#before-you-start).
 
 ## Explore a checkout without services
 
@@ -29,11 +35,14 @@ PostgreSQL, Qdrant, FalkorDB and MinIO clients that the stack commands below nee
 
 ### 2. Confirm the CLI
 
-`uv run harborrag --help` lists the commands described in Quick Start step 1, and works
-without Temporal or any data service. The `harborrag` command runs only inside a repository
-checkout: elsewhere it exits 1, and in a terminal it prints `harborrag: no project found.
-Run it inside a HarborRAG repository checkout, ...`. In a pipe it prints the same message in
-a JSON error envelope.
+List the commands without starting Temporal or the data services:
+
+```bash
+uv run harborrag --help
+```
+
+Run operational commands in a checkout or a project with `harborrag.yaml` so they can find
+their configuration.
 
 `harborrag doctor` checks the checkout's catalogs and the local services, Temporal included,
 so its service lines fail until step 6 starts them.
@@ -108,9 +117,9 @@ in `env/.env.models`, and uncomments the `HARBORRAG_CONTROL_DB_URL` line in
 
 - Back up `HARBORRAG_SECRETS_ENCRYPTION_KEY` from `env/.env.database`. The API and the worker
   encrypt stored connection secrets with it, and cannot read them without it.
-- The `HARBORRAG_CONTROL_DB_URL` line substitutes the `POSTGRES_*` values verbatim, so
-  URL-encode a password that contains `@ : / # % ?`. When the CLI uses the line, it also takes
-  `HARBORRAG_SECRETS_ENCRYPTION_KEY` from the same file.
+- For this Compose stack, use a URL-safe PostgreSQL password. The stack inserts the same
+  password into the database and its connection URLs. The CLI reads the control database URL
+  and `HARBORRAG_SECRETS_ENCRYPTION_KEY` from the same environment file.
 - Every CLI command run from the checkout migrates that database. After each pull, rebuild
   the images with `scripts/deployment/dev.sh up --build` before you run a CLI command, or the
   CLI can migrate the database ahead of the running services.
@@ -264,7 +273,7 @@ scripts/deployment/dev.sh mcp-access
 For normal use, point your MCP client at `scripts/deployment/mcp.sh`; for a browser
 playground, run `scripts/deployment/mcp.sh --http` and open <http://127.0.0.1:8010/>. See
 [MCP Tools](../users/detailed-guides/mcp-server/README.md) and
-[Read-only database and object-store accounts](../users/detailed-guides/mcp-server/setup-and-integration.md#read-only-database-and-object-store-accounts).
+[Read-only database and object-store accounts](../users/detailed-guides/mcp-server/server-operations.md#read-only-database-and-object-store-accounts).
 
 ## Run the tests
 

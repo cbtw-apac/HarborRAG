@@ -44,7 +44,7 @@ def test_published_sources_are_recognised(path, package_root):
     [
         "packages/harborrag-core/src/harborrag_core/ports/README.md",
         "packages/harborrag-core/tests/README.md",
-        "deploy/aws/README.md",
+        "deploy/temporal/README.md",
         "website/README.md",
         "examples/README.md",
     ],

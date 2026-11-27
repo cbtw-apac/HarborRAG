@@ -29,13 +29,20 @@ stays in that package's test support.
 
 ## Run the tests
 
+Install the [development tools](../checkout-quick-start.md#1-install-the-development-tools),
+then run the default suite from the checkout root:
+
 ```bash
 uv run pytest
-uv run make test
-uv run make test-package PACKAGE=harborrag-adapters
-uv run make coverage
-uv run make coverage-html
 ```
+
+| Goal | Command |
+| --- | --- |
+| Run one package's suite | `uv run make test-package PACKAGE=harborrag-adapters` |
+| Check the coverage gate | `uv run make coverage` |
+| Generate a browsable coverage report | `uv run make coverage-html` |
+
+For live dependencies, use the [opt-in smoke checks](#real-system-smoke-checks).
 
 By default pytest deselects tests marked `integration`, `e2e` or `smoke`, and runs on eight
 [pytest-xdist](https://pytest-xdist.readthedocs.io/en/stable/) workers. Pass `-n 0` to run

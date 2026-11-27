@@ -1,12 +1,20 @@
 # Tenant and Workspace Status
 
-Keep each team's or customer's data apart by giving it its own tenant, and use the same
-tenant at every entry point: the CLI, the Python SDK, the HTTP API and the MCP tools.
-This page explains what a tenant isolates, where each entry point takes its tenant, how
-to set up and check a second tenant, and what a workspace is and is not today.
+Give each team or customer its own tenant to keep its data separate. Use the same
+tenant ID in the CLI, Python SDK, HTTP API and MCP tools for each workload. The
+caller also needs permission to act in that tenant.
 
-Use a tenant ID to select an isolation boundary. Do not treat it as a workspace profile,
-a deployment selector, or proof that a caller is authorized.
+## Find your tenant task
+
+| Task | Where to start |
+| --- | --- |
+| Set up a tenant | [Choose an ID](#choose-a-tenant-id) and [onboard the tenant](#onboard-a-tenant) |
+| Send a request in the right tenant | [Find the tenant input for your interface](#where-each-surface-takes-its-tenant) |
+| Require credentials on the API | [Configure API authentication](#configure-api-authentication) |
+| Decide who can search a tenant's documents | [Read access inside a tenant](#read-access-inside-a-tenant) |
+| Check that tenants stay isolated | [Verify isolation in both directions](#verify-isolation-in-both-directions) |
+| Plan a deployment | [Check production readiness](#check-production-readiness) |
+| Diagnose unexpected results | [Troubleshooting](#troubleshooting) |
 
 ## Tenant, principal, project, connection and workspace
 
@@ -314,7 +322,7 @@ request from its claimed tenant alone.
 
 The authenticated API mode is `hmac`: the API verifies HS256-signed JWT bearer tokens.
 In that mode it also accepts an API key created with `harborrag auth keys create` (see
-[MCP setup](../detailed-guides/mcp-server/setup-and-integration.md)), as a `reader` of
+[Tenant-bound reader keys](../detailed-guides/mcp-server/server-operations.md#tenant-bound-reader-keys-and-shared-corpus-access)), as a `reader` of
 the key's one tenant. Such a key reads documents as its owner, so the owner's source and
 document permissions decide what its chat answers cite. Chat sessions and
 `Idempotency-Key` replay are keyed by the owner too, not by the key ID, so the owner's
@@ -406,7 +414,7 @@ the requested tenant against the token's grant. A key or token bound to one tena
 in that tenant, and a call naming another tenant is refused; local stdio without a token
 needs an explicit `tenant_id`. `tenant_id` cannot appear inside `filters`. Transport
 authentication and reader keys are in
-[MCP Setup and Integration](../detailed-guides/mcp-server/setup-and-integration.md).
+[Tenant-bound reader keys](../detailed-guides/mcp-server/server-operations.md#tenant-bound-reader-keys-and-shared-corpus-access).
 
 Tenant entries in `config/mcp/server.yaml` change the effective tool catalog and policy;
 they do not create tenants or move data. A tenant entry merges over the global settings,
@@ -415,8 +423,8 @@ against the resolved schema and limits. A tenant entry can lower limits or disab
 tool, but it cannot raise a compiled safety ceiling or set a default for `tenant_id` or
 any other required argument, so a caller always states its tenant. Unknown tenants use
 the global policy. The file format and its validation rules are in
-[Tenant overrides](../detailed-guides/mcp-server/setup-and-integration.md#tenant-overrides)
-and [Validation](../detailed-guides/mcp-server/setup-and-integration.md#validation).
+[Tenant overrides](../detailed-guides/mcp-server/tool-configuration.md#tenant-overrides)
+and [Validation](../detailed-guides/mcp-server/tool-configuration.md#validation).
 
 Calling `McpServer.call_tool(...)` directly is a trusted in-process boundary: its
 `principal_id` labels audit records but does not authenticate the caller. Applications
@@ -449,7 +457,7 @@ their own environment, and the CLI from a checkout reads them from `env/.env.api
 MCP server reads them from `env/.env.mcp`. In the SDK, the application chooses the mode
 per request with `AccessContext.corpus_mode`. For the CLI, see
 [Ask a grounded question](../cli-reference/README.md#ask-a-grounded-question); for MCP, see
-[Tenant-bound reader keys and shared corpus access](../detailed-guides/mcp-server/setup-and-integration.md#tenant-bound-reader-keys-and-shared-corpus-access).
+[Tenant-bound reader keys and shared corpus access](../detailed-guides/mcp-server/server-operations.md#tenant-bound-reader-keys-and-shared-corpus-access).
 
 ## How tenant context propagates
 
@@ -870,7 +878,7 @@ does not create it.
 - [CLI reference](../cli-reference/README.md) lists the exact tenant options and output
   contracts.
 - [Chat](../chat/README.md) documents tenant, principal and session memory identity.
-- [MCP Setup and Integration](../detailed-guides/mcp-server/setup-and-integration.md)
+- [Operate the MCP server](../detailed-guides/mcp-server/server-operations.md)
   covers authenticated transports, reader keys, tenant policy and the local UI.
 - [Projection and rebuild architecture](../../developers/architecture/projection-rebuild.md)
   explains authoritative data, tenant projections and rebuilds.

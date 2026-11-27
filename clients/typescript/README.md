@@ -1,27 +1,48 @@
 # @harborrag/api-client
 
-TypeScript client for the HarborRAG HTTP API. It gives you typed helpers for chat
-completions (JSON and SSE) and chat sessions, a small typed fetch for every other route,
-and the wire types (`paths`, `components`, `operations`) generated from the backend's
-`openapi.json`. The backend owns that contract; the build copies the generated
-declarations into the published package.
+Use this TypeScript client to call the HarborRAG HTTP API from your application. It includes
+typed helpers for chat and sessions, a JSON fetch helper, and wire types generated from the
+backend's OpenAPI contract. For the API's chat behavior, see the
+[Chat guide](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/chat/README.md).
 
-What each chat field means and what the server does with it is in the
-[Chat guide](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/chat/README.md);
-this page covers the client.
+## Install from a checkout
+
+Use Node.js 22.15 or later and uv. From the HarborRAG root, generate the contract, build the
+client, and pack it for your application:
+
+```bash
+uv sync --package harborrag-app --extra api
+uv run --no-sync make openapi
+cd clients/typescript
+npm ci --ignore-scripts
+npm run generate
+npm pack
+```
+
+`npm pack` builds the package and prints the archive name. In your application, run
+`npm install /absolute/path/to/the-archive.tgz` with the path to that file. The repository's
+[API Contract workflow](https://github.com/cbtw-apac/HarborRAG/blob/main/.github/workflows/contract.yml)
+also builds an `api-client` artifact for its runs.
 
 ## Create a client
+
+Start the [local stack](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/getting-started/quick-start.md)
+or use the address of an existing HarborRAG API. This example checks the local API:
 
 ```ts
 import { createHarborClient } from "@harborrag/api-client";
 
 const api = createHarborClient({
-  baseUrl: import.meta.env.VITE_API_BASE_URL,
-  getToken: () => localStorage.getItem("harbor_token"),
+  baseUrl: "http://127.0.0.1:8000",
+  getToken: () => null,
 });
 
 const health = await api.get<{ status: string }>("/healthz");
+console.log(health.status);
 ```
+
+A running API returns `ok`. If your API uses authentication, provide a token through
+`getToken`.
 
 - **Client options:** `baseUrl` is the API origin, such as `http://localhost:8000`.
   `getToken` returns a bearer token, or `null` for a development backend without
@@ -31,7 +52,8 @@ const health = await api.get<{ status: string }>("/healthz");
   `tenant` when the token holds several tenants.
 - **Generic helpers:** `request(method, path, body?)` and its shortcuts `get`, `post`,
   `patch` and `delete` take the full route path, such as `/v1/admin/projects`, and no
-  request options.
+  request options. They read JSON responses. Use a separate streaming request for
+  ingestion events.
 - **Errors:** every non-2xx response throws `HarborApiRequestError`, with the HTTP
   `status` and the standard `envelope`
   `{"error": {"code", "message", "details", "trace_id"}}`.
@@ -77,7 +99,7 @@ let answer = "";
 
 try {
   for await (const event of api.streamChat(
-    { message: "Explain our release policy", session_id: sessionId },
+    { message: "Explain our release policy" },
     { signal: controller.signal, tenant: "ACME", idempotencyKey: crypto.randomUUID() },
   )) {
     if (event.event === "response.output_text.delta") {
@@ -95,7 +117,8 @@ try {
 ```
 
 `streamChat` sends the same request with `stream: true` and yields `ChatStreamEvent`
-values, decoding UTF-8 across arbitrary network chunks:
+values, decoding UTF-8 across arbitrary network chunks. To stream a turn in a session,
+create one first and pass its `session_id` from [Chat sessions](#chat-sessions).
 
 | Event | Data |
 | --- | --- |
@@ -145,29 +168,15 @@ The session routes are described in
 
 ## Regenerate the wire types
 
-```bash
-uv run make openapi          # repository root: writes openapi.json
-cd clients/typescript
-npm ci --ignore-scripts
-npm run generate             # writes src/schema.d.ts
-npm run build
-```
-
-`openapi.json`, `src/schema.d.ts` and `dist/` are generated and git-ignored.
+Repeat the generation steps under [Install from a checkout](#install-from-a-checkout).
+Use `npm run build` when you only need the compiled client. `openapi.json`,
+`src/schema.d.ts`, and `dist/` are generated and git-ignored.
 
 CI (`.github/workflows/contract.yml`) runs on pull requests to, and pushes on, `main` and
 `dev/v2.0.0`. It exports the contract, runs `npm audit --audit-level=moderate`, generates
 the types, and builds and tests the client. On a pull request it gates the merge on
 `oasdiff breaking` against the target branch; the `contract-break-approved` label
 overrides the gate and requires lead review.
-
-`package.json` overrides two transitive dependencies to patched releases, `minimatch` and
-`js-yaml`. The `minimatch` override removes GHSA-g3hv-75wg-m249: `openapi-typescript` 7
-still depends on `@redocly/openapi-core` 1.x, which pins a vulnerable `minimatch`.
-Generation from the local `openapi.json` is unaffected, and the generated types are
-identical. The one redocly path that calls `minimatch`, header matching for remote `$ref`
-URLs, does not work under the override, so keep the generator on local files. Drop the
-override once `openapi-typescript` moves to `@redocly/openapi-core` 2.
 
 ## Test the client
 
@@ -180,3 +189,13 @@ no network calls; they use Node 22.15+ native type stripping and the built-in te
 runner, and cover split UTF-8 and CRLF framing, truncated and invalid streams,
 cancellation, and independent concurrent requests. The package test packs a temporary
 npm archive and type-checks its exported declarations.
+
+### Dependency overrides
+
+`package.json` overrides two transitive dependencies to patched releases, `minimatch` and
+`js-yaml`. The `minimatch` override removes GHSA-g3hv-75wg-m249: `openapi-typescript` 7
+still depends on `@redocly/openapi-core` 1.x, which pins a vulnerable `minimatch`.
+Generation from the local `openapi.json` is unaffected, and the generated types are
+identical. The one redocly path that calls `minimatch`, header matching for remote `$ref`
+URLs, does not work under the override, so keep the generator on local files. Drop the
+override once `openapi-typescript` moves to `@redocly/openapi-core` 2.

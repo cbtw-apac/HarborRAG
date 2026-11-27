@@ -132,7 +132,7 @@ changes the authority model above.
   tool that imports them (the runtime function `import_permissions` in
   `harborrag_runtime/topology/security_operations.py` has no operator entry point); a tenant
   whose corpus is deliberately shared uses `tenant_shared` instead. See
-  [MCP Setup and Integration](../../users/detailed-guides/mcp-server/setup-and-integration.md).
+  [Shared corpus access](../../users/detailed-guides/mcp-server/server-operations.md#shared-corpus-access).
 - Cleanup and relationship repair can be eventually consistent after a safe publication.
 - Production identity, TLS, network isolation, secret delivery, backups, observability and
   capacity policy remain deployment responsibilities; see

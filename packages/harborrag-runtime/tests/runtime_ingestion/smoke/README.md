@@ -14,8 +14,9 @@ local discovery
   -> dense, sparse, and hybrid authoritative retrieval
 ```
 
-The run calls `FLUSHALL` on the configured Redis database. Run it only against a
-disposable ingestion cache, never a shared Redis deployment.
+> **Use a dedicated, disposable Redis instance.** The smoke test calls `FLUSHALL`, which
+> clears every logical database on that Redis instance. A separate Redis database number
+> does not protect keys in a shared deployment.
 
 ## Start the stack with the fixtures mounted
 

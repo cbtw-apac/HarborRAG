@@ -194,7 +194,7 @@ files, runs started from the API and scheduled runs prepared by the worker carry
 different identities, and documents reprocess on alternate syncs. Documents published
 by a retry run keep the identity of the run it retries, so the first sync after the
 edit reprocesses them once more. See
-[Use docling for PDFs](../upgrading.md#use-docling-for-pdfs).
+[Use docling for PDFs](../upgrading-2-0-0-configuration.md#use-docling-for-pdfs).
 
 ## Run pinning
 

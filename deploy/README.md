@@ -15,8 +15,15 @@ which environment file, and what a production deployment still needs are in
   how the stack is run.
 - `temporal/` - the local Temporal server's dynamic configuration; its
   [README](temporal/README.md) describes HarborRAG's Temporal settings.
-- `aws/` - empty placeholders for cloud infrastructure-as-code; see its
-  [README](aws/README.md).
+- `aws/` - placeholder directories for CDK, Terraform, and Step Functions. Use the
+  [local Compose deployment](../docs/developers/deployment/README.md) to run HarborRAG.
+
+## Add a local Grafana dashboard
+
+Put exported dashboard JSON in `deploy/grafana/dashboards/`. The monitoring Compose file
+mounts the directory read-only at `/var/lib/grafana/dashboards`. Grafana loads the files
+into the **HarborRAG** folder using `grafana/provisioning/dashboards/dashboards.yml`.
+See [Run the monitoring stack](../docs/developers/deployment/README.md#run-the-monitoring-stack).
 
 ## Run the API as exactly one process
 

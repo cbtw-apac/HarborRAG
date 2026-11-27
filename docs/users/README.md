@@ -1,61 +1,28 @@
 # User Documentation
 
-This section is for anyone who runs HarborRAG or builds on it: adding sources, running
-ingestions, searching and chatting, and configuring the services. New to HarborRAG? Start
-with the [Quick Start](../getting-started/quick-start.md), which takes you from a clone of the
-repository to a first answer.
-
-HarborRAG offers three ways in: the `harborrag` command, run from a repository checkout; an
-HTTP API for chat, connections, ingestions and runtime settings; and an MCP server with
-eleven read-only tools for IDEs and agents.
-[Capability status](../getting-started/what-is-harborrag.md#capability-status) lists what
-each one implements today.
+Use these guides to connect your own sources, index them and ask questions about
+what they contain. If you're setting up HarborRAG for the first time, start with the
+[Quick Start](../getting-started/quick-start.md) and get a cited answer from the example
+documents.
 
 ## Pages in this section
 
-- [Chat](chat/README.md) - ask a question over HTTP or with `harborrag chat` and get an
-  answer that cites its sources.
-  - [Chat models](chat/models.md) - which model answers a turn and what a caller may choose.
-  - [Conversation memory](chat/memory.md) - what a turn remembers and who can read a session.
-  - [Limits and accounting](chat/limits.md) - deadlines, rate limits, retries and token
-    usage.
-- [Connections](connections.md) - connect a Jira, Confluence, SharePoint, GitHub or local
-  source, then start, follow and retry its ingestions.
-- [Ingestion modes](ingestion-modes.md) - skip records already indexed (`incremental`) or
-  process every record again (`force`).
-- [Scheduled ingestion](scheduled-ingestion.md) - run a connection's ingestion on a
-  timetable.
-- [Python SDK](python-sdk/README.md) - ingest, search, walk the graph and chat from your own
-  Python code.
-- [CLI reference](cli-reference/README.md) - every `harborrag` command and option.
-- [Configuration](configuration/README.md) - the `config/` files, the `env/` files and the
-  settings you change while HarborRAG runs.
-  - [Connector configuration](configuration/connector-config.md) - the sources in
-    `config/sources/connectors.yaml` and each provider's options.
-  - [Parser configuration](configuration/parser-config.md) - how PDFs, Office files and
-    images become text, including OCR.
-  - [Chunking configuration](configuration/chunking-config.md) - chunk sizes and per-source
-    profiles.
-  - [Graph build configuration](configuration/graph-build-config.md) - how the knowledge
-    graph is built.
-  - [Model configuration](configuration/model-config.md) - the chat, embedding and
-    reranking models and the endpoint they are called at.
-  - [Runtime settings](configuration/runtime-settings.md) - the six settings you change
-    without a restart.
-  - [Engine configuration](configuration/config-file-reference.md) - every `HARBORRAG_*`
-    environment variable the services read.
-  - [Tenant and workspace status](configuration/workspace-mode.md) - keep each team's data
-    apart with tenants.
-- [MCP tools](detailed-guides/mcp-server/README.md) - the tools HarborRAG offers to AI
-  assistants, IDEs and agents.
-  - [MCP setup and integration](detailed-guides/mcp-server/setup-and-integration.md) -
-    start the server, connect a client and issue reader keys.
-- [Troubleshooting](troubleshooting/README.md) - symptoms, causes and fixes.
-- [Upgrading](upgrading.md) - the steps each release needs on an existing deployment.
+| I want to… | Start here |
+| --- | --- |
+| Add a Jira, Confluence, SharePoint, GitHub or local source | [Connections](connections.md) |
+| Index a source or follow a run | [Start and control ingestions](connections.md#start-and-control-ingestions), [ingestion modes](ingestion-modes.md) |
+| Keep my index up to date automatically | [Scheduled ingestion](scheduled-ingestion.md) |
+| Ask a question and see its sources | [Chat](chat/README.md) |
+| Search from an IDE or AI assistant | [MCP setup](detailed-guides/mcp-server/setup-and-integration.md), [connect your MCP client](detailed-guides/mcp-server/clients.md) |
+| Integrate HarborRAG into a Python application | [Python SDK](python-sdk/README.md) |
+| Find a terminal command or flag | [CLI reference](cli-reference/README.md) |
+| Change how HarborRAG parses, indexes or searches | [Configuration](configuration/README.md), [runtime settings](configuration/runtime-settings.md) |
+| Decide who can access indexed documents | [Tenant access](configuration/workspace-mode.md#read-access-inside-a-tenant) |
+| Fix an error or update a deployment | [Troubleshooting](troubleshooting/README.md), [upgrading](upgrading.md) |
 
 ## Going deeper
 
-To use connectors, parsers, model clients and repositories directly from Python, read the
-[`harborrag-adapters` README](../../packages/harborrag-adapters/README.md) and the family
-README nearest the implementation. To add a new provider, see
-[Extending HarborRAG](../developers/extending/README.md).
+Browse the [documentation index](../TOC.md) for the full list of guides. See
+[Extending HarborRAG](../developers/extending/README.md) to add a provider or the
+[`harborrag-adapters` README](../../packages/harborrag-adapters/README.md) to use an
+adapter directly from Python.

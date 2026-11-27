@@ -85,7 +85,7 @@ Postgres database).
 | `Invalid value for REF: expected PROJECT_ID/CONNECTION_ID` | The command was given a bare key such as `harborrag-workspace`, or a source type such as `local` | Pass the connection's ref, such as `default/harborrag-workspace`; `uv run harborrag connections list` lists them |
 | `ingestions start` fails with `422 reference_not_found` | The project or the connection does not exist in the tenant; an imported connection exists only in the tenant `HARBORRAG_TENANT_ID` named at the first start, `DEFAULT` unless set | Check the ref and `--tenant` with `uv run harborrag connections list`; see [Run and control ingestion](../cli-reference/README.md#run-and-control-ingestion) |
 | `connections get` fails with `404 not_found` and exit 3 | No connection has that ref in the tenant | Check the ref and `--tenant` with `uv run harborrag connections list` |
-| An old subcommand such as `harborrag source list` exits 2 with `was renamed` | The command was renamed in 2.0.0 | Run the command the message names; see [Upgrading](../upgrading.md#update-scripts-for-cli-v200) |
+| An old subcommand such as `harborrag source list` exits 2 with `was renamed` | The command was renamed in 2.0.0 | Run the command the message names; see [Upgrading](../upgrading-2-0-0-automation.md#update-scripts-for-cli-v200) |
 | `ingestions start` fails with `Tenant … has no data yet; pass --yes to create it` | The write goes to a tenant that holds no data, without a terminal to ask | Check `--tenant`, `HARBORRAG_TENANT_ID` and the CLI profile for a typo; pass `--yes` only to create the tenant |
 | An ingestion command cannot connect to Temporal | `HARBORRAG_TEMPORAL_TARGET` does not name a reachable Temporal frontend | Set it, normally to `localhost:7233` from the host; `ingestions start --inline` needs no Temporal |
 | Temporal starts but no HarborRAG worker appears | The worker was not started | Run `scripts/deployment/dev.sh worker` |
@@ -164,8 +164,8 @@ Chat answers over HTTP and the CLI only; the MCP server exposes retrieval tools 
 | An MCP client gets JSON-RPC error `-32000` from `/mcp`, or `/api/tools` answers `429` with a `Retry-After` header | The credential sent more than `HARBORRAG_MCP_RATE_LIMIT` requests per second (10 by default), or had more than `HARBORRAG_MCP_MAX_INFLIGHT` requests running at once (4 by default). Both limits count `/mcp` and `/api/tools` together | Retry after the wait, or slow the client down. To raise a limit, set its variable in `env/.env.mcp` and restart the server; `0` turns that limit off. See [MCP runtime environment](../configuration/config-file-reference.md#mcp-runtime-environment) |
 | `harborrag-mcp` exits at startup with `durable MCP audit directory must be owner-only (mode 0700)`, or `durable MCP audit directory must be owned by this process user` | The directory of the durable audit file, `~/.harborrag` unless `HARBORRAG_MCP_AUDIT_PATH` names another, grants access to other users or belongs to another user. An earlier `harborrag auth keys create` or SharePoint sign-in may have created it with a mode such as 0755 | Run `chmod 700` on the directory the message names, as its owner, or set `HARBORRAG_MCP_AUDIT_PATH` to a file in an owner-only directory. HarborRAG never changes the mode of an existing directory |
 | MCP appears to do nothing when started in a terminal | The stdio MCP server waits for a client over pipes and has no port or prompt | Run `scripts/deployment/mcp.sh --check`, or start it with `--http` and open `http://127.0.0.1:8010/` |
-| `mcp.sh --http` prints `HarborRAG MCP preflight failed` and starts nothing | A setting or backend the server needs at start-up is missing or unreachable. The line names it, and a `Note:` line above it lists model variables that no env file sets | Fix what the line names and run the command again; see [Checks before the HTTP server starts](../detailed-guides/mcp-server/setup-and-integration.md#checks-before-the-http-server-starts) |
-| The MCP preflight line ends in `(cause: InvalidPasswordError)` or `(cause: InvalidAuthorizationSpecificationError)` | Postgres refused the server's read-only role, `harborrag_mcp`: its password is wrong or missing, or the role cannot log in yet, for example on a new database volume or after an upgrade | Run `scripts/deployment/dev.sh mcp-access`, then start the server again; see [Read-only database and object-store accounts](../detailed-guides/mcp-server/setup-and-integration.md#read-only-database-and-object-store-accounts) |
+| `mcp.sh --http` prints `HarborRAG MCP preflight failed` and starts nothing | A setting or backend the server needs at start-up is missing or unreachable. The line names it, and a `Note:` line above it lists model variables that no env file sets | Fix what the line names and run the command again; see [Checks before the HTTP server starts](../detailed-guides/mcp-server/server-operations.md#checks-before-the-http-server-starts) |
+| The MCP preflight line ends in `(cause: InvalidPasswordError)` or `(cause: InvalidAuthorizationSpecificationError)` | Postgres refused the server's read-only role, `harborrag_mcp`: its password is wrong or missing, or the role cannot log in yet, for example on a new database volume or after an upgrade | Run `scripts/deployment/dev.sh mcp-access`, then start the server again; see [Read-only database and object-store accounts](../detailed-guides/mcp-server/server-operations.md#read-only-database-and-object-store-accounts) |
 | Every `mcp.sh` or `mcp-ui.sh` command, `down` included, stops with `required variable POSTGRES_MCP_PASSWORD is missing a value: run scripts/deployment/dev.sh mcp-access to set POSTGRES_MCP_PASSWORD`, or the same for `MINIO_MCP_PASSWORD` | `env/.env.database` has no password for the MCP server's read-only accounts, as in a file older than these accounts | Run `scripts/deployment/dev.sh mcp-access` once the stack is up, or `scripts/deployment/dev.sh bootstrap` to only write the passwords |
 | The MCP HTTP server answers `421 Misdirected Request` or `403 Forbidden Origin` | The request is addressed to a host name other than `127.0.0.1`, `localhost` or `::1`, for example through a reverse proxy, or it comes from a page on another origin | Call the server by a loopback name, or list the proxy's host name in `HARBORRAG_MCP_ALLOWED_HOSTS`, with `HARBORRAG_MCP_AUTH_MODE=api_key`, and restart it |
 | The status page disables **Save**, or `PUT /api/config` answers `409` | The container mounts `config/` read-only | Edit `config/mcp/server.yaml` in the checkout and select **Reload YAML** |
@@ -177,7 +177,7 @@ Chat answers over HTTP and the CLI only; the MCP server exposes retrieval tools 
 The MCP configuration UI changes enablement, defaults, numeric limits and tenant overrides
 in `config/mcp/server.yaml`. It cannot change provider credentials, provider endpoints or
 stored prompt files. See
-[MCP Setup and Integration](../detailed-guides/mcp-server/setup-and-integration.md).
+[Configure tools from the browser](../detailed-guides/mcp-server/server-operations.md#configure-tools-from-the-browser).
 
 ## Unexpected logs or oversized embedding input
 
@@ -223,9 +223,21 @@ not a failed check. See
 
 ## Deployment surprises
 
+### Startup asks you to restore the secrets encryption key
+
+If `dev.sh up` reports that the key is blank and the database volume already exists, restore
+the original `HARBORRAG_SECRETS_ENCRYPTION_KEY` from your backup to `env/.env.database` and
+start again. A new key cannot decrypt the connection credentials already in that database.
+See [environment setup](../../developers/deployment/README.md#prepare-the-environment-files)
+when setting up a new database.
+
+### Plan a deployment outside local development
+
 The database and Temporal Compose stacks are for local development, not a production
 topology: use Temporal Cloud or the official Helm chart with managed persistence. See
 [Deployment](../../developers/deployment/README.md) before you build an application image.
+
+### The control database is newer than the API build
 
 The API stops at startup with `control-plane database is at schema revision X, newer than
 this build's head Y` when a newer build (another branch or image) already migrated the

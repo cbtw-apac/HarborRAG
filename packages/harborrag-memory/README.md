@@ -59,6 +59,13 @@ It prints the stored turn:
 (ConversationTurn(user_content='Who owns ingestion?', assistant_content='Dana Lee.'),)
 ```
 
+Continue with the task you need:
+
+- [Assemble context for a chat turn](#assemble-the-context-of-one-turn).
+- [Tune memory budgets and behavior](#memorypolicy).
+- [Recall and extract long-term memories](#recall-and-extract-long-term-memories).
+- [Find code and tests](#contributing).
+
 ## What it provides
 
 ### Two tiers, one facade

@@ -1,13 +1,22 @@
 # CLI reference
 
-Look up how the `harborrag` command maps to the HTTP API, which options every command
-takes, what it prints and which exit code it returns. The usage line, arguments and
-options of each command are in the generated
-[CLI command reference](commands.md); `uv run harborrag COMMAND --help` prints the same.
+Use `harborrag` to manage connections, run ingestions and ask questions from a
+terminal. Run the examples from a [configured checkout](#run-from-a-repository-checkout)
+with `uv run harborrag`.
 
-The CLI runs from inside a HarborRAG repository checkout. Run every command through
-[uv](https://docs.astral.sh/uv/) as `uv run harborrag …`, as the examples on this page
-do, so it runs in the checkout's environment.
+## Find a command
+
+| Task | Command | Details |
+| --- | --- | --- |
+| Check the stack | `uv run harborrag doctor` | [Check the setup](#check-the-setup) |
+| Find a connection | `uv run harborrag connections list` | [Manage projects and connections](#manage-projects-and-connections) |
+| Ingest the example folder | `uv run harborrag ingestions start default/harborrag-workspace --wait` | [Run and control ingestion](#run-and-control-ingestion) |
+| Follow an existing run | `uv run harborrag ingestions get INGESTION_ID --watch` | [Follow a run](#follow-a-run) |
+| Ask about indexed documents | `uv run harborrag chat "How is ingestion configured?"` | [Ask a grounded question](#ask-a-grounded-question) |
+| Read runtime settings | `uv run harborrag settings get --effective` | [Read and change runtime settings](#read-and-change-runtime-settings) |
+
+For all arguments and flags, see the [CLI command reference](commands.md) or run
+`uv run harborrag <command> --help`.
 
 ## How the CLI maps to the HTTP API
 
@@ -672,4 +681,4 @@ control database is the local SQLite default, which prints at once so a failure 
 wrong database carries its hint.
 
 Lifetime limits, the key format and how the MCP server checks keys are in
-[Tenant-bound reader keys and shared corpus access](../detailed-guides/mcp-server/setup-and-integration.md#tenant-bound-reader-keys-and-shared-corpus-access).
+[Tenant-bound reader keys and shared corpus access](../detailed-guides/mcp-server/server-operations.md#tenant-bound-reader-keys-and-shared-corpus-access).

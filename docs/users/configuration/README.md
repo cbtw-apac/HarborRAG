@@ -47,7 +47,7 @@ the root:
 | `config/ingestion/` | `parsers.yaml`, `chunking.yaml` | [Parser Configuration](parser-config.md), [Chunking Configuration](chunking-config.md) |
 | `config/graph/` | `build.yaml`, `ontologies/example.yaml` | [Graph Build Configuration](graph-build-config.md) |
 | `config/models/` | `models.yaml`, `models.production.example.yaml` | [Model Configuration](model-config.md) |
-| `config/mcp/` | `server.yaml`, `keys.example.yaml` (copy to the git-ignored `keys.yaml`) | [MCP Setup and Integration](../detailed-guides/mcp-server/setup-and-integration.md) |
+| `config/mcp/` | `server.yaml`, `keys.example.yaml` (copy to the git-ignored `keys.yaml`) | [Configure MCP tools](../detailed-guides/mcp-server/tool-configuration.md) and [Tenant-bound reader keys](../detailed-guides/mcp-server/server-operations.md#tenant-bound-reader-keys-and-shared-corpus-access) |
 
 The YAML files hold values only; each page explains them. `config/ingestion/parsers.yaml`
 is the exception: its inactive alternatives stay as commented blocks, because its bytes

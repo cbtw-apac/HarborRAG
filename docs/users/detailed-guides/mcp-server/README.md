@@ -8,8 +8,9 @@ HarborRAG MCP server, `harborrag-mcp` from the `harborrag-mcp-server` package,
 exposes eleven read-only tools that search and read your indexed content. Every
 call passes the same policy checks and is written to an audit log.
 
-To start the server and connect a client first, see
-[Setup and Integration](setup-and-integration.md).
+Start with the [MCP quick start](setup-and-integration.md), or go straight to
+[client setup](clients.md), [server operations](server-operations.md), or
+[search and HarborRAG Explorer](search-and-explorer.md).
 
 ## Tools
 
@@ -47,7 +48,7 @@ What the catalog leaves out:
 - Ingestion is controlled through the CLI or the authenticated HTTP API, never
   through MCP.
 - A separate server, `harborrag-mcp-ui`, offers the interactive
-  [Explorer](setup-and-integration.md#explorer-mcp-ui-server): a UI that helps
+  [Explorer](search-and-explorer.md#explorer-mcp-ui-server): a UI that helps
   people search, read and trace the corpus, rather than an evidence source for
   models.
 
@@ -58,7 +59,7 @@ guide to which tool fits which question.
 
 Each deployment sets tool defaults and limits in
 [`config/mcp/server.yaml`](../../../../config/mcp/server.yaml); see
-[Tool configuration](setup-and-integration.md#tool-configuration). The shipped
+[Tool configuration](tool-configuration.md#tool-configuration). The shipped
 file sets `vector_search` `top_k` to 5 and leaves `observe_graph` off. To see
 the values a tenant actually gets, read `GET /api/tools?tenant_id=<tenant>` on
 the server's HTTP transport.
@@ -78,10 +79,10 @@ the server's HTTP transport.
 
 Over HTTP, tool calls accept `reader` and `owner` tokens that hold the tenant.
 Changing the server's configuration needs the `owner` token; see
-[Tenant-bound reader keys](setup-and-integration.md#tenant-bound-reader-keys-and-shared-corpus-access).
+[Tenant-bound reader keys](server-operations.md#tenant-bound-reader-keys-and-shared-corpus-access).
 Each credential may also send at most 10 requests per second and run 4 at once,
 by default; a request over a limit is refused before any tool runs. See
-[Request limits](setup-and-integration.md#request-limits).
+[Request limits](server-operations.md#request-limits).
 
 ## Evidence and graph workflow
 
@@ -171,11 +172,11 @@ explicitly.
 ## Call the tools from Python
 
 An application or test can run the same server in process; see
-[Use from Python](setup-and-integration.md#use-from-python).
+[Use from Python](tool-configuration.md#use-from-python).
 
 ## Next
 
-- [Setup and Integration](setup-and-integration.md): start the server, connect
+- [MCP quick start](setup-and-integration.md): start the server, connect
   Claude Desktop, Cursor or VS Code, issue reader keys, configure the tools.
 - [Chat](../../chat/README.md): the HTTP chat API.
 - [Troubleshooting](../../troubleshooting/README.md): when a client cannot
