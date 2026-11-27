@@ -15,7 +15,7 @@ from pydantic.json_schema import JsonDict
 from harborrag_app.operations.schemas.common import ApiModel
 
 SourceTypeName = Literal["jira", "confluence", "sharepoint", "local_file", "github"]
-ConnectionStatusName = Literal["active", "needs_reauth", "error"]
+ConnectionStatusName = Literal["active", "needs_reauth", "error", "deleting"]
 ID_PATTERN = r"^[a-z0-9][a-z0-9_-]{0,62}$"
 
 
@@ -199,8 +199,12 @@ class ConnectionOut(BaseModel):
     advanced: dict[str, Any] = Field(
         description="Request settings per the advanced_schema; a missing field uses the default"
     )
-    status: Literal["active", "needs_reauth", "error", "deleting"]
+    status: ConnectionStatusName = Field(description="deleting while a removal runs")
     last_ingestion: LastIngestionOut | None
+    next_run_at: datetime | None = Field(
+        description="The next slot among the connection's active schedules; null when it has "
+        "none or while schedules.enabled is false"
+    )
     stats: ConnectionStatsOut
     created_by: str = Field(description="Read from the token")
     updated_by: str = Field(description="Read from the token")

@@ -86,6 +86,7 @@ class ConnectionRepositoryPort(Protocol):
         status: ConnectionStatus | None = None,
         limit: int | None = None,
         cursor: str | None = None,
+        scheduled: bool | None = None,
     ) -> tuple[list[Connection], str | None]:
         """Connections needing attention first, then by project and ``connection_id``.
 
@@ -96,6 +97,8 @@ class ConnectionRepositoryPort(Protocol):
             status: Keep one status only.
             limit: Page size; ``None`` returns every match on one page.
             cursor: ``next_cursor`` from the previous page.
+            scheduled: ``True`` keeps connections with a schedule that is not paused,
+                ``False`` keeps the others; ``None`` keeps both.
 
         Returns:
             The page and the cursor of the next page, or ``None`` on the last one.
@@ -392,6 +395,20 @@ class ScheduleRepositoryPort(Protocol):
         self, *, tenant_id: str, project_id: str, connection_id: str
     ) -> list[Schedule]:
         """Every schedule that acts on one connection, unpaginated."""
+
+    async def next_runs(
+        self, *, tenant_id: str, connections: Sequence[tuple[str, str]]
+    ) -> dict[tuple[str, str], datetime]:
+        """The earliest ``next_run_at`` among each connection's schedules that are not paused.
+
+        Args:
+            tenant_id: Tenant of the connections.
+            connections: ``(project_id, connection_id)`` of each connection to look up.
+
+        Returns:
+            The earliest next slot time by ``(project_id, connection_id)``; a connection
+            with no such schedule, or none with a stored next slot time, is absent.
+        """
 
     async def put(
         self, schedule: Schedule, *, expected_version: int | None, create_only: bool

@@ -156,10 +156,13 @@ async def pause_schedule(
     schedule_id: ScheduleId,
     operations: OperationsDependency,
     scope: ScopeDependency,
+    response: Response,
     body: Annotated[SchedulePauseRequest | None, Body()] = None,
 ) -> ScheduleOut:
-    """Pause the schedule; pausing a paused one returns it unchanged."""
-    return await operations.pause_schedule(scope, schedule_id, body)
+    """Pause the schedule; pausing a paused one returns it unchanged. The ETag is for If-Match."""
+    tagged = await operations.pause_schedule(scope, schedule_id, body)
+    response.headers["ETag"] = tagged.etag
+    return tagged.body
 
 
 @router.post(
@@ -170,10 +173,15 @@ async def pause_schedule(
     dependencies=[Depends(require_role(OPERATIONS["resume_schedule"].role))],
 )
 async def resume_schedule(
-    schedule_id: ScheduleId, operations: OperationsDependency, scope: ScopeDependency
+    schedule_id: ScheduleId,
+    operations: OperationsDependency,
+    scope: ScopeDependency,
+    response: Response,
 ) -> ScheduleOut:
-    """Resume the schedule and clear its consecutive failures."""
-    return await operations.resume_schedule(scope, schedule_id)
+    """Resume the schedule and clear its consecutive failures. The ETag is for If-Match."""
+    tagged = await operations.resume_schedule(scope, schedule_id)
+    response.headers["ETag"] = tagged.etag
+    return tagged.body
 
 
 @router.post(

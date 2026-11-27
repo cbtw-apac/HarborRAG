@@ -15,7 +15,6 @@ from typing import Any, Final
 
 from harborrag_core.base import utc_now
 from harborrag_core.config_store.durations import parse_iso8601_duration_seconds
-from harborrag_core.config_store.levels import SettingsLevel
 from harborrag_core.config_store.registry import SchedulesGroup
 from harborrag_core.contracts.errors import (
     HarborAlreadyRunningError,
@@ -38,6 +37,10 @@ from harborrag_core.ports.control_plane import ScheduleRepositoryPort
 from harborrag_engine.control_plane.connection_views import ANY_VERSION, ingestion_status
 from harborrag_runtime.composition import ControlPlaneRepositories
 from harborrag_runtime.ingestion.connections import ConnectionUnavailableError
+from harborrag_runtime.observability.schedule_metrics import (
+    SCHEDULE_SLOT_METRICS,
+    ScheduleSlotMetrics,
+)
 from harborrag_runtime.scheduling.validation import min_cron_gap_seconds
 
 from ..ingestion.starter import IngestionStarter
@@ -52,6 +55,7 @@ from .schedule_models import (
     WriteConditions,
 )
 from .schedule_rules import catch_up_window_seconds, parse_timetable
+from .schedule_settings import read_schedule_settings
 from .schedule_views import schedule_view
 
 logger = logging.getLogger("harborrag.runtime.application.control_plane.schedules")
@@ -71,6 +75,7 @@ class ConnectionScheduleService:
         runs: Run registry, for the status of the runs slots started.
         starter: Starts ingestions through the ``POST /v1/admin/ingestions`` path.
         timers: Returns the engine that fires each schedule's slots.
+        slot_metrics: Counts every recorded slot; the process-wide counter by default.
     """
 
     def __init__(
@@ -80,11 +85,13 @@ class ConnectionScheduleService:
         runs: Callable[[], Awaitable[ConnectionRuns]],
         starter: IngestionStarter,
         timers: Callable[[], Awaitable[ScheduleTimers]],
+        slot_metrics: ScheduleSlotMetrics = SCHEDULE_SLOT_METRICS,
     ) -> None:
         self._control_plane = control_plane
         self._runs = runs
         self._starter = starter
         self._timers = timers
+        self._slot_metrics = slot_metrics
 
     async def page(self, tenant_id: str, query: ScheduleQuery) -> dict[str, Any]:
         """Return a page of the tenant's schedules, newest first, each with its latest slot.
@@ -177,10 +184,15 @@ class ConnectionScheduleService:
         await self._require(key)
         await self._remove(key)
 
-    async def pause(self, key: ScheduleKey, *, reason: str | None, actor: str) -> dict[str, Any]:
+    async def pause(
+        self, key: ScheduleKey, *, reason: str | None, actor: str
+    ) -> tuple[dict[str, Any], int]:
         """Pause a schedule; pausing a paused one returns it unchanged.
 
         A run in progress keeps going.
+
+        Returns:
+            The schedule view and its version.
 
         Raises:
             ScheduleNotFoundError: No such schedule in the tenant.
@@ -191,10 +203,13 @@ class ConnectionScheduleService:
         note = stored.paused.reason if stored.paused is not None else pause.reason
         await (await self._timers()).pause(key.tenant_id, key.schedule_id, note=note)
         (view,) = await self._views(key.tenant_id, [stored], slot_limit=RECENT_SLOT_LIMIT)
-        return view
+        return view, stored.version
 
-    async def resume(self, key: ScheduleKey, *, actor: str) -> dict[str, Any]:
+    async def resume(self, key: ScheduleKey, *, actor: str) -> tuple[dict[str, Any], int]:
         """Resume a schedule and clear its failure count; resuming an active one changes nothing.
+
+        Returns:
+            The schedule view and its version.
 
         Raises:
             ScheduleNotFoundError: No such schedule in the tenant.
@@ -205,8 +220,7 @@ class ConnectionScheduleService:
         await self._schedules().set_next_run_at(
             tenant_id=key.tenant_id, schedule_id=key.schedule_id, next_run_at=next_run_at
         )
-        view, _ = await self.get(key)
-        return view
+        return await self.get(key)
 
     async def trigger(self, key: ScheduleKey) -> dict[str, Any]:
         """Start one run now with the schedule's input, even while it is paused.
@@ -415,9 +429,11 @@ class ConnectionScheduleService:
         return SlotStart("skipped", blocking)
 
     async def _record(self, schedule: Schedule, slot: ScheduleSlot) -> None:
+        """Store the slot, then count it by outcome and reason."""
         await self._schedules().record_slot(
             tenant_id=schedule.tenant_id, schedule_id=schedule.schedule_id, slot=slot
         )
+        self._slot_metrics.record(slot)
 
     async def _release_queue(self, key: ScheduleKey, attempt: SlotAttempt) -> None:
         """Let a later slot wait once this one, which waited, is done."""
@@ -565,13 +581,7 @@ class ConnectionScheduleService:
 
     async def _settings(self, tenant_id: str) -> SchedulesGroup:
         """Read the tenant's ``schedules.*`` settings, or their defaults without a store."""
-        config = self._control_plane().config
-        if config is None:
-            return SchedulesGroup.model_validate({})
-        effective = await config.effective(tenant_id, SettingsLevel("tenant"))
-        return SchedulesGroup.model_validate(
-            {name: effective.value(f"schedules.{name}") for name in SchedulesGroup.model_fields}
-        )
+        return await read_schedule_settings(self._control_plane().config, tenant_id)
 
     def _schedules(self) -> ScheduleRepositoryPort:
         repository = self._control_plane().schedules

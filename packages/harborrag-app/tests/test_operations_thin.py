@@ -144,7 +144,13 @@ _CASES: dict[str, _Case] = {
     "list_source_types": _Case(lambda ops: ops.list_source_types(_SCOPE, category=None), None),
     "list_connections": _Case(
         lambda ops: ops.list_connections(
-            _SCOPE, project_id=None, source_type=None, status=None, limit=20, cursor=None
+            _SCOPE,
+            project_id=None,
+            source_type=None,
+            status=None,
+            scheduled=None,
+            limit=20,
+            cursor=None,
         ),
         "connection_service.list_page",
         ([_CONNECTION], None),
@@ -280,12 +286,12 @@ _CASES: dict[str, _Case] = {
     "pause_schedule": _Case(
         lambda ops: ops.pause_schedule(_SCOPE, "engineering-hourly", None),
         "schedule_service.pause",
-        _SCHEDULE,
+        (_SCHEDULE, 2),
     ),
     "resume_schedule": _Case(
         lambda ops: ops.resume_schedule(_SCOPE, "engineering-hourly"),
         "schedule_service.resume",
-        _SCHEDULE,
+        (_SCHEDULE, 3),
     ),
     "trigger_schedule": _Case(
         lambda ops: ops.trigger_schedule(_SCOPE, "engineering-hourly"),

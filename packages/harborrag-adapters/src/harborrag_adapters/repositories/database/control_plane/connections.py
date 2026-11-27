@@ -32,11 +32,18 @@ from harborrag_core.domain.connection_snapshot import ConnectionSnapshot
 
 from .mapping import connection_to_domain, utc_now
 from .schemas import ConnectionRevisionRow, SourceRow
+from .schemas_schedules import ScheduleRow
 from .session import SessionFactory
 
 logger = logging.getLogger("harborrag.adapters.control_plane.connections")
 
 _ATTENTION_RANK = sa.case((SourceRow.status.in_(sorted(ATTENTION_STATUSES)), 0), else_=1)
+_ACTIVE_SCHEDULE = sa.exists().where(
+    ScheduleRow.tenant_id == SourceRow.tenant_id,
+    ScheduleRow.project_id == SourceRow.project_id,
+    ScheduleRow.connection_id == SourceRow.connection_id,
+    ScheduleRow.paused_at.is_(None),
+)
 
 
 @dataclass(slots=True)
@@ -80,19 +87,25 @@ class SqlConnectionRepository:
         status: ConnectionStatus | None = None,
         limit: int | None = None,
         cursor: str | None = None,
+        scheduled: bool | None = None,
     ) -> tuple[list[Connection], str | None]:
-        """Connections needing attention first, then by project and ``connection_id``."""
-        statement = sa.select(SourceRow).order_by(
-            _ATTENTION_RANK, SourceRow.project_id, SourceRow.connection_id
+        """Connections needing attention first, then by project and ``connection_id``.
+
+        ``scheduled`` is checked inside the query, before the page is cut.
+        """
+        statement = (
+            sa.select(SourceRow)
+            .where(
+                *_matching(
+                    tenant_ids=tenant_ids,
+                    project_id=project_id,
+                    source_type=source_type,
+                    status=status,
+                    scheduled=scheduled,
+                )
+            )
+            .order_by(_ATTENTION_RANK, SourceRow.project_id, SourceRow.connection_id)
         )
-        if tenant_ids is not None:
-            statement = statement.where(SourceRow.tenant_id.in_(tenant_ids))
-        if project_id is not None:
-            statement = statement.where(SourceRow.project_id == project_id)
-        if source_type is not None:
-            statement = statement.where(SourceRow.source_type == source_type)
-        if status is not None:
-            statement = statement.where(SourceRow.status == status)
         if cursor is not None:
             statement = statement.where(_after(*decode_connection_cursor(cursor)))
         if limit is not None:
@@ -238,6 +251,29 @@ def _listed(row: SourceRow) -> Connection | None:
             type(error).__name__,
         )
         return None
+
+
+def _matching(
+    *,
+    tenant_ids: frozenset[str] | None,
+    project_id: str | None,
+    source_type: str | None,
+    status: ConnectionStatus | None,
+    scheduled: bool | None,
+) -> list[sa.ColumnElement[bool]]:
+    """Return one condition per set list filter."""
+    conditions: list[sa.ColumnElement[bool]] = []
+    if tenant_ids is not None:
+        conditions.append(SourceRow.tenant_id.in_(tenant_ids))
+    if project_id is not None:
+        conditions.append(SourceRow.project_id == project_id)
+    if source_type is not None:
+        conditions.append(SourceRow.source_type == source_type)
+    if status is not None:
+        conditions.append(SourceRow.status == status)
+    if scheduled is not None:
+        conditions.append(_ACTIVE_SCHEDULE if scheduled else ~_ACTIVE_SCHEDULE)
+    return conditions
 
 
 def _after(rank: int, project_id: str, connection_id: str) -> sa.ColumnElement[bool]:

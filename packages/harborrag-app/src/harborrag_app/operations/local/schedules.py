@@ -131,7 +131,7 @@ class ScheduleOps:
 
     async def pause_schedule(
         self, scope: Scope, schedule_id: str, body: SchedulePauseRequest | None
-    ) -> ScheduleOut:
+    ) -> Tagged[ScheduleOut]:
         """Pause a schedule; pausing a paused one returns it unchanged.
 
         Args:
@@ -140,30 +140,33 @@ class ScheduleOps:
             body: The pause's reason; ``None`` or no reason records a default one.
 
         Returns:
-            The paused schedule.
+            The paused schedule and its ETag.
 
         Raises:
             ScheduleNotFoundError: No such schedule in the tenant.
         """
         scope.require(OPERATIONS["pause_schedule"].role)
-        view = await self._app_service.schedule_service.pause(
+        view, version = await self._app_service.schedule_service.pause(
             ScheduleKey(scope.tenant_id, schedule_id),
             reason=body.reason if body is not None else None,
             actor=scope.actor,
         )
-        return ScheduleOut.model_validate(view)
+        return Tagged(ScheduleOut.model_validate(view), etag(version))
 
-    async def resume_schedule(self, scope: Scope, schedule_id: str) -> ScheduleOut:
+    async def resume_schedule(self, scope: Scope, schedule_id: str) -> Tagged[ScheduleOut]:
         """Resume a schedule and clear its failure count.
+
+        Returns:
+            The resumed schedule and its ETag.
 
         Raises:
             ScheduleNotFoundError: No such schedule in the tenant.
         """
         scope.require(OPERATIONS["resume_schedule"].role)
-        view = await self._app_service.schedule_service.resume(
+        view, version = await self._app_service.schedule_service.resume(
             ScheduleKey(scope.tenant_id, schedule_id), actor=scope.actor
         )
-        return ScheduleOut.model_validate(view)
+        return Tagged(ScheduleOut.model_validate(view), etag(version))
 
     async def trigger_schedule(self, scope: Scope, schedule_id: str) -> Accepted[IngestionOut]:
         """Start one run now with the schedule's input; the run acts as the schedule.

@@ -101,6 +101,33 @@ class SqlScheduleRepository:
             rows = await session.scalars(statement)
             return [_to_domain(row) for row in rows]
 
+    async def next_runs(
+        self, *, tenant_id: str, connections: Sequence[tuple[str, str]]
+    ) -> dict[tuple[str, str], datetime]:
+        """The earliest next slot time of each listed connection, in one grouped query."""
+        if not connections:
+            return {}
+        connection = sa.tuple_(ScheduleRow.project_id, ScheduleRow.connection_id)
+        statement = (
+            sa.select(
+                ScheduleRow.project_id,
+                ScheduleRow.connection_id,
+                sa.func.min(ScheduleRow.next_run_at),
+            )
+            .where(
+                ScheduleRow.tenant_id == tenant_id,
+                ScheduleRow.paused_at.is_(None),
+                ScheduleRow.next_run_at.is_not(None),
+                connection.in_(list(connections)),
+            )
+            .group_by(ScheduleRow.project_id, ScheduleRow.connection_id)
+        )
+        async with self.sessions() as session:
+            rows = (await session.execute(statement)).all()
+        return {
+            (project_id, connection_id): earliest for project_id, connection_id, earliest in rows
+        }
+
     async def put(
         self, schedule: Schedule, *, expected_version: int | None, create_only: bool
     ) -> tuple[Schedule, bool]:

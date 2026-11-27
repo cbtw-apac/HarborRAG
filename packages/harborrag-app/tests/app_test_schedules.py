@@ -105,19 +105,23 @@ class FakeScheduleService:
         self._require(key)
         del self.schedules[key]
 
-    async def pause(self, key: ScheduleKey, *, reason: str | None, actor: str) -> dict[str, Any]:
+    async def pause(
+        self, key: ScheduleKey, *, reason: str | None, actor: str
+    ) -> tuple[dict[str, Any], int]:
         self._record("pause", key=key, reason=reason, actor=actor)
         schedule = self._require(key)
         if schedule.paused is None:
             pause = SchedulePause(reason=reason or "Paused by an operator", by=actor, at=STAMP)
             schedule = self._save(key, replace(schedule, paused=pause, updated_by=actor))
-        return _view(schedule)
+        return _view(schedule), schedule.version
 
-    async def resume(self, key: ScheduleKey, *, actor: str) -> dict[str, Any]:
+    async def resume(self, key: ScheduleKey, *, actor: str) -> tuple[dict[str, Any], int]:
         self._record("resume", key=key, actor=actor)
         schedule = self._require(key)
-        resumed = replace(schedule, paused=None, consecutive_failures=0, updated_by=actor)
-        return _view(self._save(key, resumed))
+        if schedule.paused is not None:
+            resumed = replace(schedule, paused=None, consecutive_failures=0, updated_by=actor)
+            schedule = self._save(key, resumed)
+        return _view(schedule), schedule.version
 
     async def trigger(self, key: ScheduleKey) -> dict[str, Any]:
         self._record("trigger", key=key)

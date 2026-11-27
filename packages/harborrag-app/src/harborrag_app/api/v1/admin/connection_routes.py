@@ -118,6 +118,10 @@ async def list_connections(  # noqa: PLR0913 - the spec's list filters plus pagi
     project_id: str | None = None,
     source_type: SourceTypeName | None = None,
     status: ConnectionStatusName | None = None,
+    scheduled: Annotated[
+        bool | None,
+        Query(description="true lists only connections with an active schedule, false the others"),
+    ] = None,
     page: PageDependency = Page(DEFAULT_LIMIT, None),
 ) -> ConnectionPage:
     """Every connection in the tenant; ones that need attention first."""
@@ -126,6 +130,7 @@ async def list_connections(  # noqa: PLR0913 - the spec's list filters plus pagi
         project_id=project_id,
         source_type=source_type,
         status=status,
+        scheduled=scheduled,
         limit=page.limit,
         cursor=page.cursor,
     )

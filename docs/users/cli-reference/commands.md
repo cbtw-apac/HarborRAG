@@ -219,7 +219,8 @@ harborrag connections list [OPTIONS]
 | --- | --- | --- | --- |
 | `--project-id` | text |  | Only this project's connections. |
 | `--source-type` | text |  | Only connections of this type. |
-| `--status` | `active`, `needs_reauth`, `error` |  | Only connections in this status. |
+| `--status` | `active`, `needs_reauth`, `error`, `deleting` |  | Only connections in this status. |
+| `--scheduled, --no-scheduled` | boolean |  | Only connections with an active schedule, or only those without one. |
 | `--limit` | integer range | `20` | Page size, 1 to 100. |
 | `--cursor` | text |  | next_cursor of the previous page. |
 | `--all` | boolean | `false` | Follow next_cursor and print every page as one. |
@@ -379,6 +380,8 @@ harborrag ingestions list [OPTIONS]
 | `--project-id` | text |  | Only this project's runs. |
 | `--connection-ref` | text |  | Only this connection, e.g. engineering/jira-main. |
 | `--status` | text |  | Only runs that are queued, running, paused, succeeded, failed or cancelled. |
+| `--trigger` | text |  | Only runs a user, an api_key or a schedule started. Runs from schedules.yaml count as user. |
+| `--schedule-id` | text |  | Only runs this schedule started. |
 | `--created-after DATE_TIME` | text |  | Only runs started after this time. |
 | `--limit` | integer range | `20` | Page size, 1 to 100. |
 | `--cursor` | text |  | next_cursor of the previous page. |

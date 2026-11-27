@@ -425,6 +425,44 @@ async def test_list_for_connection_returns_only_that_connection(sessions: Sessio
 
 
 @pytest.mark.asyncio
+async def test_next_runs_takes_the_earliest_active_slot_of_each_connection(
+    sessions: SessionFactory,
+) -> None:
+    repository = SqlScheduleRepository(sessions)
+    soon, later = _CREATED + timedelta(minutes=10), _CREATED + timedelta(hours=2)
+    for schedule, next_run_at in (
+        (_schedule("wiki-hourly"), later),
+        (_schedule("wiki-nightly"), soon),
+        (_schedule("wiki-unset"), None),
+        (_schedule("tickets-paused", connection_id="tickets"), soon),
+        (_schedule("files-unset", connection_id="files"), None),
+        (_schedule("wiki-theirs", tenant_id="globex"), _CREATED),
+        (replace(_schedule("sales-wiki"), project_id="sales"), _CREATED),
+    ):
+        await repository.put(schedule, expected_version=None, create_only=True)
+        await repository.set_next_run_at(
+            tenant_id=schedule.tenant_id,
+            schedule_id=schedule.schedule_id,
+            next_run_at=next_run_at,
+        )
+    await repository.set_paused(
+        tenant_id="acme", schedule_id="tickets-paused", paused=_PAUSE, actor="u_alex"
+    )
+    await repository.set_next_run_at(
+        tenant_id="acme", schedule_id="tickets-paused", next_run_at=soon
+    )
+
+    found = await repository.next_runs(
+        tenant_id="acme",
+        connections=[("demo", "wiki"), ("demo", "tickets"), ("demo", "files"), ("demo", "none")],
+    )
+
+    assert found == {("demo", "wiki"): soon}
+    assert found[("demo", "wiki")].tzinfo is not None
+    assert await repository.next_runs(tenant_id="acme", connections=[]) == {}
+
+
+@pytest.mark.asyncio
 async def test_each_tenant_sees_only_its_own_schedule(sessions: SessionFactory) -> None:
     repository = SqlScheduleRepository(sessions)
     await repository.put(_schedule("nightly"), expected_version=None, create_only=True)

@@ -102,6 +102,7 @@ class Operations(Protocol):
         project_id: str | None,
         source_type: str | None,
         status: ConnectionStatus | None,
+        scheduled: bool | None,
         limit: int,
         cursor: str | None,
     ) -> ConnectionPage:
@@ -253,12 +254,12 @@ class Operations(Protocol):
 
     async def pause_schedule(
         self, scope: Scope, schedule_id: str, body: SchedulePauseRequest | None
-    ) -> ScheduleOut:
-        """Pause a schedule; pausing a paused one returns it unchanged."""
+    ) -> Tagged[ScheduleOut]:
+        """Pause a schedule, with its ETag; pausing a paused one returns it unchanged."""
         ...
 
-    async def resume_schedule(self, scope: Scope, schedule_id: str) -> ScheduleOut:
-        """Resume a schedule and clear its failure count."""
+    async def resume_schedule(self, scope: Scope, schedule_id: str) -> Tagged[ScheduleOut]:
+        """Resume a schedule and clear its failure count, with its ETag."""
         ...
 
     async def trigger_schedule(self, scope: Scope, schedule_id: str) -> Accepted[IngestionOut]:

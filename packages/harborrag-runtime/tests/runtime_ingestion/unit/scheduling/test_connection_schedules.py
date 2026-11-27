@@ -9,6 +9,7 @@ from typing import Any
 
 import pytest
 
+from harborrag_adapters.connectors.policies.network import DestinationPolicy
 from harborrag_core.base import utc_now
 from harborrag_core.config_store.levels import SettingsLevel
 from harborrag_core.config_store.resolution import EffectiveSettings, EffectiveValue
@@ -34,6 +35,7 @@ from harborrag_core.ingestion import IngestionTask, IngestionTaskState
 from harborrag_core.testing.fakes import FakeSecrets
 from harborrag_engine.control_plane.connection_views import ANY_VERSION
 from harborrag_runtime.application.control_plane.connection_models import ConnectionKey
+from harborrag_runtime.application.control_plane.connections import ConnectionService
 from harborrag_runtime.application.control_plane.schedule_models import (
     ScheduleKey,
     ScheduleQuery,
@@ -43,8 +45,16 @@ from harborrag_runtime.application.control_plane.schedule_models import (
     WriteConditions,
 )
 from harborrag_runtime.application.control_plane.schedules import ConnectionScheduleService
+from harborrag_runtime.composition import ControlPlaneRepositories
+from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.ingestion.connections import ConnectionUnavailableError
-from harborrag_runtime.testing.connection_fakes import fake_control_plane
+from harborrag_runtime.observability.schedule_metrics import ScheduleSlotMetrics
+from harborrag_runtime.testing.connection_fakes import (
+    Removal,
+    Runs,
+    Submitter,
+    fake_control_plane,
+)
 
 pytestmark = [pytest.mark.unit, pytest.mark.asyncio]
 
@@ -82,6 +92,21 @@ class _Schedules:
             if (row.tenant_id, row.project_id, row.connection_id)
             == (tenant_id, project_id, connection_id)
         ]
+
+    async def next_runs(
+        self, *, tenant_id: str, connections: Sequence[tuple[str, str]]
+    ) -> dict[tuple[str, str], datetime]:
+        wanted = set(connections)
+        earliest: dict[tuple[str, str], datetime] = {}
+        for row in self.rows.values():
+            key = (row.project_id, row.connection_id)
+            if row.tenant_id != tenant_id or key not in wanted or row.paused is not None:
+                continue
+            if row.next_run_at is not None and (
+                key not in earliest or row.next_run_at < earliest[key]
+            ):
+                earliest[key] = row.next_run_at
+        return earliest
 
     async def put(
         self, schedule: Schedule, *, expected_version: int | None, create_only: bool
@@ -262,6 +287,25 @@ class _World:
     timers: _Timers
     starter: _Starter
     runs: _Runs
+    control_plane: ControlPlaneRepositories
+    slot_metrics: ScheduleSlotMetrics
+
+    def connections(self) -> ConnectionService:
+        """The connection use cases over the same control plane, with no runs."""
+        runs = Runs()
+
+        async def provide_runs() -> Runs:
+            return runs
+
+        return ConnectionService(
+            control_plane=lambda: self.control_plane,
+            runs=provide_runs,
+            ingestions=Submitter(runs),
+            removal=Removal,
+            destination_policy=DestinationPolicy(),
+            instance_id="test",
+            settings=RuntimeSettings(),
+        )
 
 
 def _connection(connection_id: str = "demo-tickets", **changes: Any) -> Connection:
@@ -301,13 +345,15 @@ def _world(*, connection_status: str = "active", **settings: object) -> _World:
     async def provide_timers() -> _Timers:
         return timers
 
+    slot_metrics = ScheduleSlotMetrics()
     service = ConnectionScheduleService(
         control_plane=lambda: wired,
         runs=provide_runs,
         starter=starter,
         timers=provide_timers,
+        slot_metrics=slot_metrics,
     )
-    return _World(service, schedules, timers, starter, runs)
+    return _World(service, schedules, timers, starter, runs, wired, slot_metrics)
 
 
 async def _put(world: _World, write: ScheduleWrite = WRITE, key: ScheduleKey = KEY) -> Any:
@@ -459,16 +505,17 @@ async def test_pause_and_resume_are_idempotent_and_drive_the_timer() -> None:
     world = _world()
     await _put(world)
 
-    first = await world.service.pause(KEY, reason="maintenance", actor="u_ops")
-    again = await world.service.pause(KEY, reason="other", actor="u_other")
-    resumed = await world.service.resume(KEY, actor="u_ops")
-    resumed_again = await world.service.resume(KEY, actor="u_ops")
+    first, first_version = await world.service.pause(KEY, reason="maintenance", actor="u_ops")
+    again, again_version = await world.service.pause(KEY, reason="other", actor="u_other")
+    resumed, resumed_version = await world.service.resume(KEY, actor="u_ops")
+    resumed_again, last_version = await world.service.resume(KEY, actor="u_ops")
     _, version = await world.service.get(KEY)
 
     assert first["paused"]["by"] == "u_ops" and first["next_run_at"] is None
     assert again["paused"] == first["paused"]
     assert resumed["state"] == "active" and resumed["next_run_at"] == NEXT_RUN
     assert resumed_again["state"] == "active" and version == 3
+    assert (first_version, again_version, resumed_version, last_version) == (2, 2, 3, 3)
     assert [call for call in world.timers.calls if call[0] in {"pause", "resume"}] == [
         ("pause", "nightly", "maintenance"),
         ("pause", "nightly", "maintenance"),
@@ -522,6 +569,45 @@ async def test_trigger_still_returns_the_run_when_it_cannot_be_followed() -> Non
     ingestion = await world.service.trigger(KEY)
 
     assert ingestion["ingestion_id"] == "ing_1"
+
+
+def _slot_counts(metrics: ScheduleSlotMetrics) -> dict[tuple[str, str], float]:
+    return {
+        (sample.labels["outcome"], sample.labels["reason"]): sample.value
+        for family in metrics.collect()
+        for sample in family.samples
+        if sample.name == "harborrag_schedule_slots_total"
+    }
+
+
+async def test_every_recorded_slot_is_counted_by_outcome_and_reason() -> None:
+    world = _world()
+    await _put(world, replace(WRITE, if_running="queue"))
+    busy = HarborAlreadyRunningError("busy", details={"ingestion_id": "ing_busy"})
+    world.starter.errors.extend([busy, busy, busy])
+
+    await world.service.run_slot(KEY, due_at=DUE)
+    await world.service.run_slot(KEY, due_at=DUE)
+    await world.service.run_slot(KEY, due_at=DUE, attempt=SlotAttempt.AFTER_WAIT)
+    await world.service.run_slot(KEY, due_at=DUE, attempt=SlotAttempt.AFTER_WAIT)
+    await world.service.trigger(KEY)
+    await world.service.pause(KEY, reason=None, actor="u_ops")
+    await world.service.run_slot(KEY, due_at=DUE)
+
+    assert _slot_counts(world.slot_metrics) == {
+        ("queued", "already_running"): 1,
+        ("skipped", "already_running"): 1,
+        ("started", "none"): 2,
+    }
+
+
+async def test_a_slot_skipped_while_disabled_is_counted_with_its_reason() -> None:
+    world = _world(enabled=False)
+    await _put(world)
+
+    await world.service.run_slot(KEY, due_at=DUE)
+
+    assert _slot_counts(world.slot_metrics) == {("skipped", "disabled_by_setting"): 1}
 
 
 async def test_run_slot_starts_the_schedule_operation() -> None:
@@ -781,3 +867,43 @@ async def test_views_show_slot_runs_and_hide_next_run_while_disabled() -> None:
     assert view["recent_slots"][1]["run"] is None
     assert [len(item["recent_slots"]) for item in page["items"]] == [1]
     assert page["next_cursor"] is None
+
+
+async def _next_runs(connections: ConnectionService) -> dict[str, Any]:
+    items, _ = await connections.list_page(tenant_id=TENANT)
+    return {item["connection_id"]: item["next_run_at"] for item in items}
+
+
+async def test_a_connection_shows_the_earliest_next_slot_of_its_active_schedules() -> None:
+    world = _world(enabled=True)
+    connections = world.connections()
+    before = await _next_runs(connections)
+    await _put(world)
+    await _put(world, key=ScheduleKey(TENANT, "hourly"))
+    earlier = NEXT_RUN - timedelta(hours=1)
+    await world.schedules.set_next_run_at(
+        tenant_id=TENANT, schedule_id="hourly", next_run_at=earlier
+    )
+    wiki = replace(WRITE, connection_id="demo-wiki")
+    await _put(world, wiki, ScheduleKey(TENANT, "wiki"))
+    await world.service.pause(ScheduleKey(TENANT, "wiki"), reason="maintenance", actor="u_ops")
+    await world.schedules.set_next_run_at(tenant_id=TENANT, schedule_id="wiki", next_run_at=earlier)
+
+    listed = await _next_runs(connections)
+    read, _ = await connections.get(ConnectionKey(TENANT, "demo", "demo-tickets"))
+
+    assert before == {"demo-tickets": None, "demo-wiki": None}
+    assert listed == {"demo-tickets": earlier, "demo-wiki": None}
+    assert read["next_run_at"] == earlier
+
+
+async def test_a_connection_shows_no_next_slot_while_schedules_are_disabled() -> None:
+    world = _world(enabled=False)
+    await _put(world)
+    connections = world.connections()
+
+    read, _ = await connections.get(ConnectionKey(TENANT, "demo", "demo-tickets"))
+
+    assert await world.schedules.get(tenant_id=TENANT, schedule_id="nightly") is not None
+    assert read["next_run_at"] is None
+    assert await _next_runs(connections) == {"demo-tickets": None, "demo-wiki": None}

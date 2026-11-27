@@ -50,12 +50,14 @@ def connection_view(
     last_ingestion: IngestionTask | None = None,
     progress: Mapping[str, int] | None = None,
     documents: int | None = None,
+    next_run_at: datetime | None = None,
 ) -> dict[str, Any]:
     """Return the spec's ``Connection`` object, with secrets reduced to their status.
 
     ``stats.errors`` is the failed-document count of ``last_ingestion`` in
     ``progress``, the same source as ``Ingestion.counters.failed``. It is 0
-    without a run.
+    without a run. ``next_run_at`` is the next slot among the connection's active
+    schedules, or ``None``.
     """
     return {
         "tenant_id": connection.tenant_id,
@@ -69,6 +71,7 @@ def connection_view(
         "advanced": dict(connection.tuning),
         "status": connection.status,
         "last_ingestion": _last_ingestion(last_ingestion),
+        "next_run_at": next_run_at,
         "stats": {
             "documents": documents,
             "chunks": None,
@@ -263,7 +266,11 @@ class ConnectionViewRuns(Protocol):
 
 
 async def read_connection_views(
-    runs: ConnectionViewRuns, connections: Sequence[Connection], *, batch: bool
+    runs: ConnectionViewRuns,
+    connections: Sequence[Connection],
+    *,
+    batch: bool,
+    next_runs: Mapping[tuple[str, str], datetime] | None = None,
 ) -> list[dict[str, Any]]:
     """Return the ``Connection`` view of each connection with its latest run and counts.
 
@@ -271,10 +278,13 @@ async def read_connection_views(
         runs: Run registry the latest runs, their result counts and document counts come from.
         connections: Connections to view.
         batch: Read the result counts of all latest runs in one query.
+        next_runs: Next scheduled run by ``(project_id, connection_id)``; a connection
+            missing here has none.
 
     Returns:
         One ``Connection`` object per connection, in the order given.
     """
+    scheduled = next_runs or {}
     latest = [
         await runs.latest_for_connection(
             tenant_id=connection.tenant_id, connection_id=connection.source_key
@@ -292,6 +302,12 @@ async def read_connection_views(
             tenant_id=connection.tenant_id, connection_id=connection.source_key
         )
         views.append(
-            connection_view(connection, last_ingestion=task, progress=progress, documents=documents)
+            connection_view(
+                connection,
+                last_ingestion=task,
+                progress=progress,
+                documents=documents,
+                next_run_at=scheduled.get((connection.project_id, connection.connection_id)),
+            )
         )
     return views

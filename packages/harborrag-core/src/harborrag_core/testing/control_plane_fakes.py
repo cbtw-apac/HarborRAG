@@ -80,9 +80,16 @@ class FakeProjectRepository:
 
 @dataclass(slots=True)
 class FakeConnectionRepository:
-    """Dict-backed ConnectionRepositoryPort mirroring the SQL adapter's rules."""
+    """Dict-backed ConnectionRepositoryPort mirroring the SQL adapter's rules.
+
+    Args:
+        connections: Stored connections by internal id.
+        active_schedules: ``(tenant_id, project_id, connection_id)`` of each connection
+            with a schedule that is not paused; stands in for the schedules table.
+    """
 
     connections: dict[str, Connection] = field(default_factory=dict)
+    active_schedules: set[tuple[str, str, str]] = field(default_factory=set)
 
     def _find(self, tenant_id: str, project_id: str, connection_id: str) -> Connection | None:
         """Return the stored connection with this public identity, if any."""
@@ -133,6 +140,7 @@ class FakeConnectionRepository:
         status: ConnectionStatus | None = None,
         limit: int | None = None,
         cursor: str | None = None,
+        scheduled: bool | None = None,
     ) -> tuple[list[Connection], str | None]:
         """Attention-first keyset page, as copies."""
         after = decode_connection_cursor(cursor) if cursor else None
@@ -144,6 +152,7 @@ class FakeConnectionRepository:
                 and (project_id is None or c.project_id == project_id)
                 and (source_type is None or c.source_type == source_type)
                 and (status is None or c.status == status)
+                and (scheduled is None or self._scheduled(c) == scheduled)
                 and (after is None or connection_sort_key(c) > after)
             ),
             key=connection_sort_key,
@@ -152,6 +161,11 @@ class FakeConnectionRepository:
             return [deepcopy(c) for c in matches], None
         page = matches[:limit]
         return [deepcopy(c) for c in page], encode_connection_cursor(connection_sort_key(page[-1]))
+
+    def _scheduled(self, connection: Connection) -> bool:
+        """Whether the connection has a schedule that is not paused."""
+        key = (connection.tenant_id, connection.project_id, connection.connection_id)
+        return key in self.active_schedules
 
     async def put(
         self,

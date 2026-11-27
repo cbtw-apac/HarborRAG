@@ -51,12 +51,14 @@ class StatusName(StrEnum):
     ACTIVE = "active"
     NEEDS_REAUTH = "needs_reauth"
     ERROR = "error"
+    DELETING = "deleting"
 
 
 _STATUSES: dict[StatusName, ConnectionStatus] = {
     StatusName.ACTIVE: "active",
     StatusName.NEEDS_REAUTH: "needs_reauth",
     StatusName.ERROR: "error",
+    StatusName.DELETING: "deleting",
 }
 
 RefArgument = Annotated[
@@ -94,6 +96,14 @@ def list_connections(  # noqa: PLR0913 - the list filters plus the global option
     status: Annotated[
         StatusName | None, typer.Option("--status", help="Only connections in this status.")
     ] = None,
+    scheduled: Annotated[
+        bool | None,
+        typer.Option(
+            "--scheduled/--no-scheduled",
+            help="Only connections with an active schedule, or only those without one.",
+            show_default=False,
+        ),
+    ] = None,
     limit: LimitOption = DEFAULT_LIMIT,
     cursor: CursorOption = None,
     all_pages: AllOption = False,
@@ -115,6 +125,7 @@ def list_connections(  # noqa: PLR0913 - the list filters plus the global option
                 project_id=project_id,
                 source_type=source_type,
                 status=None if status is None else _STATUSES[status],
+                scheduled=scheduled,
                 limit=limit,
                 cursor=after,
             )

@@ -317,6 +317,16 @@ def test_pause_records_the_reason_and_resume_clears_the_pause(
         None,
     )
     assert schedules.calls[-1].arguments == {"key": _KEY, "actor": "u_alex"}
+    assert (paused.headers["ETag"], resumed.headers["ETag"]) == ('W/"rev-2"', 'W/"rev-3"')
+
+
+def test_the_etag_of_a_pause_lets_the_next_put_through(client: TestClient) -> None:
+    client.put(_PATH, json=_BODY)
+    paused = client.post(f"{_PATH}/pause")
+
+    overwritten = client.put(_PATH, json=_BODY, headers={"If-Match": paused.headers["ETag"]})
+
+    assert (overwritten.status_code, overwritten.headers["ETag"]) == (200, 'W/"rev-3"')
 
 
 def test_pause_without_a_body_passes_no_reason(

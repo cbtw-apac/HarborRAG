@@ -164,6 +164,19 @@ async def test_fake_list_pages_attention_first_with_an_opaque_cursor() -> None:
     assert last is None
 
 
+@pytest.mark.asyncio
+async def test_fake_list_keeps_connections_with_an_active_schedule_only_when_asked() -> None:
+    repository = FakeConnectionRepository(active_schedules={("acme", "demo", "hourly")})
+    for connection_id in ("hourly", "unscheduled"):
+        await repository.put(_jira(connection_id))
+
+    scheduled, _ = await repository.list(tenant_ids=None, scheduled=True)
+    unscheduled, _ = await repository.list(tenant_ids=None, scheduled=False)
+
+    assert [c.ref for c in scheduled] == ["demo/hourly"]
+    assert [c.ref for c in unscheduled] == ["demo/unscheduled"]
+
+
 def test_connection_cursor_rejects_garbage() -> None:
     with pytest.raises(HarborValidationError):
         decode_connection_cursor("not-a-cursor")

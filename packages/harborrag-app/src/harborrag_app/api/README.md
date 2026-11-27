@@ -81,10 +81,10 @@ its lowest role.
 | `GET` | `/readyz` | none | `200` when Postgres, Redis, Temporal, Qdrant and the graph store answer, else `503`; same body both ways |
 | `GET` | `/v1/me` | `reader` | The credential's principal, tenants and role |
 | `GET` | `/v1/admin/source-types` | `editor` | Source types with their credential and config schemas |
-| `GET` | `/v1/admin/connections` | `editor` | Connections in the tenant, cursor-paged |
+| `GET` | `/v1/admin/connections` | `editor` | Connections in the tenant, cursor-paged (`project_id`, `source_type`, `status` including `deleting`, `scheduled`); each carries its `next_run_at` |
 | `GET` `PUT` `DELETE` | `/v1/admin/projects/{project_id}/connections/{connection_id}` | `editor` | Read, create or update, delete a connection |
 | `POST` | `/v1/admin/projects/{project_id}/connections/{connection_id}/test` | `editor` | Test a connection |
-| `POST` `GET` | `/v1/admin/ingestions` | `editor` | Start an ingestion of the connection named in the body; list runs (`project_id`, `connection_ref`, `status`, `created_after`, `limit`, `cursor`) |
+| `POST` `GET` | `/v1/admin/ingestions` | `editor` | Start an ingestion of the connection named in the body; list runs (`project_id`, `connection_ref`, `status`, `trigger`, `schedule_id`, `created_after`, `limit`, `cursor`) |
 | `GET` | `/v1/admin/ingestions/{ingestion_id}` | `editor` | One run in the explorer `Ingestion` shape |
 | `GET` | `/v1/admin/ingestions/{ingestion_id}/documents` | `editor` | Per-document results, `?status=all\|succeeded\|skipped\|failed` |
 | `GET` | `/v1/admin/ingestions/{ingestion_id}/events` | `editor` | Server-Sent Events of one run: `run.status`, `stage.progress`, `document.failed`, `run.completed` |
@@ -94,7 +94,7 @@ its lowest role.
 | `POST` | `/v1/admin/failures/retry` | `editor` | Retry failures by `ids` or `filter`; one run per original run; `409` when none match |
 | `GET` | `/v1/admin/schedules` | `editor` | Schedules in the tenant, newest first, each with its latest slot (`project_id`, `connection_ref`, `operation`, `state`, `due_before`, `limit`, `cursor`) |
 | `GET` `PUT` `DELETE` | `/v1/admin/schedules/{schedule_id}` | `editor` | Read a schedule with its last 20 slots, create (`201`) or overwrite (`200`) one, delete one (`204`) |
-| `POST` | `/v1/admin/schedules/{schedule_id}/pause`, `/resume` | `editor` | `200` with the schedule; pausing a paused or resuming an active schedule changes nothing |
+| `POST` | `/v1/admin/schedules/{schedule_id}/pause`, `/resume` | `editor` | `200` with the schedule and its `ETag`; pausing a paused or resuming an active schedule changes nothing, `ETag` included |
 | `POST` | `/v1/admin/schedules/{schedule_id}/trigger` | `editor` | `202` with the new run and `Location`; the run acts as the schedule, even while it is paused |
 | `GET` | `/v1/admin/settings` | `editor` for `connection:` levels, else `admin` | Read the overrides or the effective values at a `level` |
 | `PATCH` | `/v1/admin/settings` | `admin` | Change settings at a `level`, with `If-Match` |
@@ -236,8 +236,10 @@ before its stream opens. A streamed ingestion event body has its own
 token included, is `401`; any other path on the ops port is `404`, and the public port has
 no `/metrics`. The body is the API registry in the Prometheus
 `text/plain; version=0.0.4` format: HTTP request counters and durations by route
-template, build information and process metrics. Ingestion counters come from the
-worker's own metrics port.
+template, build information, process metrics, and `harborrag_schedule_slots_total`, the
+`/v1/admin/schedules` slots this replica's slot worker and `trigger` calls recorded, by
+`outcome` and `reason`. Each replica counts only its own slots, so alerts `sum()` across
+replicas. Ingestion counters come from the worker's own metrics port.
 
 The monitoring stack's Prometheus must send the same token; how it reads it, and what a
 mismatch looks like, is in
