@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import re
+from datetime import timedelta
 from time import perf_counter
 
+import temporalio
 from temporalio import activity
 from temporalio.api.workflowservice.v1 import (
+    GetSystemInfoRequest,
     PauseWorkflowExecutionRequest,
     UnpauseWorkflowExecutionRequest,
 )
@@ -17,6 +22,7 @@ from temporalio.service import RPCError, RPCStatusCode
 from harborrag_adapters.connectors.base import BaseConnector
 from harborrag_adapters.connectors.harbor_connector import HarborConnector
 from harborrag_core.contracts.errors import HarborConflictError
+from harborrag_core.ingestion.run_contracts import RunKind
 from harborrag_core.storage import StorageOperationContext
 from harborrag_engine.ingestion.source.models import (
     RelationRepairProgress,
@@ -49,6 +55,15 @@ from .schemas import (
 
 logger = logging.getLogger("harborrag.runtime.temporal.source_activities")
 
+# Finish RPC work before the workflow's five-second native-pause activity can time out.
+_NATIVE_PAUSE_RPC_BUDGET_SECONDS = 4
+_NATIVE_PAUSE_RPC_TIMEOUT = timedelta(seconds=2)
+
+
+def _version_at_least(version: str, minimum: tuple[int, int, int]) -> bool:
+    match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", version)
+    return match is not None and tuple(map(int, match.groups())) >= minimum
+
 
 class SourceActivitiesMixin:
     """Source discovery, cancellation, failure, and finalization boundaries."""
@@ -56,6 +71,27 @@ class SourceActivitiesMixin:
     _runtime: IngestionRuntime
     _observability: ActivityObservability
     _temporal_client: Client | None
+
+    @activity.defn(name="harborrag.close_cancelled_source_execution")
+    async def close_cancelled_source_execution(self) -> None:
+        """Deliver native cancellation after the source workflow has drained and persisted."""
+        if self._temporal_client is None:
+            raise RuntimeError("Temporal client is required for workflow cancellation")
+        info = activity.info()
+        await self._temporal_client.get_workflow_handle(
+            info.workflow_id, run_id=info.workflow_run_id
+        ).cancel()
+
+    @activity.defn(name="harborrag.read_cancelled_source_result")
+    async def read_cancelled_source_result(
+        self, request: SourceCancellationInput
+    ) -> SourceIngestionResult | None:
+        """Read a scheduled source's graceful cancellation summary from its closed execution."""
+        if self._temporal_client is None:
+            raise RuntimeError("Temporal client is required to read a cancellation result")
+        return await self._temporal_client.get_workflow_handle(
+            RunKind.SOURCE.workflow_id(request.task_id)
+        ).query("get_graceful_cancel_result", result_type=SourceIngestionResult | None)
 
     @activity.defn(name="harborrag.pause_workflow_execution")
     async def pause_workflow_execution(self, request: WorkflowExecutionControlInput) -> None:
@@ -68,15 +104,20 @@ class SourceActivitiesMixin:
             raise RuntimeError("Temporal client is required for workflow pause control")
         info = activity.info()
         try:
-            await self._temporal_client.workflow_service.pause_workflow_execution(
-                PauseWorkflowExecutionRequest(
-                    namespace=self._temporal_client.namespace,
-                    workflow_id=request.workflow_id,
-                    identity="harborrag-runtime",
-                    reason="Source ingestion pause requested",
-                    request_id=f"{info.workflow_id}:{info.activity_id}",
+            async with asyncio.timeout(_NATIVE_PAUSE_RPC_BUDGET_SECONDS):
+                if request.run_id and not await self._supports_native_pause(self._temporal_client):
+                    return
+                await self._temporal_client.workflow_service.pause_workflow_execution(
+                    PauseWorkflowExecutionRequest(
+                        namespace=self._temporal_client.namespace,
+                        workflow_id=request.workflow_id,
+                        run_id=request.run_id or "",
+                        identity="harborrag-runtime",
+                        reason="Source ingestion pause requested",
+                        request_id=f"{info.workflow_id}:{info.activity_id}",
+                    ),
+                    timeout=_NATIVE_PAUSE_RPC_TIMEOUT,
                 )
-            )
         except RPCError as error:
             if error.status in {
                 RPCStatusCode.FAILED_PRECONDITION,
@@ -85,6 +126,15 @@ class SourceActivitiesMixin:
             }:
                 return
             raise
+
+    @staticmethod
+    async def _supports_native_pause(client: Client) -> bool:
+        if not _version_at_least(temporalio.__version__, (1, 37, 0)):
+            return False
+        system = await client.workflow_service.get_system_info(
+            GetSystemInfoRequest(), timeout=_NATIVE_PAUSE_RPC_TIMEOUT
+        )
+        return _version_at_least(system.server_version, (1, 32, 2))
 
     @activity.defn(name="harborrag.unpause_workflow_execution")
     async def unpause_workflow_execution(self, request: WorkflowExecutionControlInput) -> None:

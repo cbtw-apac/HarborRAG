@@ -353,6 +353,7 @@ class SourceIngestionStatus:
     paused: bool
     cancel_requested: bool
     pause_applied: bool = False
+    native_pause_pending: bool = False
 
     def __post_init__(self) -> None:
         if not self.task_id.strip():
@@ -366,6 +367,7 @@ class WorkflowExecutionControlInput:
     """Input to pause or unpause a workflow execution."""
 
     workflow_id: str
+    run_id: str | None = None
 
     def __post_init__(self) -> None:
         if not self.workflow_id.strip():

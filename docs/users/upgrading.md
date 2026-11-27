@@ -959,10 +959,11 @@ connection with `"method": "api_token"` and the `email`; the stored token is kep
   while its scan runs.
 - **`qdrant-client` must be 1.17 to 1.19.** Installs of the `qdrant` extra that pinned
   an older client need `pip install -U "qdrant-client>=1.17,<1.20"`.
-- **A paused run shows as `Running` in the Temporal UI.** HarborRAG now pauses a run by
-  signal only; its own status still reads `paused`. Do not pause a run from the Temporal
-  UI or CLI on Temporal 1.31.x: that native pause can strand the run. Native pause is
-  safe only on Temporal 1.32 or later together with `temporalio` 1.35 or later.
+- **The Temporal UI shows `Paused` and `Canceled` for new source runs.** Native pause
+  requires `workflow.native_pause`, Temporal Server 1.32.2 or newer, and the Python
+  SDK 1.37 or newer. Earlier runs can show `Running` during a cooperative pause or
+  `Completed` after a graceful cancellation. Use HarborRAG's API or CLI for pause,
+  resume, and cancel so the worker also controls document dispatch.
 - **Cancel runs that an earlier release paused mid-batch before you upgrade.** A run
   started before the upgrade that was paused while a batch was running keeps the old
   native pause on its later pauses, until it continues as new (every 25 batches by

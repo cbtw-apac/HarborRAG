@@ -191,6 +191,7 @@ class TemporalWorkflowOptions:
     task_queues: TaskQueueConfig = TaskQueueConfig()
     retries: ActivityRetryConfig = ActivityRetryConfig()
     timeouts: ActivityTimeoutConfig = ActivityTimeoutConfig()
+    native_pause: bool = False
 
     def for_run(self, run_settings: RunSettings | None) -> TemporalWorkflowOptions:
         """Return these options with a run's pinned activity timeout and attempts applied.
