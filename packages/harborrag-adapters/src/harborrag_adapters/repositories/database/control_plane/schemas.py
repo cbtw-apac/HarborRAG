@@ -338,6 +338,7 @@ class GraphConflictRow(Base):
 
 from . import schemas_completion_requests as _schemas_completion_requests  # noqa: E402, F401
 from . import schemas_conversation_memory as _schemas_conversation_memory  # noqa: E402, F401
+from . import schemas_schedules as _schemas_schedules  # noqa: E402, F401
 from . import schemas_settings as _schemas_settings  # noqa: E402, F401
 from . import schemas_usage as _schemas_usage  # noqa: E402, F401
 

@@ -24,6 +24,7 @@ Follow the [upgrade guide](docs/users/upgrading.md) before upgrading; entries ma
 - **Breaking:** migration `0049` clears the raw secret values that migration `0041` copied from a legacy source row into a connection's `credentials`, `config` or `advanced` settings, and marks each such connection `error` with the cleared fields in its `status_detail`; set them again as the [upgrade guide](docs/users/upgrading.md#set-cleared-credentials-again) shows. Migrations have no encryption key, so the values cannot move into the secrets store. It waits at most 5 s for its row locks on Postgres, and Alembic's offline `--sql` mode leaves its data step out
 - Structure-aware splitting of oversized text: code at syntax boundaries, Markdown at headings and fences, prose at sentence ends
 - Markdown code blocks record their language, and source code files keep their indentation and are chunked as code
+- Migration `0050` adds the empty `schedules` and `schedule_slots` tables behind `/v1/admin/schedules` and takes no lock on existing tables. The MCP server's read-only role reads the new tables until `scripts/deployment/dev.sh mcp-access` runs again, which revokes them, see the [upgrade guide](docs/users/upgrading.md#upgrade-the-services-in-order)
 
 #### harborrag-app
 
@@ -39,6 +40,13 @@ Follow the [upgrade guide](docs/users/upgrading.md) before upgrading; entries ma
 - `harborrag doctor` validates `config/ingestion/chunking.yaml`
 - `GET /v1/admin/failures` lists failed documents with `counts` per error category, and `POST /v1/admin/failures/retry` starts one retry run per original run
 - HTTP chat and `harborrag chat` rerank their passages when `retrieval.rerank` is on for the session's project, or else the tenant; `PATCH /v1/admin/settings` and `harborrag settings import` accept `retrieval.rerank: true` when the model catalog has a `rerank` section, and refuse it with `422 validation_error` otherwise
+- `/v1/admin/schedules` runs a connection's ingestion on an interval or a cron timetable, with the `editor` role: `GET /v1/admin/schedules` lists the tenant's schedules with their latest slot; `GET`, `PUT` and `DELETE /v1/admin/schedules/{schedule_id}` read a schedule with its last 20 slots, create or overwrite it (`ETag`, `If-Match`, `If-None-Match: *`) and remove it; `POST …/pause`, `…/resume` and `…/trigger` pause it, resume it, or start one run now. The CLI lists the seven operations as HTTP-only. See [Scheduled ingestion](docs/users/scheduled-ingestion.md)
+- The API runs the worker that fires schedule slots, so every API replica polls the Temporal task queue `harborrag-schedules`; when the worker fails, for example while Temporal is unreachable, the API logs it and starts it again after 30 s
+- `POST /v1/admin/schedules/{schedule_id}/pause` and `/resume` answer the schedule's `ETag` with it; a pause or resume that changes the schedule advances it, and one that changes nothing returns it unchanged
+- `GET /v1/admin/ingestions` filters by `trigger` (`user`, `api_key` or `schedule`) and `schedule_id`, and `harborrag ingestions list` takes `--trigger` and `--schedule-id`; a run that records no starter, such as one from `config/sources/schedules.yaml`, counts as `user`, and `schedule_id` with `trigger` `user` or `api_key` answers an empty page
+- `GET /v1/admin/connections?scheduled=true` keeps the connections that have a schedule that is not paused, and `scheduled=false` the others, before the page is cut; `harborrag connections list` takes `--scheduled/--no-scheduled`
+- A connection's `next_run_at`, on `GET`, `PUT` and the list, is the earliest next slot among its schedules that are not paused; it is `null` without one, or while `schedules.enabled` is `false`
+- `harborrag_schedule_slots_total{outcome,reason}` on the API's ops-port `/metrics` counts the schedule slots each API replica records, a `trigger` as `started` with the reason `none`; slots that leave no record, such as those of a paused schedule or one dropped after its catch-up window, are not counted, so alert on the `sum()` across replicas
 
 #### harborrag-core
 
@@ -46,6 +54,9 @@ Follow the [upgrade guide](docs/users/upgrading.md) before upgrading; entries ma
 - Runtime settings registry: `retrieval.top_k`, `retrieval.rerank`, `parsing.pdf_parser`, `chunking.max_tokens`, `ingestion.concurrency` and `models.embedding`, with tenant, project and connection levels
 - `RetrievalRequest.rerank` asks retrieval to rerank its passages with the model catalog's `rerank` model
 - `GraphAccessScope.document_access` says how a graph access scope admits a document's records: `listed`, the default, admits the documents in `document_ids`, and `by_source_scope` admits every document of the readable source scopes, for a reader with too many documents to list
+- Runtime settings `schedules.enabled`, `schedules.min_interval` and `schedules.max_per_connection`, at tenant level, applied `live`
+- `ScheduleRepositoryPort` and the `harborrag_core.domain.schedule` model store schedules and their recent slots
+- `ScheduleRepositoryPort.next_runs` returns the earliest `next_run_at` of each connection's schedules that are not paused
 
 #### harborrag-engine
 
@@ -65,6 +76,9 @@ Follow the [upgrade guide](docs/users/upgrading.md) before upgrading; entries ma
 - **Breaking:** ingestion requires the code grammars; the worker images and the `local` and `production` installs include them
 - Retrieval can rerank with the model catalog's `rerank` model: it fetches four times `top_k` passages (at most 100), keeps the first `top_k` in rerank order, and adds `rerank_score` to each result's metadata while `relevance` keeps the lane's similarity; a rerank provider error fails the retrieval
 - A warning when `HARBORRAG_SECRETS_ENCRYPTION_KEY` has spaces at its start or end; the key is still used as written, so stored secrets stay readable
+- Each schedule of `/v1/admin/schedules` gets a Temporal Schedule `harborrag-schedule:<tenant_id>:<schedule_id>` that starts the `harborrag.schedule_slot` workflow on the task queue `HARBORRAG_SCHEDULE_TASK_QUEUE` names (`harborrag-schedules` by default); the control database stays the source of truth
+- A schedule slot starts its run through the `POST /v1/admin/ingestions` code path, skips or queues it while the connection has a run, and pauses the schedule as `system` after `pause_after_failures` failed runs in a row; a slot that a worker picks up later than its catch-up window plus its jitter, such as after an outage of every API replica, is dropped without a record
+- A source run that HarborRAG paused, or is cancelling, says so in the Current Details of its `harborrag-source:<ingestion_id>` workflow in the Temporal UI, with the time in UTC and, for a pause, the route that resumes it; the details are empty while the run runs, and batch and document workflows have none
 
 #### Deployment
 
@@ -146,11 +160,14 @@ Follow the [upgrade guide](docs/users/upgrading.md) before upgrading; entries ma
 - `POST /v1/admin/ingestions/{ingestion_id}/resume` and `harborrag ingestions resume` accept a `running` run whose workflow holds a pause it has not applied yet, such as a pause sent during discovery, and take the pause back; on a `running` run with no pending pause they answer `409 invalid_state`
 - `harborrag ingestions start --inline` refuses a connection with a pending, running or paused run with `409 already_running`, naming that run in `details.ingestion_id`, and exit `4`, as the API does
 - An ingestion's `counters.discovered` and `counters.skipped` include the items skipped at discovery, so `processed + skipped + failed` reaches `discovered` when every item is done, and the CLI's run tables show a `Skipped` column [#136]
+- An ingestion that a schedule of `/v1/admin/schedules` started has `triggered_by.principal_type` `schedule`, with the schedule's ID as `principal_id`
+- A `GET /v1/admin/ingestions` cursor also records the `trigger` and `schedule_id` filters, so a cursor issued before the upgrade is refused once with `422 validation_error` on `cursor`
 
 #### harborrag-core
 
 - **Breaking:** `DocumentVersionPort.active_relation_document_ids` takes a required `tenant_id`, and code that implements the port must add `refresh_admission_change_key`
 - **Breaking:** a source failure that is not retried because the source refused the request, such as an HTTP `400`, `410` or `422` or a refused response, is stored with the category `INVALID_CONFIGURATION` instead of `TRANSIENT` in the control database's `document_failures.failure_category`. Its code stays `source_unavailable`, so the API's `error_category` does not change, and rows stored before keep `TRANSIENT`; update queries and dashboards that read the stored category, see the [upgrade guide](docs/users/upgrading.md#ingestions-and-failures)
+- `ConnectionRepositoryPort.list` takes `scheduled`, which code that implements the port must accept: `True` keeps the connections with a schedule that is not paused, `False` the others
 
 #### harborrag-engine
 
@@ -193,11 +210,15 @@ Follow the [upgrade guide](docs/users/upgrading.md) before upgrading; entries ma
 - **Breaking:** the API's control-plane engine sizes its pool with `HARBORRAG_CONTROL_DB_POOL_SIZE` and `HARBORRAG_CONTROL_DB_MAX_OVERFLOW` (40 and 32 by default), which apply to each control-database pool, instead of SQLAlchemy's default of 5 and 10, and so does the new connection-store engine that workers and inline runs use to read connections and their secrets; size Postgres `max_connections` for every pool of every API replica, worker and checkout CLI, see the [upgrade guide](docs/users/upgrading.md#before-you-start). Both engines also check a connection before use and recycle it after 30 minutes, so the first request after a database failover or an idle disconnect no longer fails
 - **Breaking:** `AppService.resume` on a `running` run with no pending pause raises `IngestionActionStateError` (`invalid_state`) instead of `IngestionAlreadyRunningError` (`already_running`), and resumes a run whose workflow holds a pause it has not applied yet
 - **Breaking:** a source or document run cancelled from Temporal, through its UI, its CLI or a cancelled schedule, is recorded as cancelled instead of failed, and a cancelled document's failure code is `document_release_cancelled` instead of `document_release_cancellederror`; update failure-inbox filters and dashboards that match it
-- **Breaking:** document retries heartbeat, so a retry on a crashed worker is tried again after about 2 minutes instead of 60, and a cancel reaches it before it publishes. Workers that serve the `harborrag-io` queue must run this release no later than those that serve `harborrag-transform`, see the [upgrade guide](docs/users/upgrading.md#upgrade-the-services-in-order). The changed workflows sit behind seven new Temporal patch IDs, so runs started before the upgrade replay
+- **Breaking:** document retries heartbeat, so a retry on a crashed worker is tried again after about 2 minutes instead of 60, and a cancel reaches it before it publishes. Workers that serve the `harborrag-io` queue must run this release no later than those that serve `harborrag-transform`, see the [upgrade guide](docs/users/upgrading.md#upgrade-the-services-in-order). The changed workflows sit behind nine new Temporal patch IDs, so runs started before the upgrade replay
 - A scheduled firing is skipped while its connection has a pending, running or paused run, not only while its scan runs
 - A request to a private address the operator has not allowed fails as `document_release_destination_blocked`, and a write that Qdrant or S3 rejects with `400` as `document_release_storage_request_rejected`; both are invalid configuration and are not retried in the run. A failure-inbox retry still includes `document_release_storage_request_rejected`, for after the configuration is fixed
 - A run's `EXTRACTION_FAILED` skip count covers only parser rejections (`parser_rejected_document` and `document_unsupported`), no longer outages, a missing parser or cancellations at the parse stage
 - **Breaking:** a connection test whose source answers a `4xx` that is not retried, other than `401`, `403`, `404`, `408` and `429`, such as a `400` or `422`, fails its `permissions` check with `error_category` `forbidden` and `the source refused the request`, instead of `unreachable`; a refused response is still `unreachable`
+- Deleting a connection, or a project with `cascade=true`, removes the connection's schedules of `/v1/admin/schedules` before its data
+- Cancelling a source ingestion (`POST /v1/admin/ingestions/{ingestion_id}/cancel`, `harborrag ingestions cancel`) cancels the documents in flight instead of waiting for them, recording each as a `document_release_cancelled` failure that `retry-failures` can run again, so the run reaches `cancelled` within seconds and a new ingestion of the connection can start. A document caught while publishing finishes publishing and counts as published. Batches started before the upgrade keep waiting for their documents
+- A graceful cancel during discovery stops discovery at its next heartbeat, within about a minute, instead of once discovery ends: the run ends `cancelled` with no document processed, and `counters.discovered` keeps the count discovery recorded. Until then the cancel may answer `running`, and a new start of the connection answers `409 already_running`. Runs started before the upgrade, behind the `harborrag-source-prompt-discovery-cancel` patch, still wait for discovery
+- Starting an ingestion releases the connection's start lease once the run is registered, so a start or a schedule trigger within 5 s of the previous start no longer answers `409 already_running` with a null `ingestion_id` after that run ended; `LeaseRepositoryPort` gains `release`
 
 #### Deployment
 
@@ -310,7 +331,10 @@ Follow the [upgrade guide](docs/users/upgrading.md) before upgrading; entries ma
 - A connection's `stats.errors` counts the failed documents of its latest run, also after a cancel, and is `0` before any run
 - A run whose Temporal workflow ended without recording it, such as one terminated in the Temporal UI, no longer blocks its connection with `409 already_running`, retry runs included: starting an ingestion, removing the connection and cancelling the run record it as `CANCELLED` or `FAILED` first
 - Cancelling a retry run cancels its workflow and records the run as `cancelled`, instead of answering `503`; `pause` and `resume` on a retry run answer `409 invalid_state`
-- Cancelling a running or paused run whose Temporal workflow is gone, such as one past the namespace retention, records it as `cancelled` with `error_category` `workflow_not_found`, over HTTP and with `harborrag ingestions cancel`, instead of answering `503` every time; a queued run that is not a retry run still answers `503`
+- Cancelling a running or paused run whose Temporal workflow is gone, such as one past the namespace retention, records it as `cancelled` with `error_category` `workflow_not_found`, over HTTP and with `harborrag ingestions cancel`, instead of answering `503` every time
+- Cancelling a queued run whose workflow never started, or was lost, records it as `cancelled` with `error_category` `workflow_not_found` at once, instead of answering `503`, even while a recovery pass still holds the run's submission claim; a start that races the cancel is refused by the run's first activity
+- `GET /v1/admin/connections?status=deleting` and `harborrag connections list --status deleting` list the connections being removed, instead of answering `422`
+- `project_id` and `connection_ref` of `GET /v1/admin/ingestions` and `harborrag ingestions list` keep listing the runs of a connection deleted without `purge=true`, except one imported with a key that has no `project_id/` prefix
 - `POST /v1/admin/ingestions` with an `updated_after` that has no UTC offset answers `422 validation_error` on `updated_after`, instead of `500`
 - `harborrag ingestions pause`, `resume` and `cancel` follow the HTTP rules: pausing a paused run, pausing or resuming a retry run, and any action on a finished run exit `4` with `invalid_state` and send no signal, cancelling a retry run cancels its own workflow instead of answering "task not found", and an unknown run is not found
 - A relative file path typed in a project subdirectory, for `--file` of `projects`, `connections` and `settings`, `settings import FILE` and `--config`, names that subdirectory's file instead of one at the project root
@@ -447,6 +471,8 @@ Follow the [upgrade guide](docs/users/upgrading.md) before upgrading; entries ma
 - Temporal cannot replay a batch workflow that 2.0.0a1 recorded and closed after one of its document workflows failed, so a query or a reset of such a closed run fails. A run that is still open cannot be in that state
 - For a reader of more than 10,000 documents, a graph path search can return no path when every shortest path crosses a document the reader may not read, although a longer readable path exists, and each graph call lists the reader's documents again before it falls back to source scopes. MCP graph tools report a refused selector as `graph retrieval backend failed`, with an error and its traceback in the server log
 - `retry-failures` and the failure inbox's retry select failures by code, so they also retry a document the source refused, stored as `INVALID_CONFIGURATION` with the code `source_unavailable`
+- A cancelled document's capture, parse or release-stage activity can keep writing until its next heartbeat; the index entries it leaves for that failed version never reach search results, because retrieval checks every candidate against the active document version
+- The failure inbox's `project_id` and `connection_ref` filters match only existing connections, so they find nothing for a deleted connection whose runs `GET /v1/admin/ingestions` still lists
 
 ## [2.0.0a2] - 2026-10-26
 

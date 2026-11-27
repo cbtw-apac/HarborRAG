@@ -24,6 +24,10 @@ class IngestionListQuery(ApiModel):
     project_id: str | None = None
     connection_ref: str | None = None
     status: Literal["queued", "running", "paused", "succeeded", "failed", "cancelled"] | None = None
+    trigger: Literal["user", "api_key", "schedule"] | None = Field(
+        default=None, description="Who or what started the run"
+    )
+    schedule_id: str | None = Field(default=None, description="Only runs this schedule started")
     created_after: AwareDatetime | None = None
     cursor: str | None = None
     limit: int = Field(default=20, ge=1, le=100)

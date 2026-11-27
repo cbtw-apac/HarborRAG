@@ -310,6 +310,7 @@ def test_schema_lists_registry_by_group(env: _Env) -> None:
         ("embedding", "Embedding"),
         ("ingestion", "Ingestion"),
         ("models", "Models"),
+        ("schedules", "Schedules"),
     ]
     entries = {entry["key"]: entry for group in groups for entry in group["settings"]}
     listed = [entry["key"] for group in groups for entry in group["settings"]]

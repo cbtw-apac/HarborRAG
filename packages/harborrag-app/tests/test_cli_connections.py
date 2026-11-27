@@ -46,6 +46,7 @@ def _connection() -> ConnectionOut:
         status="active",
         last_ingestion=None,
         stats=ConnectionStatsOut(documents=None, chunks=None, entities=None, errors=None),
+        next_run_at=None,
         created_by="cli:alex",
         updated_by="cli:alex",
         created_at=_STAMP,
@@ -349,6 +350,34 @@ def test_list_all_follows_the_cursor_and_prints_one_page(
     assert body["next_cursor"] is None
     assert [call.kwargs["cursor"] for call in operations.calls] == [None, "c1"]
     assert operations.calls[0].kwargs["status"] == "error"
+
+
+@pytest.mark.parametrize(
+    ("flags", "status", "scheduled"),
+    [
+        ((), None, None),
+        (("--status", "deleting"), "deleting", None),
+        (("--scheduled",), None, True),
+        (("--no-scheduled",), None, False),
+    ],
+)
+def test_list_passes_the_status_and_schedule_filters(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    flags: tuple[str, ...],
+    status: str | None,
+    scheduled: bool | None,
+) -> None:
+    operations = _PagedConnections([ConnectionPage(items=[_connection()], next_cursor=None)])
+    monkeypatch.setattr(invoke, "local_operations", serving(operations))
+
+    code, _, _ = _run(capsys, "connections", "list", *flags, "-o", "json")
+
+    assert code == 0
+    assert (operations.calls[0].kwargs["status"], operations.calls[0].kwargs["scheduled"]) == (
+        status,
+        scheduled,
+    )
 
 
 def test_delete_without_a_terminal_or_yes_is_a_usage_error(

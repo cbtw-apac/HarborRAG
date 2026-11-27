@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -18,6 +19,9 @@ from harborrag_adapters.repositories.database.control_plane.migrations import (
     run_migrations,
 )
 from harborrag_adapters.repositories.database.control_plane.projects import SqlProjectRepository
+from harborrag_adapters.repositories.database.control_plane.schedules import (
+    SqlScheduleRepository,
+)
 from harborrag_adapters.repositories.database.control_plane.session import SessionFactory
 from harborrag_core.contracts.errors import (
     HarborConflictError,
@@ -27,6 +31,7 @@ from harborrag_core.contracts.errors import (
 from harborrag_core.domain.connection import Connection, ConnectionBuilder
 from harborrag_core.domain.connection_snapshot import ConnectionSnapshot
 from harborrag_core.domain.project import Project
+from harborrag_core.domain.schedule import Schedule, SchedulePause
 
 pytestmark = [pytest.mark.integration, pytest.mark.whitebox]
 
@@ -171,6 +176,68 @@ async def test_list_pages_attention_first_and_filters(sessions: SessionFactory) 
     assert [c.ref for c in by_project] == ["a/one", "a/two"]
     with pytest.raises(HarborValidationError):
         await repository.list(tenant_ids=scope, cursor="garbage")
+
+
+@pytest.mark.asyncio
+async def test_list_filters_by_the_deleting_status(sessions: SessionFactory) -> None:
+    await _projects(sessions, ("acme", "demo"))
+    repository = SqlConnectionRepository(sessions)
+    for connection_id in ("kept", "leaving"):
+        await repository.put(_connection(connection_id))
+    await repository.set_status(tenant_id="acme", source_key="demo/leaving", status="deleting")
+
+    deleting, _ = await repository.list(tenant_ids=frozenset({"acme"}), status="deleting")
+
+    assert [(c.ref, c.status) for c in deleting] == [("demo/leaving", "deleting")]
+
+
+async def _schedule(
+    sessions: SessionFactory, schedule_id: str, connection_ref: str, *, tenant_id: str = "acme"
+) -> None:
+    project_id, _, connection_id = connection_ref.partition("/")
+    await SqlScheduleRepository(sessions).put(
+        Schedule(
+            tenant_id=tenant_id,
+            schedule_id=schedule_id,
+            project_id=project_id,
+            connection_id=connection_id,
+            interval_seconds=3600,
+        ),
+        expected_version=None,
+        create_only=True,
+    )
+
+
+@pytest.mark.asyncio
+async def test_list_keeps_connections_with_an_active_schedule_only_when_asked(
+    sessions: SessionFactory,
+) -> None:
+    await _projects(sessions, ("acme", "demo"))
+    repository = SqlConnectionRepository(sessions)
+    for connection_id in ("hourly", "nightly", "paused", "unscheduled", "theirs"):
+        await repository.put(_connection(connection_id))
+    await _schedule(sessions, "hourly", "demo/hourly")
+    await _schedule(sessions, "nightly-a", "demo/nightly")
+    await _schedule(sessions, "nightly-b", "demo/nightly")
+    await _schedule(sessions, "paused", "demo/paused")
+    await SqlScheduleRepository(sessions).set_paused(
+        tenant_id="acme",
+        schedule_id="paused",
+        paused=SchedulePause(reason="maintenance window", by="u_alex", at=datetime.now(UTC)),
+        actor="u_alex",
+    )
+    await _schedule(sessions, "theirs", "demo/theirs", tenant_id="other")
+    scope = frozenset({"acme"})
+
+    scheduled, _ = await repository.list(tenant_ids=scope, scheduled=True)
+    unscheduled, _ = await repository.list(tenant_ids=scope, scheduled=False)
+    first, cursor = await repository.list(tenant_ids=scope, scheduled=True, limit=1)
+    second, last = await repository.list(tenant_ids=scope, scheduled=True, limit=1, cursor=cursor)
+
+    assert [c.ref for c in scheduled] == ["demo/hourly", "demo/nightly"]
+    assert [c.ref for c in unscheduled] == ["demo/paused", "demo/theirs", "demo/unscheduled"]
+    assert ([c.ref for c in first], [c.ref for c in second]) == (["demo/hourly"], ["demo/nightly"])
+    assert last is None
 
 
 @pytest.mark.asyncio

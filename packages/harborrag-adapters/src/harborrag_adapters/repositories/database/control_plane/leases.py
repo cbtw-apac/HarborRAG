@@ -63,6 +63,15 @@ class SqlLeaseRepository:
             )
             return result.rowcount == 1
 
+    async def release(self, name: str, holder: str) -> None:
+        """Let ``name`` lapse now when ``holder`` still owns it, in one conditional UPDATE."""
+        async with self.sessions.begin() as session:
+            await session.execute(
+                sa.update(SingletonLeaseRow)
+                .where(SingletonLeaseRow.name == name, SingletonLeaseRow.holder == holder)
+                .values(expires_at=_LAPSED)
+            )
+
     @staticmethod
     async def _ensure_row(session: AsyncSession, name: str) -> None:
         """Insert a lapsed, unheld row for ``name`` unless one exists."""

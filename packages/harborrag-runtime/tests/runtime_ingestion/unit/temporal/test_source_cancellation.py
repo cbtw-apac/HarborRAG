@@ -4,16 +4,20 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import threading
 import uuid
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field, replace
+from datetime import timedelta
 from typing import Any
 
 import pytest
 import pytest_asyncio
 from temporalio import activity, workflow
+from temporalio.api.enums.v1 import EventType
+from temporalio.api.sdk.v1 import WorkflowMetadata
 from temporalio.client import (
     WorkflowExecutionStatus,
     WorkflowFailureError,
@@ -52,6 +56,7 @@ pytestmark = pytest.mark.graybox
 _CANCEL_PATCH = "harborrag-source-records-cancellation"
 _STOP_CHECK_PATCH = "harborrag-source-guarded-discovery-stop"
 _CLOSED_BATCH_PATCH = "harborrag-source-cancel-closed-batch"
+_DISCOVERY_CANCEL_PATCH = "harborrag-source-prompt-discovery-cancel"
 _DISCOVERY_SKIPS = {"unsupported_extension": 1}
 _RUN_SKIPS = {"EXTRACTION_FAILED": 2, "unsupported_extension": 1}
 
@@ -80,14 +85,19 @@ class _Batch:
 
 @dataclass
 class _Activities:
-    """Stub activities; any named in ``blocking`` waits until released."""
+    """Stub activities; any named in ``blocking`` waits until released.
+
+    An endless discovery heartbeats until it is cancelled, like a walk of a large source.
+    """
 
     blocking: tuple[str, ...] = ()
     fail_pause: bool = False
+    endless_discovery: bool = False
     calls: list[str] = field(default_factory=list)
     failure_codes: list[str] = field(default_factory=list)
     entered: dict[str, asyncio.Event] = field(default_factory=dict)
     released: dict[str, asyncio.Event] = field(default_factory=dict)
+    walking: asyncio.Event = field(default_factory=asyncio.Event)
 
     def __post_init__(self) -> None:
         self.entered = {name: asyncio.Event() for name in self.blocking}
@@ -99,6 +109,16 @@ class _Activities:
             self.entered[name].set()
             await self.released[name].wait()
 
+    async def _walk_until_cancelled(self) -> None:
+        self.walking.set()
+        try:
+            while True:
+                activity.heartbeat()
+                await asyncio.sleep(0.05)
+        except asyncio.CancelledError:
+            self.calls.append("discover_stopped")
+            raise
+
     def release_all(self) -> None:
         for event in self.released.values():
             event.set()
@@ -107,6 +127,8 @@ class _Activities:
     async def discover(self, request: Any) -> SourceDiscoveryResult:
         del request
         await self._record("discover")
+        if self.endless_discovery:
+            await self._walk_until_cancelled()
         return SourceDiscoveryResult(
             scan_id="scan-1",
             plan_reference=WorkflowArtifactReference(
@@ -225,8 +247,13 @@ async def _source_run(
     environment: WorkflowEnvironment,
     activities: _Activities,
     interceptors: tuple[Interceptor, ...] = (),
+    start_signal: str | None = None,
 ) -> AsyncIterator[tuple[WorkflowHandle[Any, Any], WorkflowHandle[Any, Any]]]:
-    """Start one single-batch source run; yield its handle and its batch child's."""
+    """Start one single-batch source run; yield its handle and its batch child's.
+
+    Heartbeats reach the server at once, so a heartbeating activity hears of a cancel within
+    a fraction of a second rather than the SDK's minute.
+    """
 
     task_id = f"task-{uuid.uuid4().hex[:8]}"
     source: SourceIngestionInput = replace(_source(), task_id=task_id)
@@ -238,6 +265,7 @@ async def _source_run(
             activities=activities.all(),
             workflow_runner=UnsandboxedWorkflowRunner(),
             interceptors=interceptors,
+            max_heartbeat_throttle_interval=timedelta(milliseconds=100),
         )
         for queue in set(source.workflow_options.task_queues.as_tuple())
     ]
@@ -249,6 +277,7 @@ async def _source_run(
                 source,
                 id=f"harborrag-source:{task_id}",
                 task_queue=source.workflow_options.task_queues.discovery,
+                start_signal=start_signal,
             )
             yield (
                 handle,
@@ -425,6 +454,128 @@ async def test_a_graceful_cancel_racing_the_batch_close_cancels_the_run(
     assert "record_source_failure" not in activities.calls
     assert _CLOSED_BATCH_PATCH in _patch_ids(history)
     assert await _replay_failure(history) is None
+
+
+@pytest.mark.asyncio
+async def test_a_graceful_cancel_during_discovery_stops_it_and_ends_the_run_cancelled(
+    environment: WorkflowEnvironment,
+) -> None:
+    activities = _Activities(endless_discovery=True)
+    async with _source_run(environment, activities) as (handle, _):
+        await asyncio.wait_for(activities.walking.wait(), 10)
+        await handle.signal("request_graceful_cancel")
+        result = await asyncio.wait_for(handle.result(), 5)
+        status = (await handle.describe()).status
+        history = await handle.fetch_history()
+
+    assert status is WorkflowExecutionStatus.COMPLETED
+    assert result.status == "CANCELLED"
+    assert result.discovered == 0
+    assert result.skipped_by_reason == _RUN_SKIPS
+    assert activities.calls == ["discover", "discover_stopped", "cancel", "cleanup"]
+    assert _discovery_stopped_before_the_cancel_was_recorded(history)
+    assert _DISCOVERY_CANCEL_PATCH in _patch_ids(history)
+    assert await _replay_failure(history) is None
+
+
+@pytest.mark.asyncio
+async def test_a_graceful_cancel_sent_with_the_start_ends_the_run_cancelled(
+    environment: WorkflowEnvironment,
+) -> None:
+    activities = _Activities(endless_discovery=True)
+    async with _source_run(environment, activities, start_signal="request_graceful_cancel") as (
+        handle,
+        _,
+    ):
+        result = await asyncio.wait_for(handle.result(), 5)
+        status = (await handle.describe()).status
+        history = await handle.fetch_history()
+
+    assert status is WorkflowExecutionStatus.COMPLETED
+    assert result.status == "CANCELLED"
+    assert result.discovered == 0
+    assert "record_source_failure" not in activities.calls
+    assert await _replay_failure(history) is None
+
+
+@pytest.mark.asyncio
+async def test_a_discovery_that_ends_before_it_hears_of_the_cancel_keeps_its_counts(
+    environment: WorkflowEnvironment,
+) -> None:
+    activities = _Activities(blocking=("discover",))
+    async with _source_run(environment, activities) as (handle, _):
+        await asyncio.wait_for(activities.entered["discover"].wait(), 10)
+        await handle.signal("request_graceful_cancel")
+        await _until(
+            lambda: _has_event(handle, EventType.EVENT_TYPE_ACTIVITY_TASK_CANCEL_REQUESTED)
+        )
+        activities.released["discover"].set()
+        status, result = await _close(handle)
+        history = await handle.fetch_history()
+
+    assert status is WorkflowExecutionStatus.COMPLETED
+    assert result.status == "CANCELLED"
+    assert result.discovered == 1
+    assert "record_source_failure" not in activities.calls
+    assert await _replay_failure(history) is None
+
+
+@pytest.mark.asyncio
+async def test_the_temporal_ui_details_show_a_pause_and_a_pending_cancel(
+    environment: WorkflowEnvironment, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    activities = _Activities(blocking=("discover",))
+    async with _source_run(environment, activities) as (handle, _):
+        task_id = handle.id.removeprefix("harborrag-source:")
+        await asyncio.wait_for(activities.entered["discover"].wait(), 10)
+        await handle.signal("pause")
+        await _until(lambda: _details_start_with(handle, "Paused"))
+        paused = await _current_details(handle)
+        await handle.signal("resume")
+        await _until(lambda: _details_start_with(handle, ""))
+        await handle.signal("request_graceful_cancel")
+        await _until(lambda: _details_start_with(handle, "Cancelling"))
+        activities.released["discover"].set()
+        status, _ = await _close(handle)
+        history = await handle.fetch_history()
+
+    assert status is WorkflowExecutionStatus.COMPLETED
+    assert re.fullmatch(
+        r"Paused by HarborRAG at \d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ; "
+        rf"resume with POST /v1/admin/ingestions/{task_id}/resume",
+        paused,
+    )
+    assert await _replay_failure(history) is None
+    monkeypatch.setattr(workflow, "set_current_details", lambda details: None)
+    assert await _replay_failure(history) is None
+
+
+async def _current_details(handle: WorkflowHandle[Any, Any]) -> str:
+    metadata: WorkflowMetadata = await handle.query(
+        "__temporal_workflow_metadata", result_type=WorkflowMetadata
+    )
+    return metadata.current_details
+
+
+async def _details_start_with(handle: WorkflowHandle[Any, Any], prefix: str) -> bool:
+    details = await _current_details(handle)
+    return details.startswith(prefix) if prefix else details == ""
+
+
+async def _has_event(handle: WorkflowHandle[Any, Any], event_type: EventType.ValueType) -> bool:
+    history = await handle.fetch_history()
+    return any(event.event_type == event_type for event in history.events)
+
+
+def _discovery_stopped_before_the_cancel_was_recorded(history: WorkflowHistory) -> bool:
+    types = [event.event_type for event in history.events]
+    cancel_scheduled = next(
+        index
+        for index, event in enumerate(history.events)
+        if event.activity_task_scheduled_event_attributes.activity_type.name
+        == "harborrag.cancel_source_ingestion"
+    )
+    return types.index(EventType.EVENT_TYPE_ACTIVITY_TASK_CANCELED) < cancel_scheduled
 
 
 def _patch_ids(history: WorkflowHistory) -> set[str]:

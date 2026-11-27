@@ -103,6 +103,7 @@ class AdminOps:
         project_id: str | None,
         source_type: str | None,
         status: ConnectionStatus | None,
+        scheduled: bool | None,
         limit: int,
         cursor: str | None,
     ) -> ConnectionPage:
@@ -113,6 +114,8 @@ class AdminOps:
             project_id: Only this project's connections, when set.
             source_type: Only connections of this type, when set.
             status: Only connections in this status, when set.
+            scheduled: ``True`` keeps connections with an active schedule, ``False`` the
+                others; ``None`` keeps both.
             limit: Page size.
             cursor: ``next_cursor`` of the previous page.
 
@@ -128,6 +131,7 @@ class AdminOps:
             project_id=project_id,
             source_type=_source_type(source_type),
             status=status,
+            scheduled=scheduled,
             limit=limit,
             cursor=cursor,
         )

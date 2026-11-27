@@ -121,6 +121,14 @@ class Runs:
         """Return every stored task as one page."""
         return TaskPage(tuple(self.tasks.values()), has_more=False)
 
+    async def source_keys(self, *, tenant_id: str) -> frozenset[str]:
+        """Return the source key every stored task of the tenant names."""
+        return frozenset(
+            str(task.request.get("connection_id"))
+            for task in self.tasks.values()
+            if task.request.get("tenant_id") == tenant_id
+        )
+
     async def document_results_page(self, task_id: str, **_filters: Any) -> TaskDocumentPage:
         """Return an empty document page."""
         return TaskDocumentPage((), has_more=False)

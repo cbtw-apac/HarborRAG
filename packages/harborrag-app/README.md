@@ -33,8 +33,9 @@ Setup and diagnostics; `auth` under Access; `chat` under Chat; and `projects`,
   maps them, and the
   [CLI command reference](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/cli-reference/commands.md)
   lists every option.
-- **The HTTP API** under `/v1`: connections, projects, runtime settings, ingestion runs
-  and the failure inbox under `/v1/admin`, chat sessions and completions under `/v1/chat`.
+- **The HTTP API** under `/v1`: connections, projects, runtime settings, ingestion runs,
+  schedules and the failure inbox under `/v1/admin`, chat sessions and completions under
+  `/v1/chat`.
   See [Connections](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/connections.md)
   and [Chat](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/chat/README.md).
 - **One set of operations** that both call, held in `operations/`. The CLI and the API
@@ -88,10 +89,12 @@ The durable workflows behind `ingestions start` are described in
 
 ## Schedule ingestions
 
-Schedules run in Temporal and are declared in `config/sources/schedules.yaml`, which the
-API applies each time it starts. See
+`/v1/admin/schedules` runs a connection's ingestion on an interval or a cron timetable.
+Create, change, pause, resume, trigger and delete schedules over HTTP; the CLI has no
+schedule command. Schedules can also be declared in `config/sources/schedules.yaml`,
+which the API applies each time it starts. See
 [Scheduled ingestion](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/scheduled-ingestion.md)
-for the file format, pausing a schedule during an incident, and monitoring.
+for both kinds, their fields, and monitoring.
 
 ## Ask a grounded question
 

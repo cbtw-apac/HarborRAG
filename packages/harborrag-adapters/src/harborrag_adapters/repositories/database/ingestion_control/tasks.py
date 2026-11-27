@@ -4,18 +4,20 @@ from collections.abc import Mapping, Sequence
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Select, and_, insert, or_, select
+from sqlalchemy import ColumnElement, Select, and_, insert, or_, select
 from sqlalchemy.exc import IntegrityError
 
 from harborrag_adapters.repositories.backends.sqlalchemy import SQLAlchemyDBClient
 from harborrag_core.base import utc_now
 from harborrag_core.contracts import HarborConflictError
 from harborrag_core.ingestion import (
+    DEFAULT_ACTOR_TYPE,
     TASK_PROVENANCE_KEYS,
     IngestionTask,
     IngestionTaskState,
     TaskPage,
     TaskRegistration,
+    TaskTrigger,
     reject_runtime_fields,
 )
 from harborrag_core.invariants import HarborInvariantError
@@ -203,6 +205,7 @@ class IngestionTaskRepository(TaskLifecycleMixin, TaskDocumentResultsMixin):
         before_task_id: str | None = None,
         scope_connection_ids: frozenset[str] | None = None,
         created_after: datetime | None = None,
+        trigger: TaskTrigger | None = None,
         limit: int = 50,
     ) -> TaskPage:
         """Newest-first keyset page of durable tasks for the public list API.
@@ -214,7 +217,8 @@ class IngestionTaskRepository(TaskLifecycleMixin, TaskDocumentResultsMixin):
         scope; None means unrestricted and is reserved for wildcard
         principals and trusted system callers. ``scope_connection_ids`` keeps the
         runs of those connections (source keys); an empty set matches nothing.
-        ``created_after`` keeps runs submitted at or after it.
+        ``created_after`` keeps runs submitted at or after it, and ``trigger`` the
+        runs its actor type and actor started.
         """
 
         if not 1 <= limit <= 200:
@@ -229,6 +233,8 @@ class IngestionTaskRepository(TaskLifecycleMixin, TaskDocumentResultsMixin):
             return TaskPage((), has_more=False)
         statement = select(INGESTION_TASKS)
         statement = _narrowed(statement, tenant_ids, scope_connection_ids, created_after)
+        if trigger is not None:
+            statement = statement.where(_started_by(trigger))
         if tenant_ids is not None:
             statement = statement.where(INGESTION_TASKS.c.tenant_id.in_(sorted(tenant_ids)))
         if statuses is not None:
@@ -323,6 +329,19 @@ def _narrowed(
     if created_after is not None:
         statement = statement.where(INGESTION_TASKS.c.submitted_at >= created_after)
     return statement
+
+
+def _started_by(trigger: TaskTrigger) -> ColumnElement[bool]:
+    """SQL: the task's request records ``trigger``; no actor type counts as the default one."""
+    actor_key, actor_type_key = TASK_PROVENANCE_KEYS
+    actor_type: ColumnElement[str] = INGESTION_TASKS.c.request[actor_type_key].as_string()
+    started: ColumnElement[bool] = actor_type == trigger.actor_type
+    if trigger.actor_type == DEFAULT_ACTOR_TYPE:
+        started = or_(started, actor_type.is_(None))
+    if trigger.actor is None:
+        return started
+    actor: ColumnElement[str] = INGESTION_TASKS.c.request[actor_key].as_string()
+    return and_(started, actor == trigger.actor)
 
 
 def _identity(request: Mapping[str, object]) -> dict[str, object]:

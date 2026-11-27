@@ -42,6 +42,7 @@ from .identity import (
     reject_runtime_fields,
 )
 from .lifecycle_contracts import (
+    DEFAULT_ACTOR_TYPE,
     TASK_PROVENANCE_KEYS,
     ActiveDocumentVersion,
     DocumentFailure,
@@ -121,6 +122,7 @@ from .task_query_contracts import (
     TaskDocumentPage,
     TaskPage,
     TaskRegistration,
+    TaskTrigger,
 )
 
 __all__ = [
@@ -213,10 +215,12 @@ __all__ = [
     "SparseEncoderProfile",
     "SparseEncoding",
     "TASK_PROVENANCE_KEYS",
+    "DEFAULT_ACTOR_TYPE",
     "TaskDocumentResult",
     "TaskDocumentPage",
     "TaskPage",
     "TaskRegistration",
+    "TaskTrigger",
     "VectorProjectionVerification",
     "canonical_document_bytes",
     "identity_for_source",

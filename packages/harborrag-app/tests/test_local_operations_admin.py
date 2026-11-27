@@ -105,7 +105,13 @@ async def test_put_connection_creates_once_and_tags_each_revision(
 async def test_a_reader_may_not_list_connections(operations: LocalOperations) -> None:
     with pytest.raises(HarborAuthError) as refused:
         await operations.list_connections(
-            _scope("reader"), project_id=None, source_type=None, status=None, limit=20, cursor=None
+            _scope("reader"),
+            project_id=None,
+            source_type=None,
+            status=None,
+            scheduled=None,
+            limit=20,
+            cursor=None,
         )
 
     assert type(refused.value) is HarborAuthError
@@ -122,6 +128,7 @@ async def test_a_tenant_the_credential_does_not_hold_is_refused(
             project_id=None,
             source_type=None,
             status=None,
+            scheduled=None,
             limit=20,
             cursor=None,
         )

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Protocol, cast
 
 from harborrag_core.ingestion import IngestionTask, IngestionTaskState
 from harborrag_core.ports.events import EventBusPort
@@ -25,7 +25,9 @@ from harborrag_runtime.execution.task_registry import IngestionTaskRegistry
 from harborrag_runtime.ingestion_contracts import IngestionGateway
 from harborrag_runtime.scheduling import ScheduleBackend
 from harborrag_runtime.sdk import HarborRAG, HarborRAGConfig
+from harborrag_runtime.temporal.optional import load_temporal_attribute
 
+from ..control_plane.schedule_models import ScheduleTimers
 from ..ingestion.connection_sources import SourcePreparation
 from ..ingestion.ports import PublicTaskStore, SourceInputBuilder
 
@@ -34,6 +36,7 @@ type ClientFactory = Callable[
     Awaitable[IngestionGateway],
 ]
 type ScheduleBackendFactory = Callable[[RuntimeSettings], Awaitable[ScheduleBackend]]
+type ScheduleTimersFactory = Callable[[RuntimeSettings], Awaitable[ScheduleTimers]]
 type GatewayDescriptionFactory = Callable[[RuntimeSettings], IngestionGatewayDescription]
 type RetrievalRuntimeFactory = Callable[[RuntimeSettings], HarborRAG]
 type EventBusFactory = Callable[[], EventBusPort]
@@ -54,6 +57,9 @@ class TaskRegistry(PublicTaskStore, Protocol):
 
     async def connection_document_count(self, *, tenant_id: str, connection_id: str) -> int:
         """Count the documents the connection's runs have recorded."""
+
+    async def source_keys(self, *, tenant_id: str) -> frozenset[str]:
+        """Return every source key the tenant's runs were registered under."""
 
     async def source_scope_ids_by_connection(
         self, *, tenant_id: str, connection_ids: Sequence[str]
@@ -89,12 +95,24 @@ def _retrieval_runtime(settings: RuntimeSettings) -> HarborRAG:
     return HarborRAG(HarborRAGConfig(runtime=settings))
 
 
+async def _schedule_timers(settings: RuntimeSettings) -> ScheduleTimers:
+    """Connect the Temporal timers of ``/v1/admin/schedules``, importing Temporal only now."""
+    connect = cast(  # the loader returns object; the module defines this coroutine function
+        "ScheduleTimersFactory",
+        load_temporal_attribute(
+            "harborrag_runtime.temporal.schedule_timers", "connect_schedule_timers"
+        ),
+    )
+    return await connect(settings)
+
+
 @dataclass(frozen=True, slots=True)
 class AppServiceFactories:
     """Collaborator factories, grouped so composition stays overridable in tests."""
 
     client: ClientFactory = connect_ingestion_gateway
     schedule_backend: ScheduleBackendFactory = connect_schedule_backend
+    schedule_timers: ScheduleTimersFactory = _schedule_timers
     ingestion_description: GatewayDescriptionFactory = describe_ingestion_gateway
     retrieval_runtime: RetrievalRuntimeFactory = _retrieval_runtime
     source_input_builder: SourceInputBuilder | None = None

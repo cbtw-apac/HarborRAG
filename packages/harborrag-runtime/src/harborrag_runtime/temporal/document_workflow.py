@@ -11,6 +11,7 @@ from datetime import timedelta
 
 from temporalio import workflow
 from temporalio.exceptions import ActivityError, is_cancelled_exception
+from temporalio.workflow import ActivityCancellationType
 
 from harborrag_core.ingestion import DocumentIngestionOutcome
 from harborrag_runtime.document_stage_catalog import DOCUMENT_STAGE_CATALOG
@@ -26,6 +27,7 @@ from .schemas import (
 )
 
 _RECORDS_CANCELLATION_PATCH = "harborrag-document-records-cancellation"
+_PROMPT_CANCEL_PATCH = "harborrag-batch-prompt-cancel"
 _CAPTURE_TIMEOUT = timedelta(minutes=30)
 _PARSE_TIMEOUT = timedelta(minutes=30)
 _STAGE_TIMEOUT = timedelta(minutes=60)
@@ -39,6 +41,19 @@ def _start_to_close(timeouts: ActivityTimeoutConfig, own_budget: timedelta) -> t
     return timedelta(seconds=timeouts.document_seconds)
 
 
+def _publish_cancellation() -> ActivityCancellationType:
+    """Return how a cancel treats the publish in flight.
+
+    Publishing has no heartbeat, so a cancel cannot stop it part way. Since the batch's
+    prompt cancel, the document waits for it to end, and a version it published is recorded
+    as published instead of as a cancelled failure. Runs recorded before the patch, and runs
+    outside a workflow, leave it running.
+    """
+    if workflow.in_workflow() and workflow.patched(_PROMPT_CANCEL_PATCH):
+        return ActivityCancellationType.WAIT_CANCELLATION_COMPLETED
+    return ActivityCancellationType.TRY_CANCEL
+
+
 @workflow.defn(name="harborrag.document_ingestion")
 class DocumentIngestionWorkflow:
     """Run one independently retryable document through the release stages."""
@@ -48,7 +63,7 @@ class DocumentIngestionWorkflow:
         """Capture, parse, release and publish one document, recording any failure.
 
         A failed or cancelled activity records the document's failure before the
-        workflow ends.
+        workflow ends. A cancel during publishing waits for the publish to end.
 
         Args:
             request: The document's plan entry and the run's workflow options.
@@ -104,6 +119,7 @@ class DocumentIngestionWorkflow:
                     start_to_close_timeout=_start_to_close(timeouts, _PUBLISH_TIMEOUT),
                     retry_policy=document_retry,
                     result_type=DocumentIngestionOutcome,
+                    cancellation_type=_publish_cancellation(),
                 )
             )
         except asyncio.CancelledError:

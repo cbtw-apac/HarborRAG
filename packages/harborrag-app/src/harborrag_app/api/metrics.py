@@ -13,15 +13,22 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import ASGIApp
 
+from harborrag_runtime.observability.schedule_metrics import SCHEDULE_SLOT_METRICS
+
 
 class ApiMetrics:
-    """API and process metrics isolated from the module-global registry."""
+    """API and process metrics isolated from the module-global registry.
+
+    The schedule slot counter is the process's own, because the slot worker runs in
+    this process and counts into it.
+    """
 
     def __init__(self, *, version: str) -> None:
         self.registry = CollectorRegistry(auto_describe=True)
         GCCollector(registry=self.registry)
         PlatformCollector(registry=self.registry)
         ProcessCollector(registry=self.registry)
+        self.registry.register(SCHEDULE_SLOT_METRICS)
 
         self._info = Gauge(
             "harborrag_api_info",
