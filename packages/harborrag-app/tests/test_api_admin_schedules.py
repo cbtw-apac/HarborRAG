@@ -30,6 +30,7 @@ from harborrag_runtime.application.control_plane.schedule_models import (
     ScheduleWrite,
     WriteConditions,
 )
+from harborrag_runtime.errors import MissingOptionalDependencyError
 from harborrag_runtime.ingestion.connections import ConnectionUnavailableError
 
 pytestmark = pytest.mark.unit
@@ -362,9 +363,10 @@ class _SlotWorker:
     [
         ((None,), 1),
         ((ImportError("temporalio"),), 1),
+        ((MissingOptionalDependencyError("install the temporal extra"),), 1),
         ((RuntimeError("worker lost"), RuntimeError("worker lost"), None), 3),
     ],
-    ids=["returns", "no-temporal-sdk", "restarts-after-failures"],
+    ids=["returns", "no-temporal-sdk", "no-temporal-extra", "restarts-after-failures"],
 )
 def test_the_slot_worker_restarts_only_after_a_failure(
     monkeypatch: pytest.MonkeyPatch, outcomes: tuple[BaseException | None, ...], starts: int

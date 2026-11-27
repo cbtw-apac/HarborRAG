@@ -100,6 +100,24 @@ async def test_start_answers_the_queued_run_with_its_links(starter: IngestionSta
     assert "links" in run
 
 
+async def test_start_as_a_schedule_reads_back_as_triggered_by_the_schedule(
+    starter: IngestionStarter,
+) -> None:
+    run = await starter.start(
+        _KEY,
+        actor="demo-tickets-hourly",
+        actor_type="schedule",
+        mode="incremental",
+        item_refs=(),
+        updated_after=None,
+    )
+
+    assert run["triggered_by"] == {
+        "principal_type": "schedule",
+        "principal_id": "demo-tickets-hourly",
+    }
+
+
 async def test_start_of_an_unknown_project_names_the_field(starter: IngestionStarter) -> None:
     with pytest.raises(UnknownReferenceError) as refused:
         await _start(starter, ConnectionKey("acme", "nowhere", "jira-main"))

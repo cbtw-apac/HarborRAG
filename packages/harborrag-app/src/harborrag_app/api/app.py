@@ -36,6 +36,7 @@ from harborrag_core.contracts.errors import HarborConfigurationError
 from harborrag_core.domain.identity import DEFAULT_TENANT_ID
 from harborrag_core.observability.process_logging import configure_logging
 from harborrag_runtime.application.composition.selection import select_app_service
+from harborrag_runtime.errors import MissingOptionalDependencyError
 
 if TYPE_CHECKING:
     from harborrag_runtime.application.composition.service import AppService
@@ -164,8 +165,8 @@ async def _run_schedule_slots(app: FastAPI) -> None:
     """Serve the slots of ``/v1/admin/schedules``, restarting the worker after a failure.
 
     The worker runs until the lifespan cancels it; a normal return ends the loop. A
-    missing Temporal SDK (``ImportError``) cannot heal without a redeploy, so it stops
-    the loop too.
+    missing Temporal SDK or extra cannot heal without a redeploy, so it stops the
+    loop too.
     """
     while True:
         try:
@@ -173,7 +174,7 @@ async def _run_schedule_slots(app: FastAPI) -> None:
             return
         except asyncio.CancelledError:
             raise
-        except ImportError:
+        except (ImportError, MissingOptionalDependencyError):
             logger.exception("Schedule slot worker cannot start; fix the deployment and restart")
             return
         except Exception:
