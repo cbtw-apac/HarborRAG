@@ -34,11 +34,12 @@ import asyncio
 import logging
 import time
 from collections import OrderedDict
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
+from harborrag_core.observability.log_events import FailureKind, log_event, log_failure
 from harborrag_core.ports.model_catalog import TenantChatCatalog
 from harborrag_core.ports.model_clients import AsyncHarborChatClientProtocol
 from harborrag_runtime.config.settings import RuntimeSettings
@@ -48,26 +49,32 @@ from .tenant_models import TenantModelSources
 
 if TYPE_CHECKING:
     from harborrag_adapters.models.chat import HarborChatClientConfig
-    from harborrag_core.models.chat import HarborChatStreamChunk
+    from harborrag_core.models.chat import (
+        HarborChatMessage,
+        HarborChatRequest,
+        HarborChatResponse,
+        HarborChatStreamChunk,
+    )
+    from harborrag_core.ports.model_clients import StructuredResponseT, StructuredUsageResult
 
 logger = logging.getLogger("harborrag.runtime.chat.tenant")
 
 type TenantClientBuilder = Callable[[HarborChatClientConfig], AsyncHarborChatClientProtocol]
 
-# How long a tenant whose catalog or secrets port just failed is answered by
-# the shared client before the next turn tries its own configuration again.
 _TRANSIENT_FAILURE_RETRY_SECONDS = 10.0
+"""How long the shared client answers a tenant whose catalog or secrets port just failed."""
 
 
 @dataclass(frozen=True, slots=True)
 class TenantChatResolution:
     """Which client answers this tenant, and the catalog that bounds it.
 
-    ``client`` is ``None`` when the tenant uses the process-wide client, and
-    ``catalog`` is ``None`` whenever the process-wide catalog is the authority
-    on which model names are allowed -- including when a tenant's own
-    configuration failed to build, because the shared client is what will
-    actually serve the turn.
+    Attributes:
+        client: The tenant's own client, or ``None`` for the process-wide one.
+        catalog: The tenant's catalog of allowed model names, or ``None`` when the
+            process-wide catalog is the authority. That includes a tenant whose
+            own configuration failed to build, because the shared client is what
+            will actually serve the turn.
     """
 
     client: AsyncHarborChatClientProtocol | None = None
@@ -80,11 +87,14 @@ _SHARED = TenantChatResolution()
 class _LeasedClient:
     """A cached tenant client that is closed only once no call is using it.
 
-    Every call counts itself in for its whole duration -- a stream until it is
-    exhausted or closed -- so retiring the client while a turn still streams
+    Every call counts itself in for its whole duration, a stream until it is
+    exhausted or closed, so retiring the client while a turn still streams
     through it defers the close to that turn's end instead of failing it with
     a closed connection pool. Anything the protocol does not route through a
     counted call is passed straight to the wrapped client.
+
+    Args:
+        client: The tenant's chat client this lease owns and closes.
     """
 
     def __init__(self, client: AsyncHarborChatClientProtocol) -> None:
@@ -93,31 +103,81 @@ class _LeasedClient:
         self._retired = False
         self._closed = False
 
-    def __getattr__(self, name: str) -> Any:
+    def __getattr__(self, name: str) -> object:
+        """Return any attribute no counted call covers from the wrapped client."""
         return getattr(self.wrapped, name)
 
-    async def achat(self, *args: Any, **kwargs: Any) -> Any:
+    async def achat(
+        self,
+        messages: Sequence[HarborChatMessage] | None = None,
+        *,
+        request: HarborChatRequest | None = None,
+        model: str | None = None,
+        **kwargs: object,
+    ) -> HarborChatResponse:
+        """Generate one chat response, counted until it returns."""
         async with self._counted():
-            return await self.wrapped.achat(*args, **kwargs)
+            return await self.wrapped.achat(messages, request=request, model=model, **kwargs)
 
-    async def achat_structured(self, *args: Any, **kwargs: Any) -> Any:
+    async def achat_structured(
+        self,
+        messages: Sequence[HarborChatMessage] | None = None,
+        *,
+        response_model: type[StructuredResponseT],
+        request: HarborChatRequest | None = None,
+        model: str | None = None,
+        max_repair_attempts: int | None = None,
+        **kwargs: object,
+    ) -> StructuredResponseT:
+        """Generate one typed response, counted until it returns."""
         async with self._counted():
-            return await self.wrapped.achat_structured(*args, **kwargs)
+            return await self.wrapped.achat_structured(
+                messages,
+                response_model=response_model,
+                request=request,
+                model=model,
+                max_repair_attempts=max_repair_attempts,
+                **kwargs,
+            )
 
-    async def achat_structured_usage(self, **kwargs: Any) -> Any:
+    async def achat_structured_usage(
+        self,
+        *,
+        response_model: type[StructuredResponseT],
+        request: HarborChatRequest | None = None,
+        messages: Sequence[HarborChatMessage] | None = None,
+        max_repair_attempts: int | None = None,
+    ) -> StructuredUsageResult[StructuredResponseT]:
+        """Generate one typed response with its usage, counted until it returns."""
         async with self._counted():
-            return await self.wrapped.achat_structured_usage(**kwargs)
+            return await self.wrapped.achat_structured_usage(
+                response_model=response_model,
+                request=request,
+                messages=messages,
+                max_repair_attempts=max_repair_attempts,
+            )
 
-    async def astream(self, *args: Any, **kwargs: Any) -> AsyncIterator[HarborChatStreamChunk]:
-        # Counted inside the generator body, so a stream that is created but
-        # never iterated holds nothing open.
+    async def astream(
+        self,
+        messages: Sequence[HarborChatMessage] | None = None,
+        *,
+        request: HarborChatRequest | None = None,
+        model: str | None = None,
+        **kwargs: object,
+    ) -> AsyncIterator[HarborChatStreamChunk]:
+        """Stream one chat response, counted until the stream ends or is closed.
+
+        The count starts inside the generator body, so a stream that is created
+        but never iterated holds nothing open.
+        """
         async with self._counted():
-            async for chunk in self.wrapped.astream(*args, **kwargs):
+            async for chunk in self.wrapped.astream(
+                messages, request=request, model=model, **kwargs
+            ):
                 yield chunk
 
     async def aclose(self) -> None:
         """Close now, in use or not; only shutdown calls this directly."""
-
         if self._closed:
             return
         self._closed = True
@@ -125,12 +185,12 @@ class _LeasedClient:
 
     async def retire(self) -> None:
         """Stop handing this client out; close it now if idle, else on release."""
-
         self._retired = True
         await self._close_if_idle()
 
     @asynccontextmanager
     async def _counted(self) -> AsyncIterator[None]:
+        """Count one call in for the block, then close if the client was retired."""
         self._in_flight += 1
         try:
             yield
@@ -145,12 +205,27 @@ class _LeasedClient:
 
 @dataclass(slots=True)
 class _Entry:
+    """One cached resolution and the catalog fingerprint it was built from."""
+
     fingerprint: str
     resolution: TenantChatResolution
 
 
 class TenantChatClients:
-    """Resolve, cache, and dispose one chat client per configured tenant."""
+    """Resolve, cache, and dispose one chat client per configured tenant.
+
+    Each tenant has its own build lock, never pruned, because dropping a lock
+    somebody still waits on would let a second build for that tenant start
+    beside it. A transient failure is remembered per tenant as the fingerprint
+    and the time its retry pause ends. That record is kept apart from the cached
+    clients, so a failure never evicts a good client.
+
+    Args:
+        settings: Runtime settings holding the cache bound and the shared model config.
+        sources: Catalog and secrets ports the tenant configuration is read from.
+        builder: Builds one chat client from a tenant's resolved configuration.
+        clock: Monotonic clock in seconds, replaceable in tests.
+    """
 
     def __init__(
         self,
@@ -165,14 +240,8 @@ class TenantChatClients:
         self._builder = builder
         self._entries: OrderedDict[str, _Entry] = OrderedDict()
         self._max_entries = settings.chat_tenant_client_cache_size
-        # One lock per tenant, never pruned: dropping a lock somebody still
-        # waits on would let a second build for that tenant start beside it.
         self._locks: dict[str, asyncio.Lock] = {}
-        # Bumped by ``aclose`` so a build already in flight then is disposed
-        # rather than installed into a cache nobody will close again.
         self._generation = 0
-        # tenant -> (fingerprint, retry deadline) after a transient failure.
-        # Kept apart from ``_entries`` so a failure never evicts a good client.
         self._retry_after: dict[str, tuple[str, float]] = {}
         self._clock = clock
 
@@ -183,18 +252,22 @@ class TenantChatClients:
         cheap port call and no contention. A miss takes only this tenant's
         lock, and re-checks under it so concurrent first requests for one
         tenant build a single client while other tenants build in parallel.
-        """
+        A fingerprint that cannot be read is logged and answered by the
+        process-wide client.
 
+        Args:
+            tenant_id: Tenant asking, or ``None`` for the process-wide client.
+
+        Returns:
+            The client and catalog that answer this tenant's turn.
+        """
         if not tenant_id:
             return _SHARED
         try:
             fingerprint = await self._sources.catalog.fingerprint(tenant_id)
-        except Exception:
-            logger.error(
-                "Reading the model-catalog fingerprint failed for tenant=%s; "
-                "answering from the process-wide chat catalog",
-                tenant_id,
-                exc_info=True,
+        except Exception as error:  # noqa: BLE001 - chat falls back to the shared client
+            log_failure(
+                logger, "chat.tenant_catalog_fingerprint_failed", error, tenant_id=tenant_id
             )
             return _SHARED
         cached = self._fresh(tenant_id, fingerprint)
@@ -207,6 +280,7 @@ class TenantChatClients:
             return await self._rebuild(tenant_id, fingerprint)
 
     def _fresh(self, tenant_id: str, fingerprint: str) -> TenantChatResolution | None:
+        """Return the cached or paused resolution for this fingerprint, if any."""
         entry = self._entries.get(tenant_id)
         if entry is not None and entry.fingerprint == fingerprint:
             self._entries.move_to_end(tenant_id)
@@ -217,18 +291,21 @@ class TenantChatClients:
         return None
 
     def _fallback(self, tenant_id: str) -> TenantChatResolution:
-        """What answers while a transient failure waits out its retry pause.
+        """Return what answers while a transient failure waits out its retry pause.
 
-        The client this tenant already had, if any -- its rows changed, but
-        nothing newer could be built yet -- and the process-wide one otherwise.
+        That is the client this tenant already had, if any, because its rows
+        changed but nothing newer could be built yet. Otherwise it is the
+        process-wide client.
         """
-
         entry = self._entries.get(tenant_id)
         return _SHARED if entry is None else entry.resolution
 
     async def aclose(self) -> None:
-        """Dispose every cached tenant client; the shared one is not ours."""
+        """Dispose every cached tenant client; the shared one is not ours.
 
+        A build still in flight when this runs is disposed when it finishes,
+        rather than installed into a cache nobody will close again.
+        """
         self._generation += 1
         entries = list(self._entries.values())
         self._entries.clear()
@@ -236,26 +313,30 @@ class TenantChatClients:
             await _dispose(entry.resolution.client)
 
     async def _rebuild(self, tenant_id: str, fingerprint: str) -> TenantChatResolution:
+        """Build this tenant's resolution and install it in the cache.
+
+        A build that finishes after ``aclose`` is disposed, because nobody would
+        close it. A transient failure inserts nothing, so nothing is evicted or
+        retired, and only starts the tenant's retry pause. Otherwise the cache
+        makes room and retires first, then inserts. Nothing awaits between the
+        insert and the return, so no concurrent eviction can retire this client
+        before the caller has started using it. Concurrent rebuilds can
+        therefore overshoot the bound briefly, and the next one trims it.
+        """
         generation = self._generation
         resolution, cacheable = await self._build(tenant_id)
         if generation != self._generation:
-            # Closed while this build was in flight: nobody would close it.
             await _dispose(resolution.client)
             return _SHARED
         if not cacheable:
-            # Transient: nothing is inserted, so nothing is evicted or retired.
             deadline = self._clock() + _TRANSIENT_FAILURE_RETRY_SECONDS
             self._retry_after[tenant_id] = (fingerprint, deadline)
             return self._fallback(tenant_id)
         self._retry_after.pop(tenant_id, None)
-        # Make room and retire first, then insert: nothing awaits between the
-        # insert and the return, so no concurrent eviction can retire this
-        # client before the caller has started using it. Concurrent rebuilds
-        # can therefore overshoot the bound briefly; the next one trims it.
         retired = [self._entries.pop(tenant_id, None)]
         while len(self._entries) >= self._max_entries:
             _, dropped = self._entries.popitem(last=False)
-            logger.info("Evicted a cached tenant chat client to stay within the cache bound")
+            log_event(logger, "chat.tenant_client_evicted")
             retired.append(dropped)
         for entry in retired:
             if entry is not None:
@@ -264,16 +345,26 @@ class TenantChatClients:
         return resolution
 
     async def _build(self, tenant_id: str) -> tuple[TenantChatResolution, bool]:
-        """Build this tenant's resolution, and whether it may be cached."""
+        """Build this tenant's resolution, and whether it may be cached.
 
+        Every failure is logged and answered by the process-wide client. A
+        failure caused by the stored rows is cached until the rows, and with
+        them the fingerprint, change. That covers rows that break this
+        process's model policy (an unlisted provider, an unsupported field) and
+        a client constructor that rejects the operator's provider or endpoint
+        policy. A failure that may be transient, such as an unreachable catalog,
+        a secret ref that would not resolve, or a shared model config that would
+        not load, is not cached, so a later turn retries.
+        """
         try:
             catalog = await self._sources.catalog.chat_catalog(tenant_id)
-        except Exception:
-            logger.error(
-                "Loading the chat catalog failed for tenant=%s; answering from the "
-                "process-wide chat catalog for now; a later turn retries",
-                tenant_id,
-                exc_info=True,
+        except Exception as error:  # noqa: BLE001 - an unloaded catalog is retried next turn
+            log_failure(
+                logger,
+                "chat.tenant_catalog_load_failed",
+                error,
+                tenant_id=tenant_id,
+                retryable=True,
             )
             return _SHARED, False
         if catalog.is_empty():
@@ -284,38 +375,34 @@ class TenantChatClients:
                 secrets=self._sources.secrets,
                 shared_config_path=self._settings.model_config_path,
             )
-        except TenantChatConfigError:
-            # The stored rows do not satisfy this process's model policy (an
-            # unlisted provider, an unsupported field). That is the tenant's
-            # configuration, not this turn's fault, so it is cached until the
-            # rows -- and with them the fingerprint -- change.
-            logger.error(
-                "Building the chat client failed for tenant=%s; answering from the "
-                "process-wide chat catalog",
-                tenant_id,
-                exc_info=True,
+        except TenantChatConfigError as error:
+            log_failure(
+                logger,
+                "chat.tenant_config_rejected",
+                error,
+                FailureKind.CLASSIFIED,
+                tenant_id=tenant_id,
+                retryable=False,
             )
             return _SHARED, True
-        except Exception:
-            # A secret ref that would not resolve, or the shared model config
-            # would not load: possibly transient, so the next turn retries.
-            logger.error(
-                "Resolving the chat configuration failed for tenant=%s; answering "
-                "from the process-wide chat catalog for now; a later turn retries",
-                tenant_id,
-                exc_info=True,
+        except Exception as error:  # noqa: BLE001 - chat falls back to the shared client
+            log_failure(
+                logger,
+                "chat.tenant_config_resolve_failed",
+                error,
+                tenant_id=tenant_id,
+                retryable=True,
             )
             return _SHARED, False
         try:
             client = self._builder(config)
-        except Exception:
-            # The operator's provider and endpoint policy is enforced when the
-            # client is constructed; a rejection there is configuration too.
-            logger.error(
-                "Building the chat client failed for tenant=%s; answering from the "
-                "process-wide chat catalog",
-                tenant_id,
-                exc_info=True,
+        except Exception as error:  # noqa: BLE001 - chat falls back to the shared client
+            log_failure(
+                logger,
+                "chat.tenant_client_build_failed",
+                error,
+                tenant_id=tenant_id,
+                retryable=False,
             )
             return _SHARED, True
         return TenantChatResolution(_LeasedClient(client), catalog), True
@@ -323,7 +410,6 @@ class TenantChatClients:
 
 async def _retire(client: AsyncHarborChatClientProtocol | None) -> None:
     """Retire one cached client: closed now when idle, else when its last call ends."""
-
     if isinstance(client, _LeasedClient):
         await client.retire()
     else:
@@ -332,10 +418,9 @@ async def _retire(client: AsyncHarborChatClientProtocol | None) -> None:
 
 async def _dispose(client: AsyncHarborChatClientProtocol | None) -> None:
     """Release one tenant client's connection pool; a failure is never fatal."""
-
     if client is None:
         return
     try:
         await client.aclose()
-    except Exception:
-        logger.warning("Disposing a tenant chat client failed", exc_info=True)
+    except Exception as error:
+        log_failure(logger, "chat.tenant_client_dispose_failed", error, FailureKind.EXPECTED)

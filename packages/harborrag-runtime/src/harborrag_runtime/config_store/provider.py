@@ -1,4 +1,7 @@
-"""Per-process cache of tenant settings, refreshed by change notifications and a revision poll."""
+"""Per-process cache of tenant settings, kept fresh by notifications and polling.
+
+A failed reload keeps serving the last snapshot; only a tenant's first load fails.
+"""
 
 from __future__ import annotations
 
@@ -14,9 +17,13 @@ from harborrag_core.config_store import (
     resolve_effective,
 )
 from harborrag_core.contracts.errors import HarborUnavailableError
+from harborrag_core.observability.log_events import FailureKind, log_failure
 from harborrag_core.ports.config_store import SettingsChangeFeed, SettingsStore
 
 logger = logging.getLogger("harborrag.runtime.config_store")
+
+DEFAULT_POLL_SECONDS = 5.0
+"""Seconds between two polls of each cached tenant's latest settings revision."""
 
 
 class CachedConfigProvider:
@@ -24,7 +31,7 @@ class CachedConfigProvider:
 
     A tenant is loaded on first read. A feed notification marks one tenant (or all) for reload on
     the next read; a poll of ``latest_revision`` covers a missing feed and missed notifications.
-    A reload that fails serves the last snapshot and logs ``settings_cache_stale``.
+    A reload that fails serves the last snapshot and logs ``config.settings_cache_stale``.
 
     Args:
         store: Durable settings store.
@@ -39,7 +46,7 @@ class CachedConfigProvider:
         registry: SettingsRegistry,
         *,
         feed: SettingsChangeFeed | None = None,
-        poll_seconds: float = 5.0,
+        poll_seconds: float = DEFAULT_POLL_SECONDS,
     ) -> None:
         self._store = store
         self._registry = registry
@@ -79,6 +86,12 @@ class CachedConfigProvider:
     async def snapshot(self, tenant_id: str) -> SettingsSnapshot:
         """Return the tenant's overrides.
 
+        Args:
+            tenant_id: Tenant whose settings are read.
+
+        Returns:
+            The cached snapshot, or a fresh one when none is cached or it was invalidated.
+
         Raises:
             HarborUnavailableError: The first load of the tenant failed.
         """
@@ -103,6 +116,7 @@ class CachedConfigProvider:
             self._marked_for_reload.add(tenant_id)
 
     def _fresh(self, tenant_id: str) -> SettingsSnapshot | None:
+        """Return the cached snapshot unless it is missing or marked for reload."""
         if tenant_id in self._marked_for_reload:
             return None
         return self._snapshots.get(tenant_id)
@@ -121,24 +135,31 @@ class CachedConfigProvider:
         return loaded
 
     def _stale_or_unavailable(self, tenant_id: str, error: Exception) -> SettingsSnapshot:
+        """Return the cached snapshot after a failed load, or raise when none is cached."""
         cached = self._snapshots.get(tenant_id)
         if cached is None:
             raise HarborUnavailableError(
                 f"settings of tenant {tenant_id} cannot be loaded"
             ) from error
         self._marked_for_reload.add(tenant_id)
-        logger.warning(
-            "settings_cache_stale tenant_id=%s error_type=%s", tenant_id, type(error).__name__
+        log_failure(
+            logger,
+            "config.settings_cache_stale",
+            error,
+            FailureKind.EXPECTED,
+            tenant_id=tenant_id,
         )
         return cached
 
     async def _poll(self) -> None:
+        """Reload every cached tenant whose stored revision moved, until cancelled."""
         while True:
             await asyncio.sleep(self._poll_seconds)
             for tenant_id in tuple(self._snapshots):
                 await self._refresh_if_revision_moved(tenant_id)
 
     async def _refresh_if_revision_moved(self, tenant_id: str) -> None:
+        """Reload the tenant when its latest revision differs from the cached one."""
         cached = self._snapshots.get(tenant_id)
         try:
             latest = await self._store.latest_revision(tenant_id)

@@ -16,6 +16,7 @@ from harborrag_core.chunking import ChunkRecord, RecordKind
 from harborrag_core.chunking.identity import encoded_identifier
 from harborrag_core.contracts import HarborConflictError
 from harborrag_core.ingestion import DocumentVersionSnapshot
+from harborrag_core.observability.log_events import FailureKind, log_event, log_failure
 from harborrag_core.ports.artifacts import ChunkArtifactReaderPort
 from harborrag_core.ports.topology import TopologyEnrichmentRepositoryPort
 from harborrag_core.ports.topology_extraction import EntityExtractionPort, UsageAwareExtractionPort
@@ -36,6 +37,22 @@ from .budgeted_extractor import BudgetedExtractor, EnrichmentDeferredError
 from .chunk_runner import ChunkExtractionRunner
 
 logger = logging.getLogger("harborrag.runtime.topology")
+
+DEFAULT_LEASE_SECONDS = 300
+"""Job lease length when the caller sets none."""
+
+DEFAULT_JOB_SECONDS = 3600
+"""Time limit for one job when the caller sets none."""
+
+DEFAULT_MAX_CHUNKS = 1000
+"""Most evidence chunks one document may have when the caller sets no budget."""
+
+_MIN_LEASE_SECONDS = 3
+"""Shortest job lease the runner accepts."""
+
+_MAX_RENEW_INTERVAL_SECONDS = 30
+"""Longest wait between lease renewals, however long the lease."""
+
 type ExtractorFactory = Callable[
     [ExtractionProfile], AbstractAsyncContextManager[UsageAwareExtractionPort]
 ]
@@ -43,11 +60,28 @@ type DerivationRunner = Callable[[str, str], Awaitable[dict[str, str]]]
 
 
 class VersionReader(Protocol):
-    async def get_version(self, document_version_id: str) -> DocumentVersionSnapshot | None: ...
+    """Reads document version snapshots."""
+
+    async def get_version(self, document_version_id: str) -> DocumentVersionSnapshot | None:
+        """Return the document version's snapshot, or ``None`` when it does not exist."""
+        ...
 
 
 @dataclass(frozen=True)
 class TopologyRunResult:
+    """Outcome of one topology attempt.
+
+    Attributes:
+        job_id: The job this attempt ran, or the one asked for when none was claimed.
+        state: The job's state after the attempt, such as ``accepted``,
+            ``superseded``, ``deferred``, ``failed`` or ``idle``.
+        build_id: The build the attempt produced, if any.
+        extracted_chunks: Chunks sent to the extractor in this attempt.
+        reused_chunks: Chunks whose extraction was reused.
+        error_code: The failure's type name or the deferral reason.
+        derived: Each derived product's state after an accepted build.
+    """
+
     job_id: str | None
     state: str
     build_id: str | None = None
@@ -59,6 +93,21 @@ class TopologyRunResult:
 
 @dataclass(frozen=True)
 class TopologyResources:
+    """Stores, readers and models a topology job uses.
+
+    Attributes:
+        repository: Job leases, checkpoints and build records.
+        versions: Reads document version snapshots.
+        chunks: Reads canonical chunk artifacts.
+        artifacts: Stores extraction artifacts and build manifests.
+        projection: Writes and verifies a build in the graph.
+        extractor: Opens the entity extractor for a profile.
+        llm_operation_cost_usd: Cost reserved per extraction call, when budgeted.
+        require_budget: Whether every extraction call reserves budget, even
+            without a configured cost.
+        derive: Runs the derived products of an accepted build.
+    """
+
     repository: TopologyEnrichmentRepositoryPort
     versions: VersionReader
     chunks: ChunkArtifactReaderPort
@@ -71,15 +120,24 @@ class TopologyResources:
 
 
 class TopologyEnrichmentService:
+    """Claim a topology job, extract its chunks, and accept the build it produces.
+
+    Args:
+        resources: Stores, readers and models the job uses.
+        lease_seconds: Job lease length, at least ``_MIN_LEASE_SECONDS``.
+        job_seconds: Time limit for one job, positive.
+        max_chunks: Most evidence chunks one document may have, at least 1.
+    """
+
     def __init__(
         self,
         resources: TopologyResources,
         *,
-        lease_seconds: int = 300,
-        job_seconds: float = 3600,
-        max_chunks: int = 1000,
+        lease_seconds: int = DEFAULT_LEASE_SECONDS,
+        job_seconds: float = DEFAULT_JOB_SECONDS,
+        max_chunks: int = DEFAULT_MAX_CHUNKS,
     ) -> None:
-        if lease_seconds < 3 or job_seconds <= 0 or max_chunks < 1:
+        if lease_seconds < _MIN_LEASE_SECONDS or job_seconds <= 0 or max_chunks < 1:
             raise ValueError("topology runner budgets must be positive")
         self._resources = resources
         self._lease_seconds = lease_seconds
@@ -93,6 +151,20 @@ class TopologyEnrichmentService:
         job_id: str | None = None,
         heartbeat: Callable[[], None] | None = None,
     ) -> TopologyRunResult:
+        """Claim and run one topology job, then build its derived products.
+
+        A deferred job is rescheduled, and a failed one is marked failed and
+        logged. Neither raises. Cancellation marks the job cancelled and
+        propagates.
+
+        Args:
+            tenant_id: Tenant whose job is claimed.
+            job_id: The job to claim, or ``None`` for the next one due.
+            heartbeat: Called while the job runs, such as a Temporal activity heartbeat.
+
+        Returns:
+            The attempt's outcome.
+        """
         repository = self._resources.repository
         job = await repository.claim(tenant_id, lease_seconds=self._lease_seconds, job_id=job_id)
         if job is None:
@@ -107,15 +179,15 @@ class TopologyEnrichmentService:
                         result = await self._process(job)
                     finally:
                         done.set()
-            logger.info(
-                "Topology build completed",
-                extra={
-                    "job_id": job.job_id,
-                    "tenant_id": tenant_id,
-                    "build_id": result.build_id,
-                    "extracted_chunks": result.extracted_chunks,
-                    "reused_chunks": result.reused_chunks,
-                },
+            log_event(
+                logger,
+                "topology.build_completed",
+                job_id=job.job_id,
+                tenant_id=tenant_id,
+                build_id=result.build_id,
+                status=result.state,
+                extracted_chunk_count=result.extracted_chunks,
+                reused_chunk_count=result.reused_chunks,
             )
             return await self._derive(tenant_id, result)
         except asyncio.CancelledError:
@@ -134,18 +206,19 @@ class TopologyEnrichmentService:
                 return TopologyRunResult(job.job_id, "deferred", error_code=str(deferred))
             code = _failure_code(error)
             await self._fail(job, code)
-            logger.warning(
-                "Topology attempt failed",
-                exc_info=True,
-                extra={
-                    "job_id": job.job_id,
-                    "tenant_id": tenant_id,
-                    "error_code": code,
-                },
+            log_failure(
+                logger,
+                "topology.attempt_failed",
+                error,
+                FailureKind.EXPECTED,
+                job_id=job.job_id,
+                tenant_id=tenant_id,
+                error_code=code,
             )
             return TopologyRunResult(job.job_id, "failed", error_code=code)
 
     async def _derive(self, tenant_id: str, result: TopologyRunResult) -> TopologyRunResult:
+        """Run the derived products of an accepted build and attach their states."""
         runner = self._resources.derive
         if runner is None or result.state != "accepted" or result.build_id is None:
             return result
@@ -157,24 +230,27 @@ class TopologyEnrichmentService:
         return replace(result, derived=states)
 
     async def _fail(self, job: TopologyJob, code: str) -> None:
+        """Mark the job failed, unless a newer lease or policy already owns it."""
         try:
             await self._resources.repository.fail(job, code)
         except HarborConflictError:
-            # A newer lease or policy owns the job; this worker cannot alter it.
             pass
 
     async def _renew(
         self, job: TopologyJob, done: asyncio.Event, heartbeat: Callable[[], None] | None
     ) -> None:
+        """Heartbeat and renew the job's lease until ``done`` is set."""
+        renew_interval = min(_MAX_RENEW_INTERVAL_SECONDS, self._lease_seconds / 3)
         while not done.is_set():
             if heartbeat:
                 heartbeat()
             try:
-                await asyncio.wait_for(done.wait(), timeout=min(30, self._lease_seconds / 3))
+                await asyncio.wait_for(done.wait(), timeout=renew_interval)
             except TimeoutError:
                 await self._resources.repository.renew(job, lease_seconds=self._lease_seconds)
 
     async def _inputs(self, job: TopologyJob) -> tuple[ChunkExtractionInput, ...]:
+        """Load the job's evidence chunks as inputs, checking ownership and budget."""
         snapshot = await self._resources.versions.get_version(job.document_version_id)
         if snapshot is None or snapshot.chunk_artifact is None:
             raise ValueError("topology requires durable canonical chunks")
@@ -200,6 +276,7 @@ class TopologyEnrichmentService:
         )
 
     async def _process(self, job: TopologyJob) -> TopologyRunResult:
+        """Extract every chunk, then stage, project, verify and accept the build."""
         resources = self._resources
         context = StorageOperationContext.system(job.tenant_id)
         inputs = await self._inputs(job)
@@ -304,7 +381,6 @@ def extraction_input(chunk: ChunkRecord, *, job: TopologyJob | None = None) -> C
 
 def _section_ids(chunk: ChunkRecord) -> tuple[str, ...]:
     """Mirror structural projection identity for every heading prefix."""
-
     path = tuple(chunk.hierarchy.section_path)
     identities: list[str] = []
     for depth in range(1, len(path) + 1):
@@ -325,6 +401,7 @@ def _section_ids(chunk: ChunkRecord) -> tuple[str, ...]:
 
 
 def _deferred_error(error: BaseException) -> EnrichmentDeferredError | None:
+    """Return the deferral inside ``error``, looking through exception groups."""
     if isinstance(error, EnrichmentDeferredError):
         return error
     if isinstance(error, BaseExceptionGroup):

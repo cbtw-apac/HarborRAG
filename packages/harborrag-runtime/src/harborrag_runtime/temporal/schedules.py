@@ -1,3 +1,9 @@
+"""Temporal Schedules backend for HarborRAG schedule definitions.
+
+The action memo carries the whole definition, so every change to it goes through
+``_update``'s read-modify-write, which retries when another writer got there first.
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -5,7 +11,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from datetime import datetime, timedelta
-from typing import Any, TypeVar
+from typing import Any
 
 from temporalio.api.common.v1 import Payload
 from temporalio.client import (
@@ -27,6 +33,7 @@ from temporalio.client import (
 )
 from temporalio.service import RPCError, RPCStatusCode
 
+from harborrag_core.observability.log_events import FailureKind, log_event, log_failure
 from harborrag_runtime.config.temporal import TemporalRuntimeConfig
 from harborrag_runtime.errors import WorkflowOperationError, WorkflowSubmissionError
 from harborrag_runtime.scheduling.errors import (
@@ -44,24 +51,44 @@ from harborrag_runtime.scheduling.validation import workflow_policy
 
 from .schemas import ScheduledSourceIngestionInput
 
-T = TypeVar("T")
 logger = logging.getLogger("harborrag.runtime.temporal.schedules")
 _LIST_CONCURRENCY = 10
+"""Schedules described at once while listing."""
 
-
-# Schedule memo is immutable after creation, so it only marks ownership; the
-# action memo is replaced on every update and carries the full definition.
 _MEMO_KEY = "harborrag_schedule"
+"""Memo key of HarborRAG's schedule data.
+
+The schedule memo is immutable after creation, so it only marks ownership. The action
+memo is replaced on every update and carries the full definition.
+"""
 
 
 class TemporalScheduleBackend:
-    """Run HarborRAG schedule definitions as Temporal Schedules via the SDK."""
+    """ScheduleBackend that runs definitions as Temporal Schedules through the SDK.
+
+    Args:
+        client: Connected Temporal client.
+        config: Task queues and workflow timeouts of the scheduled runs.
+    """
 
     def __init__(self, client: Client, config: TemporalRuntimeConfig) -> None:
         self._client = client
         self._config = config
 
     async def create(self, definition: ScheduleDefinition) -> None:
+        """Create the schedule, with its owner and tenant in the schedule memo.
+
+        Schedule IDs are global across tenants, so a taken ID is reported as unavailable
+        without saying who holds it.
+
+        Args:
+            definition: The schedule to create.
+
+        Raises:
+            DuplicateScheduleError: The schedule ID is taken.
+            ScheduleValidationError: Temporal rejected the definition.
+            WorkflowSubmissionError: Temporal could not be reached.
+        """
         schedule = replace(
             self._schedule(definition, desired_paused=definition.paused),
             state=ScheduleState(note=definition.note, paused=definition.paused),
@@ -78,7 +105,6 @@ class TemporalScheduleBackend:
                 },
             )
         except ScheduleAlreadyRunningError:
-            # IDs are global across tenants: say only that the ID is taken.
             raise DuplicateScheduleError(
                 f"schedule ID {definition.schedule_id!r} is unavailable; choose another ID"
             ) from None
@@ -92,9 +118,13 @@ class TemporalScheduleBackend:
             ) from error
 
     async def update(self, definition: ScheduleDefinition, *, desired_paused: bool) -> None:
+        """Replace the schedule's action, spec and policy.
+
+        The pause state and note stay as they are, because only ``pause`` and
+        ``unpause`` change them.
+        """
         schedule = self._schedule(definition, desired_paused=desired_paused)
 
-        # Pause state and note are left as they are; only pause/unpause change them.
         def updater(update: ScheduleUpdateInput) -> ScheduleUpdate:
             return ScheduleUpdate(
                 schedule=replace(
@@ -108,6 +138,17 @@ class TemporalScheduleBackend:
         await self._update(definition.schedule_id, updater)
 
     async def describe(self, schedule_id: str) -> ScheduleView:
+        """Return the schedule, rebuilt from its action memo.
+
+        Args:
+            schedule_id: The schedule to describe.
+
+        Returns:
+            The schedule's definition and Temporal's view of its runs.
+
+        Raises:
+            ScheduleNotFoundError: No HarborRAG schedule has this ID.
+        """
         description = await self._operate(
             schedule_id, "describe", self._handle(schedule_id).describe()
         )
@@ -117,8 +158,7 @@ class TemporalScheduleBackend:
         return view
 
     async def list_all(self) -> list[ScheduleView]:
-        """Every HarborRAG schedule; unreadable definitions are logged and skipped."""
-
+        """Return every HarborRAG schedule, logging and skipping unreadable definitions."""
         try:
             entries = [entry async for entry in await self._client.list_schedules()]
         except RPCError as error:
@@ -146,16 +186,22 @@ class TemporalScheduleBackend:
         return views
 
     async def pause(self, schedule_id: str, *, note: str | None) -> None:
-        # Record the intent first: if pausing then fails, expected-paused without
-        # paused never raises the unexpected-pause alert.
-        await self._set_desired_paused(schedule_id, True)
+        """Record the intent to pause, then pause the schedule.
+
+        If pausing then fails, a schedule expected paused but running never raises the
+        unexpected-pause alert.
+        """
+        await self._set_desired_paused(schedule_id, desired_paused=True)
         await self._operate(schedule_id, "pause", self._handle(schedule_id).pause(note=note))
 
     async def unpause(self, schedule_id: str, *, note: str | None) -> None:
+        """Resume the schedule, then record that it is meant to run."""
         await self._operate(schedule_id, "unpause", self._handle(schedule_id).unpause(note=note))
-        await self._set_desired_paused(schedule_id, False)
+        await self._set_desired_paused(schedule_id, desired_paused=False)
 
-    async def _set_desired_paused(self, schedule_id: str, desired_paused: bool) -> None:
+    async def _set_desired_paused(self, schedule_id: str, *, desired_paused: bool) -> None:
+        """Record in the action memo whether the schedule is meant to be paused."""
+
         async def updater(update: ScheduleUpdateInput) -> ScheduleUpdate | None:
             description = update.description
             memo = await _memo(description)
@@ -177,12 +223,15 @@ class TemporalScheduleBackend:
         await self._update(schedule_id, updater)
 
     async def trigger(self, schedule_id: str) -> None:
+        """Run the schedule once now."""
         await self._operate(schedule_id, "trigger", self._handle(schedule_id).trigger())
 
     async def delete(self, schedule_id: str) -> None:
+        """Delete the schedule."""
         await self._operate(schedule_id, "delete", self._handle(schedule_id).delete())
 
     async def backfill(self, schedule_id: str, *, start_at: datetime, end_at: datetime) -> None:
+        """Run the schedule for the missed window."""
         await self._operate(
             schedule_id,
             "backfill",
@@ -240,10 +289,9 @@ class TemporalScheduleBackend:
     ) -> None:
         """Read-modify-write a schedule, retrying when another writer got there first.
 
-        API replicas sync the same schedules at startup; the updater re-reads the
+        API replicas sync the same schedules at startup. The updater re-reads the
         current description on each attempt, so a retry never loses their change.
         """
-
         for attempt in range(1, _UPDATE_ATTEMPTS + 1):
             try:
                 await self._handle(schedule_id).update(updater)
@@ -251,14 +299,18 @@ class TemporalScheduleBackend:
             except RPCError as error:
                 if error.status not in _CONFLICT_STATUSES or attempt == _UPDATE_ATTEMPTS:
                     raise _schedule_error(schedule_id, "update", error) from error
-                logger.info(
-                    "Schedule update conflicted; retrying schedule_id=%s attempt=%d",
-                    schedule_id,
-                    attempt,
+                log_event(
+                    logger,
+                    "temporal.schedule_update_conflicted",
+                    outcome="retrying",
+                    schedule_id=schedule_id,
+                    attempt=attempt,
+                    rpc_status=error.status.name,
                 )
 
     @staticmethod
-    async def _operate(schedule_id: str, operation: str, awaitable: Awaitable[T]) -> T:
+    async def _operate[T](schedule_id: str, operation: str, awaitable: Awaitable[T]) -> T:
+        """Await a schedule call, translating Temporal's errors into scheduling errors."""
         try:
             return await awaitable
         except RPCError as error:
@@ -266,6 +318,7 @@ class TemporalScheduleBackend:
 
 
 def _schedule_error(schedule_id: str, operation: str, error: RPCError) -> Exception:
+    """Return the scheduling error for a failed Temporal schedule call."""
     if error.status is RPCStatusCode.NOT_FOUND:
         return ScheduleNotFoundError(f"schedule {schedule_id!r} was not found")
     if error.status is RPCStatusCode.INVALID_ARGUMENT:
@@ -276,8 +329,8 @@ def _schedule_error(schedule_id: str, operation: str, error: RPCError) -> Except
 
 
 _UPDATE_ATTEMPTS = 3
-# Status Temporal returns when an update's conflict token is stale.
 _CONFLICT_STATUSES = frozenset({RPCStatusCode.FAILED_PRECONDITION, RPCStatusCode.ABORTED})
+"""Statuses Temporal returns when an update's conflict token is stale."""
 
 
 _OVERLAP = {
@@ -291,6 +344,7 @@ _OVERLAP = {
 
 
 async def _memo(description: ScheduleDescription) -> dict[str, Any] | None:
+    """Return the decoded action memo, or None for a schedule HarborRAG does not own."""
     memo = getattr(description.schedule.action, "memo", None) or {}
     payload = memo.get(_MEMO_KEY)
     if payload is None:
@@ -301,8 +355,7 @@ async def _memo(description: ScheduleDescription) -> dict[str, Any] | None:
 
 
 async def _view(description: ScheduleDescription) -> ScheduleView | None:
-    """Rebuild the definition from the action memo; None for schedules HarborRAG does not own."""
-
+    """Rebuild the definition from the action memo, or None for a schedule HarborRAG does not own."""
     schedule = description.schedule
     payload = await _memo(description)
     if payload is None:
@@ -313,9 +366,14 @@ async def _view(description: ScheduleDescription) -> ScheduleView | None:
             paused=schedule.state.paused,
             note=schedule.state.note,
         )
-    except (KeyError, TypeError, ValueError):
-        logger.warning(
-            "Ignoring schedule with an unreadable definition schedule_id=%s", description.id
+    except (KeyError, TypeError, ValueError) as error:
+        log_failure(
+            logger,
+            "temporal.schedule_definition_unreadable",
+            error,
+            FailureKind.EXPECTED,
+            outcome="ignored",
+            schedule_id=description.id,
         )
         return None
     info = description.info

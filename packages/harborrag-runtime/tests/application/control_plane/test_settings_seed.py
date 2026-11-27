@@ -91,10 +91,11 @@ async def test_later_boot_reports_drift_and_keeps_value(
 
     assert await world.effective() == (512, "tenant")
     assert await world.store.latest_revision(_TENANT) == 1
-    warnings = [record for record in caplog.records if record.levelno == logging.WARNING]
-    assert len(warnings) == 1
-    message = warnings[0].getMessage()
-    assert message == f"config_yaml_drift path={world.path} keys={_KEY}"
+    (warning,) = [record for record in caplog.records if record.levelno == logging.WARNING]
+    assert warning.__dict__["event"] == "control_plane.settings_file_drift"
+    assert warning.__dict__["config_path"] == str(world.path)
+    assert warning.__dict__["keys_count"] == 1
+    assert _KEY not in warning.getMessage()
 
 
 async def test_unchanged_file_after_seed_is_in_sync(world: _World) -> None:
@@ -117,10 +118,10 @@ async def test_invalid_seed_file_writes_nothing(
     assert await world.seed() == "invalid"
 
     assert await world.store.latest_revision(_TENANT) == 0
-    errors = [record for record in caplog.records if record.levelno == logging.ERROR]
-    assert len(errors) == 1
-    assert str(world.path) in errors[0].getMessage()
-    assert _KEY in errors[0].getMessage()
+    (error,) = [record for record in caplog.records if record.levelno == logging.ERROR]
+    assert error.__dict__["event"] == "control_plane.settings_seed_invalid"
+    assert error.__dict__["config_path"] == str(world.path)
+    assert "big" not in error.getMessage()
 
 
 async def test_seed_race_writes_one_revision(
@@ -155,8 +156,9 @@ async def test_unknown_project_in_seed_file_names_level(
 
     assert await world.seed() == "invalid"
 
-    errors = [record for record in caplog.records if record.levelno == logging.ERROR]
-    assert len(errors) == 1
-    assert str(world.path) in errors[0].getMessage()
-    assert "level=project:ghost" in errors[0].getMessage()
+    (error,) = [record for record in caplog.records if record.levelno == logging.ERROR]
+    assert error.__dict__["event"] == "control_plane.settings_seed_invalid"
+    assert error.__dict__["config_path"] == str(world.path)
+    assert error.__dict__["settings_level_kind"] == "project"
+    assert "ghost" not in error.getMessage()
     assert await world.store.latest_revision(_TENANT) == 0

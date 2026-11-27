@@ -20,7 +20,9 @@ def test_conversation_memory_uses_the_persistent_control_plane_backend() -> None
     assert conversation_memory(composition) is persistent
 
 
-def test_conversation_memory_falls_back_to_in_memory_and_warns(caplog) -> None:
+def test_conversation_memory_falls_back_to_in_memory_and_warns(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     composition = SimpleNamespace(
         mode="test",
         control_plane=SimpleNamespace(conversation_memory=None),
@@ -30,12 +32,14 @@ def test_conversation_memory_falls_back_to_in_memory_and_warns(caplog) -> None:
         memory = conversation_memory(composition)
 
     assert isinstance(memory, InMemoryConversationMemory)
-    assert any(
-        "falling back to InMemoryConversationMemory" in record.message for record in caplog.records
-    )
+    assert [record.__dict__["event"] for record in caplog.records] == [
+        "memory.conversation_memory_in_process"
+    ]
 
 
-def test_conversation_memory_falls_back_in_explicit_development_mode(caplog) -> None:
+def test_conversation_memory_falls_back_in_explicit_development_mode(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     composition = SimpleNamespace(mode="development")
 
     with caplog.at_level("WARNING", logger="harborrag.runtime.application.memory.composition"):

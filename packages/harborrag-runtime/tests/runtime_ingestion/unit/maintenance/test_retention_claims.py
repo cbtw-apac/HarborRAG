@@ -8,6 +8,9 @@ from pathlib import Path
 
 import pytest
 
+from harborrag_adapters.repositories.database.ingestion_control import (
+    IngestionControlPlaneDatabase,
+)
 from harborrag_adapters.repositories.object_store import MemoryObjectStore
 from harborrag_core.contracts.errors import HarborUnavailableError
 from harborrag_core.ingestion import (
@@ -27,11 +30,13 @@ from ...fixtures.release import (
     release_request,
 )
 from .retention_fixtures import cleaned_retired_version, expire_purge_lease
-from .test_retention import _FailingStore, _release_twice_and_clean, _service
+from .test_retention import _event, _FailingStore, _release_twice_and_clean, _service
+
+pytestmark = pytest.mark.unit
 
 
-async def _state(control: object, version_id: str) -> DocumentVersionState:
-    snapshot = await control.document_versions.get_version(version_id)  # type: ignore[attr-defined]
+async def _state(control: IngestionControlPlaneDatabase, version_id: str) -> DocumentVersionState:
+    snapshot = await control.document_versions.get_version(version_id)
     assert snapshot is not None
     return snapshot.state
 
@@ -40,8 +45,10 @@ async def _state(control: object, version_id: str) -> DocumentVersionState:
 async def test_reverting_to_content_being_purged_retries_instead_of_failing(
     tmp_path: Path,
 ) -> None:
-    """R1a-01: a re-ingest of a PURGING version waits transiently and keeps its cleanup."""
+    """R1a-01: a re-ingest of a PURGING version waits transiently and keeps its cleanup.
 
+    Once the purge finishes, the retried release rebuilds the version.
+    """
     control = build_control_plane(tmp_path)
     resources = build_release_resources(control)
     connector = SourceConnector()
@@ -65,7 +72,6 @@ async def test_reverting_to_content_being_purged_retries_instead_of_failing(
         assert job is not None
         assert job.status == CleanupJobState.COMPLETED
 
-        # Once the purge finishes, the retried release rebuilds the version.
         assert await control.retention.mark_version_purged(
             released.retired, claimed_at=claim.claimed_at
         )
@@ -77,7 +83,6 @@ async def test_reverting_to_content_being_purged_retries_instead_of_failing(
 @pytest.mark.asyncio
 async def test_retention_off_still_finishes_an_interrupted_purge(tmp_path: Path) -> None:
     """R1c-06: turning retention off must not leave a version PURGING forever."""
-
     control = build_control_plane(tmp_path)
     resources = build_release_resources(control)
     async with control, resources.store:
@@ -114,7 +119,6 @@ class _PoisonedStore:
 @pytest.mark.asyncio
 async def test_a_failing_purge_is_not_repicked_before_other_versions(tmp_path: Path) -> None:
     """R4-08: a poisoned version no longer fills every sweep's batch."""
-
     control = build_control_plane(tmp_path)
     async with control:
         bad_document, bad = await cleaned_retired_version(control, "docs/bad.txt")
@@ -133,7 +137,6 @@ async def test_a_failing_purge_is_not_repicked_before_other_versions(tmp_path: P
 @pytest.mark.asyncio
 async def test_one_sweep_drains_every_full_batch(tmp_path: Path) -> None:
     """R4-08: the sweep keeps claiming batches while they come back full."""
-
     control = build_control_plane(tmp_path)
     async with control:
         retired = [
@@ -151,7 +154,7 @@ async def test_one_sweep_drains_every_full_batch(tmp_path: Path) -> None:
 class _TakenOverStore(_PoisonedStore):
     """Another worker takes the purge over while this one lists its objects."""
 
-    def __init__(self, control: object, version_id: str) -> None:
+    def __init__(self, control: IngestionControlPlaneDatabase, version_id: str) -> None:
         super().__init__("nothing-matches")
         self.control = control
         self.version_id = version_id
@@ -160,8 +163,8 @@ class _TakenOverStore(_PoisonedStore):
     async def list(self, bucket: str, prefix: str, *, limit: int, context: object) -> list:
         if not self.taken:
             self.taken = True
-            await expire_purge_lease(self.control, self.version_id)  # type: ignore[arg-type]
-            other = await self.control.retention.claim_purge(self.version_id)  # type: ignore[attr-defined]
+            await expire_purge_lease(self.control, self.version_id)
+            other = await self.control.retention.claim_purge(self.version_id)
             assert other is not None
         return []
 
@@ -172,7 +175,6 @@ async def test_a_purge_that_lost_its_claim_stops_and_leaves_the_version_to_its_o
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """R1c-07: only the worker holding the claim may finish a purge."""
-
     control = build_control_plane(tmp_path)
     async with control:
         _, retired = await cleaned_retired_version(control, "docs/shared.txt")
@@ -182,7 +184,10 @@ async def test_a_purge_that_lost_its_claim_stops_and_leaves_the_version_to_its_o
             batch = await _service(control, store).run_all()
 
         assert (batch.purged, batch.skipped, batch.failed) == (0, 1, 0)
-        assert "reason=claim_lost" in caplog.text
+        skipped = _event(caplog, "ingestion.version_purge_skipped")
+        assert skipped.levelno == logging.INFO
+        assert skipped.__dict__["reason"] == "claim_lost"
+        assert skipped.__dict__["document_version_id"] == retired
         assert await _state(control, retired) == DocumentVersionState.PURGING
 
 
@@ -191,7 +196,6 @@ async def test_the_worker_sweeps_soon_after_start_and_records_metrics(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """R1d-07: the first sweep does not wait a full interval."""
-
     from harborrag_runtime.observability.model import IngestionTelemetry
     from harborrag_runtime.temporal import worker
 
@@ -209,7 +213,7 @@ async def test_the_worker_sweeps_soon_after_start_and_records_metrics(
     runtime = type("Runtime", (), {"retention": _Retention(), "telemetry": telemetry})()
     settings = type("Settings", (), {"retired_version_purge_interval_hours": 24.0})()
 
-    runner = worker._retention_runner(settings, runtime, stop)  # type: ignore[arg-type]
+    runner = worker._retention_runner(settings, runtime, stop)  # type: ignore[arg-type]  # stub settings
     assert runner is not None
     await asyncio.wait_for(runner, timeout=5)
 
@@ -225,7 +229,6 @@ async def test_stopping_the_worker_cancels_a_running_sweep(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A sweep draining batches must not hold worker shutdown for its whole budget."""
-
     from harborrag_runtime.temporal import worker
 
     monkeypatch.setattr(worker, "FIRST_RETENTION_SWEEP_MAX_DELAY_SECONDS", 0.0)
@@ -245,7 +248,7 @@ async def test_stopping_the_worker_cancels_a_running_sweep(
     runtime = type("Runtime", (), {"retention": _SlowRetention()})()
     settings = type("Settings", (), {"retired_version_purge_interval_hours": 24.0})()
 
-    runner = worker._retention_runner(settings, runtime, stop)  # type: ignore[arg-type]
+    runner = worker._retention_runner(settings, runtime, stop)  # type: ignore[arg-type]  # stub settings
     assert runner is not None
     await asyncio.wait_for(runner, timeout=5)
 

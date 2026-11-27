@@ -1,6 +1,7 @@
 """Summary queue dispatch is durable, bounded, and stops with its host worker."""
 
 import asyncio
+import logging
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -14,6 +15,8 @@ from harborrag_runtime.topology.summary_worker import (
     _poll_delay,
 )
 from harborrag_runtime.topology.summary_workflow import SummaryWorkflowInput
+
+pytestmark = pytest.mark.unit
 
 
 class _WorkerContext:
@@ -160,7 +163,11 @@ async def test_poll_delay_supports_unbounded_and_timed_polling(monkeypatch) -> N
 async def test_dispatch_failure_is_logged_backed_off_and_never_stops_the_host(
     monkeypatch, caplog
 ) -> None:
-    """One failing reconcile must not end the loop that shares the ingestion gather."""
+    """One failing reconcile must not end the loop that shares the ingestion gather.
+
+    The healthy tenant is still dispatched on every pass. Consecutive failed passes
+    back off, and a clean pass returns to the base poll.
+    """
     factory = SimpleNamespace(
         settings=SimpleNamespace(
             summary_task_queue="summaries",
@@ -189,15 +196,17 @@ async def test_dispatch_failure_is_logged_backed_off_and_never_stops_the_host(
 
     await summary_worker.serve_summaries(object(), factory, ("broken", "healthy"), stop_event=stop)
 
-    # The healthy tenant is still dispatched on every pass.
     assert calls == ["broken", "healthy"] * 3
-    # Consecutive failed passes back off; a clean pass returns to the base poll.
     assert [call.args[0] for call in delay.await_args_list] == [10, 20, 5]
-    failures = [r for r in caplog.records if r.message.startswith("Summary dispatch failed")]
+    failures = [
+        record
+        for record in caplog.records
+        if record.__dict__.get("event") == "topology.summary_dispatch_failed"
+    ]
     assert len(failures) == 2
-    assert all(
-        record.exc_info and record.exc_info[0] is ConnectionResetError for record in failures
-    )
+    assert all(record.levelno == logging.WARNING for record in failures)
+    assert all(record.__dict__["error_type"] == "ConnectionResetError" for record in failures)
+    assert all(record.__dict__["tenant_id"] == "broken" for record in failures)
 
 
 def test_backoff_is_capped() -> None:

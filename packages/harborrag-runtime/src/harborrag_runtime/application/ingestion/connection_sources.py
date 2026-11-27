@@ -1,4 +1,4 @@
-"""Prepare ingestion inputs from stored connections."""
+"""Ingestion inputs prepared from stored connections."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from collections.abc import Callable
 
 from harborrag_core.contracts.errors import HarborUnavailableError
 from harborrag_core.ingestion.run_contracts import PreparedSourceSubmission, SourceSubmission
+from harborrag_core.observability.log_events import FailureKind, log_failure
 from harborrag_runtime.composition import ControlPlaneRepositories
 from harborrag_runtime.config.connectors.importing import import_connectors_once
 from harborrag_runtime.config.settings import RuntimeSettings
@@ -42,6 +43,13 @@ class ConnectionSourceInputBuilder:
     ) -> PreparedSourceSubmission:
         """Prepare ``submission`` against the connection it names.
 
+        Args:
+            settings: Runtime settings; name the ``connectors.yaml`` file imported once.
+            submission: The run's source submission, naming its connection.
+
+        Returns:
+            The provider-neutral input of the run.
+
         Raises:
             ConnectionNotFoundError: The connection does not exist in the tenant.
             ConnectionUnavailableError: The connection is being deleted.
@@ -69,10 +77,14 @@ class ConnectionSourceInputBuilder:
                     connections=control_plane.connections,
                     settings=control_plane.settings,
                 )
-            except Exception:  # noqa: BLE001 - a broken file must not block stored connections
-                logger.warning(
-                    "connectors.yaml import failed; submits use the stored connections",
-                    exc_info=True,
+            except Exception as error:  # noqa: BLE001 - a broken file must not block stored connections
+                log_failure(
+                    logger,
+                    "ingestion.connector_catalog_import_failed",
+                    error,
+                    FailureKind.EXPECTED,
+                    config_path=str(settings.connector_config_path),
+                    tenant_id=settings.tenant_id,
                 )
             self._import_checked = True
 

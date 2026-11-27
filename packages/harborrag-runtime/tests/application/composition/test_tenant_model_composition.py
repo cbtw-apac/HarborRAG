@@ -79,6 +79,9 @@ def test_enabling_it_without_a_catalog_warns_and_stays_shared(
         )
 
     assert sources is None
+    assert [record.__dict__["event"] for record in caplog.records] == [
+        "composition.tenant_model_catalogs_unwired"
+    ]
     assert "process-wide chat catalog" in caplog.text
 
 
@@ -91,12 +94,12 @@ def test_a_composition_with_no_control_plane_stays_shared() -> None:
 def test_the_sdk_is_told_about_tenant_catalogs_when_they_are_wired() -> None:
     configured: list[object] = []
     runtime = FakeRuntime(FakeChatFacade(), FakeRetrievalFacade())
-    runtime.configure_tenant_models = configured.append  # type: ignore[attr-defined]
+    runtime.configure_tenant_models = configured.append  # type: ignore[attr-defined]  # a hook the double lacks
     settings = RuntimeSettings(chat_tenant_catalogs_enabled=True)
     resources = AppResources(
         settings,
         factories=AppServiceFactories(
-            retrieval_runtime=lambda _settings: runtime,  # type: ignore[arg-type]
+            retrieval_runtime=lambda _settings: runtime,  # type: ignore[arg-type]  # a fake SDK
         ),
         composition=_composition(catalog=_Catalog(), secrets=_Secrets()),
     )
@@ -115,7 +118,7 @@ def test_the_sdk_is_left_alone_when_no_catalogs_are_wired() -> None:
     resources = AppResources(
         settings,
         factories=AppServiceFactories(
-            retrieval_runtime=lambda _settings: runtime,  # type: ignore[arg-type]
+            retrieval_runtime=lambda _settings: runtime,  # type: ignore[arg-type]  # a fake SDK
         ),
         composition=_composition(catalog=_Catalog(), secrets=_Secrets()),
     )

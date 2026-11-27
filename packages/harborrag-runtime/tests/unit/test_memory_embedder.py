@@ -19,6 +19,8 @@ from harborrag_runtime.memory import (
 )
 from harborrag_runtime.sdk import HarborRAG, HarborRAGConfig
 
+pytestmark = pytest.mark.unit
+
 _MEMORY_EMBED_MODEL = """    memory:
       deployments:
         - name: openai-memory-embedding
@@ -29,6 +31,10 @@ _MEMORY_EMBED_MODEL = """    memory:
           capabilities:
             batch: true
 """
+
+
+def _records(caplog: pytest.LogCaptureFixture, event: str) -> list[logging.LogRecord]:
+    return [record for record in caplog.records if record.__dict__.get("event") == event]
 
 
 def _write_catalog(path: Path, *, with_memory_profile: bool) -> Path:
@@ -62,12 +68,16 @@ async def test_memory_embedder_is_none_for_a_missing_catalog(
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    settings = RuntimeSettings(model_config_path=tmp_path / "absent.yaml")
+    catalog = tmp_path / "absent.yaml"
+    settings = RuntimeSettings(model_config_path=catalog)
 
     with caplog.at_level(logging.WARNING, logger="harborrag.runtime.memory"):
         assert await build_memory_embedder(settings) is None
 
-    assert "Memory embedder unavailable" in caplog.text
+    (record,) = _records(caplog, "memory.embedder_unavailable")
+    assert record.levelno == logging.WARNING
+    assert record.__dict__["reason"] == "catalog_unreadable"
+    assert record.__dict__["config_path"] == str(catalog)
 
 
 @pytest.mark.asyncio
@@ -88,8 +98,8 @@ async def test_memory_embedder_prefers_the_configured_profile(tmp_path: Path) ->
     embedder = await build_memory_embedder(settings)
 
     assert embedder is not None
-    assert embedder._logical_model == "memory"  # type: ignore[attr-defined]
-    assert embedder._dimensions == 768  # type: ignore[attr-defined]
+    assert embedder._logical_model == "memory"  # type: ignore[attr-defined]  # private field of the port's implementation
+    assert embedder._dimensions == 768  # type: ignore[attr-defined]  # private field of the port's implementation
     await close_memory_embedder(embedder)
 
 
@@ -100,8 +110,8 @@ async def test_memory_embedder_uses_the_catalog_default_without_a_profile(tmp_pa
     embedder = await build_memory_embedder(settings)
 
     assert embedder is not None
-    assert embedder._logical_model == "primary"  # type: ignore[attr-defined]
-    assert embedder._dimensions == 1536  # type: ignore[attr-defined]
+    assert embedder._logical_model == "primary"  # type: ignore[attr-defined]  # private field of the port's implementation
+    assert embedder._dimensions == 1536  # type: ignore[attr-defined]  # private field of the port's implementation
     await close_memory_embedder(embedder)
 
 
@@ -119,8 +129,10 @@ async def test_memory_embedder_falls_back_when_the_profile_is_absent(
         embedder = await build_memory_embedder(settings)
 
     assert embedder is not None
-    assert embedder._logical_model == "primary"  # type: ignore[attr-defined]
-    assert "falling back to the default logical model=primary" in caplog.text
+    assert embedder._logical_model == "primary"  # type: ignore[attr-defined]  # private field of the port's implementation
+    (record,) = _records(caplog, "memory.embed_profile_fallback")
+    assert record.__dict__["profile_id"] == "memory"
+    assert record.__dict__["model_id"] == "primary"
     await close_memory_embedder(embedder)
 
 
@@ -136,7 +148,7 @@ async def test_close_memory_embedder_disposes_the_client_and_tolerates_none(
     async def _aclose() -> None:
         closed.append(True)
 
-    embedder.client.aclose = _aclose  # type: ignore[attr-defined]
+    embedder.client.aclose = _aclose  # type: ignore[attr-defined]  # the port does not expose the client
 
     await close_memory_embedder(embedder)
     await close_memory_embedder(None)
@@ -154,7 +166,7 @@ async def test_context_service_builds_its_embedder_once() -> None:
         calls.append(1)
         return sentinel
 
-    service = RuntimeMemoryContextService(RuntimeSettings(), embedder_builder=_builder)  # type: ignore[arg-type]
+    service = RuntimeMemoryContextService(RuntimeSettings(), embedder_builder=_builder)  # type: ignore[arg-type]  # a sentinel stands in for the embedder
 
     assert await service.embedder() is sentinel
     assert await service.embedder() is sentinel
@@ -169,7 +181,7 @@ async def test_context_service_skips_the_embedder_when_disabled() -> None:
 
     service = RuntimeMemoryContextService(
         RuntimeSettings(memory_enabled=False),
-        embedder_builder=_unreachable,  # type: ignore[arg-type]
+        embedder_builder=_unreachable,  # type: ignore[arg-type]  # a builder that must never run
     )
 
     assert await service.embedder() is None
@@ -192,7 +204,7 @@ async def test_context_service_aclose_disposes_the_embedder(
         return sentinel
 
     monkeypatch.setattr(module, "close_memory_embedder", _close)
-    service = RuntimeMemoryContextService(RuntimeSettings(), embedder_builder=_builder)  # type: ignore[arg-type]
+    service = RuntimeMemoryContextService(RuntimeSettings(), embedder_builder=_builder)  # type: ignore[arg-type]  # a sentinel stands in for the embedder
     assert await service.embedder() is sentinel
 
     await service.aclose()
@@ -215,10 +227,10 @@ async def test_builder_threads_the_index_and_the_cached_embedder_through(
         return embedder
 
     monkeypatch.setattr(module, "MemoryContextBuilder", lambda **kwargs: captured.append(kwargs))
-    service = RuntimeMemoryContextService(RuntimeSettings(), embedder_builder=_builder)  # type: ignore[arg-type]
+    service = RuntimeMemoryContextService(RuntimeSettings(), embedder_builder=_builder)  # type: ignore[arg-type]  # a sentinel stands in for the embedder
     index = object()
 
-    await service.builder(messages=object(), index=index)  # type: ignore[arg-type]
+    await service.builder(messages=object(), index=index)  # type: ignore[arg-type]  # sentinels stand in for the stores
 
     assert captured[0]["index"] is index
     assert captured[0]["embedder"] is embedder
@@ -243,7 +255,7 @@ def _harbor(settings: RuntimeSettings, *, model: object = None) -> HarborRAG:
     harbor = HarborRAG(HarborRAGConfig())
     harbor._memory_runtime = RuntimeMemoryContextService(
         settings,
-        model_builder=_model_builder,  # type: ignore[arg-type]
+        model_builder=_model_builder,  # type: ignore[arg-type]  # a sentinel stands in for the model
         embedder_builder=_no_embedder,
     )
     return harbor
@@ -259,37 +271,37 @@ async def test_extract_returns_nothing_when_switched_off(
     monkeypatch: pytest.MonkeyPatch,
     switch: str,
 ) -> None:
-    def _unreachable(**kwargs: Any) -> object:
+    def _unreachable(**kwargs: object) -> object:
         raise AssertionError("a switched-off policy must not build an extractor")
 
     monkeypatch.setattr(harborrag_memory, "MemoryExtractor", _unreachable, raising=False)
     harbor = _harbor(RuntimeSettings(**{switch: False}), model=object())
 
-    assert await harbor.memory.extract(_request(), messages=(), memories=object()) == ()  # type: ignore[arg-type]
+    assert await harbor.memory.extract(_request(), messages=(), memories=object()) == ()  # type: ignore[arg-type]  # a sentinel stands in for the store
 
 
 @pytest.mark.asyncio
 async def test_extract_returns_nothing_without_a_memory_model(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def _unreachable(**kwargs: Any) -> object:
+    def _unreachable(**kwargs: object) -> object:
         raise AssertionError("extraction without a model must not build an extractor")
 
     monkeypatch.setattr(harborrag_memory, "MemoryExtractor", _unreachable, raising=False)
     harbor = _harbor(RuntimeSettings(), model=None)
 
-    assert await harbor.memory.extract(_request(), messages=(), memories=object()) == ()  # type: ignore[arg-type]
+    assert await harbor.memory.extract(_request(), messages=(), memories=object()) == ()  # type: ignore[arg-type]  # a sentinel stands in for the store
 
 
 @pytest.mark.asyncio
 async def test_extract_runs_the_extractor_over_the_supplied_messages(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    built: list[dict[str, Any]] = []
+    built: list[dict[str, object]] = []
     calls: list[tuple[MemoryOwner, tuple[object, ...]]] = []
 
     class _Extractor:
-        def __init__(self, **kwargs: Any) -> None:
+        def __init__(self, **kwargs: object) -> None:
             built.append(kwargs)
 
         async def extract(
@@ -309,9 +321,9 @@ async def test_extract_runs_the_extractor_over_the_supplied_messages(
 
     result = await harbor.memory.extract(
         _request(),
-        messages=("message",),  # type: ignore[arg-type]
-        memories=memories,  # type: ignore[arg-type]
-        index=index,  # type: ignore[arg-type]
+        messages=("message",),  # type: ignore[arg-type]  # a sentinel stands in for the message
+        memories=memories,  # type: ignore[arg-type]  # a sentinel stands in for the store
+        index=index,  # type: ignore[arg-type]  # a sentinel stands in for the index
     )
 
     assert result == ("memory",)

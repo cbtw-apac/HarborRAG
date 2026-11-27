@@ -9,6 +9,7 @@ from typing import Protocol
 
 from harborrag_core.contracts.errors import HarborConflictError, HarborValidationError
 from harborrag_core.ingestion.run_contracts import PreparedSourceSubmission, SourceSubmission
+from harborrag_core.observability.log_events import log_event
 
 from .config import ScheduleCatalog
 from .errors import (
@@ -33,6 +34,10 @@ from .validation import (
 )
 
 logger = logging.getLogger("harborrag.runtime.scheduling")
+_REJECTED_SCHEDULE_HINT = (
+    "Check that its connection_id exists in its tenant, that its tenant and workflow are "
+    "unchanged since it was created, and that its cron or interval_seconds is valid."
+)
 
 type SourcePreparer = Callable[[SourceSubmission], Awaitable[PreparedSourceSubmission]]
 
@@ -78,7 +83,13 @@ class ScheduleBackend(Protocol):
 
 
 class ScheduleService:
-    """Source of truth for schedules; the Temporal UI is only for monitoring."""
+    """Source of truth for schedules; the Temporal UI is only for monitoring.
+
+    Args:
+        backend: Engine that runs the schedules.
+        prepare_source: Resolves a schedule's target the way a run would.
+        clock: Current UTC time, replaceable in tests.
+    """
 
     def __init__(
         self,
@@ -208,12 +219,23 @@ class ScheduleService:
             try:
                 if await self._sync_one(definition):
                     created.append(schedule_id)
-                    logger.info("Declared schedule created schedule_id=%s", schedule_id)
+                    log_event(
+                        logger, "scheduling.declared_schedule_created", schedule_id=schedule_id
+                    )
                 else:
                     updated.append(schedule_id)
-                    logger.info("Declared schedule updated schedule_id=%s", schedule_id)
+                    log_event(
+                        logger, "scheduling.declared_schedule_updated", schedule_id=schedule_id
+                    )
             except (ScheduleValidationError, ScheduleConflictError) as error:
-                logger.error("Declared schedule %s was not applied: %s", schedule_id, error)
+                log_event(
+                    logger,
+                    "scheduling.declared_schedule_rejected",
+                    level=logging.ERROR,
+                    error=error,
+                    schedule_id=schedule_id,
+                    hint=_REJECTED_SCHEDULE_HINT,
+                )
                 failed.append(schedule_id)
         if catalog.prune:
             declared = {definition.schedule_id for definition in catalog.schedules}
@@ -225,26 +247,37 @@ class ScheduleService:
                     except ScheduleNotFoundError:
                         continue
                     deleted.append(schedule_id)
-                    logger.info("Undeclared config schedule deleted schedule_id=%s", schedule_id)
+                    log_event(
+                        logger, "scheduling.undeclared_schedule_deleted", schedule_id=schedule_id
+                    )
         report = ScheduleSyncReport(
             created=tuple(created),
             updated=tuple(updated),
             deleted=tuple(deleted),
             failed=tuple(failed),
         )
-        logger.info(
-            "Declared schedules synced created=%d updated=%d deleted=%d failed=%d",
-            len(report.created),
-            len(report.updated),
-            len(report.deleted),
-            len(report.failed),
+        log_event(
+            logger,
+            "scheduling.declared_schedules_synced",
+            created_count=len(report.created),
+            updated_count=len(report.updated),
+            deleted_count=len(report.deleted),
+            failed_count=len(report.failed),
         )
         return report
 
     async def _sync_one(self, definition: ScheduleDefinition) -> bool:
-        """Create or update one declared schedule; return whether it was created.
+        """Create or update one declared schedule and return whether it was created.
 
-        Exists in Temporal but is not a HarborRAG schedule.
+        Args:
+            definition: The schedule as configuration declares it.
+
+        Returns:
+            True when the schedule was created, False when it was updated.
+
+        Raises:
+            ScheduleOwnershipError: A schedule with this ID exists but configuration
+                does not own it.
         """
         validate_definition(definition)
         await self._validate_source(definition)
@@ -271,7 +304,8 @@ class ScheduleService:
     async def _validate_source(self, definition: ScheduleDefinition) -> None:
         """Check the target resolves now; each firing prepares its own input.
 
-        Placeholder; each scheduled run derives its own task ID.
+        The schedule ID stands in for the task ID, because each scheduled run
+        derives its own.
         """
         target: SourceScheduleTarget = definition.target
         try:
@@ -290,6 +324,7 @@ class ScheduleService:
 
     @staticmethod
     def _require_owner(existing: ScheduleDefinition, owner: ScheduleOwner) -> None:
+        """Reject a change to a configuration-owned schedule from any other owner."""
         if existing.owner is ScheduleOwner.CONFIG and owner is not ScheduleOwner.CONFIG:
             raise ScheduleOwnershipError(
                 f"schedule {existing.schedule_id!r} is managed by version-controlled "

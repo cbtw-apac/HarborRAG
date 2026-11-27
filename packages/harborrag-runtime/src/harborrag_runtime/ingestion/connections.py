@@ -25,6 +25,7 @@ from harborrag_core.domain.connection import Connection
 from harborrag_core.domain.connection_snapshot import ConnectionSnapshot
 from harborrag_core.ingestion.errors import SourceAuthenticationError, SourceAuthorizationError
 from harborrag_core.ingestion.run_contracts import RunSettings
+from harborrag_core.observability.log_events import FailureKind, log_event, log_failure
 from harborrag_core.ports.control_plane import (
     ConnectionRepositoryPort,
     ConnectionRevisionRepositoryPort,
@@ -41,6 +42,7 @@ from harborrag_runtime.connections import SecretResolver
 logger = logging.getLogger("harborrag.runtime.ingestion.connections")
 
 DEFAULT_POOL_CAPACITY = 32
+_BYTES_PER_MB = 1024 * 1024
 
 
 class ConnectionNotFoundError(HarborValidationError):
@@ -57,7 +59,13 @@ class ConnectionUnavailableError(HarborConflictError):
 
 @dataclass(frozen=True, slots=True)
 class ResolvedConnection:
-    """A validated connection and the snapshot a run starts from."""
+    """A validated connection and the snapshot a run starts from.
+
+    Attributes:
+        snapshot: The saved, secret-free snapshot the run builds its connector from.
+        spec: The connection's source type.
+        run_settings: The run's pinned settings, when a resolver supplied them.
+    """
 
     snapshot: ConnectionSnapshot
     spec: SourceTypeSpec
@@ -74,11 +82,14 @@ class ResolvedConnection:
         return self.spec.provider
 
     def query_filters(self) -> dict[str, Any]:
-        """Config values that travel in the run's query filters, e.g. Jira ``jql``."""
+        """Return the config values the run's query filters carry, such as Jira ``jql``."""
         return self.spec.query_filters(self.snapshot.config)
 
     def include_attachments(self) -> bool:
-        """Whether the connection allows attachments; the dataclass default when unset."""
+        """Return whether the connection allows attachments.
+
+        Unset, it takes the connector factory's default, or ``True`` when the factory has none.
+        """
         if "include_attachments" in self.snapshot.config:
             return bool(self.snapshot.config["include_attachments"])
         parameter = signature(source_types.provider_factory(self.spec.source_type)).parameters.get(
@@ -90,7 +101,13 @@ class ResolvedConnection:
 
 
 class ConnectionResolver:
-    """Turn a stored connection into the snapshot one ingestion run uses."""
+    """Turn a stored connection into the snapshot one ingestion run uses.
+
+    Args:
+        connections: Stored connections, looked up by source key.
+        revisions: Store of the snapshots runs start from.
+        run_settings: Resolver of the settings a run pins; without it, runs pin none.
+    """
 
     def __init__(
         self,
@@ -269,7 +286,7 @@ def _narrow_capture_limits(config_object: object, run_settings: RunSettings | No
     if run_settings is None:
         return
     if run_settings.max_document_mb is not None:
-        override_bytes = run_settings.max_document_mb * 1024 * 1024
+        override_bytes = run_settings.max_document_mb * _BYTES_PER_MB
         for field_name in _CAPTURE_SIZE_FIELDS:
             if hasattr(config_object, field_name):
                 current = getattr(config_object, field_name)
@@ -433,10 +450,11 @@ class ConnectorPool:
             destination_policy=self._destination_policy,
             run_settings=run_settings,
         )
-        logger.info(
-            "Connection connector built source_type=%s fingerprint=%s",
-            snapshot.source_type,
-            fingerprint,
+        log_event(
+            logger,
+            "ingestion.connector_built",
+            connector_type=snapshot.source_type,
+            fingerprint_id=fingerprint,
         )
         return connector
 
@@ -446,8 +464,14 @@ class ConnectorPool:
             _, evicted = self._entries.popitem(last=False)
             try:
                 await asyncio.to_thread(evicted.close)
-            except Exception:
-                logger.warning("Closing an evicted connector failed", exc_info=True)
+            except Exception as error:
+                log_failure(
+                    logger,
+                    "ingestion.connector_close_failed",
+                    error,
+                    FailureKind.EXPECTED,
+                    reason="evicted",
+                )
 
 
 def require_fingerprint(fingerprint: str | None) -> str:
@@ -468,7 +492,13 @@ def require_fingerprint(fingerprint: str | None) -> str:
 
 
 class ConnectionHealth:
-    """Keep a connection's status in step with what its runs see."""
+    """Keep a connection's status in step with what its runs see.
+
+    Recording a status is best effort: a failure is logged and never fails the run.
+
+    Args:
+        connections: Stored connections whose status changes; ``None`` records nothing.
+    """
 
     def __init__(self, connections: ConnectionRepositoryPort | None) -> None:
         self._connections = connections
@@ -489,8 +519,14 @@ class ConnectionHealth:
                 detail={"error_category": "auth_invalid"},
                 only_from=frozenset({"active", "needs_reauth"}),
             )
-        except Exception:
-            logger.warning("Recording needs_reauth failed", exc_info=True)
+        except Exception as record_error:
+            log_failure(
+                logger,
+                "ingestion.connection_status_record_failed",
+                record_error,
+                FailureKind.EXPECTED,
+                status="needs_reauth",
+            )
 
     async def record_success(self, *, tenant_id: str, source_key: str) -> None:
         """Mark a ``needs_reauth`` connection ``active`` once a run authenticates again."""
@@ -503,5 +539,11 @@ class ConnectionHealth:
                 status="active",
                 only_from=frozenset({"needs_reauth"}),
             )
-        except Exception:
-            logger.warning("Recording a healthy connection failed", exc_info=True)
+        except Exception as record_error:
+            log_failure(
+                logger,
+                "ingestion.connection_status_record_failed",
+                record_error,
+                FailureKind.EXPECTED,
+                status="active",
+            )

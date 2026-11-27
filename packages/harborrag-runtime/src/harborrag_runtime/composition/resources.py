@@ -1,8 +1,14 @@
+"""Production builders for the control database, object, vector and graph stores.
+
+Startup logs and connection hints name backends and settings, never a URL, host or
+credential.
+"""
+
 from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
 
 from harborrag_adapters.repositories.backends.sqlalchemy import SQLAlchemyDBClient
@@ -20,15 +26,23 @@ from harborrag_adapters.repositories.vector import (
     HarborVectorDBClient,
 )
 from harborrag_adapters.repositories.vector.qdrant import QdrantVectorConfig
+from harborrag_core.observability.log_events import log_event
 from harborrag_core.ports.storage import ObjectStorePort, VectorRepositoryPort
 
-from ..config.settings import QDRANT_DEFAULT_GRPC_PORT, RuntimeSettings
+from ..config.settings import (
+    CONTROL_DB_POOL_RECYCLE_SECONDS,
+    QDRANT_DEFAULT_GRPC_PORT,
+    RuntimeSettings,
+)
 from ..errors import RuntimeConfigurationError
 from .storage_providers import (
     RuntimeKnowledgeGraphPort,
     RuntimeTopologyPort,
     storage_providers,
 )
+
+if TYPE_CHECKING:
+    from harborrag_adapters.models.embed import HarborEmbedClientConfig
 
 logger = logging.getLogger("harborrag.runtime.composition")
 
@@ -40,7 +54,6 @@ def build_ingestion_control(
     settings: RuntimeSettings,
 ) -> IngestionControlPlaneDatabase:
     """Create the Postgres authority without importing projection providers."""
-
     url = settings.control_db_url.get_secret_value()
     backend = "postgresql" if url.startswith("postgresql+asyncpg://") else "sqlite"
     client = SQLAlchemyDBClient(
@@ -48,7 +61,7 @@ def build_ingestion_control(
         url=url,
         pool_size=(settings.control_db_pool_size if backend == "postgresql" else None),
         max_overflow=(settings.control_db_max_overflow if backend == "postgresql" else None),
-        pool_recycle_seconds=1800,
+        pool_recycle_seconds=CONTROL_DB_POOL_RECYCLE_SECONDS,
         echo=False,
     )
     return IngestionControlPlaneDatabase(
@@ -57,21 +70,19 @@ def build_ingestion_control(
 
 
 def summarization_enabled(settings: RuntimeSettings) -> bool:
-    """Whether summaries are produced, per config/graph/build.yaml.
+    """Return whether summaries are produced, per config/graph/build.yaml.
 
     Resolved here rather than by callers because the ingestion runtime builds
     its control database from raw settings, before the YAML is applied.
     """
-
     from harborrag_runtime.config.graph_build import GraphBuildConfig
 
     config = GraphBuildConfig.from_settings(settings)
     return config.effective_settings(settings).topology_parent_enabled
 
 
-def embedding_dimensions(config: Any, model_name: str) -> int:
+def embedding_dimensions(config: HarborEmbedClientConfig, model_name: str) -> int:
     """Resolve one unambiguous embedding dimension from the model catalog."""
-
     _, model = config.model_for(model_name)
     expected = {
         deployment.expected_dimensions
@@ -88,7 +99,9 @@ def embedding_dimensions(config: Any, model_name: str) -> int:
     )
 
 
-def check_embedding_dimensions(config: Any, model: str, dimensions: int) -> None:
+def check_embedding_dimensions(
+    config: HarborEmbedClientConfig, model: str, dimensions: int
+) -> None:
     """Fail fast when an explicit dimension contradicts the model catalog.
 
     Only the deployments' ``expected_dimensions`` can contradict it: a model's
@@ -97,7 +110,6 @@ def check_embedding_dimensions(config: Any, model: str, dimensions: int) -> None
     deployments that disagree among themselves, are not a conflict either: the
     explicit value is then the only source of truth.
     """
-
     try:
         _, entry = config.model_for(model)
         pinned = {
@@ -118,13 +130,12 @@ def check_embedding_dimensions(config: Any, model: str, dimensions: int) -> None
 
 
 def _authority(url: str, *, schemes: Callable[[str], bool]) -> tuple[str, str, int | None] | None:
-    """(scheme, host, port) of a cleanly parsed URL, else ``None``.
+    """Return (scheme, host, port) of a cleanly parsed URL, else ``None``.
 
     Never the path, query or userinfo: an unencoded ``/``, ``?`` or ``#`` in a
     password splits it, so what looks like a host or port may be a credential
     fragment. Anything that does not parse cleanly is treated as unrenderable.
     """
-
     parts = urlsplit(url)
     if not schemes(parts.scheme):
         return None
@@ -153,8 +164,7 @@ def _display_url(url: str) -> str | None:
 
 
 def resource_targets(settings: RuntimeSettings) -> dict[str, str]:
-    """Credential-free display strings for the resources startup connects to."""
-
+    """Return credential-free display strings for the resources startup connects to."""
     control_url = settings.control_db_url.get_secret_value()
     if control_url.lower().startswith("sqlite"):
         control = "sqlite"
@@ -180,26 +190,40 @@ def resource_targets(settings: RuntimeSettings) -> dict[str, str]:
 
 
 def _qdrant_target(settings: RuntimeSettings) -> str:
-    """Credential-free Qdrant endpoint the client dials: the gRPC port when gRPC is preferred."""
-    origin = _origin(settings.qdrant_url)
-    if origin is None:
+    """Return the credential-free Qdrant endpoint the client dials.
+
+    It names the gRPC port when gRPC is preferred.
+    """
+    host, port = _qdrant_endpoint(settings)
+    if host is None:
         return "Qdrant (configured URL)"
     if settings.qdrant_prefer_grpc:
-        port = (
-            QDRANT_DEFAULT_GRPC_PORT
-            if settings.qdrant_grpc_port is None
-            else settings.qdrant_grpc_port
-        )
-        return f"Qdrant gRPC {origin[1]}:{port}"
+        return f"Qdrant gRPC {host}:{port}"
     return f"Qdrant {_display_url(settings.qdrant_url)}"
 
 
+def _qdrant_endpoint(settings: RuntimeSettings) -> tuple[str | None, int | None]:
+    """Return the credential-free host and port the Qdrant client dials.
+
+    The port is the gRPC port when gRPC is preferred. Both are ``None`` when the URL
+    does not parse, and the port is ``None`` when an HTTP URL leaves it implicit.
+    """
+    origin = _origin(settings.qdrant_url)
+    if origin is None:
+        return None, None
+    _, host, port = origin
+    if not settings.qdrant_prefer_grpc:
+        return host, port
+    if settings.qdrant_grpc_port is None:
+        return host, QDRANT_DEFAULT_GRPC_PORT
+    return host, settings.qdrant_grpc_port
+
+
 def resource_hints(settings: RuntimeSettings) -> dict[str, str]:
-    """What to check when a resource is unreachable, for the configured provider.
+    """Return what to check when a resource is unreachable, per configured provider.
 
     Hints name settings, never their values: they end up in a RuntimeConnectionError.
     """
-
     provider = settings.object_store_provider
     if provider == "s3":
         object_store = (
@@ -234,7 +258,6 @@ def resource_hints(settings: RuntimeSettings) -> dict[str, str]:
 
 def build_object_store(settings: RuntimeSettings) -> ObjectStorePort:
     """Resolve the configured immutable artifact provider."""
-
     if settings.object_store_provider == "memory":
         from harborrag_adapters.repositories.object_store.memory import (
             MemoryObjectStore,
@@ -273,11 +296,10 @@ def build_vector_repository(
     settings: RuntimeSettings,
 ) -> VectorRepositoryPort:
     """Resolve the configured vector projection provider."""
-
     if settings.vector_provider != "qdrant":
         return storage_providers.vector_repository(settings)
 
-    _log_vector_target(_qdrant_target(settings))
+    _log_vector_target(settings)
     return HarborVectorDBClient.default().create_from_config(
         QdrantVectorConfig(
             url=settings.qdrant_url,
@@ -290,19 +312,27 @@ def build_vector_repository(
     )
 
 
-def _log_vector_target(target: str) -> None:
-    """Log the endpoint vectors go to, once per target and process."""
+def _log_vector_target(settings: RuntimeSettings) -> None:
+    """Log the Qdrant host, port and transport vectors go to, once per endpoint and process."""
+    target = _qdrant_target(settings)
     if target in _logged_vector_targets:
         return
     _logged_vector_targets.add(target)
-    logger.info("Vector store target=%s", target)
+    host, port = _qdrant_endpoint(settings)
+    log_event(
+        logger,
+        "composition.vector_store_selected",
+        backend="qdrant",
+        transport_kind="grpc" if settings.qdrant_prefer_grpc else "http",
+        server_address=host,
+        server_port=port,
+    )
 
 
 def build_knowledge_graph(
     settings: RuntimeSettings,
 ) -> RuntimeKnowledgeGraphPort:
     """Resolve the configured document-versioned graph provider."""
-
     if settings.graph_provider != "falkordb":
         return storage_providers.knowledge_graph(settings)
 
@@ -311,14 +341,13 @@ def build_knowledge_graph(
 
 def build_topology_repository(settings: RuntimeSettings) -> RuntimeTopologyPort:
     """Resolve topology through the same provider choice as the knowledge graph."""
-
     if settings.graph_provider != "falkordb":
         return storage_providers.topology(settings)
     return FalkorTopologyRepository(build_graph_config(settings))
 
 
 def build_graph_config(settings: RuntimeSettings) -> FalkorDBGraphConfig:
-    """Trusted tenant registry routing is mandatory in production composition."""
+    """Build the FalkorDB config; production composition always isolates tenants."""
     return FalkorDBGraphConfig(
         host=settings.falkordb_host,
         port=settings.falkordb_port,

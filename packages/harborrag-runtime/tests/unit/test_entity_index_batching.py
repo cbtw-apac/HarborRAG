@@ -13,6 +13,8 @@ from harborrag_core.summaries import SummaryLease, SummaryPolicy
 from harborrag_runtime.topology.entity_summary_index import EntitySummaryIndex, entity_point_id
 from harborrag_runtime.topology.summary_service import SummaryProjectionService
 
+pytestmark = pytest.mark.unit
+
 
 class CountingEmbed(Embed):
     def __init__(self) -> None:
@@ -36,6 +38,7 @@ class CountingVectors(Vectors):
 
 @pytest.mark.asyncio
 async def test_cards_are_embedded_and_upserted_in_batches() -> None:
+    """Embed 300 cards in ceil(300 / 64) requests, not one per card."""
     vectors, embed = CountingVectors(), CountingEmbed()
     bindings = tuple(binding(f"node-{n}") for n in range(300))
 
@@ -44,7 +47,7 @@ async def test_cards_are_embedded_and_upserted_in_batches() -> None:
     )
 
     assert written == 300
-    assert embed.requests == 5  # ceil(300 / 64), not 300
+    assert embed.requests == 5
     assert vectors.upserts == [256, 44]
     assert len(vectors.records[PROFILE.entity_index_name]) == 300
 
@@ -124,6 +127,11 @@ async def test_a_failed_publication_is_logged_as_an_error(caplog) -> None:
     )
     with caplog.at_level(logging.WARNING, logger="harborrag.runtime.topology"):
         await service._publish_entities(lease, (binding("node-a"),))
-    (entry,) = [r for r in caplog.records if "Entity summary index" in r.getMessage()]
+    (entry,) = [
+        record
+        for record in caplog.records
+        if record.__dict__.get("event") == "topology.entity_index_publish_failed"
+    ]
     assert entry.levelno == logging.ERROR
     assert entry.exc_info is not None
+    assert entry.__dict__["entity_count"] == 1

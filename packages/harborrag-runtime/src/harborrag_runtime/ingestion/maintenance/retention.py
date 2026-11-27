@@ -25,6 +25,7 @@ from harborrag_adapters.repositories.object_store import (
 from harborrag_core.base import utc_now
 from harborrag_core.contracts.errors import StorageNotFoundError
 from harborrag_core.ingestion import PurgeableDocumentVersion
+from harborrag_core.observability.log_events import log_event, log_failure
 from harborrag_core.ports.storage import ObjectStorePort
 from harborrag_core.storage import StorageOperationContext
 
@@ -47,6 +48,7 @@ _SHARED_PREFIXES = ("parsed/", "source-plans/")
 _LIST_PAGE = 1_000
 _MAX_LIST_PASSES = 100
 _SWEEP_BATCH = 1_000
+_SCOPE_BATCH = 100
 SWEEP_TIME_BUDGET_SECONDS = 600.0
 """One periodic sweep keeps claiming batches while they come back full, for at most this long, so a
 backlog drains in one sweep rather than 1000 a day.
@@ -55,7 +57,16 @@ backlog drains in one sweep rather than 1000 a day.
 
 @dataclass(frozen=True, slots=True)
 class RetiredVersionPurgeBatch:
-    """Counts from one purge batch of retired versions."""
+    """Counts from one purge batch of retired versions.
+
+    Attributes:
+        eligible: Purgeable versions the batch found.
+        purged: Versions purged.
+        skipped: Versions another worker or a newer state took over.
+        failed: Versions whose purge failed; they stay PURGING for a later run.
+        deleted_objects: Objects deleted from the object store.
+        backlog: Versions still eligible when a sweep stopped; only ``run_all`` counts them.
+    """
 
     eligible: int = 0
     purged: int = 0
@@ -63,9 +74,9 @@ class RetiredVersionPurgeBatch:
     failed: int = 0
     deleted_objects: int = 0
     backlog: int = 0
-    """Versions still eligible when a sweep stopped; only ``run_all`` counts them."""
 
     def __add__(self, other: RetiredVersionPurgeBatch) -> RetiredVersionPurgeBatch:
+        """Sum two batches' counts, keeping the later batch's backlog."""
         return RetiredVersionPurgeBatch(
             eligible=self.eligible + other.eligible,
             purged=self.purged + other.purged,
@@ -77,7 +88,15 @@ class RetiredVersionPurgeBatch:
 
 
 class RetiredVersionPurgeService:
-    """Delete the artifacts of retired versions whose retention TTL elapsed."""
+    """Delete the artifacts of retired versions whose retention TTL elapsed.
+
+    Args:
+        control: Control-plane database that claims and marks the versions.
+        object_store: Object store holding the versions' artifacts.
+        retention_days: Days a version stays retired before its purge; ``None`` turns
+            retention off, which only resumes interrupted purges. Must not be negative.
+        clock: Current time, replaceable in tests.
+    """
 
     def __init__(
         self,
@@ -99,7 +118,7 @@ class RetiredVersionPurgeService:
         *,
         tenant_id: str,
         source_scope_id: str,
-        limit: int = 100,
+        limit: int = _SCOPE_BATCH,
     ) -> RetiredVersionPurgeBatch:
         """Purge eligible retired versions of one source scope, up to ``limit``."""
         versions = await self._control.retention.purgeable_versions(
@@ -124,6 +143,13 @@ class RetiredVersionPurgeService:
         ``time_budget_seconds``. Safe beside other workers -- each version is
         claimed (RETIRED -> PURGING) under a row lock and a lease before anything
         is deleted. With retention off only interrupted purges are resumed.
+
+        Args:
+            limit: Purgeable versions fetched per batch.
+            time_budget_seconds: Time after which no further batch starts.
+
+        Returns:
+            The summed counts of every batch, with the backlog left when the sweep stopped.
         """
         deadline = time.monotonic() + time_budget_seconds
         total = RetiredVersionPurgeBatch()
@@ -144,7 +170,7 @@ class RetiredVersionPurgeService:
         return total + RetiredVersionPurgeBatch(backlog=backlog)
 
     def _retired_before(self) -> datetime | None:
-        """The TTL cutoff; None (retention off) still resumes interrupted purges."""
+        """Return the TTL cutoff; ``None`` (retention off) still resumes interrupted purges."""
         if self._retention_days is None:
             return None
         return self._clock() - timedelta(days=self._retention_days)
@@ -170,16 +196,20 @@ class RetiredVersionPurgeService:
             deleted_objects=deleted,
         )
         if versions:
-            logger.info(
-                "Retired version purge completed source_scope_id=%s retention_days=%s "
-                "eligible=%d purged=%d skipped=%d failed=%d deleted_objects=%d",
-                label,
-                self._retention_days if self._retention_days is not None else "off",
-                batch.eligible,
-                batch.purged,
-                batch.skipped,
-                batch.failed,
-                batch.deleted_objects,
+            log_event(
+                logger,
+                "ingestion.version_purge_batch_completed",
+                source_scope_id=label,
+                retention_seconds=(
+                    None
+                    if self._retention_days is None
+                    else int(timedelta(days=self._retention_days).total_seconds())
+                ),
+                eligible_count=batch.eligible,
+                purged_count=batch.purged,
+                skipped_count=batch.skipped,
+                failed_count=batch.failed,
+                deleted_objects_count=batch.deleted_objects,
             )
         return batch
 
@@ -210,23 +240,23 @@ class RetiredVersionPurgeService:
         except _ClaimLost:
             _log_skip(document_id, version_id, "claim_lost")
             return "skipped", run.removed if run is not None else 0
-        except Exception as error:
+        except Exception as error:  # noqa: BLE001 - one version must not stop the sweep
             removed = run.removed if run is not None else 0
-            logger.error(
-                "Retired version purge failed document_id=%s document_version_id=%s "
-                "error_type=%s deleted_objects=%d",
-                document_id,
-                version_id,
-                type(error).__name__,
-                removed,
-                exc_info=True,
+            log_failure(
+                logger,
+                "ingestion.version_purge_failed",
+                error,
+                document_id=document_id,
+                document_version_id=version_id,
+                deleted_objects_count=removed,
             )
             return "failed", removed
-        logger.info(
-            "Retired version purged document_id=%s document_version_id=%s deleted_objects=%d",
-            document_id,
-            version_id,
-            run.removed,
+        log_event(
+            logger,
+            "ingestion.version_purged",
+            document_id=document_id,
+            document_version_id=version_id,
+            deleted_objects_count=run.removed,
         )
         return "purged", run.removed
 
@@ -255,7 +285,7 @@ class RetiredVersionPurgeService:
 
     @staticmethod
     def _recorded_objects(version: PurgeableDocumentVersion) -> set[tuple[str, str]]:
-        """Artifacts the version row records plus its deterministic keys.
+        """Return the artifacts the version row records plus its deterministic keys.
 
         Deterministic keys a crash may have written without recording them on the version row;
         deleting a missing key is a no-op.
@@ -325,7 +355,10 @@ class RetiredVersionPurgeService:
                 return
 
     async def _delete(self, bucket: str, key: str, run: _PurgeRun) -> None:
-        """Already deleted by an earlier, interrupted purge."""
+        """Delete one object and count it when it existed.
+
+        A missing object was already deleted by an earlier, interrupted purge.
+        """
         try:
             existed = await self._store.delete(bucket, key, context=run.context)
         except StorageNotFoundError:
@@ -339,15 +372,24 @@ class _ClaimLost(Exception):
 
 @dataclass(slots=True)
 class _PurgeRun:
+    """One claimed purge in progress.
+
+    Attributes:
+        claim: The purge claim, renewed as the purge goes on.
+        context: Storage context of the version's tenant.
+        removed: Objects deleted so far.
+    """
+
     claim: PurgeClaim
     context: StorageOperationContext
     removed: int = 0
 
 
 def _log_skip(document_id: str, version_id: str, reason: str) -> None:
-    logger.info(
-        "Retired version purge skipped document_id=%s document_version_id=%s reason=%s",
-        document_id,
-        version_id,
-        reason,
+    log_event(
+        logger,
+        "ingestion.version_purge_skipped",
+        document_id=document_id,
+        document_version_id=version_id,
+        reason=reason,
     )

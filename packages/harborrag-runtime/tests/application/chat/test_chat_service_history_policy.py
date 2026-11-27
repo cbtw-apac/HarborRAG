@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 
 from harborrag_core.domain.retrieval import RetrievalResult
@@ -77,7 +79,7 @@ async def _service(
     store = memory or InMemoryConversationMemory()
     await store.create(IDENTITY)
     return ChatApplicationService(
-        lambda: runtime,  # type: ignore[arg-type]
+        lambda: runtime,  # type: ignore[arg-type]  # the fake runtime stands in for the SDK
         RuntimeSettings(),
         memory=store,
     )
@@ -109,7 +111,6 @@ async def test_retrieval_searches_raw_follow_up_without_a_rewrite_call() -> None
 @pytest.mark.asyncio
 async def test_the_user_still_sees_their_own_question_in_the_prompt() -> None:
     """The fixed policy does not inject old summaries or rewrite the question."""
-
     chat = FakeChatFacade()
     runtime = FakeRuntime(
         chat,
@@ -166,8 +167,15 @@ async def test_a_memory_failure_answers_from_retrieval_instead_of_failing(
     assert response.ok is True
     assert retrieval.request is not None
     assert retrieval.request.query == "What is the release policy?"
-    assert "Conversation context unavailable" in caplog.text
+    (record,) = [
+        record
+        for record in caplog.records
+        if record.__dict__.get("event") == "memory.context_unavailable"
+    ]
+    assert record.levelno == logging.WARNING
+    assert record.__dict__["session_id"] == "session-1"
     assert "What is the release policy?" not in caplog.text
+    assert "memory store is down" not in caplog.text
 
 
 @pytest.mark.asyncio

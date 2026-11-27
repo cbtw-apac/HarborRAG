@@ -8,6 +8,7 @@ row write already succeeded.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 
 import pytest
@@ -256,3 +257,25 @@ async def test_a_failed_enqueue_is_logged_and_swallowed_not_raised(project: Proj
     await log_activity(service._control_plane(), _entry())
 
     assert not activity_repo.inner.entries
+
+
+@pytest.mark.asyncio
+async def test_a_lost_secret_retirement_is_logged_by_kind_and_tenant_never_by_ref(
+    project: Project, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Neither the failed delete nor the lost effect writes the secret reference to a log."""
+    secrets = FakeSecrets()
+    ref = await secrets.put("hunter2", tenant_id="DEFAULT")
+    service = control_plane_app_service(
+        projects=[project],
+        secrets=_FlakySecrets(secrets, fail_times=1),
+        pending_effects=_AlwaysFailsPendingEffects(),
+    )
+
+    await retire_refs(service._control_plane(), [ref], tenant_id="DEFAULT")
+
+    (lost,) = [record for record in caplog.records if record.levelno == logging.CRITICAL]
+    assert lost.__dict__["event"] == "control_plane.pending_effect_lost"
+    assert lost.__dict__["effect_kind"] == "retire_secret"
+    assert lost.__dict__["tenant_id"] == "DEFAULT"
+    assert ref not in caplog.text

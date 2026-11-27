@@ -6,6 +6,7 @@ import logging
 from dataclasses import replace
 
 from harborrag_core.domain.identity import MemoryIdentity
+from harborrag_core.observability.log_events import FailureKind, log_failure
 from harborrag_core.ports.conversation import ConversationHistoryRepository
 from harborrag_runtime.memory import MemoryContext, MemoryContextRequest
 
@@ -15,6 +16,13 @@ logger = logging.getLogger("harborrag.runtime.application.memory.context")
 
 def memory_context_request(identity: MemoryIdentity, question: str) -> MemoryContextRequest:
     """Build the memory context request that memory maintenance operations take for a turn.
+
+    Args:
+        identity: The turn's tenant, principal, user, session and project.
+        question: The turn's question, kept as the raw query.
+
+    Returns:
+        The request for the turn's session.
 
     Raises:
         ValueError: The turn is a one-off question with no session.
@@ -47,12 +55,15 @@ async def recent_memory_context(
         messages = await repository.recent_complete_messages(
             identity.conversation(), limit=RECENT_EXCHANGES
         )
-    except Exception:  # noqa: BLE001 - history availability must not fail a completion
-        logger.warning(
-            "Conversation context unavailable for tenant=%s user=%s session=%s",
-            identity.tenant_id,
-            identity.user_id,
-            identity.session_id,
+    except Exception as error:  # noqa: BLE001 - history availability must not fail a completion
+        log_failure(
+            logger,
+            "memory.context_unavailable",
+            error,
+            FailureKind.EXPECTED,
+            tenant_id=identity.tenant_id,
+            user_id=identity.user_id,
+            session_id=identity.session_id,
         )
         return context
     return replace(context, messages=messages)

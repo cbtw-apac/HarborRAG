@@ -1,4 +1,8 @@
-"""Subprocess isolation for CPU-intensive or native-extension activities."""
+"""Subprocess isolation for CPU-intensive or native-extension activities.
+
+No isolated subprocess outlives its activity. Logs name the process and its timings,
+never the function's arguments or result.
+"""
 
 from __future__ import annotations
 
@@ -12,25 +16,37 @@ import queue as _stdlib_queue
 import threading
 import weakref
 from collections.abc import Callable
-from typing import Any, cast
+from multiprocessing.process import BaseProcess
+from multiprocessing.queues import Queue
+from typing import Final
 
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from harborrag_core.observability.log_events import log_event
+
 logger = logging.getLogger("harborrag.runtime.temporal.process_isolation")
 
-# Patched in unit tests to avoid spawning real subprocesses.
-_SUBPROCESS_CONTEXT: str = "spawn"
+_SUBPROCESS_CONTEXT: Final = "spawn"
+"""Start method of isolated subprocesses."""
 
-# Bound concurrent interpreters so activity concurrency cannot exhaust host
-# memory; keyed by running loop so each event loop gets its own ceiling.
 _MAX_CONCURRENT_SUBPROCESSES: int = 4
+"""Isolated subprocesses one event loop runs at once, so activities cannot exhaust memory."""
 _subprocess_slots: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Semaphore] = (
     weakref.WeakKeyDictionary()
 )
+"""Subprocess slots of each running event loop, so each loop gets its own ceiling."""
+
+_DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 30.0
+"""Seconds between a subprocess's alive signals when the caller does not choose."""
+_HUNG_AFTER_INTERVALS = 2.0
+"""Heartbeat intervals without an alive signal after which a subprocess counts as hung."""
+_JOIN_TIMEOUT_SECONDS = 5.0
+"""How long to wait for a subprocess that reported its outcome, or was killed, to exit."""
 
 
 def _subprocess_slots_for_running_loop() -> asyncio.Semaphore:
+    """Return the running event loop's semaphore of subprocess slots."""
     loop = asyncio.get_running_loop()
     semaphore = _subprocess_slots.get(loop)
     if semaphore is None:
@@ -40,25 +56,33 @@ def _subprocess_slots_for_running_loop() -> asyncio.Semaphore:
 
 
 class SubprocessCrashError(ApplicationError):
-    """Raised when an isolated subprocess exits non-zero or raises an exception."""
+    """An isolated subprocess hung, exited non-zero or raised an exception.
+
+    Temporal retries the activity.
+
+    Args:
+        message: What went wrong, naming the subprocess's error type.
+    """
 
     def __init__(self, message: str) -> None:
         super().__init__(message, type="SubprocessCrash", non_retryable=False)
 
 
 class SubprocessSerializationError(SubprocessCrashError):
-    """Raised when subprocess spawn fails due to argument serialization."""
+    """An isolated subprocess could not start because its arguments do not pickle."""
 
 
 class SubprocessResultSerializationError(SubprocessSerializationError):
-    """Raised when a subprocess result cannot be pickled back to the parent."""
+    """An isolated subprocess's result could not be pickled back to the parent."""
 
 
 def _is_spawn_serialization_exception(error: BaseException) -> bool:
+    """Return whether a start failure came from pickling the subprocess's arguments."""
     return isinstance(error, (AttributeError, TypeError, pickle.PicklingError))
 
 
-def _start_process(proc: Any) -> None:
+def _start_process(proc: BaseProcess) -> None:
+    """Start the subprocess, raising an argument pickling failure as a serialization error."""
     try:
         proc.start()
     except Exception as error:
@@ -77,7 +101,8 @@ def _encode_exception(error: BaseException, *, fallback: BaseException | None = 
         return pickle.dumps(fallback or RuntimeError(repr(error)))
 
 
-def _validate_heartbeat_timeout(heartbeat_interval: float, info: Any) -> None:
+def _validate_heartbeat_timeout(heartbeat_interval: float, info: activity.Info) -> None:
+    """Reject a heartbeat interval that is not shorter than the activity's heartbeat timeout."""
     if info.heartbeat_timeout is None or info.heartbeat_timeout.total_seconds() <= 0:
         return
     limit = info.heartbeat_timeout.total_seconds()
@@ -89,23 +114,23 @@ def _validate_heartbeat_timeout(heartbeat_interval: float, info: Any) -> None:
 
 
 def _subprocess_worker(
-    fn: Callable[..., Any],
-    args: tuple[Any, ...],
-    kwargs: dict[str, Any],
-    result_queue: Any,
+    fn: Callable[..., object],
+    args: tuple[object, ...],
+    kwargs: dict[str, object],
+    result_queue: Queue[tuple[str, bytes | None]],
     heartbeat_interval: float,
 ) -> None:
-    """Top-level target executed in the isolated process.
+    """Run ``fn`` as the isolated process's target and report its outcome on the queue.
 
     Sends ("alive", None) pulses on each heartbeat interval while fn runs.
     Sends ("done", pickled_result) when fn completes, ("error", pickled_exc)
     when fn raises, or ("result_error", pickled_exc) when fn succeeds but its
     result cannot be pickled back to the parent. Payloads are pre-serialized
-    here because `Queue.put` pickles asynchronously on a feeder thread, so a
+    here because ``Queue.put`` pickles asynchronously on a feeder thread, so a
     pickling failure there would otherwise be silently dropped instead of
     reported.
     """
-    outcome: Any = None
+    outcome: object = None
     error: BaseException | None = None
     done = threading.Event()
 
@@ -143,15 +168,31 @@ def _subprocess_worker(
 async def run_in_isolated_subprocess[ResultT](
     fn: Callable[..., ResultT],
     /,
-    *args: Any,
-    heartbeat_interval: float = 30.0,
+    *args: object,
+    heartbeat_interval: float = _DEFAULT_HEARTBEAT_INTERVAL_SECONDS,
     heartbeat_detail: object = "running",
-    **kwargs: Any,
+    **kwargs: object,
 ) -> ResultT:
-    """Run *fn* in an isolated subprocess with subprocess-driven heartbeating.
+    """Run ``fn`` in an isolated subprocess whose alive signals drive the heartbeat.
 
-    Falls back to thread execution outside an activity context (e.g. in tests
-    that do not run a full Temporal activity environment).
+    Outside an activity, such as in tests without a Temporal activity environment,
+    ``fn`` runs on a thread instead. A subprocess silent for two heartbeat intervals
+    counts as hung. Heartbeating then stops, so the server's heartbeat timeout ends the attempt.
+
+    Args:
+        fn: Top-level function to run; it, its arguments and its result must pickle.
+        *args: Positional arguments for ``fn``.
+        heartbeat_interval: Seconds between alive signals; finite, positive and shorter
+            than the activity's heartbeat timeout.
+        heartbeat_detail: Detail sent with each activity heartbeat.
+        **kwargs: Keyword arguments for ``fn``.
+
+    Returns:
+        What ``fn`` returned.
+
+    Raises:
+        SubprocessCrashError: The subprocess hung or raised, or its arguments or result
+            did not pickle.
     """
     if not math.isfinite(heartbeat_interval) or heartbeat_interval <= 0:
         raise ValueError(
@@ -167,8 +208,8 @@ async def run_in_isolated_subprocess[ResultT](
     _validate_heartbeat_timeout(heartbeat_interval, activity.info())
 
     async with _subprocess_slots_for_running_loop():
-        ctx = cast(Any, multiprocessing.get_context(_SUBPROCESS_CONTEXT))
-        mp_queue: multiprocessing.Queue = ctx.Queue()
+        ctx = multiprocessing.get_context(_SUBPROCESS_CONTEXT)
+        mp_queue = ctx.Queue()
         proc = ctx.Process(
             target=_subprocess_worker,
             args=(fn, args, kwargs, mp_queue, heartbeat_interval),
@@ -176,27 +217,24 @@ async def run_in_isolated_subprocess[ResultT](
         _start_process(proc)
 
         loop = asyncio.get_running_loop()
-        # Allow 2× the interval for each alive signal before declaring a hung process.
-        poll_timeout = heartbeat_interval * 2.0
-
-        # Send initial heartbeat before entering subprocess polling loop
+        poll_timeout = heartbeat_interval * _HUNG_AFTER_INTERVALS
         activity.heartbeat(heartbeat_detail)
 
         try:
             while True:
                 try:
-                    message = await loop.run_in_executor(
+                    kind, payload = await loop.run_in_executor(
                         None,
                         functools.partial(mp_queue.get, timeout=poll_timeout),
                     )
-                    kind, payload = cast(tuple[str, object], message)
                 except _stdlib_queue.Empty:
-                    # No alive signal → stop heartbeating so heartbeat_timeout fires.
-                    logger.warning(
-                        "Isolated subprocess appears hung (no signal for %.0fs pid=%s); "
-                        "suspending heartbeat to allow server timeout",
-                        poll_timeout,
-                        proc.pid,
+                    log_event(
+                        logger,
+                        "temporal.isolated_subprocess_hung",
+                        level=logging.WARNING,
+                        reason="no_alive_signal",
+                        process_id=proc.pid,
+                        silent_seconds=poll_timeout,
                     )
                     await loop.run_in_executor(None, functools.partial(proc.join, poll_timeout))
                     raise SubprocessCrashError(
@@ -206,42 +244,51 @@ async def run_in_isolated_subprocess[ResultT](
                 if kind == "alive":
                     activity.heartbeat(heartbeat_detail)
                 elif kind == "done":
-                    await loop.run_in_executor(None, functools.partial(proc.join, 5))
-                    return cast(ResultT, pickle.loads(cast(bytes, payload)))
+                    await _join(proc, loop)
+                    returned: ResultT = pickle.loads(payload)
+                    return returned
                 elif kind == "result_error":
-                    await loop.run_in_executor(None, functools.partial(proc.join, 5))
-                    exc = cast(BaseException, pickle.loads(cast(bytes, payload)))
+                    await _join(proc, loop)
+                    unpicklable: BaseException = pickle.loads(payload)
                     raise SubprocessResultSerializationError(
-                        f"{type(exc).__name__}: {exc}"
-                    ) from exc
+                        f"{type(unpicklable).__name__}: {unpicklable}"
+                    ) from unpicklable
                 else:
-                    # kind == "error"
-                    await loop.run_in_executor(None, functools.partial(proc.join, 5))
-                    exc = cast(BaseException, pickle.loads(cast(bytes, payload)))
-                    raise SubprocessCrashError(f"{type(exc).__name__}: {exc}") from exc
+                    await _join(proc, loop)
+                    crash: BaseException = pickle.loads(payload)
+                    raise SubprocessCrashError(f"{type(crash).__name__}: {crash}") from crash
 
         except asyncio.CancelledError:
-            logger.info("Activity cancelled; killing isolated subprocess pid=%s", proc.pid)
+            log_event(logger, "temporal.isolated_subprocess_cancelled", process_id=proc.pid)
             raise
         finally:
             await _kill_if_alive(proc, loop)
 
 
+async def _join(proc: BaseProcess, loop: asyncio.AbstractEventLoop) -> None:
+    """Wait for a subprocess that reported its outcome to exit, at most a few seconds."""
+    await loop.run_in_executor(None, functools.partial(proc.join, _JOIN_TIMEOUT_SECONDS))
+
+
 async def _kill_if_alive(
-    proc: Any,
+    proc: BaseProcess,
     loop: asyncio.AbstractEventLoop,
 ) -> None:
-    """Leave no child behind, whichever way the activity exited.
+    """Kill the subprocess if it is still alive, whichever way the activity exited.
 
-    Only the cancellation path used to kill. A subprocess that stopped sending
-    alive signals was joined with a timeout and then abandoned once that join
-    expired -- so every hung parse leaked a live interpreter, and the document
-    stage retries five times before giving up. ``join`` returns whether or not
-    the process ended, so its outcome has to be checked rather than assumed.
+    A hung subprocess outlives its timed-out ``join``, and ``join`` returns either way,
+    so whether the process ended is checked here rather than assumed.
     """
-
     if not proc.is_alive():
         return
-    logger.warning("Killing isolated subprocess pid=%s that outlived its activity", proc.pid)
+    log_event(
+        logger,
+        "temporal.isolated_subprocess_killed",
+        level=logging.WARNING,
+        reason="outlived_activity",
+        process_id=proc.pid,
+    )
     proc.kill()
-    await asyncio.shield(loop.run_in_executor(None, functools.partial(proc.join, 5)))
+    await asyncio.shield(
+        loop.run_in_executor(None, functools.partial(proc.join, _JOIN_TIMEOUT_SECONDS))
+    )

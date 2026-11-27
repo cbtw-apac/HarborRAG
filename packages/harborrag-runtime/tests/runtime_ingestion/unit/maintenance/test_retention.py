@@ -44,6 +44,8 @@ from ...fixtures.release import (
 )
 from .retention_fixtures import expire_purge_lease
 
+pytestmark = pytest.mark.unit
+
 _CONTEXT = StorageOperationContext.system("default")
 
 
@@ -85,7 +87,6 @@ async def _release_twice_and_clean(
     connector: SourceConnector,
 ) -> _Released:
     """Publish a metadata change so the first version retires, then clean it."""
-
     dependencies = build_dependencies(resources)
     service = DocumentReleaseService(dependencies)
     await service.provision(tenant_id="default")
@@ -120,9 +121,17 @@ def _service(
 ) -> RetiredVersionPurgeService:
     return RetiredVersionPurgeService(
         control=control,
-        object_store=store,  # type: ignore[arg-type]
+        object_store=store,  # type: ignore[arg-type]  # stand-in with only list and delete
         retention_days=retention_days,
     )
+
+
+def _event(caplog: pytest.LogCaptureFixture, event: str) -> logging.LogRecord:
+    """Return the one captured record of ``event``, with no dropped fields."""
+    records = [record for record in caplog.records if record.__dict__.get("event") == event]
+    assert len(records) == 1
+    assert "dropped_fields" not in records[0].__dict__
+    return records[0]
 
 
 @pytest.mark.asyncio
@@ -198,7 +207,14 @@ async def test_purge_deletes_version_owned_objects_and_keeps_shared_ones(
         assert active is not None
         assert str(active.document_version_id) == released.active
         assert await control.reliability.projection_manifest(released.active) is not None
-        assert "Retired version purged" in caplog.text
+        purged_event = _event(caplog, "ingestion.version_purged")
+        assert purged_event.levelno == logging.INFO
+        assert purged_event.__dict__["document_version_id"] == released.retired
+        assert purged_event.__dict__["deleted_objects_count"] == batch.deleted_objects
+        batch_event = _event(caplog, "ingestion.version_purge_batch_completed")
+        assert batch_event.__dict__["source_scope_id"] == "docs"
+        assert batch_event.__dict__["retention_seconds"] == 0
+        assert batch_event.__dict__["purged_count"] == 1
 
         again = await _service(control, resources.store).run_scope(
             tenant_id="default",
@@ -251,7 +267,7 @@ class _FailingStore:
         self.fail = True
 
     async def list(self, bucket: str, prefix: str, *, limit: int, context: object) -> list:
-        return await self._store.list(bucket, prefix, limit=limit, context=context)  # type: ignore[arg-type]
+        return await self._store.list(bucket, prefix, limit=limit, context=context)  # type: ignore[arg-type]  # passed through
 
     async def delete(self, bucket: str, key: str, *, context: object) -> bool:
         if self.fail and key.startswith("chunks/"):
@@ -264,7 +280,7 @@ class _FailingStore:
                     operation="delete",
                 ),
             )
-        return await self._store.delete(bucket, key, context=context)  # type: ignore[arg-type]
+        return await self._store.delete(bucket, key, context=context)  # type: ignore[arg-type]  # passed through
 
 
 @pytest.mark.asyncio
@@ -291,7 +307,11 @@ async def test_a_storage_error_leaves_the_version_purging_for_the_next_run(
             )
         snapshot = await control.document_versions.get_version(released.retired)
         assert (failed.purged, failed.failed) == (0, 1)
-        assert "error_type=HarborStorageConnectionError" in caplog.text
+        failure = _event(caplog, "ingestion.version_purge_failed")
+        assert failure.levelno == logging.ERROR
+        assert failure.__dict__["error_type"] == "HarborStorageConnectionError"
+        assert failure.__dict__["document_version_id"] == released.retired
+        assert "object store unavailable" not in failure.getMessage()
         assert snapshot is not None
         assert snapshot.state == DocumentVersionState.PURGING
         assert snapshot.canonical_artifact is not None
@@ -355,7 +375,6 @@ async def test_the_periodic_sweep_purges_scopes_that_are_never_reingested(
     tmp_path: Path,
 ) -> None:
     """``run_all`` needs no source run: it finds expired versions in every scope."""
-
     control = build_control_plane(tmp_path)
     resources = build_release_resources(control)
     async with control, resources.store:
@@ -398,10 +417,10 @@ async def test_the_worker_sweeps_on_its_interval_and_stops_with_the_worker() -> 
     runtime = type("Runtime", (), {"retention": _Retention()})()
     settings = type("Settings", (), {"retired_version_purge_interval_hours": 0.01 / 3600})()
 
-    runner = _retention_runner(settings, runtime, stop)  # type: ignore[arg-type]
+    runner = _retention_runner(settings, runtime, stop)  # type: ignore[arg-type]  # stub settings
     assert runner is not None
     await asyncio.wait_for(runner, timeout=5)
 
     assert calls == 2
     disabled = type("Settings", (), {"retired_version_purge_interval_hours": 0})()
-    assert _retention_runner(disabled, runtime, stop) is None  # type: ignore[arg-type]
+    assert _retention_runner(disabled, runtime, stop) is None  # type: ignore[arg-type]  # stub settings

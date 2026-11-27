@@ -68,8 +68,15 @@ def test_repository_config_builds_enabled_parser_overrides(
     assert attachment_parser is not harbor_parser
     assert isinstance(harbor_parser.create("image"), HarborImageParser)
     assert harbor_parser.resolve("README.md", "text/markdown") is not None
-    assert "Parser catalog loaded" in caplog.text
-    assert "definitions=2 enabled=2" in caplog.text
+    (loaded,) = [
+        record
+        for record in caplog.records
+        if record.__dict__.get("event") == "config.parser_catalog_loaded"
+    ]
+    assert loaded.__dict__["definitions_count"] == 2
+    assert loaded.__dict__["enabled_count"] == 2
+    assert loaded.__dict__["config_path"].endswith("parsers.yaml")
+    assert "dropped_fields" not in loaded.__dict__
 
 
 def test_repository_config_keeps_inactive_alternatives_commented() -> None:

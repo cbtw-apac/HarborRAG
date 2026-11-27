@@ -85,7 +85,7 @@ its lowest role.
 | `POST` | `/v1/admin/failures/retry` | `editor` | Retry failures by `ids` or `filter`; one run per original run; `409` when none match |
 | `GET` | `/v1/admin/settings` | `editor` for `connection:` levels, else `admin` | Read the overrides or the effective values at a `level` |
 | `PATCH` | `/v1/admin/settings` | `admin` | Change settings at a `level`, with `If-Match` |
-| `GET` | `/v1/admin/settings/schema` | `editor` | The six runtime settings by group: type, range, levels, when a change applies, description |
+| `GET` | `/v1/admin/settings/schema` | `editor` | The runtime settings by group: type, range, levels, when a change applies, description |
 | `GET` | `/v1/admin/projects` | `admin` | Projects in the tenant, cursor-paged |
 | `GET` `PUT` `DELETE` | `/v1/admin/projects/{project_id}` | `admin` | Read, create or update, delete a project |
 | `GET` | `/v1/projects/{project_id}/connections` | `reader` | Connections a reader can search in a project |
@@ -258,7 +258,7 @@ API process settings use the `HARBORRAG_` prefix. The model is `ApiSettings` in
 | `HARBORRAG_API_REQUEST_TIMEOUT_SECONDS` | `120` | Deadline of every `/v1` handler |
 | `HARBORRAG_API_STREAM_TIMEOUT_SECONDS` | `600` | Deadline of one streamed body |
 | `HARBORRAG_CONTROL_DB_URL` | local SQLite | Control-plane SQLAlchemy URL |
-| `HARBORRAG_SETTINGS_SEED_PATH` | `config/settings.yaml` | Seed file for runtime settings, read once when the tenant has no revisions; later differences log `config_yaml_drift` |
+| `HARBORRAG_SETTINGS_SEED_PATH` | `config/settings.yaml` | Seed file for runtime settings, read once when the tenant has no revisions; later differences log `control_plane.settings_file_drift` |
 | `HARBORRAG_TEMPORAL_CONFIG_PATH` | `config/temporal.yaml` | Temporal connection, queues, retries, worker and workflow configuration |
 | `HARBORRAG_TEMPORAL_TARGET` | value from YAML | Optional Temporal frontend override |
 | `HARBORRAG_TEMPORAL_API_KEY` | unset | Secret API credential; keep it outside tracked YAML |
@@ -303,7 +303,7 @@ api/
 The sibling `harborrag_app/operations/` package imports no web framework, so the CLI can
 use it too. It holds the `Operations` port (`port.py`) and its in-process implementation
 (`local/`), the role and serialization table of every operation (`contract.py`), and the
-error catalogue with its status and code mapping (`errors.py`, `dependency_failures.py`).
+error catalog with its status and code mapping (`errors.py`, `dependency_failures.py`).
 The package also holds what the routes and the commands both use: the request and
 response models (`schemas/`), the `Principal` and its role check (`principal.py`), SSE
 event framing (`sse.py`) and the readiness checks (`readiness.py`). The HTTP stream

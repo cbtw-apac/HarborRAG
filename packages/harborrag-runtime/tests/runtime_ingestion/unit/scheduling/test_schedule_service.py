@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import replace
 
 import pytest
@@ -23,6 +24,8 @@ from harborrag_runtime.scheduling.models import (
     ScheduleView,
     SourceScheduleTarget,
 )
+
+pytestmark = pytest.mark.unit
 
 
 class _Backend:
@@ -233,6 +236,35 @@ async def test_sync_reports_conflicts_and_rejections_and_keeps_going() -> None:
 
     assert report.failed == ("someone-elses", "api-owned", "rejected")
     assert report.created == ("daily-sync",)
+
+
+@pytest.mark.asyncio
+async def test_a_rejected_schedule_is_logged_with_a_hint_and_without_the_error_text(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The operator needs to know where to look; the error's own text stays out of the log."""
+    backend = _Backend()
+    backend.rejected.add("rejected")
+    service = _service(backend)
+    caplog.set_level(logging.INFO, logger="harborrag.runtime.scheduling")
+
+    await service.sync(
+        ScheduleCatalog(
+            schedules=(_definition(schedule_id="rejected", owner=ScheduleOwner.CONFIG),)
+        )
+    )
+
+    (record,) = [
+        item
+        for item in caplog.records
+        if item.__dict__.get("event") == "scheduling.declared_schedule_rejected"
+    ]
+    assert record.levelno == logging.ERROR
+    assert record.__dict__["schedule_id"] == "rejected"
+    assert record.__dict__["error_type"] == "ScheduleValidationError"
+    assert "hint=" in record.getMessage()
+    assert "Temporal rejected" not in record.getMessage()
+    assert record.exc_info is None
 
 
 @pytest.mark.asyncio

@@ -18,6 +18,7 @@ from harborrag_adapters.repositories.database import (
 )
 from harborrag_adapters.repositories.errors import HarborStorageValidationError
 from harborrag_core.ingestion import IngestionTaskState
+from harborrag_core.observability.log_events import FailureKind, log_event, log_failure
 from harborrag_engine.ingestion.release.service import DocumentReleaseService
 from harborrag_engine.ingestion.source.models import (
     DISCOVERY_SKIPS_KEY,
@@ -88,21 +89,30 @@ class SourceIngestionService(SourceDocumentOperations):
         the scope, and a PENDING task would look like an unsubmitted durable run.
         Any other error marks the task failed. A failure to record either outcome
         is logged and never hides the run's own error.
+
+        Args:
+            request: The source run to execute.
+            connector: Connector that reads the source.
+
+        Returns:
+            The run's final outcome.
         """
-        logger.info(
-            "Source ingestion started task_id=%s connector_type=%s concurrency=%d",
-            request.task_id,
-            request.connector_type.value,
-            request.document_concurrency,
+        log_event(
+            logger,
+            "ingestion.source_started",
+            task_id=request.task_id,
+            connector_type=request.connector_type.value,
+            concurrency_count=request.document_concurrency,
         )
         stage = "discovery"
         try:
             discovery = await self.discover(request, connector)
-            logger.info(
-                "Source discovery completed task_id=%s scan_id=%s documents=%d",
-                request.task_id,
-                discovery.scan_id,
-                len(discovery.planned),
+            log_event(
+                logger,
+                "ingestion.discovery_completed",
+                task_id=request.task_id,
+                scan_id=discovery.scan_id,
+                documents_count=len(discovery.planned),
             )
             stage = "dispatch"
             results = await self._dispatch(
@@ -118,24 +128,33 @@ class SourceIngestionService(SourceDocumentOperations):
                 summary=SourceDispatchSummary.from_results(results),
             )
         except asyncio.CancelledError:
-            logger.warning(
-                "Source ingestion interrupted task_id=%s stage=%s", request.task_id, stage
+            log_event(
+                logger,
+                "ingestion.source_interrupted",
+                level=logging.WARNING,
+                task_id=request.task_id,
+                stage=stage,
             )
             try:
                 await self.cancel(request.task_id)
-            except Exception:  # noqa: BLE001 - never mask the cancellation itself
-                logger.exception(
-                    "Source cancellation could not be persisted task_id=%s", request.task_id
+            except Exception as persist_error:  # noqa: BLE001 - never mask the cancellation itself
+                log_failure(
+                    logger,
+                    "ingestion.source_cancel_record_failed",
+                    persist_error,
+                    task_id=request.task_id,
                 )
             raise
         except Exception as error:
             stage = _failure_stage(error, stage)
-            logger.error(
-                "Source %s failed task_id=%s connector_type=%s error_type=%s",
-                stage,
-                request.task_id,
-                request.connector_type.value,
-                type(error).__name__,
+            log_failure(
+                logger,
+                "ingestion.source_failed",
+                error,
+                FailureKind.CLASSIFIED,
+                task_id=request.task_id,
+                connector_type=request.connector_type.value,
+                stage=stage,
             )
             try:
                 await self.fail(
@@ -143,22 +162,25 @@ class SourceIngestionService(SourceDocumentOperations):
                     error_code=f"{stage}_{type(error).__name__.lower()}",
                     stage=stage,
                 )
-            except Exception:  # noqa: BLE001 - never mask the run's own error
-                logger.exception(
-                    "Source failure could not be persisted task_id=%s", request.task_id
+            except Exception as persist_error:  # noqa: BLE001 - never mask the run's own error
+                log_failure(
+                    logger,
+                    "ingestion.source_failure_record_failed",
+                    persist_error,
+                    task_id=request.task_id,
                 )
             raise error
-        logger.info(
-            "Source ingestion completed task_id=%s scan_id=%s status=%s "
-            "discovered=%d published=%d unchanged=%d failed=%d removals=%d",
-            outcome.task_id,
-            outcome.scan_id,
-            outcome.status.value,
-            outcome.discovered,
-            outcome.published,
-            outcome.unchanged,
-            outcome.failed,
-            len(outcome.removal_candidates),
+        log_event(
+            logger,
+            "ingestion.source_completed",
+            task_id=outcome.task_id,
+            scan_id=outcome.scan_id,
+            status=outcome.status.value,
+            discovered_count=outcome.discovered,
+            published_count=outcome.published,
+            unchanged_count=outcome.unchanged,
+            failed_count=outcome.failed,
+            removals_count=len(outcome.removal_candidates),
         )
         return outcome
 
@@ -170,11 +192,15 @@ class SourceIngestionService(SourceDocumentOperations):
         skips counted so far at discovery and per document.
         """
         if await self._control.source_scans.cancel_if_started(source_scan_id(task_id)):
-            logger.info("Open source scan cancelled task_id=%s", task_id)
+            log_event(logger, "ingestion.source_scan_cancelled", task_id=task_id)
         task = await self._control.tasks.get(task_id)
         if task is None or task.status == IngestionTaskState.CANCELLED:
-            logger.debug(
-                "Source cancellation skipped task_id=%s reason=missing_or_cancelled", task_id
+            log_event(
+                logger,
+                "ingestion.source_cancel_skipped",
+                level=logging.DEBUG,
+                task_id=task_id,
+                reason="missing_or_cancelled",
             )
             return
         if task.status in {
@@ -182,10 +208,13 @@ class SourceIngestionService(SourceDocumentOperations):
             IngestionTaskState.PARTIAL,
             IngestionTaskState.FAILED,
         }:
-            logger.debug(
-                "Source cancellation skipped task_id=%s reason=terminal status=%s",
-                task_id,
-                task.status.value,
+            log_event(
+                logger,
+                "ingestion.source_cancel_skipped",
+                level=logging.DEBUG,
+                task_id=task_id,
+                reason="terminal",
+                status=task.status.value,
             )
             return
         await self._control.tasks.transition(
@@ -197,10 +226,10 @@ class SourceIngestionService(SourceDocumentOperations):
                 "cancelled_at_safe_boundary": True,
             },
         )
-        logger.info("Source ingestion cancelled task_id=%s", task_id)
+        log_event(logger, "ingestion.source_cancelled", task_id=task_id)
 
     async def is_cancelled(self, task_id: str) -> bool:
-        """Whether the run is recorded as cancelled, as a Temporal cancel records it."""
+        """Return whether the task is recorded cancelled, as a Temporal cancel records it."""
         task = await self._control.tasks.get(task_id)
         return task is not None and task.status is IngestionTaskState.CANCELLED
 
@@ -239,10 +268,13 @@ class SourceIngestionService(SourceDocumentOperations):
             IngestionTaskState.FAILED,
             IngestionTaskState.CANCELLED,
         }:
-            logger.debug(
-                "Source failure persistence skipped task_id=%s error_code=%s reason=terminal",
-                task_id,
-                error_code,
+            log_event(
+                logger,
+                "ingestion.source_fail_skipped",
+                level=logging.DEBUG,
+                task_id=task_id,
+                error_code=error_code,
+                reason="terminal",
             )
             return
         await self._control.tasks.transition(
@@ -259,10 +291,12 @@ class SourceIngestionService(SourceDocumentOperations):
                 }
             ),
         )
-        logger.warning(
-            "Source ingestion marked failed task_id=%s error_code=%s",
-            task_id,
-            error_code,
+        log_event(
+            logger,
+            "ingestion.source_marked_failed",
+            level=logging.WARNING,
+            task_id=task_id,
+            error_code=error_code,
         )
 
     async def discover(
@@ -287,11 +321,13 @@ class SourceIngestionService(SourceDocumentOperations):
             connector,
             scan_id=scan_id,
         )
-        logger.debug(
-            "Source discovery plan persisted task_id=%s scan_id=%s documents=%d",
-            request.task_id,
-            scan_id,
-            len(planned),
+        log_event(
+            logger,
+            "ingestion.discovery_plan_persisted",
+            level=logging.DEBUG,
+            task_id=request.task_id,
+            scan_id=scan_id,
+            documents_count=len(planned),
         )
         return SourceDiscoveryRun(scan_id=scan_id, planned=planned)
 
@@ -344,7 +380,9 @@ class SourceIngestionService(SourceDocumentOperations):
     async def complete_discovery(self, scan_id: str) -> None:
         """Make a scan authoritative after its dispatch plan is durable."""
         await self._control.source_scans.complete(scan_id)
-        logger.debug("Source discovery scan completed scan_id=%s", scan_id)
+        log_event(
+            logger, "ingestion.discovery_scan_completed", level=logging.DEBUG, scan_id=scan_id
+        )
 
     async def discovery_skip_counts(self, task_id: str) -> dict[str, int]:
         """Return the discovery-time skip counts recorded on the task so far."""
@@ -423,7 +461,7 @@ class SourceIngestionService(SourceDocumentOperations):
 
 
 def _finalization_failed(summary: Mapping[str, object]) -> bool:
-    """Whether a finalization attempt recorded its failed stage and counts on the task."""
+    """Return whether a finalization attempt recorded its failed stage on the task."""
     failed_stage = summary.get("failed_stage")
     return isinstance(failed_stage, str) and bool(failed_stage)
 
@@ -438,7 +476,7 @@ def _failure_stage(error: Exception, stage: str) -> str:
 
 
 def _schema_mismatch_dimensions(error: HarborStorageValidationError) -> tuple[int, int] | None:
-    """Both dimensions when ``error`` is the existing-index schema mismatch, else None.
+    """Return both dimensions when ``error`` is the index schema mismatch, else None.
 
     Only that mismatch is a configuration verdict the operator can act on; other
     validation failures (an invalid tenant or index name, say) keep their type.
@@ -455,7 +493,7 @@ def _schema_mismatch_dimensions(error: HarborStorageValidationError) -> tuple[in
 def _schema_mismatch_message(
     error: HarborStorageValidationError, existing: int, configured: int
 ) -> str:
-    """Authored text plus the safe values the adapter attached, never its message."""
+    """Build the error text from authored words and the adapter's safe values only."""
     index = error.context.resource_name
     subject = f"Vector index {index!r}" if isinstance(index, str) and index else "The vector index"
     detail = (

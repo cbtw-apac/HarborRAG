@@ -27,6 +27,11 @@ from harborrag_core.ingestion.run_contracts import (
 )
 from harborrag_core.ingestion.source_query import SourceQuery
 from harborrag_core.invariants import require
+from harborrag_core.observability.log_events import (
+    FailureKind,
+    log_event,
+    log_failure,
+)
 from harborrag_engine.ingestion.models import IngestionCreateCommand
 from harborrag_engine.ingestion.presenters import (
     STATUS_NAMES,
@@ -163,11 +168,14 @@ class IngestionApplicationService:
             try:
                 workflow = await (await self._client_provider()).start_ingestion(submitted_source)
             except WorkflowSubmissionError as error:
-                logger.error(
-                    "Ingestion workflow submission failed task_id=%s tenant=%s connection_id=%s",
-                    submitted_source.task_id,
-                    submitted_source.tenant_id,
-                    submitted_source.connection_id,
+                log_failure(
+                    logger,
+                    "ingestion.workflow_submission_failed",
+                    error,
+                    FailureKind.CLASSIFIED,
+                    task_id=submitted_source.task_id,
+                    tenant_id=submitted_source.tenant_id,
+                    connection_id=submitted_source.connection_id,
                 )
                 raise HarborConnectionError(
                     "Ingestion service is temporarily unavailable."
@@ -176,21 +184,22 @@ class IngestionApplicationService:
                 task.task_id,
                 {_SUBMISSION_STATE_KEY: _SUBMITTED},
             )
-            logger.info(
-                "Ingestion submitted task_id=%s workflow_id=%s tenant=%s "
-                "connection_id=%s force_reprocess=%s",
-                submitted_source.task_id,
-                workflow.workflow_id,
-                submitted_source.tenant_id,
-                submitted_source.connection_id,
-                submitted_source.force_reprocess,
+            log_event(
+                logger,
+                "ingestion.submitted",
+                task_id=submitted_source.task_id,
+                workflow_id=workflow.workflow_id,
+                tenant_id=submitted_source.tenant_id,
+                connection_id=submitted_source.connection_id,
+                mode="force" if submitted_source.force_reprocess else "incremental",
             )
         else:
-            logger.info(
-                "Existing ingestion returned task_id=%s tenant=%s connection_id=%s",
-                task.task_id,
-                task.request.get("tenant_id"),
-                task.request.get("connection_id"),
+            log_event(
+                logger,
+                "ingestion.existing_run_returned",
+                task_id=task.task_id,
+                tenant_id=task.request.get("tenant_id"),
+                connection_id=task.request.get("connection_id"),
             )
         submitted_at = require(
             task.submitted_at,
@@ -209,6 +218,12 @@ class IngestionApplicationService:
 
     async def get_task(self, task_id: str) -> dict[str, object]:
         """Return the public document of a run.
+
+        Args:
+            task_id: The run to read.
+
+        Returns:
+            The run's public document with its progress counts.
 
         Raises:
             IngestionNotFoundError: No such run.
@@ -231,6 +246,9 @@ class IngestionApplicationService:
         A task another pass owns, or that started or settled meanwhile, yields no claim
         and is skipped.
 
+        Args:
+            limit: Most pending tasks to examine in this pass.
+
         Returns:
             The number of tasks whose workflow was started.
         """
@@ -241,9 +259,13 @@ class IngestionApplicationService:
                 claim = await store.claim_submission(task.task_id)
                 if claim is None:
                     continue
-            except Exception:  # noqa: BLE001 - one bad task must not starve the outbox
-                logger.exception(
-                    "Pending ingestion submission claim failed task_id=%s", task.task_id
+            except Exception as error:  # noqa: BLE001 - one bad task must not starve the outbox
+                log_failure(
+                    logger,
+                    "ingestion.pending_submission_claim_failed",
+                    error,
+                    FailureKind.UNEXPECTED,
+                    task_id=task.task_id,
                 )
                 continue
             start_called = False
@@ -257,32 +279,53 @@ class IngestionApplicationService:
                     source = source_from_task(task)
                     start_called = True
                     await client.start_ingestion(source)
-            except Exception:  # noqa: BLE001 - one bad task must not starve the outbox
-                logger.exception(
-                    "Pending ingestion submission recovery failed task_id=%s",
-                    task.task_id,
+            except Exception as error:  # noqa: BLE001 - one bad task must not starve the outbox
+                log_failure(
+                    logger,
+                    "ingestion.pending_submission_recovery_failed",
+                    error,
+                    FailureKind.UNEXPECTED,
+                    task_id=task.task_id,
                 )
                 if not start_called:
                     await self._release_claim(store, task.task_id, claim)
                 continue
             try:
                 await store.update_summary(task.task_id, {_SUBMISSION_STATE_KEY: _SUBMITTED})
-            except Exception:  # noqa: BLE001 - the run started; a stale claim is re-tried
-                logger.exception(
-                    "Could not confirm the recovered submission task_id=%s", task.task_id
+            except Exception as error:  # noqa: BLE001 - the run started; a stale claim is re-tried
+                log_failure(
+                    logger,
+                    "ingestion.recovered_submission_unconfirmed",
+                    error,
+                    FailureKind.UNEXPECTED,
+                    task_id=task.task_id,
                 )
             recovered += 1
         return recovered
 
     @staticmethod
     async def _release_claim(store: PublicTaskStore, task_id: str, claim: str) -> None:
+        """Give a submission claim back so the next recovery pass can take the task."""
         try:
             await store.release_submission_claim(task_id, claim)
-        except Exception:  # noqa: BLE001 - the claim goes stale and is retried anyway
-            logger.exception("Could not release the submission claim task_id=%s", task_id)
+        except Exception as error:  # noqa: BLE001 - the claim goes stale and is retried anyway
+            log_failure(
+                logger,
+                "ingestion.submission_claim_release_failed",
+                error,
+                FailureKind.UNEXPECTED,
+                task_id=task_id,
+            )
 
     async def pause(self, task_id: str, *, actor: str | None = None) -> dict[str, object]:
         """Pause a run's workflow and record who asked.
+
+        Args:
+            task_id: The run to pause.
+            actor: Principal recorded as asking; ``unknown`` when None.
+
+        Returns:
+            The run's ID, its status and a message.
 
         Raises:
             IngestionNotFoundError: No such run.
@@ -314,6 +357,13 @@ class IngestionApplicationService:
 
         A running run is resumed too when its workflow holds a pause it has not
         applied yet, such as one sent during discovery.
+
+        Args:
+            task_id: The run to resume.
+            actor: Principal recorded as asking; ``unknown`` when None.
+
+        Returns:
+            The run's ID, its status and a message.
 
         Raises:
             IngestionNotFoundError: No such run.
@@ -348,9 +398,13 @@ class IngestionApplicationService:
         """
         try:
             status = await (await self._client_provider()).get_status(task_id)
-        except Exception:  # noqa: BLE001 - an unknown answer keeps the already-running refusal
-            logger.debug(
-                "Could not read the workflow status of ingestion %s", task_id, exc_info=True
+        except Exception as error:  # noqa: BLE001 - an unknown answer keeps the already-running refusal
+            log_failure(
+                logger,
+                "ingestion.pause_status_unavailable",
+                error,
+                FailureKind.EXPECTED,
+                task_id=task_id,
             )
             return False
         return status.paused and not status.cancel_requested
@@ -359,6 +413,13 @@ class IngestionApplicationService:
         """Cancel an unfinished run and record who asked.
 
         A run whose workflow already ended outside HarborRAG is settled instead of cancelled.
+
+        Args:
+            task_id: The run to cancel.
+            actor: Principal recorded as asking; ``unknown`` when None.
+
+        Returns:
+            The run's ID, its status and a message.
 
         Raises:
             IngestionNotFoundError: No such run.
@@ -387,6 +448,13 @@ class IngestionApplicationService:
         namespace retention, is recorded as cancelled here, since no workflow is left
         to record it. A queued source run is left queued: its workflow may not be
         submitted yet.
+
+        Args:
+            store: The run registry.
+            task: The run to cancel.
+
+        Returns:
+            The run, re-read when it was recorded as cancelled here.
 
         Raises:
             HarborConnectionError: Temporal could not take the request.
@@ -429,18 +497,26 @@ class IngestionApplicationService:
                 status = await (await self._client_provider()).execution_status(
                     task_id, RunKind.of(task.request)
                 )
-        except Exception:  # noqa: BLE001 - an unknown answer keeps the run active
-            logger.debug("Could not read the workflow of ingestion %s", task_id, exc_info=True)
+        except Exception as error:  # noqa: BLE001 - an unknown answer keeps the run active
+            log_event(
+                logger,
+                "ingestion.workflow_status_unavailable",
+                level=logging.DEBUG,
+                task_id=task_id,
+                error=error,
+            )
             return False
         state = _ENDED_WORKFLOW_STATES.get(status)
         if state is None:
             return False
         await store.close_abandoned(task_id, state, reason=f"workflow_{status}")
-        logger.warning(
-            "Ingestion %s ended outside HarborRAG (workflow %s); recorded as %s",
-            task_id,
-            status,
-            state.value,
+        log_event(
+            logger,
+            "ingestion.run_ended_outside_harborrag",
+            level=logging.WARNING,
+            task_id=task_id,
+            workflow_status=status,
+            task_status=state.value,
         )
         return True
 
@@ -518,6 +594,12 @@ class IngestionApplicationService:
     async def _build_source(self, command: IngestionCreateCommand) -> PreparedSourceSubmission:
         """Prepare the submission of the connection ``command`` names.
 
+        Args:
+            command: The validated ingestion request.
+
+        Returns:
+            The provider-neutral input of the new run.
+
         Raises:
             HarborValidationError: The connection's settings cannot build its connector.
         """
@@ -543,6 +625,7 @@ class IngestionApplicationService:
         store: PublicTaskStore,
         task_id: str,
     ) -> IngestionTask:
+        """Return the run, or raise ``IngestionNotFoundError`` when there is none."""
         task = await store.get(task_id)
         if task is None:
             raise IngestionNotFoundError("Ingestion task was not found.")
@@ -551,6 +634,10 @@ class IngestionApplicationService:
 
 def _refuse_retry_run(task: IngestionTask, past: str) -> None:
     """Raise for a retry run: its workflow can be cancelled but not paused or resumed.
+
+    Args:
+        task: The run an action was asked for.
+        past: The refused action in the past tense, such as ``paused``.
 
     Raises:
         IngestionActionStateError: ``task`` is a retry run.

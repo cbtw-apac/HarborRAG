@@ -1,4 +1,4 @@
-"""Resolve the control-plane ports per-tenant chat models need, or nothing.
+"""Control-plane ports for per-tenant chat models, resolved only when asked for.
 
 Off unless the deployment asked for it. Turning it on moves chat credentials
 from the process environment into the encrypted control-plane store and gives
@@ -11,8 +11,8 @@ control plane if it is there, warn and carry on if it is not.
 from __future__ import annotations
 
 import logging
-from typing import Any
 
+from harborrag_core.observability.log_events import log_event
 from harborrag_core.ports.model_catalog import TenantModelCatalogPort
 from harborrag_core.ports.secrets import SecretsPort
 from harborrag_runtime.chat import TenantModelSources
@@ -22,13 +22,20 @@ logger = logging.getLogger("harborrag.runtime.application.composition.tenant_mod
 
 
 def tenant_model_sources(
-    composition: Any,
+    composition: object,
     settings: RuntimeSettings,
 ) -> TenantModelSources | None:
     """Return the catalog and secrets ports for per-tenant chat, or None to stay shared.
 
     ``None`` is the default and means every tenant keeps answering from the
     process-wide ``config/models/models.yaml`` catalog, exactly as before.
+
+    Args:
+        composition: The composition root; its ``control_plane`` holds the ports.
+        settings: Runtime settings; per-tenant catalogs are off unless they turn them on.
+
+    Returns:
+        The model catalog and secrets ports, or None when catalogs are off or not wired.
     """
     if not settings.chat_tenant_catalogs_enabled:
         return None
@@ -36,10 +43,15 @@ def tenant_model_sources(
     catalog: TenantModelCatalogPort | None = getattr(control_plane, "model_catalog", None)
     secrets: SecretsPort | None = getattr(control_plane, "secrets", None)
     if catalog is None or secrets is None:
-        logger.warning(
-            "HARBORRAG_CHAT_TENANT_CATALOGS_ENABLED is set but no model catalog and "
-            "secret store are wired on the control plane; every tenant will keep "
-            "answering from the process-wide chat catalog."
+        log_event(
+            logger,
+            "composition.tenant_model_catalogs_unwired",
+            level=logging.WARNING,
+            hint=(
+                "Run with the control-plane database (HARBORRAG_CONTROL_DB_URL), or unset "
+                "HARBORRAG_CHAT_TENANT_CATALOGS_ENABLED; until then every tenant answers "
+                "from the process-wide chat catalog."
+            ),
         )
         return None
     return TenantModelSources(catalog=catalog, secrets=secrets)

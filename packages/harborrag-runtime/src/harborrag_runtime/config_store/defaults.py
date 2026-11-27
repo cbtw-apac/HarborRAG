@@ -1,4 +1,8 @@
-"""Registry defaults that depend on the boot configuration."""
+"""Registry defaults that depend on the boot configuration.
+
+An unreadable model catalog never fails startup: the default is left unset and a
+warning names the catalog file and the error type, never its contents.
+"""
 
 from __future__ import annotations
 
@@ -8,6 +12,7 @@ from dataclasses import replace
 import yaml
 
 from harborrag_core.config_store import SettingsRegistry
+from harborrag_core.observability.log_events import FailureKind, log_failure
 from harborrag_runtime.config.models import has_rerank_model
 from harborrag_runtime.config.settings import RuntimeSettings
 
@@ -17,7 +22,7 @@ EMBEDDING_KEY = "models.embedding"
 
 
 def embedding_default(settings: RuntimeSettings) -> str | None:
-    """Return ``provider:model`` of the embedding model in use, or ``None`` when unreadable."""
+    """Return ``provider:model`` of the embedding model in use; None when unreadable."""
     from harborrag_adapters.models.embed import HarborEmbedClientConfig
 
     try:
@@ -25,17 +30,29 @@ def embedding_default(settings: RuntimeSettings) -> str | None:
         _, model = config.model_for(settings.embedding_model or config.default_model)
         deployment = model.deployments[0]
     except (OSError, ValueError, KeyError, IndexError) as error:
-        logger.warning("settings_embedding_default_unreadable error_type=%s", type(error).__name__)
+        log_failure(
+            logger,
+            "config.embedding_default_unreadable",
+            error,
+            FailureKind.EXPECTED,
+            config_path=str(settings.model_config_path),
+        )
         return None
     return f"{deployment.provider}:{deployment.model}"
 
 
 def rerank_available(settings: RuntimeSettings) -> bool:
-    """Return whether the model catalog has a rerank model, or ``False`` when unreadable."""
+    """Return whether the model catalog has a rerank model; False when unreadable."""
     try:
         return has_rerank_model(settings.model_config_path)
     except (OSError, ValueError, yaml.YAMLError) as error:
-        logger.warning("settings_rerank_model_unreadable error_type=%s", type(error).__name__)
+        log_failure(
+            logger,
+            "config.rerank_model_unreadable",
+            error,
+            FailureKind.EXPECTED,
+            config_path=str(settings.model_config_path),
+        )
         return False
 
 

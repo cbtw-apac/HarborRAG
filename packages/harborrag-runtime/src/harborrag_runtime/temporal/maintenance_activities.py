@@ -1,6 +1,7 @@
 """Temporal activities for projection cleanup, relation repair and reindexing.
 
-Entry point: MaintenanceActivities.
+These activities run outside the ingestion activity boundary, so their events carry
+their own IDs and counts.
 """
 
 from __future__ import annotations
@@ -10,6 +11,7 @@ import logging
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from harborrag_core.observability.log_events import log_event
 from harborrag_engine.ingestion.maintenance.cleanup import ProjectionCleanupBatch
 from harborrag_engine.ingestion.maintenance.reindex import ReindexRequest
 from harborrag_runtime.ingestion.composition import IngestionRuntime
@@ -33,6 +35,8 @@ from .schemas import (
 )
 
 logger = logging.getLogger("harborrag.runtime.temporal.maintenance")
+_MAINTENANCE_BATCH_LIMIT = 1_000
+"""Most cleanup jobs or retired versions one activity attempt handles."""
 
 
 class MaintenanceActivities:
@@ -60,6 +64,12 @@ class MaintenanceActivities:
     ) -> ProjectionCleanupResult:
         """Clean the pending projections of a source scope and purge its retired versions.
 
+        Args:
+            source: The source run whose scope is cleaned.
+
+        Returns:
+            Counts of cleanup jobs and purged versions.
+
         Raises:
             ApplicationError: Some cleanup jobs failed.
         """
@@ -70,7 +80,7 @@ class MaintenanceActivities:
             cleanup = await self._runtime.cleanup.run_scope(
                 tenant_id=source.tenant_id,
                 source_scope_id=source.source_scope_id,
-                limit=1_000,
+                limit=_MAINTENANCE_BATCH_LIMIT,
             )
             self._telemetry.record_cleanup_backlog(cleanup.failed)
             purge = await self._purge_retired_versions(source)
@@ -84,7 +94,7 @@ class MaintenanceActivities:
 
         A version whose purge fails stays PURGING under its lease, and a later
         run resumes it once the lease lapses, so it is reported but does not
-        fail the activity: a retry would only redo the cleanup for nothing.
+        fail the activity. A retry would only redo the cleanup for nothing.
         """
         retention = self._runtime.retention
         if retention is None:
@@ -92,7 +102,7 @@ class MaintenanceActivities:
         purge = await retention.run_scope(
             tenant_id=source.tenant_id,
             source_scope_id=source.source_scope_id,
-            limit=1_000,
+            limit=_MAINTENANCE_BATCH_LIMIT,
         )
         self._telemetry.record_retention_purge(
             purged=purge.purged,
@@ -101,12 +111,14 @@ class MaintenanceActivities:
             deleted_objects=purge.deleted_objects,
         )
         if purge.failed:
-            logger.warning(
-                "Retired version purge left versions for the next run "
-                "source_scope_id=%s purged=%d failed=%d",
-                source.source_scope_id,
-                purge.purged,
-                purge.failed,
+            log_event(
+                logger,
+                "ingestion.retired_version_purge_incomplete",
+                level=logging.WARNING,
+                outcome="left_for_next_run",
+                source_scope_id=source.source_scope_id,
+                purged_count=purge.purged,
+                failed_count=purge.failed,
             )
         return purge
 
@@ -116,6 +128,12 @@ class MaintenanceActivities:
         request: ReindexInput,
     ) -> ProjectionCleanupResult:
         """Clean the projections a reindex left pending.
+
+        Args:
+            request: The reindex whose tenant, or single document, is cleaned.
+
+        Returns:
+            Counts of cleanup jobs.
 
         Raises:
             ApplicationError: Some cleanup jobs failed.
@@ -127,13 +145,13 @@ class MaintenanceActivities:
             if request.document_id is None:
                 cleanup = await self._runtime.cleanup.run_pending(
                     tenant_id=request.tenant_id,
-                    limit=min(request.limit, 1_000),
+                    limit=min(request.limit, _MAINTENANCE_BATCH_LIMIT),
                 )
             else:
                 cleanup = await self._runtime.cleanup.run_documents(
                     tenant_id=request.tenant_id,
                     document_ids=(request.document_id,),
-                    limit=1_000,
+                    limit=_MAINTENANCE_BATCH_LIMIT,
                 )
             self._telemetry.record_cleanup_backlog(cleanup.failed)
             return self._cleanup_result(cleanup)
@@ -164,6 +182,7 @@ class MaintenanceActivities:
         cleanup: ProjectionCleanupBatch,
         purge: RetiredVersionPurgeBatch | None = None,
     ) -> ProjectionCleanupResult:
+        """Return the cleanup's counts, failing the activity when a cleanup job failed."""
         purge = purge or RetiredVersionPurgeBatch()
         result = ProjectionCleanupResult(
             claimed=cleanup.claimed,
@@ -184,8 +203,14 @@ class MaintenanceActivities:
     ) -> ReindexResult:
         """Run a connector-free reindex under heartbeats.
 
+        Args:
+            request: The reindex job, its tenant, processing profile and scope.
+
+        Returns:
+            The job's status and counts.
+
         Raises:
-            ApplicationError: The reindex failed; retryable per its classification.
+            ApplicationError: The reindex failed, retryable per its classification.
         """
         with self._telemetry.stage(
             IngestionStage.REINDEX,
@@ -210,6 +235,7 @@ class MaintenanceActivities:
         self,
         request: ReindexInput,
     ) -> ReindexResult:
+        """Run the reindex job and return its counts, warning about isolated document failures."""
         job = await self._runtime.reindex.run(
             ReindexRequest(
                 reindex_job_id=request.reindex_job_id,
@@ -231,20 +257,21 @@ class MaintenanceActivities:
             last_error_code=job.last_error_code,
         )
         if result.failure_count:
-            logger.warning(
-                "Connector-free reindex completed with isolated document failures",
-                extra={
-                    "reindex_job_id": result.reindex_job_id,
-                    "scanned_count": result.scanned_count,
-                    "published_count": result.published_count,
-                    "failure_count": result.failure_count,
-                    "last_error_code": result.last_error_code,
-                },
+            log_event(
+                logger,
+                "ingestion.reindex_completed_with_failures",
+                level=logging.WARNING,
+                reindex_job_id=result.reindex_job_id,
+                scanned_count=result.scanned_count,
+                published_count=result.published_count,
+                failure_count=result.failure_count,
+                last_error_code=result.last_error_code,
             )
         return result
 
 
 def _activity_attempt() -> int:
+    """Return the running activity's attempt, or 1 outside an activity."""
     try:
         return activity.info().attempt
     except RuntimeError:

@@ -1,4 +1,8 @@
-"""Client for starting, querying and controlling ingestion workflows in Temporal."""
+"""Client for starting, querying and controlling ingestion workflows in Temporal.
+
+Errors raised to callers name the task and a safe error code, never a failure's text,
+because API responses show them.
+"""
 
 from __future__ import annotations
 
@@ -7,7 +11,6 @@ import logging
 from collections.abc import Awaitable
 from dataclasses import replace
 from datetime import timedelta
-from typing import TypeVar, cast
 from uuid import uuid4
 
 from temporalio.api.common.v1 import WorkflowExecution
@@ -26,6 +29,7 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.service import RPCError, RPCStatusCode
 
 from harborrag_core.ingestion.run_contracts import RunKind
+from harborrag_core.observability.log_events import FailureKind, log_event, log_failure
 from harborrag_runtime.config.temporal import TemporalRuntimeConfig
 from harborrag_runtime.errors import (
     RuntimeConnectionError,
@@ -50,26 +54,27 @@ from .schemas import (
     SourceIngestionStatus,
 )
 
-ResultT = TypeVar("ResultT")
-
 logger = logging.getLogger("harborrag.runtime.temporal.client")
 
 # TODO: drop once temporalio's WorkflowExecutionStatus knows PAUSED (absent through 1.35.0).
 _NATIVE_EXECUTION_STATUSES = {8: "paused"}
+"""Names of the execution status codes the SDK's enum does not know."""
 _PAUSE_SETTLE_SECONDS = 15.0
 """How long a pause waits for the run to take it. The HTTP action then waits up to 10 s
 for the paused state, so a pause request answers before a 30 s proxy timeout.
 """
 _PAUSE_POLL_SECONDS = 0.1
+"""How often a pause queries the run's status while it waits."""
+_UNPAUSE_OPERATION = "unpause"
 
 
 def _resumed(status: SourceIngestionStatus) -> bool:
-    """Whether the run holds no pause and no cancel, as after a resume took a pause back."""
+    """Return whether the run holds no pause and no cancel, as after a resume."""
     return not status.paused and not status.cancel_requested
 
 
 def _failure_message(label: str, code: str) -> str:
-    """Authored text plus the safe error code of a failed workflow run."""
+    """Return authored text plus the safe error code of a failed workflow run."""
     if code.startswith("discoversourceitems_") and code.endswith(
         ("_keyerror", "_connectorconfigurationerror")
     ):
@@ -85,7 +90,12 @@ def _failure_message(label: str, code: str) -> str:
 
 
 class IngestionTemporalClient:
-    """Submit and inspect Postgres-authoritative source ingestion workflows."""
+    """Submit and inspect Postgres-authoritative source ingestion workflows.
+
+    Args:
+        client: Connected Temporal client.
+        config: Task queues, timeouts and connection settings of the runtime.
+    """
 
     def __init__(self, client: Client, config: TemporalRuntimeConfig) -> None:
         self._client = client
@@ -210,7 +220,8 @@ class IngestionTemporalClient:
     async def execution_status(self, task_id: str, kind: RunKind = RunKind.SOURCE) -> str:
         """Return the status of the task's workflow execution.
 
-        The SDK enum lacks statuses newer than itself, e.g. PAUSED (8), and raises.
+        Statuses newer than the SDK's enum, such as PAUSED, are read from the raw
+        describe response, because the SDK raises on them.
         """
         workflow_id = kind.workflow_id(task_id)
         label = f"describe ingestion task {task_id!r}"
@@ -251,9 +262,9 @@ class IngestionTemporalClient:
 
         Returns once the relay applies the pause, or once a resume takes it back. After
         15 s it returns with the pause still pending at the next batch boundary, as during
-        discovery or finalization. The run is not natively paused: Temporal 1.31 never
-        dispatches a workflow task that was scheduled when a native pause landed, so the
-        run would hang.
+        discovery or finalization. The run is not natively paused, because Temporal 1.31
+        never dispatches a workflow task that was scheduled when a native pause landed, so
+        the run would hang.
 
         Args:
             task_id: The source run to pause.
@@ -347,15 +358,14 @@ class IngestionTemporalClient:
             f"harborrag-reindex:{reindex_job_id}",
             result_type=ReindexResult,
         )
-        return cast(
-            ReindexResult,
-            await self._operation(
-                f"read result for reindex job {reindex_job_id!r}",
-                handle.result(),
-            ),
+        result: ReindexResult = await self._operation(
+            f"read result for reindex job {reindex_job_id!r}",
+            handle.result(),
         )
+        return result
 
     async def _signal(self, task_id: str, name: str) -> None:
+        """Send a named signal to the task's source workflow."""
         await self._control(
             task_id,
             f"signal {name} for ingestion task {task_id!r}",
@@ -369,6 +379,7 @@ class IngestionTemporalClient:
         operation: Awaitable[object],
         kind: RunKind = RunKind.SOURCE,
     ) -> None:
+        """Run a control operation, telling a closed run from a missing one."""
         try:
             await self._operation(label, operation)
         except WorkflowNotFoundError:
@@ -380,6 +391,7 @@ class IngestionTemporalClient:
         label: str,
         kind: RunKind = RunKind.SOURCE,
     ) -> WorkflowOperationError:
+        """Return the error for a run that Temporal no longer finds running."""
         try:
             status = await self.execution_status(task_id, kind)
         except WorkflowOperationError:
@@ -420,16 +432,18 @@ class IngestionTemporalClient:
                     f"the task already finished ({status.status})"
                 )
             if seen_pause and _resumed(status):
-                logger.info("Ingestion pause taken back by a resume task_id=%s", task_id)
+                log_event(logger, "temporal.pause_taken_back", task_id=task_id)
                 return
             seen_pause = seen_pause or status.paused
             if loop.time() >= deadline:
                 break
             await asyncio.sleep(_PAUSE_POLL_SECONDS)
         if status.paused and not status.cancel_requested:
-            logger.info(
-                "Ingestion pause accepted; applies at the next batch boundary task_id=%s",
-                task_id,
+            log_event(
+                logger,
+                "temporal.pause_pending",
+                reason="applies_at_next_batch_boundary",
+                task_id=task_id,
             )
             return
         raise WorkflowOperationError(
@@ -445,6 +459,7 @@ class IngestionTemporalClient:
         allow_missing: bool = False,
         best_effort: bool = True,
     ) -> None:
+        """Unpause the workflow natively, leaving one that is not paused as it is."""
         request = UnpauseWorkflowExecutionRequest(
             namespace=self._config.connection.namespace,
             workflow_id=workflow_id,
@@ -453,7 +468,8 @@ class IngestionTemporalClient:
             request_id=request_id or uuid4().hex,
         )
         await self._native_pause_control(
-            f"unpause workflow {workflow_id!r}",
+            _UNPAUSE_OPERATION,
+            workflow_id,
             self._client.workflow_service.unpause_workflow_execution(request),
             allow_missing=allow_missing,
             best_effort=best_effort,
@@ -461,34 +477,58 @@ class IngestionTemporalClient:
 
     @staticmethod
     async def _native_pause_control(
-        label: str,
-        operation: Awaitable[object],
+        operation: str,
+        workflow_id: str,
+        call: Awaitable[object],
         *,
         allow_missing: bool,
         best_effort: bool = True,
     ) -> None:
+        """Await a native pause control call, logging a best-effort failure instead of raising.
+
+        Args:
+            operation: Fixed name of the control, such as ``unpause``.
+            workflow_id: The workflow the control targets.
+            call: The pending workflow-service call.
+            allow_missing: Treat a workflow Temporal does not find as done.
+            best_effort: Log a failure instead of raising it.
+
+        Raises:
+            WorkflowNotFoundError: Not best effort, and the workflow does not exist.
+            WorkflowOperationError: Not best effort, and Temporal rejected the call.
+        """
         try:
-            await operation
+            await call
         except RPCError as error:
             if error.status is RPCStatusCode.FAILED_PRECONDITION:
                 return
             if allow_missing and error.status is RPCStatusCode.NOT_FOUND:
                 return
             if not best_effort:
+                label = f"{operation} workflow {workflow_id!r}"
                 if error.status is RPCStatusCode.NOT_FOUND:
                     raise WorkflowNotFoundError(f"Could not {label}: task not found") from error
                 raise WorkflowOperationError(f"Could not {label}") from error
-            logger.warning("Could not %s (status=%s): %s", label, error.status, error)
+            log_failure(
+                logger,
+                "temporal.workflow_control_failed",
+                error,
+                FailureKind.EXPECTED,
+                operation=operation,
+                workflow_id=workflow_id,
+                rpc_status=error.status.name,
+            )
 
     @staticmethod
     def _workflow_id(task_id: str) -> str:
         return RunKind.SOURCE.workflow_id(task_id)
 
     @staticmethod
-    async def _operation(
+    async def _operation[ResultT](
         label: str,
         operation: Awaitable[ResultT],
     ) -> ResultT:
+        """Await a Temporal call, translating its failures into runtime errors."""
         try:
             return await operation
         except WorkflowFailureError as error:

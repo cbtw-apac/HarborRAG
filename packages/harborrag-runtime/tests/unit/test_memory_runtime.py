@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -22,6 +22,8 @@ from harborrag_runtime.memory import (
 from harborrag_runtime.memory import context_service as context_service_module
 from harborrag_runtime.sdk import HarborRAG, HarborRAGConfig
 
+pytestmark = pytest.mark.unit
+
 _MEMORY_MODEL = """
     memory:
       deployments:
@@ -35,6 +37,10 @@ _MEMORY_MODEL = """
             json_mode: true
             tools: false
 """
+
+
+def _records(caplog: pytest.LogCaptureFixture, event: str) -> list[logging.LogRecord]:
+    return [record for record in caplog.records if record.__dict__.get("event") == event]
 
 
 def _write_catalog(path: Path, *, with_memory_profile: bool) -> Path:
@@ -99,12 +105,16 @@ async def test_memory_chat_model_is_none_for_a_missing_catalog(
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    settings = RuntimeSettings(model_config_path=tmp_path / "absent.yaml")
+    catalog = tmp_path / "absent.yaml"
+    settings = RuntimeSettings(model_config_path=catalog)
 
     with caplog.at_level(logging.WARNING, logger="harborrag.runtime.memory"):
         assert await build_memory_chat_model(settings) is None
 
-    assert "Memory chat model unavailable" in caplog.text
+    (record,) = _records(caplog, "memory.chat_model_unavailable")
+    assert record.levelno == logging.WARNING
+    assert record.__dict__["reason"] == "catalog_unreadable"
+    assert record.__dict__["config_path"] == str(catalog)
 
 
 @pytest.mark.asyncio
@@ -142,7 +152,9 @@ async def test_memory_chat_model_falls_back_to_the_default_profile(
 
     assert model is not None
     assert getattr(model, "logical_model", None) == "primary"
-    assert "falling back to the default logical model=primary" in caplog.text
+    (record,) = _records(caplog, "memory.chat_profile_fallback")
+    assert record.__dict__["profile_id"] == settings.memory_model_profile
+    assert record.__dict__["model_id"] == "primary"
     await close_memory_chat_model(model)
 
 
@@ -156,7 +168,7 @@ async def test_close_memory_chat_model_disposes_the_client(tmp_path: Path) -> No
     async def _aclose() -> None:
         closed.append(True)
 
-    model.client.aclose = _aclose  # type: ignore[method-assign]
+    model.client.aclose = _aclose  # type: ignore[method-assign]  # replaces the real close to observe it
 
     await close_memory_chat_model(model)
     await close_memory_chat_model(None)
@@ -189,7 +201,7 @@ class _RecordedBuilder:
 def _capture_builders(monkeypatch: pytest.MonkeyPatch) -> list[_RecordedBuilder]:
     captured: list[_RecordedBuilder] = []
 
-    def _factory(**kwargs: Any) -> _RecordedBuilder:
+    def _factory(**kwargs: object) -> _RecordedBuilder:
         builder = _RecordedBuilder(built=[], **kwargs)
         captured.append(builder)
         return builder
@@ -206,7 +218,7 @@ async def _no_model(settings: RuntimeSettings) -> None:
 def _service(
     settings: RuntimeSettings,
     *,
-    model_builder: Any = _no_model,
+    model_builder: Callable[[RuntimeSettings], Awaitable[object]] = _no_model,
 ) -> RuntimeMemoryContextService:
     return RuntimeMemoryContextService(
         settings,
@@ -238,8 +250,8 @@ async def test_memory_facade_passes_the_owner_through_and_returns_the_context(
 
     context = await harbor.memory.build_context(
         _request(),
-        messages=store,  # type: ignore[arg-type]
-        memories=memories,  # type: ignore[arg-type]
+        messages=store,  # type: ignore[arg-type]  # a sentinel stands in for the store
+        memories=memories,  # type: ignore[arg-type]  # a sentinel stands in for the store
     )
 
     assert context.summary == "rolling summary"
@@ -267,7 +279,7 @@ async def test_memory_facade_degrades_to_a_window_without_a_model(
     harbor = HarborRAG(HarborRAGConfig())
     harbor._memory_runtime = _service(harbor.config.runtime)
 
-    await harbor.memory.build_context(_request(), messages=object())  # type: ignore[arg-type]
+    await harbor.memory.build_context(_request(), messages=object())  # type: ignore[arg-type]  # a sentinel stands in for the store
 
     assert captured[0].model is None
     assert captured[0].memories is None

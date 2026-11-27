@@ -1,4 +1,4 @@
-"""Reconcile the declared schedule file into the schedule engine."""
+"""Reconciliation of the declared schedule file into the schedule engine."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from functools import partial
 
+from harborrag_core.observability.log_events import log_event
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.scheduling import ScheduleBackend, ScheduleService, load_schedule_catalog
 
@@ -40,7 +41,7 @@ class ScheduleApplicationService:
         """Reconcile config/sources/schedules.yaml into the engine; None without the file."""
         path = self._settings.schedule_config_path
         if not path.is_file():
-            logger.info("No declarative schedule file at %s; skipping schedule sync", path)
+            log_event(logger, "scheduling.schedule_file_missing", config_path=str(path))
             return None
         catalog = load_schedule_catalog(path)
         report = await (await self._service()).sync(catalog)
@@ -52,6 +53,7 @@ class ScheduleApplicationService:
         }
 
     async def _service(self) -> ScheduleService:
+        """Build the schedule service on the current backend."""
         return ScheduleService(
             await self._backend_provider(),
             partial(self._source_input_builder, self._settings),

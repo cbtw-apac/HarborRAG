@@ -1,8 +1,8 @@
-"""Write and resolve the secret fields of connection credentials.
+"""Writes and resolution of the secret fields of connection credentials.
 
-Resolved values never leave the activity that talks to the source. Replaced secrets are
-not deleted here: the caller retires ``SecretWriteResult.retired`` only after the
-connection row commits.
+Resolved values never leave the activity that talks to the source, and logs count
+secret fields without naming them. Replaced secrets are not deleted here: the caller
+retires ``SecretWriteResult.retired`` only after the connection row commits.
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ from typing import Any, Protocol
 
 from harborrag_core.base import utc_now
 from harborrag_core.contracts.errors import HarborConfigurationError, HarborNotFoundError
+from harborrag_core.observability.log_events import FailureKind, log_event, log_failure
 from harborrag_core.ports.secrets import SecretsPort
 from harborrag_core.security.secret_refs import (
     REFERENCE_KEY,
@@ -74,6 +75,13 @@ class StoredSecretResolver:
     async def resolve(self, ref: SecretRef, *, tenant_id: str) -> str:
         """Return the stored value of ``ref`` for ``tenant_id``.
 
+        Args:
+            ref: A ``secret://`` reference.
+            tenant_id: Tenant that owns the stored secret.
+
+        Returns:
+            The plaintext secret.
+
         Raises:
             SecretUnavailableError: The tenant has no such stored secret.
         """
@@ -96,6 +104,13 @@ class EnvironmentSecretResolver:
     async def resolve(self, ref: SecretRef, *, tenant_id: str) -> str:
         """Return the variable ``ref`` names.
 
+        Args:
+            ref: An ``env:NAME`` reference.
+            tenant_id: Unused; environment references are process-wide.
+
+        Returns:
+            The variable's value.
+
         Raises:
             EnvSecretUnavailableError: The variable is unset or empty.
         """
@@ -106,7 +121,11 @@ class EnvironmentSecretResolver:
 
 
 class SecretResolver:
-    """Dispatch each reference to the resolver of its scheme."""
+    """Dispatch each reference to the resolver of its scheme.
+
+    Args:
+        resolvers: One resolver per supported reference scheme.
+    """
 
     def __init__(self, resolvers: Sequence[SchemeResolver]) -> None:
         self._resolvers = {resolver.source: resolver for resolver in resolvers}
@@ -140,7 +159,9 @@ class SecretResolver:
             if resolver is None:
                 raise SecretUnavailableError(f"{stored.ref.source} secrets are not configured")
             values[name] = await resolver.resolve(stored.ref, tenant_id=tenant_id)
-        logger.debug("Resolved connection secrets fields=%s", sorted(values))
+        log_event(
+            logger, "connections.secrets_resolved", level=logging.DEBUG, resolved_count=len(values)
+        )
         return values
 
 
@@ -156,8 +177,8 @@ def default_secret_resolver(
     )
 
 
-def reuses_stored_reference(value: Any, stored: Any) -> bool:
-    """True when ``value`` is a ``{"secret_ref"}`` naming the reference ``stored`` holds.
+def reuses_stored_reference(value: object, stored: object) -> bool:
+    """Return whether ``value`` is a ``{"secret_ref"}`` to the reference in ``stored``.
 
     Such a value keeps the stored secret, exactly like leaving the field out.
     """
@@ -170,9 +191,9 @@ def reuses_stored_reference(value: Any, stored: Any) -> bool:
 
 
 def reference_issue(
-    value: Mapping[str, Any], stored: Any, sources: frozenset[SecretSource]
+    value: Mapping[str, Any], stored: object, sources: frozenset[SecretSource]
 ) -> str | None:
-    """Return why the ``{"secret_ref"}`` ``value`` may not be written, or None when it may.
+    """Return why the ``{"secret_ref"}`` ``value`` may not be written, or None.
 
     A field may keep the reference it already holds. A new reference must parse,
     must not name a stored secret, which only a value creates, and must use a
@@ -216,6 +237,12 @@ class CredentialSecretWriter:
     equal to the stored value keeps it, any other string rotates it, a
     ``{"secret_ref"}`` points it elsewhere and ``None`` clears it. Non-secret
     fields are replaced by what ``incoming`` holds.
+
+    Args:
+        secrets: Store that holds secret values.
+        tenant_id: Tenant whose secrets are written.
+        sources: Reference schemes a ``{"secret_ref"}`` value may use.
+        now: Time stamped on stored secrets; the current time when omitted.
     """
 
     def __init__(
@@ -271,8 +298,8 @@ class CredentialSecretWriter:
             raise ConnectionValidationError(issues)
         return await self._commit(plan, stored_before, secret_fields)
 
-    async def _holds(self, before: Any, value: Any) -> bool:
-        """True when ``value`` is the plaintext the stored secret ``before`` already holds."""
+    async def _holds(self, before: object, value: object) -> bool:
+        """Return whether ``value`` is the plaintext the stored secret ``before`` holds."""
         stored = StoredSecret.from_json(before)
         if not isinstance(value, str) or not value or stored is None or not stored.ref.is_stored:
             return False
@@ -282,7 +309,9 @@ class CredentialSecretWriter:
             return False
         return hmac.compare_digest(current.encode(), value.encode())
 
-    def _classify(self, name: str, value: Any, before: Any, issues: list[FieldIssue]) -> Any:
+    def _classify(
+        self, name: str, value: object, before: object, issues: list[FieldIssue]
+    ) -> object:
         """Validate one incoming secret value and return its planned stored form."""
         if isinstance(value, str):
             return value if value else self._issue(issues, name, "must not be empty")
@@ -335,12 +364,18 @@ class CredentialSecretWriter:
         return SecretWriteResult(credentials, created, retired)
 
     async def _discard(self, refs: list[str]) -> None:
-        """Best-effort delete of refs stored by a write that then failed."""
+        """Delete, best effort, the refs a write stored before it failed."""
         for ref in refs:
             try:
                 await self._secrets.delete(ref, tenant_id=self._tenant_id)
-            except Exception:
-                logger.warning("Discarding an unused connection secret failed")
+            except Exception as error:  # noqa: BLE001 - the failed write is the error to report
+                log_failure(
+                    logger,
+                    "connections.secret_discard_failed",
+                    error,
+                    FailureKind.EXPECTED,
+                    tenant_id=self._tenant_id,
+                )
 
     @staticmethod
     def _issue(issues: list[FieldIssue], name: str, text: str) -> None:

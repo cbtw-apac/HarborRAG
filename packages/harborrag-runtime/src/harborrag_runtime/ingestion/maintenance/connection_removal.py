@@ -1,4 +1,4 @@
-"""Remove one connection's documents from every store.
+"""Removal of one connection's documents from every store.
 
 The connection row and its secrets are left to the caller, which removes them last.
 """
@@ -11,6 +11,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from harborrag_adapters.repositories.database import IngestionControlPlaneDatabase
+from harborrag_core.observability.log_events import log_event
 from harborrag_core.ports import KnowledgeGraphRepositoryPort
 from harborrag_core.storage import StorageOperationContext
 from harborrag_engine.ingestion.maintenance.cleanup import ProjectionCleanupService
@@ -27,7 +28,14 @@ class ConnectionRemovalIncompleteError(RuntimeError):
 
 @dataclass(frozen=True, slots=True)
 class ConnectionRemovalSummary:
-    """What one removal pass did."""
+    """What one removal pass did.
+
+    Attributes:
+        documents_retired: Active documents this pass retired.
+        cleanup_completed: Projection cleanup jobs this pass completed.
+        source_scopes: Source scopes whose graph data this pass deleted.
+        purged: Whether the pass also deleted the connection's records from Postgres.
+    """
 
     documents_retired: int
     cleanup_completed: int
@@ -36,7 +44,13 @@ class ConnectionRemovalSummary:
 
 
 class ConnectionRemovalService:
-    """Retire, clean and optionally purge everything one connection ingested."""
+    """Retire, clean and optionally purge everything one connection ingested.
+
+    Args:
+        control: Control-plane database with the connection's records.
+        cleanup: Projection cleanup that removes retired documents' vectors and graph data.
+        graph: Graph store whose source scopes are deleted.
+    """
 
     def __init__(
         self,
@@ -77,12 +91,13 @@ class ConnectionRemovalService:
             await self._graph.delete_source_scope(scope, context=context)
         if purge:
             await records.purge(tenant_id=tenant_id, connection_id=source_key)
-        logger.info(
-            "Connection removal completed documents=%d cleaned=%d scopes=%d purged=%s",
-            len(document_ids),
-            completed,
-            len(scopes),
-            purge,
+        log_event(
+            logger,
+            "ingestion.connection_removal_completed",
+            documents_count=len(document_ids),
+            cleaned_count=completed,
+            scopes_count=len(scopes),
+            mode="purge" if purge else "retire",
         )
         return ConnectionRemovalSummary(len(document_ids), completed, len(scopes), purge)
 

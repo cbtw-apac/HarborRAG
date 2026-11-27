@@ -1,4 +1,4 @@
-"""Repair graph relations after source publication or reindexing.
+"""Graph relation repair after source publication or reindexing.
 
 A reverse repair re-repairs at most ``_MAX_RESOLVABLE_DECLARERS`` declarers per pass, so
 one run cannot be held hostage by a tenant's whole backlog; the next run picks up where
@@ -23,6 +23,7 @@ from harborrag_core.ingestion import (
     ChangeFingerprintBuilder,
     ProcessingProfile,
 )
+from harborrag_core.observability.log_events import FailureKind, log_event, log_failure
 from harborrag_core.ports import KnowledgeGraphRepositoryPort
 from harborrag_core.ports.artifacts import CanonicalDocumentArtifactPort, ChunkArtifactReaderPort
 from harborrag_core.storage import StorageOperationContext
@@ -57,7 +58,7 @@ class PlannedRelease(Protocol):
 class RelationRepairResult:
     """Counts of one repair pass.
 
-    Args:
+    Attributes:
         repaired_documents: Documents whose source relations were reconciled.
         resolved_relations: Relations that now point at a published target.
         unresolved_relations: Distinct (target, predicate) links still missing a target.
@@ -72,7 +73,7 @@ class RelationRepairResult:
 class _RepairTarget:
     """One document a repair pass reconciles.
 
-    Args:
+    Attributes:
         document_id: Document to repair.
         processing_fingerprint: Fingerprint the active version must carry; ``None`` accepts
             whatever profile it was processed with, because a declarer re-repaired for a new
@@ -87,6 +88,8 @@ class _RepairTarget:
 
 _MAX_RESOLVABLE_DECLARERS = 10_000
 _RESOLVABLE_PAGE = 500
+_MAX_REINDEXED_DOCUMENTS = 100_000
+_DEFAULT_REPAIR_CONCURRENCY = 8
 
 
 class GraphRelationRepairService:
@@ -110,7 +113,7 @@ class GraphRelationRepairService:
         canonical_artifacts: CanonicalDocumentArtifactPort,
         chunk_reader: ChunkArtifactReaderPort,
         graph_store: KnowledgeGraphRepositoryPort,
-        max_concurrency: int = 8,
+        max_concurrency: int = _DEFAULT_REPAIR_CONCURRENCY,
     ) -> None:
         if max_concurrency < 1:
             raise ValueError("relation repair concurrency must be positive")
@@ -178,6 +181,14 @@ class GraphRelationRepairService:
 
         Pages by a cursor rather than "until nothing is left": a declarer whose repair
         still leaves its row (a failed or skipped repair) would otherwise loop forever.
+
+        Args:
+            tenant_id: Tenant whose declarers to repair.
+            graph_projection_version: Graph projection version the repaired edges are built with.
+            limit: Most declarers this pass visits.
+
+        Returns:
+            Counts of what the pass repaired; failed declarers count nothing.
         """
         context = StorageOperationContext.system(tenant_id)
         cursor = ""
@@ -209,12 +220,13 @@ class GraphRelationRepairService:
             visited += len(page)
             cursor = page[-1]
         if failed:
-            logger.warning(
-                "Reverse relation repair skipped failing declarers tenant_id=%s "
-                "failed=%d visited=%d",
-                tenant_id,
-                len(failed),
-                visited,
+            log_event(
+                logger,
+                "ingestion.relation_repair_declarers_skipped",
+                level=logging.WARNING,
+                tenant_id=tenant_id,
+                failed_count=len(failed),
+                visited_count=visited,
             )
         await self._prune_stubs(context)
         return self._result(totals)
@@ -224,14 +236,18 @@ class GraphRelationRepairService:
         try:
             pruned = await self._graph.prune_external_stubs(context=context)
         except Exception as error:  # noqa: BLE001 -- pruning is best-effort housekeeping
-            logger.warning(
-                "External stub pruning failed tenant_id=%s error_type=%s",
-                context.tenant_id,
-                type(error).__name__,
+            log_failure(
+                logger,
+                "ingestion.stub_prune_failed",
+                error,
+                FailureKind.EXPECTED,
+                tenant_id=context.tenant_id,
             )
             return
         if pruned:
-            logger.info("External stubs pruned tenant_id=%s count=%d", context.tenant_id, pruned)
+            log_event(
+                logger, "ingestion.stubs_pruned", tenant_id=context.tenant_id, pruned_count=pruned
+            )
 
     async def repair_reindexed(
         self,
@@ -239,9 +255,19 @@ class GraphRelationRepairService:
         tenant_id: str,
         processing: ProcessingProfile,
         anchor_document_id: str | None,
-        limit: int = 100_000,
+        limit: int = _MAX_REINDEXED_DOCUMENTS,
     ) -> RelationRepairResult:
-        """Restore active source edges after retired target nodes are cleaned."""
+        """Restore active source edges after retired target nodes are cleaned.
+
+        Args:
+            tenant_id: Tenant whose documents to repair.
+            processing: Processing profile the repaired documents' active versions carry.
+            anchor_document_id: Limit the repair to this document's source scopes.
+            limit: Most documents this pass repairs, from 1 to 100000.
+
+        Returns:
+            Counts of what the pass repaired.
+        """
         fingerprint = self._fingerprints.processing_fingerprint(profile=processing)
         document_ids = await self._control.document_versions.active_relation_document_ids(
             tenant_id=tenant_id,
@@ -290,12 +316,13 @@ class GraphRelationRepairService:
             except Exception as error:
                 if failed is None:
                     raise
-                logger.warning(
-                    "Skipping relation repair of a resolvable declarer "
-                    "tenant_id=%s document_id=%s error_type=%s",
-                    context.tenant_id,
-                    target.document_id,
-                    type(error).__name__,
+                log_failure(
+                    logger,
+                    "ingestion.relation_repair_declarer_failed",
+                    error,
+                    FailureKind.EXPECTED,
+                    tenant_id=context.tenant_id,
+                    document_id=target.document_id,
                 )
                 failed.append(target.document_id)
                 return (0, 0, 0)
@@ -330,6 +357,13 @@ class GraphRelationRepairService:
         reverse links and targets that moved after a prior repair, which reconstructing the
         initial guessed endpoints cannot name.
 
+        Args:
+            document_id: Document to repair.
+            expected_processing_fingerprint: Fingerprint the active version must carry;
+                ``None`` accepts any.
+            graph_projection_version: Graph projection version the repaired edges are built with.
+            context: Storage context of the repair's tenant.
+
         Returns:
             Repaired-document, resolved-relation and unresolved-link counts; the last counts
             one per distinct (target, predicate), so a link repeated on the document is still
@@ -360,12 +394,15 @@ class GraphRelationRepairService:
                     context=context,
                 ),
             )
-        except StorageNotFoundError:
-            logger.warning(
-                "Skipping relation repair because active artifacts are unavailable "
-                "document_id=%s document_version_id=%s",
-                document_id,
-                snapshot.document_version_id,
+        except StorageNotFoundError as error:
+            log_failure(
+                logger,
+                "ingestion.relation_repair_skipped",
+                error,
+                FailureKind.EXPECTED,
+                document_id=document_id,
+                document_version_id=str(snapshot.document_version_id),
+                reason="artifacts_unavailable",
             )
             return (0, 0, 0)
         source_ids = tuple(dict.fromkeys(relation.target_id for relation in document.relations))

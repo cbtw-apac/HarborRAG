@@ -25,6 +25,8 @@ from harborrag_runtime.memory import (
 from harborrag_runtime.sdk import HarborRAG
 from harborrag_runtime.sdk.configuration import HarborRAGConfig
 
+pytestmark = pytest.mark.unit
+
 OWNER = MemoryOwner(
     tenant_id="tenant-1",
     project_id="project-1",
@@ -32,6 +34,10 @@ OWNER = MemoryOwner(
     user_id="user-1",
     session_id="session-1",
 )
+
+
+def _records(caplog: pytest.LogCaptureFixture, event: str) -> list[logging.LogRecord]:
+    return [record for record in caplog.records if record.__dict__.get("event") == event]
 
 
 def _memory(memory_id: str, *, importance: float, entity_ids: tuple[str, ...] = ()) -> Memory:
@@ -92,7 +98,7 @@ def _harbor(
     service = RuntimeMemoryContextService(
         harbor.config.runtime,
         model_builder=_no_embedder,
-        embedder_builder=embedder_builder,  # type: ignore[arg-type]
+        embedder_builder=embedder_builder,  # type: ignore[arg-type]  # each test picks its own builder
     )
     if policy is not None:
         service._policy = policy
@@ -124,6 +130,11 @@ def _context(*recalled: Memory) -> MemoryContext:
 
 @pytest.mark.asyncio
 async def test_anchored_recall_re_ranks_without_rewriting_or_summarising_again() -> None:
+    """The anchored memory outranks the more important unanchored one.
+
+    Nothing but recall repeats. The query is reused verbatim and the rolling
+    summary's write flag is carried through untouched.
+    """
     harbor = _harbor()
     memories = _Memories(PLAIN, ANCHORED)
     context = _context(PLAIN, ANCHORED)
@@ -131,15 +142,12 @@ async def test_anchored_recall_re_ranks_without_rewriting_or_summarising_again()
     anchored = await harbor.memory.recall_anchored(
         _request(),
         context,
-        memories=memories,  # type: ignore[arg-type]
+        memories=memories,  # type: ignore[arg-type]  # a fake with the calls recall makes
         anchor_entity_ids=("node-atlas", "node-atlas", " "),
     )
 
-    # The anchored memory outranks the more important unanchored one.
     assert [item.memory_id for item in anchored.recalled] == ["mem-anchored", "mem-plain"]
     assert anchored.anchor_entity_ids == ("node-atlas",)
-    # Nothing but recall repeated: the query is reused verbatim and the rolling
-    # summary's write flag is carried through untouched.
     assert anchored.standalone_query == context.standalone_query
     assert anchored.rewritten is True
     assert anchored.summary_written is True
@@ -156,7 +164,7 @@ async def test_anchored_recall_is_skipped_without_anchors() -> None:
     result = await harbor.memory.recall_anchored(
         _request(),
         context,
-        memories=memories,  # type: ignore[arg-type]
+        memories=memories,  # type: ignore[arg-type]  # a fake with the calls recall makes
     )
 
     assert result is context
@@ -171,7 +179,7 @@ async def test_anchored_recall_is_skipped_when_the_first_recall_found_nothing() 
     result = await harbor.memory.recall_anchored(
         _request(),
         _context(),
-        memories=memories,  # type: ignore[arg-type]
+        memories=memories,  # type: ignore[arg-type]  # a fake with the calls recall makes
         anchor_entity_ids=("node-atlas",),
     )
 
@@ -188,7 +196,7 @@ async def test_anchored_recall_is_skipped_when_recall_is_switched_off() -> None:
     result = await harbor.memory.recall_anchored(
         _request(),
         _context(PLAIN),
-        memories=memories,  # type: ignore[arg-type]
+        memories=memories,  # type: ignore[arg-type]  # a fake with the calls recall makes
         anchor_entity_ids=("node-atlas",),
     )
 
@@ -204,7 +212,7 @@ async def test_anchored_recall_is_skipped_when_the_policy_is_disabled() -> None:
     result = await harbor.memory.recall_anchored(
         _request(),
         _context(PLAIN),
-        memories=memories,  # type: ignore[arg-type]
+        memories=memories,  # type: ignore[arg-type]  # a fake with the calls recall makes
         anchor_entity_ids=("node-atlas",),
     )
 
@@ -217,7 +225,6 @@ async def test_a_broken_store_keeps_the_memories_the_prompt_already_had(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Recall degrades to ``()`` on a store failure, so re-ranking must not adopt it."""
-
     harbor = _harbor()
     context = _context(PLAIN)
     memories = _Memories(PLAIN, failure=RuntimeError("store gone"))
@@ -226,13 +233,16 @@ async def test_a_broken_store_keeps_the_memories_the_prompt_already_had(
         result = await harbor.memory.recall_anchored(
             _request(),
             context,
-            memories=memories,  # type: ignore[arg-type]
+            memories=memories,  # type: ignore[arg-type]  # a fake with the calls recall makes
             anchor_entity_ids=("node-atlas",),
         )
 
     assert result.recalled == (PLAIN,)
     assert result.anchor_entity_ids == ()
-    assert "Anchored memory recall found nothing" in caplog.text
+    (record,) = _records(caplog, "memory.anchored_recall_empty")
+    assert record.levelno == logging.WARNING
+    assert record.__dict__["tenant_id"] == "tenant-1"
+    assert record.__dict__["session_id"] == "session-1"
 
 
 @pytest.mark.asyncio
@@ -250,12 +260,15 @@ async def test_a_raising_collaborator_keeps_the_unanchored_context(
         result = await harbor.memory.recall_anchored(
             _request(),
             context,
-            memories=_Memories(PLAIN),  # type: ignore[arg-type]
+            memories=_Memories(PLAIN),  # type: ignore[arg-type]  # a fake with the calls recall makes
             anchor_entity_ids=("node-atlas",),
         )
 
     assert result is context
-    assert "Anchored memory recall failed" in caplog.text
+    (record,) = _records(caplog, "memory.anchored_recall_failed")
+    assert record.levelno == logging.WARNING
+    assert record.__dict__["error_type"] == "RuntimeError"
+    assert record.__dict__["session_id"] == "session-1"
 
 
 @pytest.mark.asyncio
@@ -263,7 +276,6 @@ async def test_anchored_recall_carries_the_type_hint_the_first_pass_used(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The hint travels on the context, so the re-ranked pass keeps it."""
-
     seen: dict[str, object] = {}
 
     class _Recorder:
@@ -293,7 +305,7 @@ async def test_anchored_recall_carries_the_type_hint_the_first_pass_used(
     result = await harbor.memory.recall_anchored(
         _request(),
         context,
-        memories=_Memories(PLAIN),  # type: ignore[arg-type]
+        memories=_Memories(PLAIN),  # type: ignore[arg-type]  # a fake with the calls recall makes
         anchor_entity_ids=("node-atlas",),
     )
 

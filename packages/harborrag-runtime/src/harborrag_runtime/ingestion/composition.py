@@ -1,7 +1,9 @@
 """Runtime resource ownership and public composition entry point.
 
-``_START_HINTS`` is the fallback fix hint per resource for runtimes built without
-``resource_hints`` (tests, embedders).
+Startup and shutdown logs and errors name a resource by its label and an error by its
+type, never by a driver's text, which can carry credentials. ``_START_HINTS`` is the
+fallback fix hint per resource for runtimes built without ``resource_hints`` (tests,
+embedders).
 """
 
 from __future__ import annotations
@@ -19,6 +21,7 @@ from harborrag_adapters.repositories.database import IngestionControlPlaneDataba
 from harborrag_adapters.repositories.object_store import ARTIFACT_BUCKET, RAW_BUCKET
 from harborrag_core.ingestion import ProcessingProfile
 from harborrag_core.ingestion.run_contracts import RunSettings
+from harborrag_core.observability.log_events import FailureKind, log_event, log_failure
 from harborrag_core.ports import KnowledgeGraphRepositoryPort
 from harborrag_core.ports.storage import ObjectStorePort, VectorRepositoryPort
 from harborrag_engine.ingestion.maintenance.cleanup import ProjectionCleanupService
@@ -64,7 +67,7 @@ _START_HINTS = {
 class IngestionRuntime:
     """Own connected providers and production ingestion application services.
 
-    Args:
+    Attributes:
         connector_pool: Per-run connectors built on first use.
         processing: Processing profile new versions are built with.
         control: Ingestion control-plane database.
@@ -121,7 +124,12 @@ class IngestionRuntime:
     async def start(self) -> None:
         """Connect shared infrastructure only; connectors are built per run on first use."""
         if self._started:
-            logger.debug("Ingestion runtime start skipped reason=already_started")
+            log_event(
+                logger,
+                "ingestion.runtime_start_skipped",
+                level=logging.DEBUG,
+                reason="already_started",
+            )
             return
         connected: list[Callable[[], Awaitable[None]]] = []
         try:
@@ -147,10 +155,12 @@ class IngestionRuntime:
                 await config.start()
                 connected.append(config.aclose)
         except BaseException as error:
-            logger.error(
-                "Ingestion runtime startup failed error_type=%s connected_resources=%d",
-                type(error).__name__,
-                len(connected),
+            log_failure(
+                logger,
+                "ingestion.runtime_start_failed",
+                error,
+                FailureKind.CLASSIFIED,
+                connected_resources_count=len(connected),
             )
             await asyncio.gather(
                 *(close() for close in reversed(connected)),
@@ -160,22 +170,28 @@ class IngestionRuntime:
             )
             raise
         self._started = True
-        logger.info("Ingestion runtime started resources=%d", len(connected))
+        log_event(logger, "ingestion.runtime_started", resources_count=len(connected))
 
     def _unreachable(self, label: str, error: Exception) -> RuntimeConnectionError:
-        """Build a connection error from authored text only, as the driver's text may carry credentials."""
+        """Log an unreachable resource and build its error from authored text only.
+
+        The driver's text may carry credentials, so neither the log nor the error holds it.
+        """
         targets = getattr(self, "resource_targets", None) or {}
         target = targets.get(label) or _FALLBACK_TARGETS[label]
         hints = getattr(self, "resource_hints", None) or {}
         hint = hints.get(label) or _START_HINTS[label]
-        logger.error(
-            "Ingestion runtime resource unreachable resource=%s error_type=%s",
-            label,
-            type(error).__name__,
+        log_failure(
+            logger,
+            "ingestion.runtime_resource_unreachable",
+            error,
+            FailureKind.CLASSIFIED,
+            resource_kind=label,
         )
         return RuntimeConnectionError(f"Could not connect to or initialise {target}; {hint}")
 
     async def _close_config(self) -> None:
+        """Stop the cached configuration provider, when the runtime has one."""
         config = getattr(self, "config", None)
         if config is not None:
             await config.aclose()
@@ -198,7 +214,7 @@ class IngestionRuntime:
                 self.telemetry.close(),
                 self._close_connection_stores(),
             )
-            logger.debug("Ingestion runtime closed from unstarted state")
+            log_event(logger, "ingestion.runtime_closed_unstarted", level=logging.DEBUG)
             return
         outcomes = await asyncio.gather(
             self._close_config(),
@@ -215,14 +231,16 @@ class IngestionRuntime:
         )
         failures = [outcome for outcome in outcomes if isinstance(outcome, BaseException)]
         if failures:
-            logger.error(
-                "Ingestion runtime shutdown failed failures=%d error_types=%s",
-                len(failures),
-                ",".join(sorted({type(error).__name__ for error in failures})),
+            log_event(
+                logger,
+                "ingestion.runtime_close_failed",
+                level=logging.ERROR,
+                failures_count=len(failures),
+                error_type=",".join(sorted({type(error).__name__ for error in failures})),
             )
             raise BaseExceptionGroup("ingestion runtime shutdown failed", failures)
         self._started = False
-        logger.info("Ingestion runtime closed")
+        log_event(logger, "ingestion.runtime_closed")
 
     async def connector(
         self,
@@ -268,7 +286,17 @@ def build_ingestion_runtime(
     chunking_config: ChunkingConfig | None = None,
     chunking_strategies: tuple[ChunkStrategy, ...] = (),
 ) -> IngestionRuntime:
-    """Build an ingestion runtime through the production object-graph builder."""
+    """Build an ingestion runtime through the production object-graph builder.
+
+    Args:
+        settings: Runtime settings; read from the environment when omitted.
+        normalizer_builder: Builder of source document normalizers; the default when omitted.
+        chunking_config: Chunking configuration that replaces the configured one.
+        chunking_strategies: Chunk strategies added to the built-in ones.
+
+    Returns:
+        The unstarted ingestion runtime.
+    """
     from .runtime_builder import build_ingestion_runtime as build
 
     return build(

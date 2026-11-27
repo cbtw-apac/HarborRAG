@@ -1,4 +1,8 @@
-"""Temporal activities for source-level ingestion steps."""
+"""Temporal activities for source-level ingestion steps.
+
+Each activity body runs inside ``ActivityObservability.boundary``, which logs its stage,
+workflow, activity and attempt, so the events here add only the run's own IDs and counts.
+"""
 
 from __future__ import annotations
 
@@ -17,6 +21,7 @@ from temporalio.service import RPCError, RPCStatusCode
 from harborrag_adapters.connectors.base import BaseConnector
 from harborrag_adapters.connectors.harbor_connector import HarborConnector
 from harborrag_core.contracts.errors import HarborConflictError
+from harborrag_core.observability.log_events import log_event
 from harborrag_core.storage import StorageOperationContext
 from harborrag_engine.ingestion.source.models import (
     RelationRepairProgress,
@@ -48,10 +53,20 @@ from .schemas import (
 )
 
 logger = logging.getLogger("harborrag.runtime.temporal.source_activities")
+_CONTROL_IDENTITY = "harborrag-runtime"
+"""Identity Temporal records for the pause controls this worker sends."""
+_PAUSE_CONTROL_SETTLED = frozenset(
+    {RPCStatusCode.FAILED_PRECONDITION, RPCStatusCode.NOT_FOUND, RPCStatusCode.UNIMPLEMENTED}
+)
+"""Statuses meaning the workflow is closed, already in the requested state, or not pausable."""
 
 
 class SourceActivitiesMixin:
-    """Source discovery, cancellation, failure, and finalization boundaries."""
+    """Source discovery, cancellation, failure, and finalization activities.
+
+    The class that mixes this in sets the runtime, the activity observability and the
+    Temporal client.
+    """
 
     _runtime: IngestionRuntime
     _observability: ActivityObservability
@@ -59,10 +74,10 @@ class SourceActivitiesMixin:
 
     @activity.defn(name="harborrag.pause_workflow_execution")
     async def pause_workflow_execution(self, request: WorkflowExecutionControlInput) -> None:
-        """Pause the workflow execution.
+        """Pause the workflow execution natively.
 
-        A batch that already closed (or is already paused) has nothing to pause; retrying would only
-        hold up the source workflow's relay.
+        A batch that already closed, or is already paused, has nothing to pause, and a retry
+        would only hold up the source workflow's relay, so those statuses count as done.
         """
         if self._temporal_client is None:
             raise RuntimeError("Temporal client is required for workflow pause control")
@@ -72,23 +87,19 @@ class SourceActivitiesMixin:
                 PauseWorkflowExecutionRequest(
                     namespace=self._temporal_client.namespace,
                     workflow_id=request.workflow_id,
-                    identity="harborrag-runtime",
+                    identity=_CONTROL_IDENTITY,
                     reason="Source ingestion pause requested",
                     request_id=f"{info.workflow_id}:{info.activity_id}",
                 )
             )
         except RPCError as error:
-            if error.status in {
-                RPCStatusCode.FAILED_PRECONDITION,
-                RPCStatusCode.NOT_FOUND,
-                RPCStatusCode.UNIMPLEMENTED,
-            }:
+            if error.status in _PAUSE_CONTROL_SETTLED:
                 return
             raise
 
     @activity.defn(name="harborrag.unpause_workflow_execution")
     async def unpause_workflow_execution(self, request: WorkflowExecutionControlInput) -> None:
-        """Unpause the workflow execution."""
+        """Unpause the workflow execution natively, treating a settled status as done."""
         if self._temporal_client is None:
             raise RuntimeError("Temporal client is required for workflow pause control")
         info = activity.info()
@@ -97,17 +108,13 @@ class SourceActivitiesMixin:
                 UnpauseWorkflowExecutionRequest(
                     namespace=self._temporal_client.namespace,
                     workflow_id=request.workflow_id,
-                    identity="harborrag-runtime",
+                    identity=_CONTROL_IDENTITY,
                     reason="Source ingestion resume requested",
                     request_id=f"{info.workflow_id}:{info.activity_id}",
                 )
             )
         except RPCError as error:
-            if error.status in {
-                RPCStatusCode.FAILED_PRECONDITION,
-                RPCStatusCode.NOT_FOUND,
-                RPCStatusCode.UNIMPLEMENTED,
-            }:
+            if error.status in _PAUSE_CONTROL_SETTLED:
                 return
             raise
 
@@ -118,12 +125,18 @@ class SourceActivitiesMixin:
     ) -> SourceDiscoveryResult:
         """Discover the source's items and store the plan.
 
-        The plan is its page index, written last: paged discovery already persisted every page, and
-        an unpaged one is paged here. Nothing writes, or holds, the whole plan at once.
+        The plan is its page index, written last. Paged discovery already persisted every page,
+        and an unpaged one is paged here. Nothing writes, or holds, the whole plan at once.
 
         A Temporal cancel closes the run's scan and cancels the run within a second, but this
         attempt hears of it only at its next heartbeat. A walk of a cancelled run that meets its
         closed scan first stops without logging a failure, because nothing can use its result.
+
+        Args:
+            source: The source run to discover.
+
+        Returns:
+            The scan, its stored plan, its document count and its skips by reason.
 
         Raises:
             ApplicationError: Benign and non-retryable when the run was cancelled under the walk.
@@ -134,8 +147,11 @@ class SourceActivitiesMixin:
             except HarborConflictError:
                 if not await self._runtime.sources.is_cancelled(source.task_id):
                     raise
-                logger.info(
-                    "Source discovery stopped; the run was cancelled task_id=%s", source.task_id
+                log_event(
+                    logger,
+                    "ingestion.discovery_stopped",
+                    reason="run_cancelled",
+                    task_id=source.task_id,
                 )
         raise ApplicationError(
             "source discovery stopped because the run was cancelled",
@@ -146,11 +162,13 @@ class SourceActivitiesMixin:
 
     async def _discover_source_items(self, source: SourceIngestionInput) -> SourceDiscoveryResult:
         """Replay the stored plan, or walk the source and store a new one."""
-        logger.info(
-            "Source discovery started task_id=%s tenant=%s connector=%s",
-            source.task_id,
-            source.tenant_id,
-            source.connector_name,
+        log_event(
+            logger,
+            "ingestion.discovery_started",
+            task_id=source.task_id,
+            tenant_id=source.tenant_id,
+            connection_id=source.connector_name,
+            connector_type=source.connector_type,
         )
         request = to_source_request(source)
         context = StorageOperationContext.system(source.tenant_id)
@@ -172,11 +190,12 @@ class SourceActivitiesMixin:
                 replayed.document_count,
                 replayed=True,
             )
-            logger.info(
-                "Source discovery plan replayed task_id=%s scan_id=%s documents=%d",
-                source.task_id,
-                scan_id,
-                replayed.document_count,
+            log_event(
+                logger,
+                "ingestion.discovery_plan_replayed",
+                task_id=source.task_id,
+                scan_id=scan_id,
+                documents_count=replayed.document_count,
             )
             return SourceDiscoveryResult(
                 scan_id=scan_id,
@@ -241,11 +260,12 @@ class SourceActivitiesMixin:
             document_count,
             replayed=False,
         )
-        logger.info(
-            "Source discovery completed task_id=%s scan_id=%s documents=%d",
-            source.task_id,
-            discovery.scan_id,
-            document_count,
+        log_event(
+            logger,
+            "ingestion.discovery_completed",
+            task_id=source.task_id,
+            scan_id=discovery.scan_id,
+            documents_count=document_count,
         )
         return SourceDiscoveryResult(
             scan_id=discovery.scan_id,
@@ -365,15 +385,15 @@ class SourceActivitiesMixin:
                 )
             except RuntimeError:
                 pass
-            logger.info(
-                "Source discovery checkpoint task_id=%s page=%d roots=%d "
-                "documents=%d replayed=%s duration_ms=%.1f",
-                source.task_id,
-                page_number,
-                root_count,
-                document_count,
-                replayed,
-                duration * 1000,
+            log_event(
+                logger,
+                "ingestion.discovery_page_checkpointed",
+                mode="replayed" if replayed else "discovered",
+                task_id=source.task_id,
+                page_count=page_number,
+                root_count=root_count,
+                documents_count=document_count,
+                duration_ms=round(duration * 1000, 1),
             )
             if next_cursor is None:
                 return SourceDiscoveryRun(
@@ -419,7 +439,7 @@ class SourceActivitiesMixin:
         """Finalize the source ingestion.
 
         Relation repair and removal reconciliation scale with the source, so a large one runs well
-        past any single fixed budget; the heartbeat is what tells a slow finalization from a dead
+        past any single fixed budget. The heartbeat is what tells a slow finalization from a dead
         worker. It carries repair progress, so a retry resumes where this one stopped.
         """
         with self._observability.boundary("FinalizeSourceIngestion"):
@@ -443,16 +463,16 @@ class SourceActivitiesMixin:
                 ),
                 detail=progress,
             )
-            logger.info(
-                "Source ingestion finalized task_id=%s status=%s discovered=%d "
-                "published=%d unchanged=%d failed=%d removals=%d",
-                outcome.task_id,
-                outcome.status.value,
-                outcome.discovered,
-                outcome.published,
-                outcome.unchanged,
-                outcome.failed,
-                len(outcome.removal_candidates),
+            log_event(
+                logger,
+                "ingestion.source_finalized",
+                status=outcome.status.value,
+                task_id=outcome.task_id,
+                discovered_count=outcome.discovered,
+                published_count=outcome.published,
+                unchanged_count=outcome.unchanged,
+                failed_count=outcome.failed,
+                removals_count=len(outcome.removal_candidates),
             )
             return SourceIngestionResult(
                 task_id=outcome.task_id,

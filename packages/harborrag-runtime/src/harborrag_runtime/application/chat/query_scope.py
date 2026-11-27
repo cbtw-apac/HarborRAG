@@ -16,6 +16,7 @@ from harborrag_core.models.chat import (
     HarborChatRequest,
     HarborChatResponse,
 )
+from harborrag_core.observability.log_events import FailureKind, log_failure
 from harborrag_core.ports.conversation import ConversationIdentity
 from harborrag_core.ports.usage import ModelUsageRecord
 from harborrag_memory.access import MemoryAccess
@@ -24,6 +25,13 @@ from harborrag_runtime.chat import ChatPrompt
 from .preparation import ChatTurnResources
 
 logger = logging.getLogger("harborrag.runtime.application.chat.query_scope")
+
+SCOPE_HISTORY_EXCHANGES = 3
+"""Exchanges of the session the scope check sees."""
+SCOPE_HISTORY_MAX_CHARS = 4000
+"""Characters kept of each side of an exchange the scope check sees."""
+SCOPE_CHECK_MAX_TOKENS = 512
+"""Output tokens the scope check may use, enough for a reasoning model to decide."""
 
 
 class ScopeDecision(BaseModel):
@@ -44,14 +52,19 @@ type ScopeHistory = list[dict[str, str]]
 
 @dataclass(frozen=True, slots=True)
 class ScopeCheck:
-    """The scope check's model call, and the refusal to answer with when out of scope."""
+    """The scope check's model call, and the refusal to answer with when out of scope.
+
+    Attributes:
+        response: The scope check's model call.
+        refusal: The text to answer with; None when the request is in scope.
+    """
 
     response: HarborChatResponse
     refusal: str | None = None
 
 
 async def scope_history(resources: ChatTurnResources, access: MemoryAccess) -> ScopeHistory:
-    """Return the session's last three exchanges for the scope check; none for a one-off."""
+    """Return the session's last exchanges for the scope check; none for a one-off."""
     if access.session_id is None:
         return []
     turns = await resources.memory.recent(
@@ -61,10 +74,13 @@ async def scope_history(resources: ChatTurnResources, access: MemoryAccess) -> S
             session_id=access.session_id,
             user_id=access.user_id,
         ),
-        limit=3,
+        limit=SCOPE_HISTORY_EXCHANGES,
     )
     return [
-        {"user": turn.user_content[:4000], "assistant": turn.assistant_content[:4000]}
+        {
+            "user": turn.user_content[:SCOPE_HISTORY_MAX_CHARS],
+            "assistant": turn.assistant_content[:SCOPE_HISTORY_MAX_CHARS],
+        }
         for turn in turns
     ]
 
@@ -81,9 +97,9 @@ async def check_query_scope(  # noqa: PLR0913 - the check's inputs, then the cal
     """Ask the model whether a request is about indexed knowledge or the conversation.
 
     Makes the model call and nothing else that can fail before it, so a caller can treat
-    the call as started once this is awaited. The call asks for at most 512 tokens, because
-    reasoning models can consume a smaller output budget before producing even a one-field
-    decision. Admission is a real model call even when rejected, so its usage is recorded
+    the call as started once this is awaited. The call asks for at most
+    ``SCOPE_CHECK_MAX_TOKENS``, because reasoning models can consume a smaller output budget
+    before producing even a one-field decision. Admission is a real model call even when rejected, so its usage is recorded
     separately; the completion's cost scope remains answer generation, not admission.
 
     Args:
@@ -106,7 +122,7 @@ async def check_query_scope(  # noqa: PLR0913 - the check's inputs, then the cal
                 HarborChatMessage.user(json.dumps({"query": query, "recent_history": history})),
             ),
             logical_model=model,
-            max_tokens=512,
+            max_tokens=SCOPE_CHECK_MAX_TOKENS,
             sensitive=True,
             metadata=HarborChatMetadata(
                 trace_id=trace_id,
@@ -135,8 +151,14 @@ async def check_query_scope(  # noqa: PLR0913 - the check's inputs, then the cal
                     finish_reason="query_scope_gate",
                 )
             )
-        except Exception:  # noqa: BLE001 - accounting cannot override admission
-            logger.warning("Could not record query-scope usage for tenant=%s", access.tenant_id)
+        except Exception as error:  # noqa: BLE001 - accounting cannot override admission
+            log_failure(
+                logger,
+                "chat.query_scope_usage_not_recorded",
+                error,
+                FailureKind.EXPECTED,
+                tenant_id=access.tenant_id,
+            )
     try:
         decision = ScopeDecision.model_validate_json(response.text)
     except ValidationError:

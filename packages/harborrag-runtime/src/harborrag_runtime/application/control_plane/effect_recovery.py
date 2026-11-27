@@ -12,7 +12,7 @@ its original id, so it can't double-write.
 from __future__ import annotations
 
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from datetime import datetime
 from typing import Any
 from uuid import uuid4
@@ -20,6 +20,11 @@ from uuid import uuid4
 from harborrag_core.domain.activity import ActivityEntry
 from harborrag_core.domain.pending_effect import PendingControlPlaneEffect
 from harborrag_core.invariants import HarborInvariantError
+from harborrag_core.observability.log_events import (
+    FailureKind,
+    log_event,
+    log_failure,
+)
 from harborrag_runtime.composition import ControlPlaneRepositories
 
 logger = logging.getLogger("harborrag.runtime.application.control_plane.effect_recovery")
@@ -27,6 +32,12 @@ logger = logging.getLogger("harborrag.runtime.application.control_plane.effect_r
 _RETIRE_SECRET_KIND = "retire_secret"
 _RETIRE_WHEN_IDLE_KIND = "retire_secret_when_idle"
 _LOG_ACTIVITY_KIND = "log_activity"
+_PAYLOAD_ID_FIELDS = {
+    "tenant_id": "tenant_id",
+    "source_key": "connection_id",
+    "id": "activity_entry_id",
+}
+"""Payload keys that hold IDs, and the log field each is written as; refs never are."""
 
 type ConnectionBusy = Callable[[str, str], Awaitable[bool]]
 LEGACY_SECRET_TENANT_ID = "DEFAULT"
@@ -61,8 +72,14 @@ async def retire_refs(
     for ref in refs:
         try:
             await control_plane.secrets.delete(ref, tenant_id=tenant_id)
-        except Exception:
-            logger.exception("secret retirement failed ref=%r; queued for retry", ref)
+        except Exception as error:  # noqa: BLE001 - a stale ref is retried later
+            log_failure(
+                logger,
+                "control_plane.secret_retirement_failed",
+                error,
+                FailureKind.UNEXPECTED,
+                tenant_id=tenant_id,
+            )
             await _queue_effect(
                 control_plane,
                 _RETIRE_SECRET_KIND,
@@ -74,8 +91,15 @@ async def log_activity(control_plane: ControlPlaneRepositories, entry: ActivityE
     """Append one audit row; a failed append is queued for retry, never raised."""
     try:
         await control_plane.activity.append(entry)
-    except Exception:
-        logger.exception("activity logging failed entry_id=%r; queued for retry", entry.id)
+    except Exception as error:  # noqa: BLE001 - the audit row is queued for retry
+        log_failure(
+            logger,
+            "control_plane.activity_log_failed",
+            error,
+            FailureKind.UNEXPECTED,
+            activity_entry_id=entry.id,
+            tenant_id=entry.tenant_id,
+        )
         await _queue_effect(control_plane, _LOG_ACTIVITY_KIND, _activity_payload(entry))
 
 
@@ -118,20 +142,26 @@ async def recover_pending_control_plane_effects(
                 continue
             if erasure_handler is None or not await erasure_handler(effect):
                 await _replay_effect(control_plane, effect)
-        except Exception:
-            logger.exception(
-                "control-plane pending effect retry failed id=%s kind=%s",
-                effect.id,
-                effect.kind,
+        except Exception as error:  # noqa: BLE001 - one bad effect must not stop the drain
+            log_failure(
+                logger,
+                "control_plane.pending_effect_retry_failed",
+                error,
+                FailureKind.UNEXPECTED,
+                effect_id=effect.id,
+                effect_kind=effect.kind,
             )
             continue
         try:
             await control_plane.pending_effects.complete(effect.id)
-        except Exception:
-            logger.exception(
-                "control-plane pending effect complete failed id=%s kind=%s; will retry",
-                effect.id,
-                effect.kind,
+        except Exception as error:  # noqa: BLE001 - the effect is retried next drain
+            log_failure(
+                logger,
+                "control_plane.pending_effect_complete_failed",
+                error,
+                FailureKind.UNEXPECTED,
+                effect_id=effect.id,
+                effect_kind=effect.kind,
             )
             continue
         recovered += 1
@@ -146,19 +176,31 @@ async def _queue_effect(
     Both call sites here run after the primary write they depend on already
     committed, so there is no error left to surface to the caller -- a
     failure enqueuing the retry itself just means this side effect is lost
-    until someone notices the log line.
+    until someone notices the log line. That line names the effect's kind and IDs,
+    never its payload, which holds secret references.
     """
     try:
         await control_plane.pending_effects.enqueue(
             PendingControlPlaneEffect(id=f"eff_{uuid4().hex}", kind=kind, payload=payload)
         )
-    except Exception:
-        logger.critical(
-            "control-plane pending effect enqueue failed kind=%s payload=%r; effect lost",
-            kind,
-            payload,
-            exc_info=True,
+    except Exception as error:  # noqa: BLE001 - logged as lost; the caller's change stands
+        log_event(
+            logger,
+            "control_plane.pending_effect_lost",
+            level=logging.CRITICAL,
+            hint=(
+                "This effect is not queued for retry; retire the secret or restore the "
+                "audit entry by hand."
+            ),
+            effect_kind=kind,
+            **_payload_ids(payload),
+            error=error,
         )
+
+
+def _payload_ids(payload: Mapping[str, object]) -> dict[str, object]:
+    """Return the IDs a queued effect's payload holds, keyed by their log field names."""
+    return {field: payload[key] for key, field in _PAYLOAD_ID_FIELDS.items() if key in payload}
 
 
 async def _still_in_use(
@@ -184,6 +226,10 @@ async def _replay_effect(
     the secret under ``LEGACY_SECRET_TENANT_ID``; it is retired there rather than dropped,
     which would orphan the ciphertext.
 
+    Args:
+        control_plane: The repositories the effect writes to.
+        effect: The queued effect to perform.
+
     Raises:
         HarborInvariantError: The effect kind is unknown.
     """
@@ -195,10 +241,12 @@ async def _replay_effect(
     if effect.kind == _RETIRE_SECRET_KIND:
         tenant_id = effect.payload.get("tenant_id")
         if not isinstance(tenant_id, str) or not tenant_id:
-            logger.warning(
-                "pending secret retirement carries no tenant; retiring under %s ref=%r",
-                LEGACY_SECRET_TENANT_ID,
-                effect.payload.get("ref"),
+            log_event(
+                logger,
+                "control_plane.secret_retirement_without_tenant",
+                level=logging.WARNING,
+                effect_id=effect.id,
+                tenant_id=LEGACY_SECRET_TENANT_ID,
             )
             tenant_id = LEGACY_SECRET_TENANT_ID
         await control_plane.secrets.delete(str(effect.payload["ref"]), tenant_id=tenant_id)

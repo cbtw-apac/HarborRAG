@@ -1,8 +1,15 @@
+"""Loading of the versioned connector catalog, ``config/sources/connectors.yaml``.
+
+Loading never resolves secrets or builds clients; logs name the catalog file and
+counts, never settings.
+"""
+
 from __future__ import annotations
 
 import logging
 from pathlib import Path
 
+from harborrag_core.observability.log_events import log_event
 from harborrag_runtime.config.connectors.parsing import parse_connector_definitions
 from harborrag_runtime.config.connectors.schemas import ConnectorCatalog
 from harborrag_runtime.config.errors import ConnectorConfigurationError
@@ -27,13 +34,16 @@ def load_connector_catalog(path: str | Path) -> ConnectorCatalog:
     constructing clients. Provider dataclass validation runs later when a
     definition is built, allowing disabled definitions to omit live secrets.
 
+    An invalid individual connector definition does not fail this call; its
+    error is attached to the returned catalog under ``ConnectorCatalog.errors``
+    and only raised when that connector is looked up or built by name.
+
     Args:
         path: Connector YAML file. Relative paths resolve from the current
             process directory.
 
-    An invalid individual connector definition does not fail this call; its
-    error is attached to the returned catalog under ``ConnectorCatalog.errors``
-    and only raised when that connector is looked up or built by name.
+    Returns:
+        The catalog of valid definitions, with the invalid ones' errors.
 
     Raises:
         ConnectorConfigurationError: If the file or root-level schema is
@@ -77,19 +87,24 @@ def load_connector_catalog(path: str | Path) -> ConnectorCatalog:
         version=version,
         errors=errors,
     )
-    logger.info(
-        "Connector catalog loaded path=%s version=%d definitions=%d enabled=%d",
-        source_path,
-        version,
-        len(catalog.connectors),
-        len(catalog.names(enabled_only=True)),
+    log_event(
+        logger,
+        "config.connector_catalog_loaded",
+        config_path=str(source_path),
+        schema_version_id=version,
+        definitions_count=len(catalog.connectors),
+        enabled_count=len(catalog.names(enabled_only=True)),
     )
     if errors:
-        logger.warning(
-            "Connector catalog path=%s has %d invalid definition(s) that will "
-            "only raise when looked up or built: %s",
-            source_path,
-            len(errors),
-            ", ".join(sorted(errors)),
+        log_event(
+            logger,
+            "config.connector_definitions_invalid",
+            level=logging.WARNING,
+            hint=(
+                "Each invalid connector raises its error only when it is looked up or "
+                "built; fix or remove it in the connector catalog."
+            ),
+            config_path=str(source_path),
+            invalid_count=len(errors),
         )
     return catalog

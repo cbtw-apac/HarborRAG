@@ -9,10 +9,19 @@ someone edited the file by hand.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
-from harborrag_runtime.config import connector_fingerprint, load_connector_catalog
+import pytest
+
+from harborrag_runtime.config import (
+    ConnectorCatalog,
+    connector_fingerprint,
+    load_connector_catalog,
+)
 
 from .conftest import write_config
+
+pytestmark = pytest.mark.unit
 
 _ALPHA1_CONFLUENCE = """
 version: 1
@@ -32,7 +41,9 @@ connectors:
 """
 
 
-def test_an_alpha1_max_child_pages_setting_is_ignored_with_a_warning(tmp_path, caplog) -> None:
+def test_an_alpha1_max_child_pages_setting_is_ignored_with_a_warning(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     path = write_config(tmp_path, _ALPHA1_CONFLUENCE)
 
     with caplog.at_level(logging.WARNING, logger="harborrag.runtime.config.connectors"):
@@ -40,14 +51,19 @@ def test_an_alpha1_max_child_pages_setting_is_ignored_with_a_warning(tmp_path, c
         definition = catalog.get("confluence-main")
 
     assert "max_child_pages" not in definition.settings
-    warnings = [record for record in caplog.records if record.levelno == logging.WARNING]
-    assert any(
-        "confluence-main" in record.getMessage() and "max_child_pages" in record.getMessage()
-        for record in warnings
-    )
+    (warning,) = [
+        record
+        for record in caplog.records
+        if record.__dict__.get("event") == "config.connector_setting_deprecated"
+    ]
+    assert warning.levelno == logging.WARNING
+    assert warning.__dict__["connector_id"] == "confluence-main"
+    assert warning.__dict__["connector_type"] == "confluence"
+    assert "max_child_pages" in warning.getMessage()
+    assert "dropped_fields" not in warning.__dict__
 
 
-def test_ignoring_it_fingerprints_like_the_edited_file(tmp_path) -> None:
+def test_ignoring_it_fingerprints_like_the_edited_file(tmp_path: Path) -> None:
     (tmp_path / "legacy").mkdir()
     (tmp_path / "edited").mkdir()
     legacy = load_connector_catalog(write_config(tmp_path / "legacy", _ALPHA1_CONFLUENCE))
@@ -58,7 +74,7 @@ def test_ignoring_it_fingerprints_like_the_edited_file(tmp_path) -> None:
         )
     )
 
-    def fingerprint(catalog) -> str:  # type: ignore[no-untyped-def]
+    def fingerprint(catalog: ConnectorCatalog) -> str:
         return connector_fingerprint(
             catalog_version=1,
             definition=catalog.get("confluence-main"),
@@ -71,7 +87,7 @@ def test_ignoring_it_fingerprints_like_the_edited_file(tmp_path) -> None:
     assert fingerprint(legacy) == fingerprint(edited)
 
 
-def test_an_environment_mapped_max_child_pages_is_ignored_too(tmp_path) -> None:
+def test_an_environment_mapped_max_child_pages_is_ignored_too(tmp_path: Path) -> None:
     content = _ALPHA1_CONFLUENCE.replace("      max_child_pages: 1\n", "").replace(
         "      space_key: CONFLUENCE_SPACE_KEY\n",
         "      space_key: CONFLUENCE_SPACE_KEY\n      max_child_pages: CONFLUENCE_MAX_CHILD_PAGES\n",

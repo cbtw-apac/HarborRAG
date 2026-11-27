@@ -84,7 +84,7 @@ class FakeFeed:
 
 
 def _provider(store: FakeSettingsStore, **kwargs: object) -> CachedConfigProvider:
-    return CachedConfigProvider(store, SettingsRegistry.default(), **kwargs)  # type: ignore[arg-type]
+    return CachedConfigProvider(store, SettingsRegistry.default(), **kwargs)  # type: ignore[arg-type]  # each test passes only valid options
 
 
 async def _top_k(provider: CachedConfigProvider, tenant_id: str) -> object:
@@ -192,7 +192,16 @@ async def test_stale_snapshot_served_when_reload_fails(caplog: pytest.LogCapture
     with caplog.at_level(logging.WARNING):
         assert await _top_k(provider, "acme") == 5
 
-    assert "settings_cache_stale tenant_id=acme" in caplog.text
+    (record,) = [
+        record
+        for record in caplog.records
+        if record.__dict__.get("event") == "config.settings_cache_stale"
+    ]
+    assert record.levelno == logging.WARNING
+    assert record.__dict__["tenant_id"] == "acme"
+    assert record.__dict__["error_type"] == "ConnectionError"
+    assert "store down" not in record.getMessage()
+    assert "dropped_fields" not in record.__dict__
 
 
 @pytest.mark.asyncio

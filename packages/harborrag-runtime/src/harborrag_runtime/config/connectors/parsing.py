@@ -1,12 +1,17 @@
-"""Validate declarative connector configuration and produce typed definitions."""
+"""Validation of declarative connector configuration into typed definitions.
+
+Each connector parses on its own, so one invalid entry never hides the others.
+Warnings name the connector and the setting, never a setting's value.
+"""
 
 from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, LiteralString
 
+from harborrag_core.observability.log_events import log_event
 from harborrag_runtime.config.connectors.models import source_types
 from harborrag_runtime.config.connectors.providers import (
     PYTHON_ONLY_CONFIG_FIELDS,
@@ -26,18 +31,20 @@ from harborrag_runtime.config.loading import (
 logger = logging.getLogger("harborrag.runtime.config.connectors")
 
 _CONNECTOR_KEYS = frozenset({"enabled", "environment", "provider", "secrets", "settings"})
-# Settings a release removed but still accepts, ignored with a WARNING, so a
-# config file written for the previous release keeps loading for one more
-# release instead of turning that connector into an invalid definition.
-# provider -> {setting: what the operator should know}
-_DEPRECATED_SETTINGS: Mapping[str, Mapping[str, str]] = {
+_DEPRECATED_SETTINGS: Mapping[str, Mapping[str, LiteralString]] = {
     "confluence": {
         "max_child_pages": (
-            "it was removed after 2.0.0a1 and has no effect: every listed content_ids "
-            "page is now ingested with its whole subtree of descendant pages"
+            "Delete max_child_pages from the connector configuration, which a later release "
+            "will reject: it was removed after 2.0.0a1 and has no effect, because every "
+            "listed content_ids page is now ingested with its whole subtree."
         ),
     },
 }
+"""Settings a release removed but still accepts, per provider, with the operator's hint.
+
+Each is dropped with a WARNING, so a config file written for the previous release keeps
+loading for one more release instead of turning that connector into an invalid definition.
+"""
 
 
 def parse_connector_definitions(
@@ -193,19 +200,18 @@ def _drop_deprecated_settings(
     setting_environment: dict[str, str],
 ) -> None:
     """Remove removed-but-tolerated settings in place, with a WARNING each."""
-    for setting, consequence in _DEPRECATED_SETTINGS.get(provider, {}).items():
+    for setting, hint in _DEPRECATED_SETTINGS.get(provider, {}).items():
         found = setting in settings or setting in setting_environment
         settings.pop(setting, None)
         setting_environment.pop(setting, None)
         if found:
-            logger.warning(
-                "Connector %r sets the deprecated %s setting %r, which is ignored; %s. "
-                "Delete it from the connector configuration; a later release will "
-                "reject it.",
-                name,
-                provider,
-                setting,
-                consequence,
+            log_event(
+                logger,
+                "config.connector_setting_deprecated",
+                level=logging.WARNING,
+                hint=hint,
+                connector_id=name,
+                connector_type=provider,
             )
 
 

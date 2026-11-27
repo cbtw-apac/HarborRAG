@@ -281,8 +281,9 @@ defaults, and `harborrag settings export` writes the stored overrides in the see
 file's shape.
 
 Later starts do not re-apply the file. When it differs from the stored values, the API
-logs one warning, `config_yaml_drift path=<path> keys=<k1,k2,...>`, and the stored
-values stay. Change settings through the API or `harborrag settings import`.
+logs one warning, `control_plane.settings_file_drift config_path=<path> keys_count=<n>`,
+and the stored values stay. To see which keys differ, run
+`harborrag settings import <file>`; add `--apply` to store the file's values.
 
 The seed file, `import` and `export` share one shape. Keys may be dotted or nested.
 Every top-level entry other than `version`, `projects` and `connections` is tenant
@@ -336,5 +337,5 @@ notification. A change reaches every process within 10 seconds.
 Each process caches settings. The first load of a tenant must succeed; if Postgres is
 down then, the call fails with an unavailable error instead of serving defaults. If a
 later reload fails, the process keeps serving the last snapshot and logs
-`settings_cache_stale tenant_id=<id>`. `/readyz` reports `postgres: fail` while the
-database is down, and the cache reloads after it returns.
+`config.settings_cache_stale error_type=<type> tenant_id=<id>`. `/readyz` reports
+`postgres: fail` while the database is down, and the cache reloads after it returns.

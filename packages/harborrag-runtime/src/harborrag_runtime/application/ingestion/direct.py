@@ -12,6 +12,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import asdict
 from uuid import uuid4
 
+from harborrag_core.observability.log_events import log_context, log_event
 from harborrag_core.schemas.ids import TenantId
 from harborrag_core.security import AccessContext
 from harborrag_runtime.sdk import HarborRAG, IngestionRequest
@@ -75,9 +76,10 @@ class DirectIngestionOperations:
             )
             result = await self._runtime_sdk().ingestion.run(request)
         except Exception as exc:  # noqa: BLE001 - stable error envelope
-            return failure_response(logger, exc, "run ingestion %r", run_id)
-        logger.info("Direct ingestion run %r finished with status %r", run_id, result.status)
-        return AppResponse(True, {"result": asdict(result)})
+            with log_context(task_id=run_id):
+                return failure_response(logger, exc, "run ingestion")
+        log_event(logger, "ingestion.direct_run_finished", task_id=run_id, status=result.status)
+        return AppResponse(ok=True, data={"result": asdict(result)})
 
 
 class DirectIngestionClientMixin:

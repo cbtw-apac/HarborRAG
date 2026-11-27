@@ -117,13 +117,13 @@ def test_select_app_service_missing_parser_catalog_is_logged(
     with caplog.at_level(logging.WARNING, logger=_SELECTION_LOGGER):
         select_app_service()
 
-    warnings = [
-        record.getMessage()
+    (warning,) = [
+        record
         for record in caplog.records
         if record.name == _SELECTION_LOGGER and record.levelno == logging.WARNING
     ]
-    assert len(warnings) == 1
-    assert str(missing_catalog) in warnings[0]
+    assert warning.__dict__["event"] == "composition.parser_catalog_missing"
+    assert warning.__dict__["config_path"] == str(missing_catalog)
 
 
 @pytest.mark.blackbox

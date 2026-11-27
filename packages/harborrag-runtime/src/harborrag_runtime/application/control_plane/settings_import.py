@@ -11,7 +11,7 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Literal, get_args
 
 from harborrag_core.config_store import SettingsLevel, SettingsRegistry, SettingsSnapshot
 from harborrag_core.config_store.documents import (
@@ -21,11 +21,13 @@ from harborrag_core.config_store.documents import (
     export_document,
     plan_import,
 )
+from harborrag_core.config_store.levels import LevelKind
 from harborrag_core.contracts.errors import (
     HarborPreconditionFailedError,
     HarborUnavailableError,
     HarborValidationError,
 )
+from harborrag_core.observability.log_events import FailureKind, log_event, log_failure
 from harborrag_core.ports.config_store import SettingsStore
 from harborrag_runtime.composition import ControlPlaneRepositories
 from harborrag_runtime.config.settings_document import (
@@ -40,13 +42,14 @@ logger = logging.getLogger("harborrag.runtime.application.control_plane.settings
 
 SeedOutcome = Literal["seeded", "drift", "in_sync", "no_file", "invalid", "raced"]
 SEED_ACTOR = "system"
+SEED_INVALID_EVENT = "control_plane.settings_seed_invalid"
 
 
 @dataclass(frozen=True, slots=True)
 class SettingsExport:
     """An exported settings document and the levels left out of it.
 
-    Args:
+    Attributes:
         document: Stored overrides of the levels that still exist.
         left_out: Project and connection levels whose project or connection is gone.
     """
@@ -71,6 +74,12 @@ class SettingsImporter:
 
     async def snapshot(self, *, tenant_id: str) -> SettingsSnapshot:
         """Return the tenant's stored overrides.
+
+        Args:
+            tenant_id: Tenant to read.
+
+        Returns:
+            The tenant's overrides at its current revision.
 
         Raises:
             HarborUnavailableError: The settings store is not configured.
@@ -174,6 +183,7 @@ class SettingsImporter:
         return drift_keys(self._registry, snapshot, document)
 
     def _store(self) -> SettingsStore:
+        """Return the settings store, or raise ``HarborUnavailableError`` without one."""
         store = self._control_plane().config_store
         if store is None:
             raise HarborUnavailableError("settings store is not configured")
@@ -203,37 +213,68 @@ async def seed_settings_once(
             return _report_drift(importer, snapshot, document, path)
         plan = await importer.plan(tenant_id=tenant_id, document=document, prune=False)
         if plan.skipped:
-            logger.warning(
-                "settings_seed_skipped path=%s keys=%s",
-                path,
-                ",".join(sorted({item.key for item in plan.skipped})),
+            log_event(
+                logger,
+                "control_plane.settings_seed_skipped",
+                level=logging.WARNING,
+                config_path=str(path),
+                keys_count=len({item.key for item in plan.skipped}),
+                skip_reason=",".join(sorted({item.reason for item in plan.skipped})),
+                hint="Run harborrag settings import on the file to list the skipped keys.",
             )
         if await importer.apply(plan, source="seed", created_by=SEED_ACTOR) is None:
             return "in_sync"
     except SettingsDocumentError as error:
-        logger.error("settings_seed_invalid %s", error)  # noqa: TRY400 - the message names path and key
+        log_failure(
+            logger,
+            SEED_INVALID_EVENT,
+            error,
+            FailureKind.CLASSIFIED,
+            config_path=str(path),
+            settings_level_kind=_level_kind(error.level),
+        )
         return "invalid"
     except HarborValidationError as error:
-        logger.error(  # noqa: TRY400 - the message names path and key
-            "settings_seed_invalid path=%s key=%s level=%s: %s",
-            path,
-            error.details.get("field"),
-            error.details.get("level"),
+        log_failure(
+            logger,
+            SEED_INVALID_EVENT,
             error,
+            FailureKind.CLASSIFIED,
+            config_path=str(path),
+            settings_level_kind=_level_kind(error.details.get("level")),
         )
         return "invalid"
     except HarborPreconditionFailedError:
-        logger.info("settings_seed_raced path=%s: another process seeded first", path)
+        log_event(logger, "control_plane.settings_seed_raced", config_path=str(path))
         return "raced"
-    logger.info("settings_seeded path=%s tenant_id=%s", path, tenant_id)
+    log_event(logger, "control_plane.settings_seeded", config_path=str(path), tenant_id=tenant_id)
     return "seeded"
 
 
 def _report_drift(
     importer: SettingsImporter, snapshot: SettingsSnapshot, document: SettingsDocument, path: Path
 ) -> SeedOutcome:
+    """Warn when the file and the stored overrides differ; the stored ones stay in force."""
     keys = importer.drift(snapshot, document)
     if not keys:
         return "in_sync"
-    logger.warning("config_yaml_drift path=%s keys=%s", path, ",".join(keys))
+    log_event(
+        logger,
+        "control_plane.settings_file_drift",
+        level=logging.WARNING,
+        config_path=str(path),
+        keys_count=len(keys),
+        hint=(
+            "The stored settings stay in force; run harborrag settings import on the file "
+            "to list the differing keys, with --apply to store the file's values."
+        ),
+    )
     return "drift"
+
+
+def _level_kind(label: object) -> str | None:
+    """Return the kind of a settings level label, such as ``project``; None when unknown."""
+    if not isinstance(label, str):
+        return None
+    kind = label.partition(":")[0]
+    return kind if kind in get_args(LevelKind) else None

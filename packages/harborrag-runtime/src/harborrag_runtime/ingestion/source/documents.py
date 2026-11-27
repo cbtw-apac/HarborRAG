@@ -1,4 +1,8 @@
-"""Source-level document release and result recording."""
+"""Source-level document release and result recording.
+
+A document's title goes into its stored task result only; logs carry its IDs, stage and
+codes.
+"""
 
 from __future__ import annotations
 
@@ -15,6 +19,7 @@ from harborrag_core.ingestion import (
     TaskDocumentResult,
     is_retryable_failure_code,
 )
+from harborrag_core.observability.log_events import FailureKind, log_event, log_failure
 from harborrag_core.schemas.ids import DocumentId, DocumentVersionId
 from harborrag_engine.ingestion.release.models import DocumentReleaseOutcome
 from harborrag_engine.ingestion.release.service import DocumentReleaseService
@@ -29,7 +34,12 @@ _SKIPPED_STATUS = "skipped"
 
 
 class SourceDocumentService:
-    """Release one document and persist its bounded public task outcome."""
+    """Release one document and persist its bounded public task outcome.
+
+    Args:
+        control: Control-plane database that stores the task's document results.
+        documents: Release service that ingests one document.
+    """
 
     def __init__(
         self,
@@ -46,7 +56,11 @@ class SourceDocumentService:
         planned: PlannedDocumentRelease,
         connector: BaseConnector | HarborConnector,
     ) -> DocumentIngestionOutcome:
-        """Release one planned document and record its outcome."""
+        """Release one planned document and record its outcome.
+
+        A release failure is classified, recorded as the document's failed result and
+        returned as ``FAILED`` rather than raised.
+        """
         try:
             return await self.publish_one(task_id, planned, connector)
         except Exception as error:
@@ -54,13 +68,15 @@ class SourceDocumentService:
             if not isinstance(stage, str) or not stage:
                 stage = "FetchAndCaptureRaw"
             code = ingestion_failure_classifier().classify(stage, error).code
-            logger.warning(
-                "Document release failed task_id=%s document=%s stage=%s code=%s",
-                task_id,
-                planned.document_id,
-                stage,
-                code,
-                exc_info=error if logger.isEnabledFor(logging.DEBUG) else None,
+            log_failure(
+                logger,
+                "ingestion.document_release_failed",
+                error,
+                FailureKind.EXPECTED,
+                task_id=task_id,
+                document_id=planned.document_id,
+                stage=stage,
+                error_code=code,
             )
             await self.record_failed_document(
                 task_id,
@@ -120,12 +136,13 @@ class SourceDocumentService:
                 },
             )
         )
-        logger.info(
-            "Document ingestion completed task_id=%s document_id=%s status=%s decision=%s",
-            task_id,
-            planned.document_id,
-            stored_status,
-            outcome.decision.value,
+        log_event(
+            logger,
+            "ingestion.document_completed",
+            task_id=task_id,
+            document_id=planned.document_id,
+            status=stored_status,
+            decision_kind=outcome.decision.value,
         )
         return status
 
@@ -157,12 +174,14 @@ class SourceDocumentService:
                 },
             )
         )
-        logger.warning(
-            "Document ingestion failed task_id=%s document_id=%s stage=%s error_code=%s",
-            task_id,
-            planned.document_id,
-            failed_stage,
-            safe_error_code,
+        log_event(
+            logger,
+            "ingestion.document_failed",
+            level=logging.WARNING,
+            task_id=task_id,
+            document_id=planned.document_id,
+            stage=failed_stage,
+            error_code=safe_error_code,
         )
 
     @staticmethod

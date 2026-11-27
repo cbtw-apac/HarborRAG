@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 import pytest
 from pydantic import ValidationError
@@ -17,7 +16,7 @@ pytestmark = pytest.mark.whitebox
 class _RecordingAsyncQdrantClient:
     instances: list[_RecordingAsyncQdrantClient] = []
 
-    def __init__(self, **kwargs: Any) -> None:
+    def __init__(self, **kwargs: object) -> None:
         self.kwargs = kwargs
         _RecordingAsyncQdrantClient.instances.append(self)
 
@@ -38,7 +37,7 @@ def recorded_clients(monkeypatch: pytest.MonkeyPatch) -> list[_RecordingAsyncQdr
 
 async def _connected_client_kwargs(
     settings: RuntimeSettings, clients: list[_RecordingAsyncQdrantClient]
-) -> dict[str, Any]:
+) -> dict[str, object]:
     repository = build_vector_repository(settings)
     await repository.connect()
     await repository.close()
@@ -109,6 +108,7 @@ async def test_default_qdrant_url_keeps_the_default_grpc_port(
 def test_vector_target_is_logged_once_per_process(
     recorded_clients: list[_RecordingAsyncQdrantClient], caplog: pytest.LogCaptureFixture
 ) -> None:
+    """The host, gRPC port and transport are logged once; the credentials stay out."""
     settings = RuntimeSettings(
         qdrant_url="http://u:hunter2@localhost:16333", qdrant_grpc_port=16334
     )
@@ -117,9 +117,15 @@ def test_vector_target_is_logged_once_per_process(
         build_vector_repository(settings)
         build_vector_repository(settings)
 
-    messages = [
-        record.getMessage()
-        for record in caplog.records
-        if record.name == "harborrag.runtime.composition"
+    records = [
+        record for record in caplog.records if record.name == "harborrag.runtime.composition"
     ]
-    assert messages == ["Vector store target=Qdrant gRPC localhost:16334"]
+    (record,) = records
+    assert record.__dict__["event"] == "composition.vector_store_selected"
+    assert record.__dict__["backend"] == "qdrant"
+    assert record.__dict__["transport_kind"] == "grpc"
+    assert record.__dict__["server_address"] == "localhost"
+    assert record.__dict__["server_port"] == 16334
+    assert "dropped_fields" not in record.__dict__
+    assert "hunter2" not in caplog.text
+    assert "u:" not in caplog.text

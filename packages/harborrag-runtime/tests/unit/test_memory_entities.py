@@ -21,6 +21,12 @@ from harborrag_runtime.memory.entities import (
     build_memory_entity_resolver,
 )
 
+pytestmark = pytest.mark.unit
+
+
+def _records(caplog: pytest.LogCaptureFixture, event: str) -> list[logging.LogRecord]:
+    return [record for record in caplog.records if record.__dict__.get("event") == event]
+
 
 def _node(node_key: str, *, title: str | None = None, logical_id: str | None = None):
     return GraphNodeRecord(
@@ -75,6 +81,7 @@ class _RaisingLookup(_Lookup):
 
 @pytest.mark.asyncio
 async def test_a_mention_matching_a_node_title_resolves_to_its_node_key() -> None:
+    """An exact title match scores above a merely case-insensitive one."""
     lookup = _Lookup({"atlas migration": _node("node-atlas", title="Atlas Migration")})
     resolver = GraphMemoryEntityResolver(lookup)
 
@@ -83,12 +90,16 @@ async def test_a_mention_matching_a_node_title_resolves_to_its_node_key() -> Non
     assert [(item.mention, item.entity_id) for item in resolved] == [
         ("Atlas Migration", "node-atlas")
     ]
-    # An exact title match, not merely a case-insensitive one.
     assert resolved[0].confidence == pytest.approx(0.9)
 
 
 @pytest.mark.asyncio
 async def test_confidence_falls_with_match_exactness_and_drops_below_the_floor() -> None:
+    """Score an identifier above a lowercased title, and drop a node with another title.
+
+    A lowercased title is what the lookup itself matches on. A node whose title is
+    not the mention at all is no match.
+    """
     nodes = {
         "node-atlas": _node("node-atlas", title="Atlas Migration"),
         "atlas migration": _node("node-atlas", title="Atlas Migration"),
@@ -102,11 +113,8 @@ async def test_confidence_falls_with_match_exactness_and_drops_below_the_floor()
     )
     scores = {item.mention: item.confidence for item in resolved}
 
-    # The mention *is* the node's identifier.
     assert scores["node-atlas"] == pytest.approx(1.0)
-    # Only the lowercased title matched, which is what the lookup itself matches on.
     assert scores["atlas migration"] == pytest.approx(0.75)
-    # A node came back but its title is not this mention at all, so it is no match.
     assert "elsewhere" not in scores
 
 
@@ -120,13 +128,13 @@ async def test_a_node_below_the_configured_floor_is_not_returned() -> None:
 
 @pytest.mark.asyncio
 async def test_resolution_is_tenant_scoped_and_never_crosses_tenants() -> None:
+    """Every lookup carries exactly the tenant it was asked for."""
     lookup = _Lookup({"atlas": _node("node-atlas", title="Atlas")})
     resolver = GraphMemoryEntityResolver(lookup)
 
     await resolver.resolve_entities(("Atlas",), tenant_id="tenant-a")
     await resolver.resolve_entities(("Atlas",), tenant_id="tenant-b")
 
-    # Every lookup carried exactly the tenant it was asked for; nothing else.
     assert [tenant for _, tenant in lookup.calls] == ["tenant-a", "tenant-b"]
 
 
@@ -142,6 +150,7 @@ async def test_a_blank_tenant_resolves_nothing_without_touching_the_graph() -> N
 
 @pytest.mark.asyncio
 async def test_mentions_are_deduplicated_case_insensitively_and_capped() -> None:
+    """The first spelling seen is the one queried, and it is queried once."""
     lookup = _Lookup({})
     resolver = GraphMemoryEntityResolver(lookup)
 
@@ -151,7 +160,6 @@ async def test_mentions_are_deduplicated_case_insensitively_and_capped() -> None
     )
 
     assert len(lookup.calls) == MAX_MENTIONS
-    # The first spelling seen is the one queried, and it is queried once.
     assert [mention for mention, _ in lookup.calls][:2] == ["Atlas", "other-0"]
 
 
@@ -165,7 +173,10 @@ async def test_a_failing_graph_yields_no_anchors_and_logs_a_warning(
         resolved = await resolver.resolve_entities(("Atlas",), tenant_id="tenant-1")
 
     assert resolved == ()
-    assert "Resolving memory entity mentions failed" in caplog.text
+    (record,) = _records(caplog, "memory.entity_resolution_failed")
+    assert record.levelno == logging.WARNING
+    assert record.__dict__["tenant_id"] == "tenant-1"
+    assert record.__dict__["error_type"] == "RuntimeError"
 
 
 @pytest.mark.asyncio
@@ -181,7 +192,8 @@ async def test_the_builder_returns_none_when_graph_retrieval_is_unavailable(
         resolver = await build_memory_entity_resolver(RuntimeSettings(), provider)
 
     assert resolver is None
-    assert "no graph retrieval" in caplog.text
+    (record,) = _records(caplog, "memory.entity_resolver_unavailable")
+    assert record.__dict__["reason"] == "no_graph_retrieval"
 
 
 @pytest.mark.asyncio
@@ -195,11 +207,14 @@ async def test_the_builder_returns_none_when_retrieval_cannot_be_reached(
         resolver = await build_memory_entity_resolver(RuntimeSettings(), provider)
 
     assert resolver is None
-    assert "retrieval error_type=RuntimeError" in caplog.text
+    (record,) = _records(caplog, "memory.entity_resolver_unavailable")
+    assert record.__dict__["reason"] == "retrieval_unreachable"
+    assert record.__dict__["error_type"] == "RuntimeError"
 
 
 @pytest.mark.asyncio
 async def test_the_entity_linking_setting_gates_the_resolver_off() -> None:
+    """Switched off means retrieval is never even asked for."""
     calls = 0
 
     async def provider():
@@ -210,7 +225,6 @@ async def test_the_entity_linking_setting_gates_the_resolver_off() -> None:
     settings = RuntimeSettings(memory_entity_linking=False)
 
     assert await build_memory_entity_resolver(settings, provider) is None
-    # Switched off means retrieval is never even asked for.
     assert calls == 0
 
 

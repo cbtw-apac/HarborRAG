@@ -38,6 +38,14 @@ from ...fixtures.release import (
 pytestmark = pytest.mark.unit
 
 
+def _event(caplog: pytest.LogCaptureFixture, event: str) -> logging.LogRecord:
+    """Return the one captured record of ``event``, with no dropped fields."""
+    records = [record for record in caplog.records if record.__dict__.get("event") == event]
+    assert len(records) == 1
+    assert "dropped_fields" not in records[0].__dict__
+    return records[0]
+
+
 class _SkippingConnector(DescriptorConnector):
     """A connector whose discovery left one file out for its extension."""
 
@@ -97,9 +105,39 @@ async def test_source_scan_dispatches_root_and_attachment_as_documents(
             relation.relation_type == RelationType.HAS_ATTACHMENT
             for relation in resources.graph.relations.values()
         )
-        assert "Source ingestion started task_id=task-1" in caplog.text
-        assert "Source dispatch completed task_id=task-1 published=2" in caplog.text
-        assert "Source ingestion completed task_id=task-1" in caplog.text
+        assert _event(caplog, "ingestion.source_started").__dict__["task_id"] == "task-1"
+        dispatched = _event(caplog, "ingestion.dispatch_completed")
+        assert (dispatched.__dict__["task_id"], dispatched.__dict__["published_count"]) == (
+            "task-1",
+            2,
+        )
+        completed = _event(caplog, "ingestion.source_completed")
+        assert completed.levelno == logging.INFO
+        assert completed.__dict__["task_id"] == "task-1"
+        assert completed.__dict__["status"] == IngestionTaskState.COMPLETED.value
+
+
+@pytest.mark.asyncio
+async def test_finalization_logs_the_skips_as_reason_count_pairs(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    control = build_control_plane(tmp_path)
+    resources = build_release_resources(control)
+    async with control, resources.store:
+        service = SourceIngestionService(
+            control=control,
+            documents=build_release_service(resources),
+        )
+
+        with caplog.at_level(
+            logging.INFO, logger="harborrag.runtime.ingestion.source_finalization"
+        ):
+            await service.ingest(source_request("task-skips"), _SkippingConnector())
+
+    completed = _event(caplog, "ingestion.finalization_completed")
+    assert completed.__dict__["skipped_count"] == 1
+    assert completed.__dict__["skipped_reason"] == "unsupported_extension:1"
 
 
 @pytest.mark.asyncio
@@ -377,7 +415,6 @@ async def test_a_failure_to_persist_the_failure_does_not_mask_the_original_error
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """With the control DB down, the run's own error is still the one raised."""
-
     control = build_control_plane(tmp_path)
     resources = build_release_resources(control)
     async with control, resources.store:
@@ -403,12 +440,14 @@ async def test_a_failure_to_persist_the_failure_does_not_mask_the_original_error
         ):
             await service.ingest(source_request("task-fail-unpersisted"), DescriptorConnector())
 
-    persisted = [
-        record for record in caplog.records if "could not be persisted" in record.getMessage()
-    ]
-    assert len(persisted) == 1
-    assert persisted[0].exc_info is not None
-    assert persisted[0].exc_info[0] is ConnectionError
+    failed = _event(caplog, "ingestion.source_failed")
+    assert (failed.levelno, failed.exc_info) == (logging.ERROR, None)
+    assert (failed.__dict__["stage"], failed.__dict__["error_type"]) == ("dispatch", "RuntimeError")
+    persisted = _event(caplog, "ingestion.source_failure_record_failed")
+    assert persisted.levelno == logging.ERROR
+    assert persisted.exc_info is not None
+    assert persisted.exc_info[0] is ConnectionError
+    assert "control database unreachable" not in persisted.getMessage()
 
 
 @pytest.mark.asyncio

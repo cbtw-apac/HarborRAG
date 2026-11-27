@@ -14,21 +14,29 @@ import weakref
 from collections.abc import AsyncGenerator
 
 from harborrag_core.contracts.events import HarborEvent
+from harborrag_core.observability.log_events import log_event
 
 logger = logging.getLogger("harborrag.runtime.events.in_process")
 
 _Subscription = tuple[str, "asyncio.Queue[HarborEvent]"]
 
-# A subscriber that never reads (a stalled/leaked consumer) must not retain
-# every event forever, so a full queue drops its oldest entry rather than
-# blocking publish() or growing unbounded. A drop is a gap in the stored
-# per-task sequence: the ingestion event stream detects the gap and reads the
-# missing events back from the store, so no event type depends on coalescing.
 _DEFAULT_MAX_QUEUE_SIZE = 256
+"""Events one subscriber's queue holds before the oldest is dropped.
+
+A subscriber that never reads, such as a stalled or leaked consumer, must not retain
+every event forever, so a full queue drops its oldest entry rather than blocking
+``publish()`` or growing unbounded. A drop is a gap in the stored per-task sequence:
+the ingestion event stream detects the gap and reads the missing events back from
+the store, so no event type depends on coalescing.
+"""
 
 
 class InProcessEventBus:
-    """EventBusPort over per-subscriber asyncio queues, filtered by name prefix."""
+    """EventBusPort over per-subscriber asyncio queues, filtered by name prefix.
+
+    Args:
+        max_queue_size: Events each subscriber's queue holds before the oldest is dropped.
+    """
 
     def __init__(self, max_queue_size: int = _DEFAULT_MAX_QUEUE_SIZE) -> None:
         self._max_queue_size = max_queue_size
@@ -52,11 +60,12 @@ class InProcessEventBus:
                         queue.get_nowait()
                     except asyncio.QueueEmpty:
                         continue
-                    logger.warning(
-                        "Subscriber queue full for prefix=%r; dropped the oldest event "
-                        "to admit event.name=%r",
-                        prefix,
-                        event.name,
+                    log_event(
+                        logger,
+                        "events.subscriber_queue_full",
+                        level=logging.WARNING,
+                        subscription_id=prefix,
+                        event_type=event.name,
                     )
 
     def subscribe(self, name_prefix: str) -> AsyncGenerator[HarborEvent, None]:

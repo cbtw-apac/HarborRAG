@@ -18,6 +18,7 @@ from harborrag_core.contracts.errors import (
     HarborConnectionError,
     HarborValidationError,
 )
+from harborrag_core.observability.log_events import FailureKind, log_failure
 from harborrag_core.ports.completion_requests import CompletionRequestStore
 
 from .completion import Completion, RetrievalFound, TurnCompleted, TurnEvent
@@ -27,7 +28,16 @@ logger = logging.getLogger("harborrag.runtime.application.chat.replay")
 
 @dataclass(slots=True)
 class CompletionAttempt:
-    """One request's claim on its idempotency key, from claim to finish or release."""
+    """One request's claim on its idempotency key, from claim to finish or release.
+
+    Attributes:
+        store: Where claims and stored completions live.
+        tenant_id: Tenant of the caller; the key is scoped to it.
+        user_id: End user of the caller; the key is scoped to it too.
+        key: The request's ``Idempotency-Key``; None when the caller sent none.
+        request_hash: Hash of the request body, which a reused key must match.
+        claimed: Whether this attempt holds the claim and must finish or release it.
+    """
 
     store: CompletionRequestStore
     tenant_id: str
@@ -38,6 +48,10 @@ class CompletionAttempt:
 
     async def claim(self) -> str | None:
         """Claim the key; return the stored completion body when it already answered.
+
+        Returns:
+            The stored completion body, or None when this attempt now holds the claim
+            or the request has no key.
 
         Raises:
             HarborValidationError: The key was used with a different body (field
@@ -117,8 +131,14 @@ class CompletionAttempt:
                 key=self.key,
                 request_hash=self.request_hash,
             )
-        except Exception:  # noqa: BLE001 - a stranded claim must not mask the real error
-            logger.exception("Completion claim could not be released")
+        except Exception as error:  # noqa: BLE001 - a stranded claim must not mask the real error
+            log_failure(
+                logger,
+                "chat.completion_claim_release_failed",
+                error,
+                FailureKind.UNEXPECTED,
+                tenant_id=self.tenant_id,
+            )
         finally:
             self.claimed = False
 
@@ -135,7 +155,14 @@ class CompletionAttempt:
                 response_json=body,
                 session_id=session_id,
             )
-        except Exception:  # noqa: BLE001 - never discard an already paid-for result
-            logger.exception("Completion replay state could not be saved")
+        except Exception as error:  # noqa: BLE001 - never discard an already paid-for result
+            log_failure(
+                logger,
+                "chat.completion_replay_save_failed",
+                error,
+                FailureKind.UNEXPECTED,
+                tenant_id=self.tenant_id,
+                session_id=session_id,
+            )
         finally:
             self.claimed = False

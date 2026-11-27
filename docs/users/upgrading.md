@@ -1,9 +1,9 @@
 # Upgrading
 
-This page lists the steps each release needs when you upgrade an existing deployment,
-newest release first. The [changelog](../../CHANGELOG.md) lists everything that changed;
-entries marked **Breaking** there are the ones these steps deal with. A first install
-needs none of these steps: start with the
+Upgrade an existing HarborRAG deployment to a newer release. Each section gives the
+steps one release needs, newest release first. The [changelog](../../CHANGELOG.md)
+lists everything that changed; entries marked **Breaking** there are the ones these
+steps deal with. A first install needs none of these steps: start with the
 [Quick Start](../getting-started/quick-start.md).
 
 ## 2.0.0a2 to 2.0.0
@@ -107,7 +107,7 @@ removed; [Temporal configuration](../../deploy/temporal/README.md) and
 
 **Breaking:** `HARBORRAG_INGESTION_TENANT_ID` is renamed `HARBORRAG_TENANT_ID`, and it
 now sets the default tenant of the API as well as the workers and the CLI. There is no
-alias: a process that still has the old name set stops at start-up with
+alias: a process that still has the old name set stops at startup with
 `HARBORRAG_INGESTION_TENANT_ID was renamed to HARBORRAG_TENANT_ID`. Rename it wherever
 it is set: in `env/.env.api` and `env/.env.temporal` (the workers' file), which the
 earlier templates set to `DEFAULT`, in a shell that exports it, and in your deployment
@@ -163,7 +163,7 @@ that injects it:
 1. Remove the chat provider variable, `HARBOR_CHAT_PROVIDER`, or its `HARBORRAG_` form
    if you already renamed it. The shipped catalog no longer reads it: chat is called as
    an OpenAI-compatible endpoint. `HARBORRAG_EMBED_PROVIDER` is still read, and takes
-   `openai`, `openai_compatible` or `cohere`; any other value stops the start-up.
+   `openai`, `openai_compatible` or `cohere`; any other value stops the startup.
 
 2. Keep the model name and the key of each family, under the names step 3 gives them:
 
@@ -324,15 +324,15 @@ start the new release.
 - **Two settings have an upper limit.** A connection's `advanced.max_retries` takes at
   most 10, and `HARBORRAG_MEMORY_RETENTION_DAYS_SESSION`,
   `HARBORRAG_MEMORY_RETENTION_DAYS_USER` and `HARBORRAG_MEMORY_RETENTION_DAYS_PROJECT` at
-  most 36,500 days. A retention above the limit stops the start-up. A stored connection
+  most 36,500 days. A retention above the limit stops the startup. A stored connection
   above 10 is refused with `422 validation_error` when its next ingestion starts. A
   `config/sources/connectors.yaml` entry above 10 is imported with status `error`, and
   starting a run on it answers `422` the same way. `PUT` the connection with its whole
   `advanced` object and a `max_retries` of 10 or less: `PUT` replaces `advanced` whole.
 - **The Qdrant gRPC port must match the URL.** While gRPC is preferred, as it is by
-  default, the Qdrant client dialled port 6334 on the host of `HARBORRAG_QDRANT_URL`
+  default, the Qdrant client dialled port `6334` on the host of `HARBORRAG_QDRANT_URL`
   whatever port the URL named, so a stack on a mapped port could write vectors into
-  another Qdrant. If `HARBORRAG_QDRANT_URL` names a port other than 6333, set
+  another Qdrant. If `HARBORRAG_QDRANT_URL` names a port other than `6333`, set
   `HARBORRAG_QDRANT_GRPC_PORT` to the gRPC port of the same Qdrant, or set
   `HARBORRAG_QDRANT_PREFER_GRPC=false`; otherwise the API, the worker, the MCP server
   and the CLI refuse to start. Set it wherever `HARBORRAG_QDRANT_URL` is set: with
@@ -346,12 +346,12 @@ start the new release.
   owns it. Before, the server started and failed every tool call. The directory is
   `~/.harborrag` unless `HARBORRAG_MCP_AUDIT_PATH` names another, and an earlier
   `harborrag auth keys create` or SharePoint sign-in may have created it with a mode
-  such as 0755. Run `chmod 700` on the directory the message names, or set
+  such as `0755`. Run `chmod 700` on the directory the message names, or set
   `HARBORRAG_MCP_AUDIT_PATH` to a file in an owner-only directory. HarborRAG now
-  creates a missing `~/.harborrag` with mode 0700, but never changes the mode of an
+  creates a missing `~/.harborrag` with mode `0700`, but never changes the mode of an
   existing one. The same goes for the missing directories above
   `HARBORRAG_OBJECT_STORE_ROOT`, the reader-tool audit file and a SQLite database file:
-  each is created with mode 0700 whatever the umask, and an existing one keeps its
+  each is created with mode `0700` whatever the umask, and an existing one keeps its
   mode. A relative `HARBORRAG_OBJECT_STORE_ROOT` resolves against the process's working
   directory and logs one warning per process; set an absolute path.
 
@@ -406,7 +406,7 @@ Upgrade in this order:
    passwords exist.
 2. Back up the control database. `0044`, `0045` and `0049` delete data that a downgrade
    does not bring back.
-3. Start one API replica of the new release, and nothing else. Give its start-up and
+3. Start one API replica of the new release, and nothing else. Give its startup and
    readiness probes enough time for the migrations: an orchestrator that restarts the
    API part way rolls the migrations back and starts them again. Wait until `/readyz`
    answers `200`.
@@ -607,7 +607,7 @@ that calls the CLI.
 #### Rename the commands
 
 An old subcommand, such as `harborrag source list`, prints the command that replaced it
-and exits 2, with `--help` too:
+and exits `2`, with `--help` too:
 `error: 'harborrag source list' was renamed; use 'harborrag connections list'`.
 `harborrag source` and `harborrag ingest` alone name the group that replaced them.
 
@@ -653,7 +653,7 @@ key as its ID, so `harborrag-workspace` becomes:
 harborrag ingestions start default/harborrag-workspace --wait
 ```
 
-A bare key is refused with exit 2 and a hint:
+A bare key is refused with exit `2` and a hint:
 `Invalid value for REF: expected PROJECT_ID/CONNECTION_ID, for example default/harborrag-workspace; list them with harborrag connections list`.
 
 The CLI no longer imports `config/sources/connectors.yaml` before its first ingestion.
@@ -710,18 +710,18 @@ codes changed:
 | `8` | none | The run `--wait` or `--watch` followed ended `failed` or `cancelled`, or `connections test` reported `"ok": false` |
 | `130` | Interrupted | Interrupted; the run keeps going |
 
-`connections test` exits 8 when the check reports `"ok": false` and 0 when it passes. It
-prints the same body either way, although the route answers `200`; `source test` exited 1
-on a failed check.
+`connections test` exits `8` when the check reports `"ok": false` and `0` when it
+passes. It prints the same body either way, although the route answers `200`;
+`source test` exited `1` on a failed check.
 
 A project the CLI cannot use, including no project found outside a checkout, follows the
 same rule: without a terminal it prints the error envelope with `internal_error` and
-exits 1; see [CLI, dependencies and Temporal](#cli-dependencies-and-temporal).
+exits `1`; see [CLI, dependencies and Temporal](#cli-dependencies-and-temporal).
 
 #### Update scripts that read `auth keys` output
 
 `harborrag auth keys create|list|revoke` printed `{"ok": true, "data": …}` and, on any
-failure, `{"ok": false, "error_code": …}` with exit 1. It now prints like the other
+failure, `{"ok": false, "error_code": …}` with exit `1`. It now prints like the other
 commands:
 
 - Success prints the object that was under `data`, such as `{"keys": [...]}` for `list`.
@@ -731,7 +731,7 @@ commands:
   the exit codes above: `2` for a policy violation, `3` for an unknown key, `4` when the
   database rejects the key row, and `6` when the key table is missing or behind. Branch
   on the exit code or `error.code`, not on `error_code`.
-- `create` requires an explicit `--tenant` and exits 2 without it; it no longer falls
+- `create` requires an explicit `--tenant` and exits `2` without it; it no longer falls
   back to `HARBORRAG_TENANT_ID`, the profile or `DEFAULT`. Only `list` keeps the CLI's
   default tenant, as [Global options](cli-reference/README.md#global-options) describes.
   A script that always passed `--tenant` keeps working. `revoke` still takes either
@@ -744,7 +744,7 @@ The secret still goes only to its `0600` file, never to the output.
 - `projects update` replaces the project body, as the `PUT` does: a field left out is
   cleared, so pass `--project-name` on every update.
 - A write into a tenant that holds no data asks first, so a typo in `--tenant` does not
-  create a tenant. Without a terminal it stops with exit 2 unless you pass `--yes`. This
+  create a tenant. Without a terminal it stops with exit `2` unless you pass `--yes`. This
   covers `settings import --apply` into a new tenant too.
 - `connections delete` and `projects delete` ask before they remove anything, and need
   `--yes` without a terminal.
@@ -773,8 +773,8 @@ API. An import stopped part way, for example by a restart, resumes at the next s
 
 Each entry becomes a connection:
 
-- The entry's key becomes the connection's `source_key`, so its documents keep their ids
-  and source scopes. The key is also its `connection_id` when it is a valid id
+- The entry's key becomes the connection's `source_key`, so its documents keep their IDs
+  and source scopes. The key is also its `connection_id` when it is a valid ID
   (lowercase letters, digits, `-` and `_`); otherwise a slug of it is.
 - `settings` and `environment` values are split into credentials and config. Environment
   values are read at import time.
@@ -931,13 +931,13 @@ connection with `"method": "api_token"` and the `email`; the stored token is kep
 #### CLI, dependencies and Temporal
 
 - **The CLI runs from a checkout.** Outside a checkout or a project directory, every
-  command except `doctor` stops with exit 1. In a terminal, or with `-o table`, it
+  command except `doctor` stops with exit `1`. In a terminal, or with `-o table`, it
   prints `harborrag: no project found. …`. The command changes are in
   [Update scripts for CLI v2.0.0](#update-scripts-for-cli-v200).
 - **A project error is the error envelope away from a terminal.** **Breaking:** no
   project found, a `--project` directory without `harborrag.yaml`, a marker the CLI
   cannot read or does not trust, and an unknown key under `runtime:` print as the JSON
-  or YAML error envelope, with `"code": "internal_error"` and exit 1, under `-o json` or
+  or YAML error envelope, with `"code": "internal_error"` and exit `1`, under `-o json` or
   `-o yaml`, under `HARBORRAG_OUTPUT`, and when stdout is not a terminal, such as in a
   pipe, in CI or with `docker run` without `-t`. Before, each printed a plain
   `harborrag: …` line. A script that reads that line from stderr passes `-o table`, or
@@ -948,13 +948,13 @@ connection with `"method": "api_token"` and the `email`; the stored token is kep
   `api` extra declares `redis>=5,<6`, and `harborrag-adapters` and `harborrag-runtime`
   declare `python-dotenv`, which each came through another package before.
 - **`harborrag ingestions pause|resume|cancel` use the HTTP rules.** An action the run's
-  status does not allow exits 4 with the `invalid_state` error and sends nothing to
+  status does not allow exits `4` with the `invalid_state` error and sends nothing to
   Temporal: pausing a paused run, pausing or resuming a retry run, resuming a running
   run that holds no pending pause, and any action on a finished run. A run the control
-  database does not hold is not found (exit 3); stop such a run in the Temporal UI.
+  database does not hold is not found (exit `3`); stop such a run in the Temporal UI.
 - **One run per connection, also inline and on a schedule.** `ingestions start --inline`
   refuses a connection that has a pending, running or paused run with
-  `409 already_running` and exit 4, and names that run in `details.ingestion_id`, as the
+  `409 already_running` and exit `4`, and names that run in `details.ingestion_id`, as the
   API does. A scheduled firing is skipped while the connection has such a run, not only
   while its scan runs.
 - **`qdrant-client` must be 1.17 to 1.19.** Installs of the `qdrant` extra that pinned
@@ -1252,7 +1252,7 @@ environment variables and their effect do not change.
   retrieval access.
 - **Probes and docs moved to the root:** `/healthz`, `/readyz`, `/docs` and
   `/openapi.json`.
-- **`/metrics` answers on the ops port** (`HARBORRAG_OPS_PORT`, 9465), only to a bearer
+- **`/metrics` answers on the ops port** (`HARBORRAG_OPS_PORT`, `9465`), only to a bearer
   token equal to `HARBORRAG_METRICS_SCRAPE_TOKEN`. A blank token refuses every scrape
   with `401`; see
   [Check the settings that are now refused](#check-the-settings-that-are-now-refused).
@@ -1515,11 +1515,11 @@ when you changed its old knob. To carry a changed knob over, create
 `config/settings.yaml` before the first start of the new API, with only the keys whose
 old knob you changed and your value for each, for example `retrieval.top_k: 8`. Every
 key in the seed file becomes an override that replaces its old knob, so a key written at
-its default would pin the default over a value you changed. The API
-seeds the tenant `HARBORRAG_TENANT_ID` names from that file once, when the tenant has no
-settings revisions. Set `HARBORRAG_SETTINGS_SEED_PATH` to read the file from another
-path. After the seed, edits to the file only log a `config_yaml_drift` warning; change
-settings with the API or `harborrag settings import`.
+its default would pin the default over a value you changed. The API seeds the tenant
+`HARBORRAG_TENANT_ID` names from that file once, when the tenant has no settings
+revisions. Set `HARBORRAG_SETTINGS_SEED_PATH` to read the file from another path. After
+the seed, edits to the file only log a `control_plane.settings_file_drift` warning;
+change settings with the API or `harborrag settings import`.
 
 The first sync after a `parsing.*` or `chunking.*` override that changes how documents
 are parsed or chunked reprocesses that connection, because both feed the processing
@@ -1602,7 +1602,7 @@ reprocesses them once more.
 
 ## 2.0.0a1 to 2.0.0a2
 
-Alpha2 keeps each tenant's data under one storage namespace across Qdrant, FalkorDB and
+2.0.0a2 keeps each tenant's data under one storage namespace across Qdrant, FalkorDB and
 the object store, and it changes how documents are projected into the graph. Stored data
 is not migrated, so plan a reset and a full re-ingest.
 
@@ -1615,10 +1615,10 @@ is not migrated, so plan a reset and a full re-ingest.
     temporal workflow terminate --query 'WorkflowType STARTS_WITH "harborrag"'
     ```
 
-    An alpha1 run resumed by an alpha2 worker cannot find its plans and artifacts.
+    A 2.0.0a1 run resumed by a 2.0.0a2 worker cannot find its plans and artifacts.
 
 2. Back up the PostgreSQL control database. Restoring that backup, together with the
-   untouched alpha1 stores, is the only practical rollback: alpha1 cannot start against
+   untouched 2.0.0a1 stores, is the only practical rollback: 2.0.0a1 cannot start against
    a migrated database, and downgrading the schema loses data.
 
 ### 2. Update configuration
@@ -1641,8 +1641,8 @@ is not migrated, so plan a reset and a full re-ingest.
 
 ### 3. Clear the alpha1 data
 
-Drop the alpha1 Qdrant collections, FalkorDB graphs and object-store keys, or keep them
-until the upgrade is confirmed if you may need to roll back. Alpha2 uses these names:
+Drop the 2.0.0a1 Qdrant collections, FalkorDB graphs and object-store keys, or keep them
+until the upgrade is confirmed if you may need to roll back. 2.0.0a2 uses these names:
 
 | Store | Name |
 | --- | --- |
@@ -1654,8 +1654,9 @@ until the upgrade is confirmed if you may need to roll back. Alpha2 uses these n
 
 Every HarborRAG process that opens the control database applies pending migrations at
 startup. Start one process first (for example the API), wait until it is healthy, then
-start the worker and the other services. The schema moves from revision 0019 to 0040; on
-a large control database, migrations 0021 and 0037 hold table locks for a while.
+start the worker and the other services. The schema moves from revision `0019` to
+`0040`; on a large control database, migrations `0021` and `0037` hold table locks for a
+while.
 
 ### 5. Re-ingest
 

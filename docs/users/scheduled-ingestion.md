@@ -76,18 +76,18 @@ docker logs harborrag-api-api-1 2>&1 | grep -i schedule
 ```
 
 A successful first sync of one schedule logs
-`Declared schedules synced created=1 updated=0 deleted=0 failed=0`; later restarts count it
-under `updated`. The schedule appears under **Schedules** in the Temporal UI, at
-`http://localhost:8080` on the local stack. Other outcomes:
+`scheduling.declared_schedules_synced created_count=1 updated_count=0 deleted_count=0 failed_count=0`;
+later restarts count it under `updated_count`. The schedule appears under **Schedules**
+in the Temporal UI, at `http://localhost:8080` on the local stack. Other outcomes:
 
-- `No declarative schedule file at …; skipping schedule sync`: the API found no file at
+- `scheduling.schedule_file_missing config_path=<path>`: the API found no file at
   `HARBORRAG_SCHEDULE_CONFIG_PATH`.
 - `Declared schedule sync failed; fix the deployment and restart`: the file is invalid,
   for example an unknown key, a duplicate `id` or a bad cron expression. One invalid
   entry stops the whole file, and no schedule changes.
-- `Declared schedule <id> was not applied: …`: that schedule was skipped and the others
-  were applied. The usual cause is a `connection_id` that does not exist in
-  `source.tenant`.
+- `scheduling.declared_schedule_rejected error_type=<type> schedule_id=<id> hint=…`: that
+  schedule was skipped and the others were applied. The usual cause is a `connection_id`
+  that does not exist in `source.tenant`; the line's hint lists the other checks.
 - While Temporal is unreachable, the API keeps retrying the sync in the background, and
   its own startup is not blocked.
 

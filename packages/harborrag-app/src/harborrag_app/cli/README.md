@@ -114,7 +114,8 @@ them.
 
 ## Keep the CLI in step with HTTP
 
-`tests/test_cli_http_parity.py` fails the build when the two drift apart:
+`packages/harborrag-app/tests/test_cli_http_parity.py` fails the build when the two drift
+apart:
 
 - every `operationId` of the OpenAPI export is a command's operation in
   `COMMAND_OPERATIONS` or listed in `HTTP_ONLY`, and every command maps to an operation,
@@ -124,8 +125,8 @@ them.
   table in `exit_codes.py` gives;
 - `docs/users/cli-reference/commands.md` equals what `make cli-reference` writes.
 
-`tests/test_cli_no_fastapi.py` checks that the CLI imports without FastAPI. Run the CLI
-tests from the repository root:
+`packages/harborrag-app/tests/test_cli_no_fastapi.py` checks that the CLI imports without
+FastAPI. Run the CLI tests from the repository root:
 
 ```bash
 uv run pytest packages/harborrag-app/tests -k "cli or doctor" -q
@@ -185,7 +186,7 @@ When the migrations themselves fail, composition stops with
 `harborrag.runtime.composition` whose message reads:
 
 ```text
-Control-plane migrations failed database_scheme=... error_type=... hint=...
+control_plane.migration_failed database_kind=... error_type=... hint=...
 ```
 
 A `hint=` saying the schema exists but is not stamped means the schema was created

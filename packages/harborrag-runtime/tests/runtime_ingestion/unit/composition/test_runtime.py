@@ -12,6 +12,16 @@ import pytest
 from harborrag_runtime.errors import RuntimeConnectionError
 from harborrag_runtime.ingestion.composition import IngestionRuntime
 
+pytestmark = pytest.mark.unit
+
+
+def _event(caplog: pytest.LogCaptureFixture, event: str) -> logging.LogRecord:
+    """Return the one captured record of ``event``, with no dropped fields."""
+    records = [record for record in caplog.records if record.__dict__.get("event") == event]
+    assert len(records) == 1
+    assert "dropped_fields" not in records[0].__dict__
+    return records[0]
+
 
 @pytest.mark.asyncio
 async def test_runtime_logs_resource_lifecycle(caplog: pytest.LogCaptureFixture) -> None:
@@ -29,8 +39,8 @@ async def test_runtime_logs_resource_lifecycle(caplog: pytest.LogCaptureFixture)
     rate_limiter = SimpleNamespace(close=Mock())
     embed_client = SimpleNamespace(aclose=AsyncMock())
     runtime = object.__new__(IngestionRuntime)
-    runtime.connector_pool = pool  # type: ignore[assignment]
-    runtime.connection_stores = stores  # type: ignore[assignment]
+    runtime.connector_pool = pool  # type: ignore[assignment]  # stand-in with only aclose
+    runtime.connection_stores = stores  # type: ignore[assignment]  # stand-in with only aclose
     runtime.control = control
     runtime.object_store = object_store
     runtime.vector_repository = vector_repository
@@ -46,8 +56,10 @@ async def test_runtime_logs_resource_lifecycle(caplog: pytest.LogCaptureFixture)
 
     pool.aclose.assert_awaited_once_with()
     stores.aclose.assert_awaited_once_with()
-    assert "Ingestion runtime started resources=5" in caplog.text
-    assert "Ingestion runtime closed" in caplog.text
+    started = _event(caplog, "ingestion.runtime_started")
+    assert started.levelno == logging.INFO
+    assert started.__dict__["resources_count"] == 5
+    assert _event(caplog, "ingestion.runtime_closed").levelno == logging.INFO
 
 
 @pytest.mark.asyncio
@@ -61,7 +73,7 @@ async def test_runtime_close_attempts_every_resource_and_remains_retryable() -> 
     rate_limiter = SimpleNamespace(close=Mock())
     embed_client = SimpleNamespace(aclose=AsyncMock())
     runtime = object.__new__(IngestionRuntime)
-    runtime.connector_pool = pool  # type: ignore[assignment]
+    runtime.connector_pool = pool  # type: ignore[assignment]  # stand-in with only aclose
     runtime.connection_stores = None
     runtime.control = control
     runtime.object_store = object_store
@@ -96,11 +108,11 @@ def _startable_runtime(**overrides: object) -> IngestionRuntime:
     }
     resources.update(overrides)
     runtime = object.__new__(IngestionRuntime)
-    runtime.connector_pool = SimpleNamespace(aclose=AsyncMock())  # type: ignore[assignment]
+    runtime.connector_pool = SimpleNamespace(aclose=AsyncMock())  # type: ignore[assignment]  # stub
     runtime.connection_stores = None
-    runtime.telemetry = SimpleNamespace(start=AsyncMock(), close=AsyncMock())  # type: ignore[assignment]
-    runtime.connector_rate_limiter = SimpleNamespace(close=Mock())  # type: ignore[assignment]
-    runtime.embed_client = SimpleNamespace(aclose=AsyncMock())  # type: ignore[assignment]
+    runtime.telemetry = SimpleNamespace(start=AsyncMock(), close=AsyncMock())  # type: ignore[assignment]  # stub
+    runtime.connector_rate_limiter = SimpleNamespace(close=Mock())  # type: ignore[assignment]  # stub
+    runtime.embed_client = SimpleNamespace(aclose=AsyncMock())  # type: ignore[assignment]  # stub
     runtime._started = False
     for name, resource in resources.items():
         setattr(runtime, name, resource)
@@ -108,16 +120,24 @@ def _startable_runtime(**overrides: object) -> IngestionRuntime:
 
 
 @pytest.mark.asyncio
-async def test_start_wraps_unreachable_vector_store() -> None:
+async def test_start_wraps_unreachable_vector_store(caplog: pytest.LogCaptureFixture) -> None:
     original = RuntimeError("grpc u:hunter2")
     vector = SimpleNamespace(connect=AsyncMock(side_effect=original), close=AsyncMock())
     runtime = _startable_runtime(vector_repository=vector)
     runtime.resource_targets = {"vector": "Qdrant gRPC localhost:6334"}
 
-    with pytest.raises(RuntimeConnectionError, match="Qdrant gRPC localhost:6334") as failure:
+    with (
+        caplog.at_level(logging.ERROR, logger="harborrag.runtime.ingestion.composition"),
+        pytest.raises(RuntimeConnectionError, match="Qdrant gRPC localhost:6334") as failure,
+    ):
         await runtime.start()
 
     assert "hunter2" not in str(failure.value)
+    assert "hunter2" not in caplog.text
+    unreachable = _event(caplog, "ingestion.runtime_resource_unreachable")
+    assert unreachable.levelno == logging.ERROR
+    assert unreachable.__dict__["resource_kind"] == "vector"
+    assert unreachable.__dict__["error_type"] == "RuntimeError"
     assert "HARBORRAG_QDRANT_PREFER_GRPC=false" in str(failure.value)
     assert failure.value.__cause__ is original
     runtime.control.close.assert_awaited_once_with()

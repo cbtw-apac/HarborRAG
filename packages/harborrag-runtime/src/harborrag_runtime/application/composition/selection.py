@@ -8,6 +8,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from harborrag_core.observability.log_events import log_event
+
 from ..ports import BaseAppService
 
 if TYPE_CHECKING:
@@ -35,9 +37,15 @@ def select_app_service() -> tuple[BaseAppService, str]:
     if settings.parser_config_path.is_file():
         load_parser_catalog(settings.parser_config_path)
     else:
-        logger.warning(
-            "Parser catalog %s not found; skipping its startup check",
-            settings.parser_config_path,
+        log_event(
+            logger,
+            "composition.parser_catalog_missing",
+            level=logging.WARNING,
+            config_path=str(settings.parser_config_path),
+            hint=(
+                "Set HARBORRAG_PARSER_CONFIG_PATH to the parser catalog file; "
+                "its startup check was skipped and ingestion reports the missing file."
+            ),
         )
     return _app_service_from(settings), "production"
 

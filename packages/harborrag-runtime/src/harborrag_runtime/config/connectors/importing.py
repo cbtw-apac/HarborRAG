@@ -1,4 +1,4 @@
-"""Import connections from YAML.
+"""Connection import from YAML.
 
 A legacy entry's key becomes its ``source_key`` (and ``connection_id`` when the
 key is a valid id), so documents ingested before the upgrade keep their ids. An
@@ -6,6 +6,7 @@ entry that fails its schema, or names an unset environment variable, is still
 imported, with status ``error`` and its field issues, so nothing is lost. An
 entry that cannot become a connection at all, such as a key with a space or a
 malformed ``secret_ref``, is listed as invalid and the others still import.
+Logs carry IDs and counts, never an entry's settings or the text of its issues.
 """
 
 from __future__ import annotations
@@ -29,6 +30,7 @@ from harborrag_core.domain.connection import (
 )
 from harborrag_core.domain.project import Project
 from harborrag_core.domain.settings import WorkspaceSettings
+from harborrag_core.observability.log_events import FailureKind, log_event, log_failure
 from harborrag_core.ports.control_plane import (
     ConnectionRepositoryPort,
     ProjectRepositoryPort,
@@ -94,7 +96,7 @@ class ImportPlan:
         return tuple(change for change in self.changes if change.action in {"create", "update"})
 
     def summary(self) -> dict[str, int]:
-        """Count of changes per action."""
+        """Return the count of changes per action."""
         counts: dict[str, int] = {}
         for change in self.changes:
             counts[change.action] = counts.get(change.action, 0) + 1
@@ -111,7 +113,14 @@ class ImportResult:
 
 
 class ConnectionImportService:
-    """Plan and apply connection documents for one tenant at a time."""
+    """Plan and apply connection documents for one tenant at a time.
+
+    Args:
+        projects: Project store.
+        connections: Connection store.
+        environ: Environment the legacy ``environment`` entries read; the process
+            environment when omitted.
+    """
 
     def __init__(
         self,
@@ -179,11 +188,13 @@ class ConnectionImportService:
         except Exception:
             await self._remove_empty_projects(plan.tenant_id, created_projects)
             raise
-        logger.info(
-            "Connection import applied created=%d updated=%d projects=%d",
-            created,
-            updated,
-            len(plan.projects_to_create),
+        log_event(
+            logger,
+            "config.connection_import_applied",
+            tenant_id=plan.tenant_id,
+            created_count=created,
+            updated_count=updated,
+            created_project_count=len(plan.projects_to_create),
         )
         return ImportResult(created, updated, plan.projects_to_create)
 
@@ -201,7 +212,12 @@ class ConnectionImportService:
                     )
                 )
             except (HarborConflictError, HarborPreconditionFailedError):
-                logger.info("Connection import found project %s already created", project_id)
+                log_event(
+                    logger,
+                    "config.connection_import_project_exists",
+                    tenant_id=plan.tenant_id,
+                    project_id=project_id,
+                )
             else:
                 created.append(project_id)
         return created
@@ -215,8 +231,12 @@ class ConnectionImportService:
             try:
                 await self._connections.put(change.connection)
             except (HarborConflictError, HarborPreconditionFailedError):
-                logger.info(
-                    "Connection import found %s already written", change.connection.source_key
+                log_event(
+                    logger,
+                    "config.connection_import_connection_exists",
+                    tenant_id=plan.tenant_id,
+                    project_id=change.project_id,
+                    connection_id=change.connection_id,
                 )
                 continue
             if change.action == "create":
@@ -235,11 +255,14 @@ class ConnectionImportService:
                 )
                 if not held:
                     await self._projects.delete(project_id, tenant_ids=scope)
-            except Exception:  # noqa: BLE001 - the write failure is the error to report
-                logger.warning(
-                    "Connection import could not remove empty project %s",
-                    project_id,
-                    exc_info=True,
+            except Exception as error:  # noqa: BLE001 - the write failure is the error to report
+                log_failure(
+                    logger,
+                    "config.connection_import_cleanup_failed",
+                    error,
+                    FailureKind.EXPECTED,
+                    tenant_id=tenant_id,
+                    project_id=project_id,
                 )
 
     def _from_legacy(
@@ -301,7 +324,7 @@ class ConnectionImportService:
     def _flat_values(
         self, spec: SourceTypeSpec, definition: ConnectorDefinition
     ) -> tuple[dict[str, Any], list[tuple[str, str]]]:
-        """Dataclass keywords of an entry, and the environment variables it names but lacks.
+        """Return an entry's dataclass keywords and the environment variables it lacks.
 
         Environment values are read now; secrets stay ``env:`` references.
         """
@@ -340,7 +363,8 @@ class ConnectionImportService:
                 values["source_path"] = str((base / path).resolve())
         factory = source_types.provider_factory(spec.source_type)
         plain = {key: value for key, value in values.items() if not isinstance(value, Mapping)}
-        return {**values, **_json_ready(coerce_config_values(factory, plain))}, missing
+        coerced = coerce_config_values(factory, plain)
+        return {**values, **{key: _json_ready(item) for key, item in coerced.items()}}, missing
 
     def _from_export(self, entry: Mapping[str, Any], tenant_id: str) -> ImportChange:
         """Turn one export entry into a desired connection."""
@@ -378,7 +402,7 @@ class ConnectionImportService:
         parts: tuple[dict[str, Any], dict[str, Any], dict[str, Any]],
         issues: list[FieldIssue] | None = None,
     ) -> ImportChange:
-        """Build the connection to write; one that fails its schema is kept with status error."""
+        """Build the connection to write; one failing its schema keeps status error."""
         credentials, config, tuning = parts
         problems = list(issues or [])
         try:
@@ -430,7 +454,7 @@ class ConnectionImportService:
         )
 
     async def _compare(self, change: ImportChange) -> ImportChange:
-        """Turn a desired connection into create, update or unchanged against what is stored."""
+        """Compare a desired connection with the stored one: create, update or unchanged."""
         if change.connection is None:
             return change
         desired = change.connection
@@ -485,11 +509,10 @@ async def import_connectors_once(  # noqa: PLR0913 - the stores and the file it 
         settings: Workspace settings, where the attempt is recorded.
         environ: Environment the file's ``environment`` entries read.
 
+    A failed import is recorded with its error type, then its error propagates.
+
     Returns:
         The applied plan, or None when the import did not run.
-
-    Raises:
-        Exception: The import failed; the failure is recorded first.
     """
     workspace = await settings.get()
     marker = workspace.data.get(IMPORT_MARKER_KEY)
@@ -505,15 +528,24 @@ async def import_connectors_once(  # noqa: PLR0913 - the stores and the file it 
         plan = await service.plan(
             path.read_text(encoding="utf-8"), tenant_id=tenant_id, base_directory=path.parent
         )
-        for change in plan.changes:
-            logger.info("Connection import plan %s", change.as_dict())
+        summary = plan.summary()
+        log_event(
+            logger,
+            "config.connection_import_planned",
+            tenant_id=tenant_id,
+            config_path=str(path),
+            create_count=summary.get("create", 0),
+            update_count=summary.get("update", 0),
+            unchanged_count=summary.get("unchanged", 0),
+            skip_count=summary.get("skip", 0),
+            invalid_count=summary.get("invalid", 0),
+        )
         result = await service.apply(plan)
     except Exception as error:
         await _record(
             settings, workspace, {"status": _FAILED, **source, "error": type(error).__name__}
         )
         raise
-    summary = plan.summary()
     await _record(
         settings,
         workspace,
@@ -530,7 +562,7 @@ async def import_connectors_once(  # noqa: PLR0913 - the stores and the file it 
 
 
 async def _is_fresh(projects: ProjectRepositoryPort, connections: ConnectionRepositoryPort) -> bool:
-    """True when the install holds no project and no connection in any tenant."""
+    """Return whether the install holds no project and no connection in any tenant."""
     existing, _ = await connections.list(tenant_ids=None, limit=1)
     return not existing and not await projects.list(tenant_ids=None)
 
@@ -547,8 +579,8 @@ async def _record(
     return updated
 
 
-def _json_ready(value: Any) -> Any:
-    """``value`` with sets and tuples as lists, the shape a stored connection holds."""
+def _json_ready(value: object) -> object:
+    """Return ``value`` with sets and tuples as lists, as connections store them."""
     if isinstance(value, set | frozenset):
         return sorted((_json_ready(item) for item in value), key=str)
     if isinstance(value, list | tuple):
@@ -570,7 +602,7 @@ def _field_path(spec: SourceTypeSpec, dataclass_field: str) -> str:
 
 
 def _connection_id(source_key: str) -> str:
-    """The key itself when it is a valid ``connection_id``, else a slug of it."""
+    """Return the key itself when it is a valid ``connection_id``, else a slug of it."""
     return (
         source_key
         if CONNECTION_ID_PATTERN.fullmatch(source_key)
@@ -581,7 +613,7 @@ def _connection_id(source_key: str) -> str:
 def _invalid(
     source_key: str, project_id: str, reason: str, *, connection_id: str | None = None
 ) -> ImportChange:
-    """A change that cannot be applied, with why."""
+    """Return a change that cannot be applied, with why."""
     return ImportChange(
         "invalid",
         source_key,
@@ -592,7 +624,7 @@ def _invalid(
 
 
 def _same_content(existing: Connection, desired: Connection) -> bool:
-    """True when nothing an import sets differs; secret status stamps are ignored."""
+    """Return whether nothing an import sets differs; secret status stamps are ignored."""
     return (
         existing.source_type == desired.source_type
         and existing.name == desired.name
@@ -604,7 +636,7 @@ def _same_content(existing: Connection, desired: Connection) -> bool:
 
 
 def _secret_free(credentials: Mapping[str, Any]) -> dict[str, Any]:
-    """Credentials with each secret reduced to its reference."""
+    """Return the credentials with each secret reduced to its reference."""
     return {
         key: stored.ref.value if (stored := StoredSecret.from_json(value)) is not None else value
         for key, value in credentials.items()

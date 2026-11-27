@@ -10,9 +10,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Mapping
 
 from harborrag_adapters.repositories.database import IngestionControlPlaneDatabase
 from harborrag_core.ingestion import BindingKind
+from harborrag_core.observability.log_events import FailureKind, log_event, log_failure
 from harborrag_engine.ingestion.source.models import (
     PlannedDocuments,
     RelationRepairProgress,
@@ -64,13 +66,24 @@ class SourceFinalizationService:
         counts. If repair or reconciliation fails, the failed stage and the counts
         so far are merged into the task's summary and the error is raised. The
         task stays running, so a later attempt may finalize it.
+
+        Args:
+            request: The source run being finalized.
+            scan_id: The run's authoritative scan.
+            planned: The run's dispatch plan, read one page at a time.
+            summary: Outcome counts of the dispatched documents; must cover the plan.
+            repair_progress: Relation repair progress of an earlier attempt to resume from.
+
+        Returns:
+            The run's final outcome.
         """
         summary.require_total(planned.document_count)
-        logger.info(
-            "Source finalization started task_id=%s scan_id=%s documents=%d",
-            request.task_id,
-            scan_id,
-            planned.document_count,
+        log_event(
+            logger,
+            "ingestion.finalization_started",
+            task_id=request.task_id,
+            scan_id=scan_id,
+            documents_count=planned.document_count,
         )
         await self._control.tasks.update_summary(
             request.task_id,
@@ -119,20 +132,19 @@ class SourceFinalizationService:
             skipped=skips["skipped"],
             skipped_by_reason=skips["skipped_by_reason"],
         )
-        logger.info(
-            "Source finalization completed task_id=%s status=%s discovered=%d "
-            "published=%d unchanged=%d failed=%d skipped=%s skipped_by_reason=%s "
-            "removals=%d unresolved_relations=%d",
-            request.task_id,
-            outcome.status.value,
-            planned.document_count,
-            summary.published,
-            summary.unchanged,
-            summary.failed,
-            skips["skipped"],
-            skips["skipped_by_reason"],
-            len(removals),
-            unresolved_relations,
+        log_event(
+            logger,
+            "ingestion.finalization_completed",
+            task_id=request.task_id,
+            status=outcome.status.value,
+            discovered_count=planned.document_count,
+            published_count=summary.published,
+            unchanged_count=summary.unchanged,
+            failed_count=summary.failed,
+            skipped_count=skips["skipped"],
+            skipped_reason=_reason_counts(skips["skipped_by_reason"]),
+            removals_count=len(removals),
+            unresolved_relations_count=unresolved_relations,
         )
         return outcome
 
@@ -173,10 +185,12 @@ class SourceFinalizationService:
                 unresolved_relations=progress.unresolved_relations,
             )
         except Exception as error:
-            logger.error(
-                "Source relation repair failed task_id=%s error_type=%s",
-                request.task_id,
-                type(error).__name__,
+            log_failure(
+                logger,
+                "ingestion.relation_repair_failed",
+                error,
+                FailureKind.CLASSIFIED,
+                task_id=request.task_id,
             )
             await self._record_failure(
                 request.task_id,
@@ -189,11 +203,8 @@ class SourceFinalizationService:
     async def _retire_all(self, removals: tuple[str, ...]) -> None:
         """Retire every removed document without exhausting the connection pool.
 
-        ``retire_removed`` opens a session per call, so gathering one task per
-        removal put the whole batch in flight at once. A scan that detected a
-        few hundred removals overran a pool sized ``control_db_pool_size +
-        control_db_max_overflow`` (15 by default), timed out, and marked the
-        task FAILED even though every document had already been published.
+        ``retire_removed`` opens a session per call, and the pool holds
+        ``control_db_pool_size + control_db_max_overflow`` sessions (15 by default).
         At most ``_MAX_CONCURRENT_RETIREMENTS`` run at once, comfortably under the
         smallest supported pool, so retirement never competes with the rest of
         the task for connections.
@@ -215,10 +226,11 @@ class SourceFinalizationService:
         summary: SourceDispatchSummary,
     ) -> tuple[str, ...]:
         if _is_partial_scan(request):
-            logger.info(
-                "Skipping removal reconciliation for a partial scan task_id=%s "
-                "(limit/updated_after set)",
-                request.task_id,
+            log_event(
+                logger,
+                "ingestion.removal_reconciliation_skipped",
+                task_id=request.task_id,
+                reason="partial_scan",
             )
             return ()
         try:
@@ -232,17 +244,20 @@ class SourceFinalizationService:
                 ),
             )
             await self._retire_all(removals)
-            logger.info(
-                "Source removal reconciliation completed task_id=%s removals=%d",
-                request.task_id,
-                len(removals),
+            log_event(
+                logger,
+                "ingestion.removal_reconciliation_completed",
+                task_id=request.task_id,
+                removals_count=len(removals),
             )
             return removals
         except Exception as error:
-            logger.error(
-                "Source removal reconciliation failed task_id=%s error_type=%s",
-                request.task_id,
-                type(error).__name__,
+            log_failure(
+                logger,
+                "ingestion.removal_reconciliation_failed",
+                error,
+                FailureKind.CLASSIFIED,
+                task_id=request.task_id,
             )
             await self._record_failure(
                 request.task_id,
@@ -280,9 +295,14 @@ class SourceFinalizationService:
 
 
 def _is_partial_scan(request: SourceIngestionRequest) -> bool:
-    """Whether a limit or ``updated_after`` narrowed the scan.
+    """Return whether a limit or ``updated_after`` narrowed the scan.
 
     A deliberately partial scan cannot tell "not in scope" from "gone", so it
     never reconciles removals.
     """
     return request.query.limit is not None or request.query.updated_after is not None
+
+
+def _reason_counts(counts: Mapping[str, int]) -> str:
+    """Render skip counts as comma-separated ``reason:count`` pairs for a log field."""
+    return ",".join(f"{reason}:{count}" for reason, count in sorted(counts.items()))

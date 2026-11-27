@@ -1,16 +1,16 @@
-"""Build the conversation-memory vector index over the connected retrieval client.
+"""Conversation-memory vector index built over the connected retrieval client.
 
 Memory embeddings live in their own logical collection (``memories``), never
-the document/evidence one, because retention and erasure differ: a user can
+the document/evidence one, because retention and erasure differ. A user can
 erase their own memories without touching indexed documents. The Qdrant
 *client*, though, is shared with retrieval rather than opened a second time,
 so a process holds one connection pool regardless of how many logical indexes
 it reads.
 
-Without this index the memory layer still works: recall falls back to the
+Without this index the memory layer still works. Recall falls back to the
 repository's own substring search and extraction dedupes on content hashes
 alone. So every failure path here returns ``None`` after a warning instead of
-raising -- a missing index degrades recall, it must not break chat.
+raising, because a missing index degrades recall and must not break chat.
 """
 
 from __future__ import annotations
@@ -18,6 +18,8 @@ from __future__ import annotations
 import logging
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Protocol
+
+from harborrag_core.observability.log_events import log_event
 
 if TYPE_CHECKING:
     from harborrag_core.ports.memory import MemoryEmbedder, MemoryIndex
@@ -27,20 +29,27 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("harborrag.runtime.memory.index")
 
+_INDEX_UNAVAILABLE_EVENT = "memory.index_unavailable"
+_FALLBACK_HINT = "Recall falls back to repository search."
+
 
 class MemoryIndexResources(Protocol):
     """The slice of runtime retrieval the memory index needs.
 
-    Narrower than ``RuntimeRetrievalService`` on purpose: building an index
+    Narrower than ``RuntimeRetrievalService`` on purpose. Building an index
     needs a connected vector client and the deployment's vector width, and
-    nothing else -- not the graph, not the document search path.
+    nothing else, not the graph and not the document search path.
     """
 
     @property
-    def vector_repository(self) -> VectorRepositoryPort: ...
+    def vector_repository(self) -> VectorRepositoryPort:
+        """The connected vector client shared with retrieval."""
+        ...
 
     @property
-    def embedding_dimensions(self) -> int: ...
+    def embedding_dimensions(self) -> int:
+        """The deployment's embedding vector width."""
+        ...
 
 
 type MemoryIndexProvider = Callable[[], Awaitable[MemoryIndexResources]]
@@ -53,44 +62,61 @@ async def build_memory_index(
     *,
     embedder: MemoryEmbedder | None = None,
 ) -> MemoryIndex | None:
-    """The memory vector index, or ``None`` when it cannot be built.
+    """Build the memory vector index, or return ``None`` when it cannot be built.
 
-    ``None`` -- logged, never raised -- when memory is disabled, when recall
-    is switched off (``recall_top_k`` of zero, so nothing would read it), when
-    retrieval cannot be reached, or when the vector width is unusable.
+    Returns ``None``, logged and never raised, when memory is disabled, when
+    recall is switched off (``recall_top_k`` of zero, so nothing would read
+    it), when retrieval cannot be reached, or when the vector width is
+    unusable. Each failure degrades recall to substring search.
+
+    Args:
+        settings: Runtime settings holding the memory switches.
+        provider: Opens or returns the shared retrieval resources.
+        embedder: Memory-profile embedder the index embeds with, if any.
+
+    Returns:
+        The memory index, or ``None`` when it cannot be built.
     """
-
     if not settings.memory_enabled:
         return None
     if settings.memory_recall_top_k < 1:
-        logger.info("Conversation-memory recall is disabled (top_k=0); skipping the memory index.")
+        log_event(logger, "memory.index_skipped", reason="recall_disabled")
         return None
     try:
         resources = await provider()
         dimensions = resources.embedding_dimensions
         repository = resources.vector_repository
-    except Exception:  # noqa: BLE001 - degrade to substring recall
-        logger.warning(
-            "Could not reach retrieval to build the conversation-memory index; "
-            "recall falls back to repository search.",
-            exc_info=True,
+    except Exception as error:  # noqa: BLE001
+        log_event(
+            logger,
+            _INDEX_UNAVAILABLE_EVENT,
+            level=logging.WARNING,
+            hint=_FALLBACK_HINT,
+            reason="retrieval_unreachable",
+            error=error,
         )
         return None
     if dimensions < 1:
-        logger.warning(
-            "Retrieval reports a non-positive embedding width (%s); "
-            "skipping the conversation-memory index.",
-            dimensions,
+        log_event(
+            logger,
+            _INDEX_UNAVAILABLE_EVENT,
+            level=logging.WARNING,
+            hint=_FALLBACK_HINT,
+            reason="non_positive_dimensions",
+            dimension_count=dimensions,
         )
         return None
     try:
         from harborrag_adapters.repositories.vector import QdrantMemoryIndex
 
         return QdrantMemoryIndex(repository, dimensions=dimensions, embedder=embedder)
-    except Exception:  # noqa: BLE001 - degrade to substring recall
-        logger.warning(
-            "Could not build the conversation-memory index; recall falls back to "
-            "repository search.",
-            exc_info=True,
+    except Exception as error:  # noqa: BLE001
+        log_event(
+            logger,
+            _INDEX_UNAVAILABLE_EVENT,
+            level=logging.WARNING,
+            hint=_FALLBACK_HINT,
+            reason="index_build_failed",
+            error=error,
         )
         return None

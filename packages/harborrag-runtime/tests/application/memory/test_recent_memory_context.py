@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 
 from harborrag_core.domain.identity import MemoryIdentity
@@ -70,7 +72,9 @@ async def test_empty_history_needs_no_memory_model() -> None:
 
 
 @pytest.mark.asyncio
-async def test_history_failure_returns_empty_context_without_logging_content(caplog) -> None:
+async def test_history_failure_returns_empty_context_without_logging_content(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     class BrokenMemory(InMemoryConversationMemory):
         async def recent_complete_messages(self, identity, *, limit=3):
             raise RuntimeError("private message content")
@@ -78,6 +82,10 @@ async def test_history_failure_returns_empty_context_without_logging_content(cap
     context = await recent_memory_context(BrokenMemory(), IDENTITY, "secret question")
     assert context.messages == ()
     assert context.standalone_query == "secret question"
-    assert "Conversation context unavailable" in caplog.text
+    (record,) = caplog.records
+    assert record.__dict__["event"] == "memory.context_unavailable"
+    assert record.levelno == logging.WARNING
+    assert record.__dict__["error_type"] == "RuntimeError"
+    assert (record.__dict__["tenant_id"], record.__dict__["session_id"]) == ("ACME", "session")
     assert "private message content" not in caplog.text
     assert "secret question" not in caplog.text

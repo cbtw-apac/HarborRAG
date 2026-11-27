@@ -13,8 +13,12 @@ from harborrag_runtime.config import (
 
 from .conftest import REPO_ROOT, write_config
 
+pytestmark = pytest.mark.unit
 
-def test_repository_example_is_valid_and_builds_enabled_local_connector(caplog) -> None:
+
+def test_repository_example_is_valid_and_builds_enabled_local_connector(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     with caplog.at_level(logging.INFO, logger="harborrag.runtime.config.connectors"):
         catalog = load_connector_catalog(
             REPO_ROOT / "config" / "sources" / "connectors.example.yaml"
@@ -24,8 +28,15 @@ def test_repository_example_is_valid_and_builds_enabled_local_connector(caplog) 
     assert catalog.names() == ["harborrag-workspace"]
     connectors = catalog.build_enabled(environment={"LOCAL_SOURCE_PATH": str(REPO_ROOT / "docs")})
     assert list(connectors) == ["harborrag-workspace"]
-    assert "Connector catalog loaded" in caplog.text
-    assert "definitions=1 enabled=1" in caplog.text
+    (loaded,) = [
+        record
+        for record in caplog.records
+        if record.__dict__.get("event") == "config.connector_catalog_loaded"
+    ]
+    assert loaded.__dict__["definitions_count"] == 1
+    assert loaded.__dict__["enabled_count"] == 1
+    assert loaded.__dict__["config_path"].endswith("connectors.example.yaml")
+    assert "dropped_fields" not in loaded.__dict__
 
 
 def test_repository_runtime_connections_match_the_public_api_contract() -> None:

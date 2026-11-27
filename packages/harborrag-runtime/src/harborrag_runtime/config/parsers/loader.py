@@ -1,9 +1,15 @@
+"""Loading of the versioned parser catalog, ``config/ingestion/parsers.yaml``.
+
+Loading validates structure only; logs name the catalog file and counts, never settings.
+"""
+
 from __future__ import annotations
 
 import logging
 from pathlib import Path
 
 from harborrag_adapters.models.runtime.environment import expand_environment
+from harborrag_core.observability.log_events import log_event
 from harborrag_runtime.config.errors import ParserConfigurationError
 from harborrag_runtime.config.loading import (
     read_yaml_file,
@@ -56,12 +62,13 @@ def load_parser_catalog(path: str | Path) -> ParserCatalog:
         source_path=source_path,
         version=version,
     )
-    logger.info(
-        "Parser catalog loaded path=%s version=%d definitions=%d enabled=%d",
-        source_path,
-        version,
-        len(catalog.parsers),
-        len(catalog.names(enabled_only=True)),
+    log_event(
+        logger,
+        "config.parser_catalog_loaded",
+        config_path=str(source_path),
+        schema_version_id=version,
+        definitions_count=len(catalog.parsers),
+        enabled_count=len(catalog.names(enabled_only=True)),
     )
     return catalog
 

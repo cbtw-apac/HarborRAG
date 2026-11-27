@@ -29,6 +29,7 @@ from harborrag_core.domain.activity import ActivityEntry
 from harborrag_core.domain.connection import Connection, ConnectionStatus, require_connection_id
 from harborrag_core.domain.job import Job, JobStatus
 from harborrag_core.ingestion import IngestionTask
+from harborrag_core.observability.log_events import FailureKind, log_event, log_failure
 from harborrag_core.schemas.ids import TenantId
 from harborrag_core.security import AccessContext
 from harborrag_core.security.secret_refs import stored_refs
@@ -87,6 +88,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger("harborrag.runtime.application.control_plane.connections")
 
 _DELETE_CONNECTION_JOB: Final = "delete_connection"
+_GUARDED_SAVE_ATTEMPTS = 2
+"""Saves an unconditioned ``put`` tries before reporting a concurrent write."""
 SYNC_LEASE_TTL_SECONDS = 5.0
 
 
@@ -126,6 +129,12 @@ class ConnectionService:
 
     async def get(self, key: ConnectionKey) -> tuple[dict[str, Any], int]:
         """Return a connection's view and version.
+
+        Args:
+            key: The connection's tenant, project and ``connection_id``.
+
+        Returns:
+            The API view with the latest run and document count, and the version.
 
         Raises:
             ConnectionValidationError: ``connection_id`` is malformed.
@@ -175,6 +184,9 @@ class ConnectionService:
             tenant_id: Tenant of the project.
             project_id: Project whose connections to list.
             principal_id: Subject the source ACL checks, such as an API key's owner.
+
+        Returns:
+            One filter chip per readable connection, with its document count.
 
         Raises:
             HarborNotFoundError: The project does not exist in the tenant.
@@ -278,7 +290,7 @@ class ConnectionService:
         """
         _require_connection_id(key)
         guarded = expected_version is None and not create_only
-        for attempt in range(2 if guarded else 1):
+        for attempt in range(_GUARDED_SAVE_ATTEMPTS if guarded else 1):
             try:
                 return await self._put_once(
                     key,
@@ -291,7 +303,14 @@ class ConnectionService:
                     guarded=guarded,
                 )
             except ConcurrentWriteError:
-                logger.info("connection %s changed while saving; attempt %d", key, attempt + 1)
+                log_event(
+                    logger,
+                    "control_plane.connection_changed_while_saving",
+                    tenant_id=key.tenant_id,
+                    project_id=key.project_id,
+                    connection_id=key.connection_id,
+                    attempt=attempt + 1,
+                )
         raise HarborConflictError(
             "the connection changed while it was being saved; read it and send it again"
         )
@@ -309,6 +328,19 @@ class ConnectionService:
         guarded: bool,
     ) -> ConnectionPutResult:
         """Run one save; ``guarded`` writes only over the version read here.
+
+        Args:
+            key: The connection's tenant, project and ``connection_id``.
+            write: Source type, name, credentials and config as sent.
+            actor: Subject of the caller's token.
+            expected_version: ``If-Match`` version, when sent.
+            create_only: ``If-None-Match: *`` was sent.
+            sync_now: Start an incremental sync after saving.
+            origin: ``operator`` lets the write set new ``env:`` references.
+            guarded: Neither precondition was sent, so the save checks the version read.
+
+        Returns:
+            The stored connection and, with ``sync_now``, the started ingestion or its error.
 
         Raises:
             ConcurrentWriteError: ``guarded`` and another write landed first.
@@ -373,8 +405,16 @@ class ConnectionService:
                 ingestion = await self.sync(key, actor=actor)
             except HarborError as error:
                 sync_error = error
-            except Exception:  # noqa: BLE001 - the connection is saved; report, do not fail
-                logger.exception("sync_now could not start an ingestion for %s", key)
+            except Exception as error:  # noqa: BLE001 - the connection is saved; report, do not fail
+                log_failure(
+                    logger,
+                    "control_plane.sync_now_failed",
+                    error,
+                    FailureKind.UNEXPECTED,
+                    tenant_id=key.tenant_id,
+                    project_id=key.project_id,
+                    connection_id=key.connection_id,
+                )
                 sync_error = HarborUnavailableError(
                     "the ingestion could not start; the connection was saved"
                 )
@@ -390,6 +430,11 @@ class ConnectionService:
         self, key: ConnectionKey, write: ConnectionWrite | None, *, origin: WriteOrigin = "api"
     ) -> dict[str, Any]:
         """Check form values, or the saved connection when ``write`` is None; saves nothing.
+
+        Args:
+            key: The connection's tenant, project and ``connection_id``.
+            write: Form values to check; None checks the saved connection.
+            origin: ``operator`` lets the values set new ``env:`` references.
 
         Returns:
             The ``ConnectionTest`` body; ``ok`` is False when a check failed.
@@ -458,6 +503,14 @@ class ConnectionService:
     ) -> dict[str, Any]:
         """Start an ingestion of the connection, recording ``actor`` and ``actor_type`` on the run.
 
+        Args:
+            key: The connection's tenant, project and ``connection_id``.
+            actor: Subject of the caller's token.
+            actor_type: ``user`` or ``api_key``.
+            mode: ``incremental``, or ``force`` to reprocess unchanged documents.
+            item_refs: Items to sync alone; must be empty until per-item syncs exist.
+            updated_after: Only items changed after this ISO time, when given.
+
         Returns:
             The spec's ``Ingestion`` object of the started run.
 
@@ -520,6 +573,14 @@ class ConnectionService:
     async def delete(self, key: ConnectionKey, *, actor: str, purge: bool = False) -> str:
         """Start removing a connection in the background and return the job id.
 
+        Args:
+            key: The connection's tenant, project and ``connection_id``.
+            actor: Subject of the caller's token.
+            purge: Also drop the connection's Postgres history.
+
+        Returns:
+            The ID of the removal job.
+
         Raises:
             ConnectionValidationError: ``connection_id`` is malformed.
             HarborNotFoundError: No such connection in the tenant.
@@ -581,10 +642,14 @@ class ConnectionService:
                 connection_id=connection.connection_id,
             )
         except Exception as error:
-            logger.warning(
-                "Connection removal failed; it will be retried job_id=%s error_type=%s",
-                job_id,
-                type(error).__name__,
+            log_failure(
+                logger,
+                "control_plane.connection_removal_failed",
+                error,
+                FailureKind.EXPECTED,
+                job_id=job_id,
+                tenant_id=connection.tenant_id,
+                connection_id=connection.connection_id,
             )
             if job is None:
                 return
@@ -612,6 +677,10 @@ class ConnectionService:
 
     async def refuse_if_running(self, tenant_id: str, source_key: str) -> None:
         """Refuse a new ingestion of a connection that has a pending, running or paused one.
+
+        Args:
+            tenant_id: Tenant of the connection.
+            source_key: The connection's source key, which its runs carry.
 
         Raises:
             HarborAlreadyRunningError: An ingestion is active; ``details.ingestion_id`` names it.
@@ -734,6 +803,9 @@ class ConnectionService:
 
 def _require_connection_id(key: ConnectionKey) -> None:
     """Refuse a malformed ``connection_id`` before any lookup, as the HTTP path pattern does.
+
+    Args:
+        key: The connection's tenant, project and ``connection_id``.
 
     Raises:
         ConnectionValidationError: The id does not match the ``connection_id`` pattern.

@@ -10,22 +10,48 @@ from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.worker import Worker
 
+from harborrag_core.observability.log_events import FailureKind, log_failure
+
 from .summary_factory import SummaryRuntimeFactory
 from .summary_service import SummaryProjectionService
 from .summary_workflow import SummaryProjectionWorkflow, SummaryWorkflowInput
 
 logger = logging.getLogger("harborrag.runtime.topology.summary_worker")
-# A failing pass (a database failover, a reset connection) backs the poll off up
-# to this ceiling instead of hammering the database every few seconds.
+
 _MAX_BACKOFF_SECONDS = 300.0
+"""Ceiling of the poll back-off after failing passes.
+
+A failing pass, such as a database failover or a reset connection, backs the
+poll off up to this ceiling instead of hammering the database every few seconds.
+"""
+
+_MAX_BACKOFF_DOUBLINGS = 16
+"""Most times the poll interval doubles, which keeps the power bounded."""
+
+_EXECUTION_TIMEOUT_MARGIN_SECONDS = 3600
+"""Time a summary workflow may run beyond the job's own time limit."""
 
 
 class SummaryActivities:
+    """Temporal activities of the summary task queue.
+
+    Args:
+        service: Runs one summary pass for a tenant and source scope.
+    """
+
     def __init__(self, service: SummaryProjectionService) -> None:
         self.service = service
 
     @activity.defn(name="harborrag.project_summaries")
     async def project(self, request: SummaryWorkflowInput) -> str:
+        """Run one summary pass for the request's scope, heartbeating as it goes.
+
+        Args:
+            request: The tenant and source scope to summarize.
+
+        Returns:
+            The pass's status, such as ``current``, ``blocked`` or ``failed``.
+        """
         return await self.service.run_once(
             request.tenant_id,
             source_scope_id=request.source_scope_id,
@@ -40,7 +66,11 @@ async def serve_summaries(
     *,
     stop_event: asyncio.Event | None = None,
 ) -> None:
-    """Serve one queue and reconcile every explicitly managed tenant."""
+    """Serve one queue and reconcile every explicitly managed tenant.
+
+    Each pass dispatches every tenant again, so newly published sources acquire a
+    summary policy without a worker restart.
+    """
     tenant_ids = tuple(dict.fromkeys(tenant_ids))
     if not tenant_ids:
         return
@@ -59,7 +89,6 @@ async def serve_summaries(
     ):
         failed_passes = 0
         while stop_event is None or not stop_event.is_set():
-            # Newly published sources must acquire policy without a worker restart.
             failed = False
             for tenant_id in tenant_ids:
                 if not await _dispatch_guarded(client, factory, tenant_id):
@@ -75,7 +104,7 @@ async def watch_summaries(
     *,
     stop_event: asyncio.Event | None = None,
 ) -> None:
-    """Backward-compatible single-tenant entry point for the topology CLI."""
+    """Serve the summary queue for one tenant, the topology CLI's entry point."""
     await serve_summaries(client, factory, (tenant_id,), stop_event=stop_event)
 
 
@@ -86,22 +115,32 @@ async def _dispatch_guarded(client: Client, factory: SummaryRuntimeFactory, tena
     so one escaped error here would shut all of them down. Summaries are an
     optional projection: the next poll retries, and the other tenants go on.
     """
-
     try:
         await _dispatch(client, factory, tenant_id)
-    except Exception:  # noqa: BLE001 - an optional projection must not stop ingestion
-        logger.error("Summary dispatch failed tenant_id=%s", tenant_id, exc_info=True)
+    except Exception as error:  # noqa: BLE001
+        log_failure(
+            logger,
+            "topology.summary_dispatch_failed",
+            error,
+            FailureKind.EXPECTED,
+            tenant_id=tenant_id,
+        )
         return False
     return True
 
 
 def _backoff(seconds: float, failed_passes: int) -> float:
+    """Return the poll interval, doubled per failed pass up to the back-off ceiling."""
     if not failed_passes:
         return seconds
-    return min(seconds * 2.0 ** min(failed_passes, 16), max(seconds, _MAX_BACKOFF_SECONDS))
+    return min(
+        seconds * 2.0 ** min(failed_passes, _MAX_BACKOFF_DOUBLINGS),
+        max(seconds, _MAX_BACKOFF_SECONDS),
+    )
 
 
 async def _dispatch(client: Client, factory: SummaryRuntimeFactory, tenant_id: str) -> None:
+    """Reconcile one tenant and start a workflow for every runnable source scope."""
     settings = factory.settings
     await factory.synchronize(tenant_id)
     await factory.control.summaries.reconcile(tenant_id)
@@ -112,7 +151,9 @@ async def _dispatch(client: Client, factory: SummaryRuntimeFactory, tenant_id: s
                 SummaryWorkflowInput(tenant_id, scope, settings.topology_job_seconds),
                 id=f"harborrag-summary:{tenant_id}:{scope}:{revision}:{fence}",
                 task_queue=settings.summary_task_queue,
-                execution_timeout=timedelta(seconds=settings.topology_job_seconds + 3600),
+                execution_timeout=timedelta(
+                    seconds=settings.topology_job_seconds + _EXECUTION_TIMEOUT_MARGIN_SECONDS
+                ),
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
             )
         except WorkflowAlreadyStartedError:
@@ -120,6 +161,7 @@ async def _dispatch(client: Client, factory: SummaryRuntimeFactory, tenant_id: s
 
 
 async def _poll_delay(seconds: float, stop_event: asyncio.Event | None) -> None:
+    """Wait ``seconds``, or less when ``stop_event`` is set first."""
     if stop_event is None:
         await asyncio.sleep(seconds)
         return

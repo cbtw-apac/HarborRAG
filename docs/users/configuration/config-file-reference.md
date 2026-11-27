@@ -10,7 +10,7 @@ setting's name in capitals with the `HARBORRAG_` prefix, so `qdrant_url` is
 
 Connectors, parsers, chunking, models and the graph build have their own YAML files;
 this page lists only the variables that locate those files. Settings an administrator
-changes at runtime are in [Runtime Settings](runtime-settings.md).
+changes at runtime are in [Runtime settings](runtime-settings.md).
 [Deployment](../../developers/deployment/README.md) says which `env/` file each
 service reads in a repository checkout.
 
@@ -25,8 +25,8 @@ service reads in a repository checkout.
 | `HARBORRAG_CHUNKING_CONFIG_PATH` | `config/ingestion/chunking.yaml` | Chunking file; optional, built-in defaults apply when the default path is absent ([Chunking Configuration](chunking-config.md)) |
 | `HARBORRAG_MODEL_CONFIG_PATH` | `config/models/models.yaml` | Model catalog ([Model Configuration](model-config.md)) |
 | `HARBORRAG_GRAPH_BUILD_CONFIG_PATH` | `config/graph/build.yaml` | Graph build file ([Graph Build Configuration](graph-build-config.md)) |
-| `HARBORRAG_SETTINGS_SEED_PATH` | `config/settings.yaml` | Runtime settings seed file ([Runtime Settings](runtime-settings.md#seed-file-and-drift)) |
-| `HARBORRAG_SCHEDULE_CONFIG_PATH` | `config/sources/schedules.yaml` | Declarative schedules the API syncs at startup; the API image sets `/app/config/sources/schedules.yaml` ([Scheduled Ingestion](../scheduled-ingestion.md)) |
+| `HARBORRAG_SETTINGS_SEED_PATH` | `config/settings.yaml` | Runtime settings seed file ([Runtime settings](runtime-settings.md#seed-file-and-drift)) |
+| `HARBORRAG_SCHEDULE_CONFIG_PATH` | `config/sources/schedules.yaml` | Declarative schedules the API syncs at startup; the API image sets `/app/config/sources/schedules.yaml` ([Scheduled ingestion](../scheduled-ingestion.md)) |
 | `HARBORRAG_CONTROL_DB_URL` | `sqlite+aiosqlite:///./harborrag_control.db` | Control database, where connections, runs and settings live; must not be SQLite unless `HARBORRAG_ENV=dev` |
 | `HARBORRAG_CONTROL_DB_POOL_SIZE` | `40` | Connections each Postgres control-database pool keeps, 1 to 100 |
 | `HARBORRAG_CONTROL_DB_MAX_OVERFLOW` | `32` | Extra connections each pool opens under load, 0 to 200 |
@@ -68,7 +68,7 @@ to start until you set `HARBORRAG_QDRANT_GRPC_PORT` or
 `HARBORRAG_QDRANT_PREFER_GRPC=false`. Without that check, a mapped port such as
 `16333` would still send vectors to port `6334`, which can belong to another Qdrant.
 The first time a process opens the vector store, it logs where vectors go, such as
-`Vector store target=Qdrant gRPC localhost:16334`.
+`composition.vector_store_selected backend=qdrant transport_kind=grpc server_address=localhost server_port=16334`.
 
 The pool size and overflow apply to each pool, and one process can open several pools
 on the same database. Size Postgres `max_connections` for every pool of every API

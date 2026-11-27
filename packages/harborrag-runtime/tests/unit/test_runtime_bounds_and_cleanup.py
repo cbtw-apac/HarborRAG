@@ -87,7 +87,11 @@ def test_secrets_key_with_surrounding_whitespace_is_kept_and_warned_about(
     used = secrets_encryption_key(RuntimeSettings(control_db_url=_DSN, secrets_encryption_key=key))
 
     assert used == key
-    assert "leading or trailing whitespace" in caplog.text
+    (record,) = caplog.records
+    assert record.__dict__["event"] == "control_plane.secrets_key_whitespace"
+    assert record.levelno == logging.WARNING
+    assert "leading or trailing whitespace" in record.getMessage()
+    assert "dropped_fields" not in record.__dict__
     assert "demo-key-sentinel-0001" not in caplog.text
 
 

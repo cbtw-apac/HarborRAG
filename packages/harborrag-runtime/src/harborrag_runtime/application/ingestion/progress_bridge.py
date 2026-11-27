@@ -1,4 +1,4 @@
-"""Poll active ingestion runs and fan their events out via the event bus.
+"""Progress bridge that polls active ingestion runs and fans their events out on the bus.
 
 ``progress()`` is a point-in-time snapshot, so this bridge is the diff loop that turns
 snapshots into the ordered, replayable stream behind ``GET /v1/admin/ingestions/{id}/events``:
@@ -18,8 +18,9 @@ from datetime import datetime
 from typing import Any
 
 from harborrag_core.contracts.events import HarborEvent, event_prefix
-from harborrag_core.ingestion import IngestionTask
+from harborrag_core.ingestion import IngestionTask, StoredTaskDocumentResult
 from harborrag_core.ingestion.stages import spec_stage
+from harborrag_core.observability.log_events import log_event
 from harborrag_core.ports.events import EventBusPort
 from harborrag_engine.control_plane.connection_views import ingestion_counters, ingestion_status
 from harborrag_engine.ingestion.presenters import TERMINAL_STATES
@@ -33,6 +34,8 @@ logger = logging.getLogger("harborrag.runtime.application.ingestion.progress_bri
 _PUBLISH_STAGE = "publish"
 _UNKNOWN_CATEGORY = "unknown"
 _FAILED_PAGE_LIMIT = 200
+_FAILURE_CURSOR_PARTS = 2
+"""A stored failure cursor is ``[updated_at, document_id]``."""
 RUN_STATUS = "run.status"
 STAGE_PROGRESS = "stage.progress"
 DOCUMENT_FAILED = "document.failed"
@@ -82,11 +85,7 @@ async def sync_ingestion_progress(
     after_task_id = None
     while True:
         if still_leader is not None and not await still_leader():
-            logger.info(
-                "Ingestion progress bridge lost the lease mid-tick after examining %d tasks; "
-                "stopping early",
-                examined,
-            )
+            log_event(logger, "ingestion.progress_lease_lost", examined_count=examined)
             break
         page = await store.list_active(
             after_submitted_at=after_submitted_at,
@@ -146,6 +145,7 @@ async def _emit_changes(  # noqa: PLR0913 - the run and the state it is compared
     *,
     terminal: bool,
 ) -> None:
+    """Emit ``run.status`` and ``stage.progress`` for a changed snapshot, then new failures."""
     snapshot = {"status": status, "counters": counters}
     previous = task.summary.get(_SNAPSHOT_KEY)
     previous = previous if isinstance(previous, dict) else {}
@@ -172,10 +172,11 @@ async def _emit_changes(  # noqa: PLR0913 - the run and the state it is compared
 async def _emit_new_failures(
     store: PublicTaskStore, event_bus: EventBusPort, task: IngestionTask
 ) -> None:
+    """Emit ``document.failed`` for each failure after the stored cursor, advancing it."""
     cursor = task.summary.get(_FAILURE_CURSOR_KEY)
     after_updated_at: datetime | None = None
     after_document_id: str | None = None
-    if isinstance(cursor, list) and len(cursor) == 2:  # noqa: PLR2004 - [updated_at, document_id]
+    if isinstance(cursor, list) and len(cursor) == _FAILURE_CURSOR_PARTS:
         after_updated_at, after_document_id = datetime.fromisoformat(cursor[0]), cursor[1]
     while True:
         page = await store.document_results_page(
@@ -199,7 +200,8 @@ async def _emit_new_failures(
             return
 
 
-def _failure_payload(item: Any) -> dict[str, str]:
+def _failure_payload(item: StoredTaskDocumentResult) -> dict[str, str]:
+    """Return the ``document.failed`` payload: document, stage and error category."""
     result = item.result
     stage = result.get("failure_stage")
     code = result.get("safe_error_code")

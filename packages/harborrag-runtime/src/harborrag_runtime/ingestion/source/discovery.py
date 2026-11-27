@@ -18,6 +18,7 @@ from harborrag_adapters.repositories.database import (
     IngestionControlPlaneDatabase,
 )
 from harborrag_core.domain.source import SourceRecord
+from harborrag_core.observability.log_events import log_event
 from harborrag_engine.ingestion.source.models import (
     PlannedDocumentRelease,
     SourceDiscoveryPage,
@@ -34,7 +35,11 @@ logger = logging.getLogger("harborrag.runtime.ingestion.source_discovery")
 
 
 class SourceDiscoveryPlanner:
-    """Persist one authoritative scan and prepare globally dispatchable jobs."""
+    """Persist one authoritative scan and prepare globally dispatchable jobs.
+
+    Args:
+        control: Control-plane database that records the scan and the task's progress.
+    """
 
     def __init__(self, control: IngestionControlPlaneDatabase) -> None:
         self._control = control
@@ -97,16 +102,16 @@ class SourceDiscoveryPlanner:
             del pending[:_REGISTRATION_BATCH_SIZE]
             planned.extend(await self._record_batch(scan_id, batch))
         await self._record_skips(request, connector)
-        logger.info(
-            "Source discovery page task_id=%s roots=%d documents=%d has_next=%s "
-            "provider_ms=%.1f descriptor_ms=%.1f concurrency=%d",
-            request.task_id,
-            len(page.records),
-            len(planned),
-            page.next_cursor is not None,
-            provider_seconds * 1000,
-            descriptor_seconds * 1000,
-            descriptor_concurrency,
+        log_event(
+            logger,
+            "ingestion.discovery_page_completed",
+            task_id=request.task_id,
+            roots_count=len(page.records),
+            documents_count=len(planned),
+            page_status="has_next" if page.next_cursor is not None else "last",
+            provider_ms=round(provider_seconds * 1000, 1),
+            descriptor_ms=round(descriptor_seconds * 1000, 1),
+            concurrency_count=descriptor_concurrency,
         )
         return SourceDiscoveryPage(
             planned=tuple(planned),
@@ -241,11 +246,12 @@ class SourceDiscoveryPlanner:
                 "admitted": planned,
             },
         )
-        logger.info(
-            "Source discovery progress task_id=%s roots=%d documents=%d",
-            request.task_id,
-            root_count,
-            planned,
+        log_event(
+            logger,
+            "ingestion.discovery_progress",
+            task_id=request.task_id,
+            roots_count=root_count,
+            documents_count=planned,
         )
 
     @staticmethod

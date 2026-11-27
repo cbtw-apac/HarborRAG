@@ -1,3 +1,9 @@
+"""Temporal workflow that rebuilds retrieval projections from durable artifacts.
+
+Workflow code stays deterministic: a change to the activities a run schedules goes behind
+a ``workflow.patched`` marker, so recorded histories still replay.
+"""
+
 from __future__ import annotations
 
 from datetime import timedelta
@@ -6,6 +12,8 @@ from typing import cast
 from temporalio import workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError
+
+from harborrag_core.observability.log_events import FailureKind, log_failure
 
 from .maintenance_schemas import (
     ProjectionCleanupResult,
@@ -27,6 +35,17 @@ class ReindexWorkflow:
         self,
         request: ReindexInput,
     ) -> ReindexResult:
+        """Reindex, then clean the projections it left pending and repair relations.
+
+        A cleanup that fails stays queued for a later run and does not fail the reindex,
+        but relations are repaired only after a cleanup that succeeded.
+
+        Args:
+            request: The reindex job and its workflow options.
+
+        Returns:
+            The reindex activity's result.
+        """
         queue = request.workflow_options.task_queues.index
         retry = temporal_retry_policy(request.workflow_options.retries.document)
         result = await workflow.execute_activity(
@@ -47,8 +66,14 @@ class ReindexWorkflow:
                 retry_policy=retry,
                 result_type=ProjectionCleanupResult,
             )
-        except ActivityError:
-            workflow.logger.warning("Projection cleanup remains queued after reindex")
+        except ActivityError as error:
+            log_failure(
+                workflow.logger,
+                "temporal.reindex_cleanup_deferred",
+                error,
+                FailureKind.EXPECTED,
+                reindex_job_id=request.reindex_job_id,
+            )
         else:
             await self._repair_relations(request, queue, retry)
         return cast(ReindexResult, result)
@@ -59,6 +84,7 @@ class ReindexWorkflow:
         queue: str,
         retry: RetryPolicy,
     ) -> None:
+        """Restore source edges after the cleanup, in runs that reached the patch."""
         if not workflow.patched(_RELATION_REPAIR_PATCH):
             return
         await workflow.execute_activity(

@@ -12,7 +12,7 @@ services themselves.
 
 from __future__ import annotations
 
-from logging import Logger
+import logging
 
 from pydantic import ValidationError
 
@@ -20,6 +20,11 @@ from harborrag_core.contracts.errors import (
     HarborValidationError,
     IngestionActionStateError,
     IngestionNotFoundError,
+)
+from harborrag_core.observability.log_events import (
+    FailureKind,
+    log_event,
+    log_failure,
 )
 from harborrag_runtime.errors import (
     MissingOptionalDependencyError as MissingOptionalDependencyError,
@@ -36,6 +41,8 @@ from harborrag_runtime.errors import (
 )
 
 from .schemas import AppResponse
+
+SERVICE_CALL_FAILED_EVENT = "application.service_call_failed"
 
 
 class SettingsLevelNotFoundError(HarborValidationError):
@@ -81,8 +88,8 @@ def public_error_message(exc: Exception) -> str:
     Anything outside the allowlist collapses to its class name. That keeps
     third-party and adapter messages -- which may carry credentials, upstream
     response bodies, or internal storage paths -- out of CLI output and HTTP
-    responses. Callers are expected to ``logger.exception`` the original so the
-    full detail stays available to whoever operates the process.
+    responses. Callers log the original with ``log_failure``, which keeps its type,
+    code and console traceback for whoever operates the process.
     """
     if isinstance(exc, ValidationError):
         return validation_error_detail(exc)
@@ -92,19 +99,43 @@ def public_error_message(exc: Exception) -> str:
 
 
 def failure_response(
-    logger: Logger,
+    logger: logging.Logger,
     exc: Exception,
     message: str = "Application service call failed",
     *args: object,
 ) -> AppResponse:
-    """Log private detail while returning only a reviewed public message."""
+    """Log a failed service call by its cause and return only a reviewed public message.
+
+    An error without a reviewed message is logged at ERROR with its traceback. One with
+    a reviewed message has a known cause and is logged at DEBUG. Neither record carries
+    the error's text.
+
+    Args:
+        logger: The calling module's logger.
+        exc: The error the service call raised.
+        message: The operation that failed, a constant phrase such as
+            ``"generate chat completion"``; logged as the ``operation`` field.
+        *args: Accepted for older callers and never logged, since they can hold any
+            value. Put IDs on the record with ``log_context`` around the call instead.
+
+    Returns:
+        The failure envelope with the public message and the error's type name.
+    """
     public = public_error_message(exc)
     if public == type(exc).__name__:
-        logger.error(message, *args, exc_info=exc)
+        log_failure(
+            logger, SERVICE_CALL_FAILED_EVENT, exc, FailureKind.UNEXPECTED, 2, operation=message
+        )
     else:
-        logger.debug(message, *args, exc_info=exc)
+        log_event(
+            logger,
+            SERVICE_CALL_FAILED_EVENT,
+            level=logging.DEBUG,
+            operation=message,
+            error=exc,
+        )
     return AppResponse(
-        False,
+        ok=False,
         data={"error_type": type(exc).__name__},
         error=public,
     )

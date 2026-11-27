@@ -10,6 +10,7 @@ from itertools import islice
 from harborrag_adapters.connectors.base import BaseConnector
 from harborrag_adapters.connectors.harbor_connector import HarborConnector
 from harborrag_core.ingestion import BindingKind, DocumentIngestionOutcome
+from harborrag_core.observability.log_events import log_event
 from harborrag_engine.ingestion.release.models import DocumentReleaseOutcome
 from harborrag_engine.ingestion.source.models import (
     PlannedDocumentRelease,
@@ -131,6 +132,8 @@ class SourceDocumentOperations:
         connector: BaseConnector | HarborConnector,
         planned: tuple[PlannedDocumentRelease, ...],
     ) -> tuple[DocumentIngestionOutcome, ...]:
+        """Release root documents, then bound ones, ``document_concurrency`` at a time."""
+
         async def release(item: PlannedDocumentRelease) -> DocumentIngestionOutcome:
             return await self.release_one(request.task_id, item, connector)
 
@@ -156,20 +159,22 @@ class SourceDocumentOperations:
         root_count = sum(
             item.request.source_identity.binding.kind == BindingKind.ROOT for item in planned
         )
-        logger.info(
-            "Source dispatch started task_id=%s roots=%d bound=%d concurrency=%d",
-            request.task_id,
-            root_count,
-            len(planned) - root_count,
-            request.document_concurrency,
+        log_event(
+            logger,
+            "ingestion.dispatch_started",
+            task_id=request.task_id,
+            roots_count=root_count,
+            bound_count=len(planned) - root_count,
+            concurrency_count=request.document_concurrency,
         )
         results = (*await release_bounded(roots), *await release_bounded(bound))
         summary = SourceDispatchSummary.from_results(results)
-        logger.info(
-            "Source dispatch completed task_id=%s published=%d unchanged=%d failed=%d",
-            request.task_id,
-            summary.published,
-            summary.unchanged,
-            summary.failed,
+        log_event(
+            logger,
+            "ingestion.dispatch_completed",
+            task_id=request.task_id,
+            published_count=summary.published,
+            unchanged_count=summary.unchanged,
+            failed_count=summary.failed,
         )
         return results

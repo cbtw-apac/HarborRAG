@@ -22,8 +22,15 @@ def _production(tmp_path: Path) -> CompositionRoot:
     return CompositionRoot.production(RuntimeSettings(control_db_url=dsn))
 
 
+def _events(caplog: pytest.LogCaptureFixture, event: str) -> list[logging.LogRecord]:
+    """Return the captured records of one structured event."""
+    return [record for record in caplog.records if record.__dict__.get("event") == event]
+
+
 @pytest.mark.whitebox
-def test_production_composition_migrates_and_reports_ready(tmp_path: Path, caplog) -> None:
+def test_production_composition_migrates_and_reports_ready(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     """production() migrates, probes the DB and reports the stamped revision as ready."""
     with caplog.at_level(logging.INFO, logger="harborrag.runtime.composition"):
         composition = _production(tmp_path)
@@ -37,8 +44,12 @@ def test_production_composition_migrates_and_reports_ready(tmp_path: Path, caplo
     assert control_db["ping"] == "ok"
     assert control_db["migrations"] == "0049"
     assert control_db["scheme"] == "sqlite+aiosqlite"
-    assert "Control-plane composition completed" in caplog.text
-    assert "database_scheme=sqlite+aiosqlite ready=True migration=0049" in caplog.text
+    (completed,) = _events(caplog, "control_plane.composition_completed")
+    assert completed.levelno == logging.INFO
+    assert completed.__dict__["database_kind"] == "sqlite+aiosqlite"
+    assert completed.__dict__["probe_status"] == "ok"
+    assert completed.__dict__["schema_revision_id"] == "0049"
+    assert "dropped_fields" not in completed.__dict__
 
 
 @pytest.mark.asyncio
@@ -144,7 +155,10 @@ async def test_blank_encryption_key_falls_back_to_the_dev_default(
     with caplog.at_level(logging.WARNING, logger="harborrag.runtime.composition"):
         composition = CompositionRoot.production(settings)
     try:
-        assert "dev-only default secrets encryption key" in caplog.text
+        (warning,) = _events(caplog, "control_plane.dev_secrets_key")
+        assert warning.levelno == logging.WARNING
+        assert warning.__dict__["database_kind"] == "sqlite+aiosqlite"
+        assert "dev-only default secrets encryption key" in warning.getMessage()
     finally:
         await composition.aclose()
 
@@ -173,7 +187,7 @@ async def test_dev_env_allows_default_control_db_url(
 @pytest.mark.whitebox
 def test_migration_failure_logs_safe_actionable_diagnostics(
     tmp_path: Path,
-    caplog,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Failed startup logs a safe cause and an actionable migration hint.
 
@@ -194,17 +208,18 @@ def test_migration_failure_logs_safe_actionable_diagnostics(
         with pytest.raises(HarborConfigurationError, match="migrations failed"):
             CompositionRoot.production(RuntimeSettings(control_db_url=dsn))
 
-    message = caplog.text
-    assert "Control-plane migrations failed" in message
-    assert "error_type=OperationalError" in message
-    assert "already exists" not in message
-    assert "hint=" in message, "the recoverable case must name its remedy"
+    (failure,) = _events(caplog, "control_plane.migration_failed")
+    assert failure.levelno == logging.ERROR
+    assert failure.__dict__["error_type"] == "OperationalError"
+    assert failure.__dict__["database_kind"] == "sqlite+aiosqlite"
+    assert "already exists" not in caplog.text
+    assert "hint=" in failure.getMessage(), "the recoverable case must name its remedy"
 
 
 @pytest.mark.whitebox
 def test_database_ahead_of_this_build_names_both_revisions_and_the_remedy(
     tmp_path: Path,
-    caplog,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Startup against a control DB migrated by a newer build says so and how to recover.
 
@@ -234,7 +249,11 @@ def test_database_ahead_of_this_build_names_both_revisions_and_the_remedy(
     message = str(caught.value)
     assert f"schema revision 9999, newer than this build's head {head}" in message
     assert f"downgrade the database to {head}" in message
-    assert f"database_revision=9999 build_head={head}" in caplog.text
+    (failure,) = _events(caplog, "control_plane.schema_ahead_of_build")
+    assert failure.levelno == logging.ERROR
+    assert failure.__dict__["schema_revision_id"] == "9999"
+    assert failure.__dict__["build_revision_id"] == head
+    assert failure.__dict__["error_chain"].startswith("SchemaAheadOfBuildError>")
 
 
 @pytest.mark.whitebox
@@ -259,6 +278,29 @@ def test_non_sqlite_control_db_refuses_a_blank_encryption_key_before_connecting(
         match="HARBORRAG_SECRETS_ENCRYPTION_KEY or HARBORRAG_SECRETS_ENCRYPTION_KEY_FILE must be set",
     ):
         CompositionRoot.production(settings)
+
+
+@pytest.mark.whitebox
+def test_a_control_db_url_without_a_known_scheme_is_logged_as_unknown(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A value pasted where the DSN belongs never reaches the log as the database kind.
+
+    Without a key the composition stops before migrations, so nothing is dialled.
+    """
+    settings = RuntimeSettings(
+        control_db_url="hunter2-pasted-as-the-url",
+        secrets_encryption_key=None,
+        secrets_encryption_key_file=None,
+    )
+
+    with caplog.at_level(logging.INFO, logger="harborrag.runtime.composition"):
+        with pytest.raises(HarborConfigurationError):
+            CompositionRoot.production(settings)
+
+    (started,) = _events(caplog, "control_plane.composition_started")
+    assert started.__dict__["database_kind"] == "unknown"
+    assert "hunter2" not in caplog.text
 
 
 @pytest.mark.whitebox
