@@ -6,7 +6,6 @@ import json
 import logging
 from dataclasses import asdict, dataclass
 
-from harborrag_core.contracts.errors import HarborCapabilityError, HarborValidationError
 from harborrag_core.contracts.reader import (
     DOCUMENT_LIST_LIMIT,
     DocumentListRequest,
@@ -14,9 +13,10 @@ from harborrag_core.contracts.reader import (
 from harborrag_core.contracts.tools import ToolBehavior, ToolInvocationContext
 
 from .base import ToolSpec
+from .failures import invalid_arguments, tool_failure
 from .reader_base import ReaderTool
 from .reader_catalog import reader_success_schema
-from .reader_support import cursor_payload, failure, success
+from .reader_support import cursor_payload, success
 from .retrieval_inputs import TENANT_PROPERTY, access, integer, optional_text, text
 
 logger = logging.getLogger("harborrag.engine.tools.document_tools")
@@ -108,7 +108,7 @@ class ListDocumentsTool(ReaderTool):
                     after = text(stored, "after_document_id")
                 request = DocumentListRequest(identity, after, limit)
             except ValueError as exc:
-                return failure(str(exc))
+                return invalid_arguments("list_documents", exc, logger)
             response = await self.require_knowledge().list_documents(request)
             next_cursor = None
             if response.next_document_id is not None:
@@ -129,8 +129,5 @@ class ListDocumentsTool(ReaderTool):
                 complete=next_cursor is None,
                 reasons=[] if next_cursor is None else ["page_limit"],
             )
-        except (HarborValidationError, HarborCapabilityError) as exc:
-            return failure(str(exc))
-        except Exception:
-            logger.exception("document discovery failed")
-            return failure("document discovery failed")
+        except Exception as exc:  # noqa: BLE001 - the tool's boundary; tool_failure logs it
+            return tool_failure("list_documents", exc, logger, "document discovery failed")

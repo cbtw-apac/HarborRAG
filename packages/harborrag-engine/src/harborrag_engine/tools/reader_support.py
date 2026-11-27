@@ -138,10 +138,5 @@ def success(
     }
 
 
-def failure(message: str) -> dict[str, object]:
-    """Build the failure envelope a reader tool returns."""
-    return {"ok": False, "error": message}
-
-
 def _time(value: datetime | None) -> str | None:
     return value.isoformat() if value is not None else None

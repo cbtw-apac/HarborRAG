@@ -39,6 +39,7 @@ from harborrag_engine.tools.retrieval_schemas import (
 )
 
 from .base import BaseTool, ToolSpec
+from .failures import ToolErrorCode, failure, invalid_arguments
 from .graph_search_support import (
     COMPLETION_SCHEMA,
     backend_failure,
@@ -141,10 +142,12 @@ class GraphTripletSearchTool(BaseTool):
                 ),
             )
         except (HarborValidationError, ValueError) as exc:
-            return {"ok": False, "error": str(exc)}
+            return invalid_arguments("graph_triplet_search", exc, logger)
         graph = self.graph_reader or (self.runtime.graph if self.runtime is not None else None)
         if graph is None:
-            return {"ok": False, "error": "graph retrieval backend is not configured"}
+            return failure(
+                "graph retrieval backend is not configured", ToolErrorCode.NOT_CONFIGURED
+            )
         try:
             response = await graph.search_triplets(request)
         except Exception as exc:
@@ -232,10 +235,12 @@ class GraphPathSearchTool(BaseTool):
             )
             request = GraphPathRequest(access=access(arguments, principal_id), query=query)
         except (HarborValidationError, ValueError) as exc:
-            return {"ok": False, "error": str(exc)}
+            return invalid_arguments("graph_path_search", exc, logger)
         graph = self.graph_reader or (self.runtime.graph if self.runtime is not None else None)
         if graph is None:
-            return {"ok": False, "error": "graph retrieval backend is not configured"}
+            return failure(
+                "graph retrieval backend is not configured", ToolErrorCode.NOT_CONFIGURED
+            )
         try:
             response = await graph.find_paths(request)
         except Exception as exc:
@@ -337,10 +342,12 @@ class GraphSubgraphSearchTool(BaseTool):
                 query=query,
             )
         except (HarborValidationError, ValueError) as exc:
-            return {"ok": False, "error": str(exc)}
+            return invalid_arguments("graph_subgraph_search", exc, logger)
         graph = self.graph_reader or (self.runtime.graph if self.runtime is not None else None)
         if graph is None:
-            return {"ok": False, "error": "graph retrieval backend is not configured"}
+            return failure(
+                "graph retrieval backend is not configured", ToolErrorCode.NOT_CONFIGURED
+            )
         try:
             response = await graph.expand_subgraph(request)
         except Exception as exc:

@@ -281,7 +281,11 @@ async def test_document_cursor_is_owner_bound_and_keeps_one_version() -> None:
     assert [item["chunk_id"] for item in second["chunks"]] == ["chunk-2"]
     assert first["document_title"] == second["document_title"] == "Guide"
     assert runtime.knowledge.context_requests[1].expected_document_version_id == "version-1"
-    assert denied == {"ok": False, "error": "cursor is unavailable"}
+    assert denied == {
+        "ok": False,
+        "error": "cursor is unavailable",
+        "error_code": "invalid_request",
+    }
 
 
 @pytest.mark.asyncio

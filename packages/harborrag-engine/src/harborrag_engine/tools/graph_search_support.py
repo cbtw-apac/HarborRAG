@@ -11,6 +11,7 @@ from harborrag_engine.ingestion.projections.graph.source_projector_support impor
     source_provider_id,
 )
 
+from .failures import tool_failure
 from .retrieval_inputs import string_list
 
 logger = logging.getLogger("harborrag.engine.tools.graph_search_support")
@@ -67,15 +68,17 @@ def backend_failure(tool_name: str, exc: Exception, *, narrow: str) -> dict[str,
     """Turn a backend exception into the tool's failure payload.
 
     A graph read that outlives the store's deadline is the request's bounds being too
-    wide for the neighborhood, which the caller can fix, so it gets a message naming
-    what to narrow; ``narrow`` lists the arguments that bound this tool's search. Every
-    other backend error stays opaque so provider internals do not leak to callers.
+    wide for the neighborhood, which the caller can fix, so it gets ``query_too_broad``
+    and a message naming what to narrow; ``narrow`` lists the arguments that bound this
+    tool's search. Every other backend error stays opaque so provider internals do not
+    leak to callers.
     """
-    if isinstance(exc, HarborDeadlineExceeded):
-        logger.warning("%s graph query timed out", tool_name)
-        return {"ok": False, "error": f"graph query timed out; narrow {narrow}"}
-    logger.error("%s backend raised during call", tool_name, exc_info=exc)
-    return {"ok": False, "error": "graph retrieval backend failed"}
+    message = (
+        f"graph query timed out; narrow {narrow}"
+        if isinstance(exc, HarborDeadlineExceeded)
+        else "graph retrieval backend failed"
+    )
+    return tool_failure(tool_name, exc, logger, message)
 
 
 def completion(

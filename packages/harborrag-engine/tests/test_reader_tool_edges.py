@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 
 import pytest
 
@@ -129,7 +130,7 @@ async def test_fetch_evidence_reports_invalid_items(
         arguments, principal_id=PRINCIPAL
     )
 
-    assert result == {"ok": False, "error": error}
+    assert result == {"ok": False, "error": error, "error_code": "invalid_request"}
     assert knowledge.requests == []
 
 
@@ -154,7 +155,11 @@ async def test_fetch_evidence_without_a_backend_names_the_missing_capability() -
         {"tenant_id": TENANT, "items": [{"chunk_id": "chunk-1"}]}, principal_id=PRINCIPAL
     )
 
-    assert result == {"ok": False, "error": "knowledge reader backend is not configured"}
+    assert result == {
+        "ok": False,
+        "error": "knowledge reader backend is not configured",
+        "error_code": "not_enabled",
+    }
 
 
 @pytest.mark.asyncio
@@ -182,20 +187,20 @@ async def test_unexpected_backend_errors_are_logged_and_hidden(
     tool_cls: type[FetchEvidenceTool | GetDocumentContextTool | ResolveGraphNodesTool],
     arguments: dict[str, object],
     message: str,
-    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     knowledge = _Knowledge(error=RuntimeError("secret backend detail"))
-    logged: list[str] = []
-    monkeypatch.setattr(reader_tools.logger, "exception", logged.append)
+    caplog.set_level(logging.ERROR, logger=reader_tools.logger.name)
 
     result = await tool_cls(knowledge=knowledge).call(  # type: ignore[arg-type]
         arguments, principal_id=PRINCIPAL
     )
 
-    assert result == {"ok": False, "error": message}
+    assert result == {"ok": False, "error": message, "error_code": "backend_unavailable"}
     assert "secret backend detail" not in json.dumps(result)
-    assert len(logged) == 1
-    assert logged[0].endswith(" failed")
+    (record,) = caplog.records
+    assert record.getMessage().startswith("tool.call_failed error_type=RuntimeError")
+    assert "secret backend detail" not in record.getMessage()
 
 
 @pytest.mark.asyncio
@@ -217,7 +222,7 @@ async def test_capability_errors_pass_their_message_through(
         arguments, principal_id=PRINCIPAL
     )
 
-    assert result == {"ok": False, "error": "reader is read-only here"}
+    assert result == {"ok": False, "error": "reader is read-only here", "error_code": "not_enabled"}
 
 
 def _context_response(
@@ -288,10 +293,15 @@ async def test_document_context_cursor_cannot_be_replayed_against_another_docume
         principal_id=PRINCIPAL,
     )
 
-    assert other_document == {"ok": False, "error": "cursor is unavailable for this document"}
+    assert other_document == {
+        "ok": False,
+        "error": "cursor is unavailable for this document",
+        "error_code": "invalid_request",
+    }
     assert other_version == {
         "ok": False,
         "error": "cursor does not match the requested version",
+        "error_code": "invalid_request",
     }
     assert len(knowledge.requests) == 1
 
@@ -313,7 +323,7 @@ async def test_resolve_graph_nodes_reports_an_invalid_selector(
         {"tenant_id": TENANT, "selector": selector}, principal_id=PRINCIPAL
     )
 
-    assert result == {"ok": False, "error": error}
+    assert result == {"ok": False, "error": error, "error_code": "invalid_request"}
     assert knowledge.requests == []
 
 
@@ -330,6 +340,7 @@ async def test_resolve_graph_nodes_explains_how_to_narrow_a_timed_out_query() ->
         "ok": False,
         "error": "graph query timed out; narrow with source_ids or entity_types, "
         "or use a node_key or provider_id selector",
+        "error_code": "query_too_broad",
     }
 
 

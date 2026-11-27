@@ -19,13 +19,13 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
-from harborrag_core.contracts.errors import HarborCapabilityError, HarborValidationError
 from harborrag_core.contracts.reader import ENTITY_FIND_LIMIT, EntityFindRequest
 from harborrag_core.contracts.tools import ToolBehavior, ToolInvocationContext, ToolSpec
 from harborrag_core.summaries import FACET_NAME_PATTERN
 
+from .failures import invalid_arguments, tool_failure
 from .reader_base import ReaderTool
-from .reader_support import failure, success
+from .reader_support import success
 from .retrieval_inputs import (
     TENANT_PROPERTY,
     access,
@@ -209,7 +209,7 @@ class FindEntitiesTool(ReaderTool):
                     limit=integer(arguments, "limit", 10, minimum=1, maximum=ENTITY_FIND_LIMIT),
                 )
             except ValueError as exc:
-                return failure(str(exc))
+                return invalid_arguments("find_entities", exc, logger)
             response = await self.require_retrieval().find_entities(request)
             reasons = [*response.reasons, *(["candidate_limit"] if response.truncated else [])]
             return success(
@@ -233,8 +233,5 @@ class FindEntitiesTool(ReaderTool):
                 complete=not reasons,
                 reasons=reasons,
             )
-        except (HarborValidationError, HarborCapabilityError) as exc:
-            return failure(str(exc))
-        except Exception:
-            logger.exception("find_entities failed")
-            return failure("entity search failed")
+        except Exception as exc:  # noqa: BLE001 - the tool's boundary; tool_failure logs it
+            return tool_failure("find_entities", exc, logger, "entity search failed")

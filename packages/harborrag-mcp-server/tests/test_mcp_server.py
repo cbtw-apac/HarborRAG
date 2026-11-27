@@ -14,6 +14,8 @@ from harborrag_mcp_server.server import call_tool, create_mcp_server, list_tools
 from harborrag_mcp_server.server.base import BaseMcpServer
 from harborrag_mcp_server.server.server import McpServer
 
+pytestmark = pytest.mark.unit
+
 
 def test_package_exposes_the_mcp_server_namespace() -> None:
     import harborrag_mcp_server
@@ -77,7 +79,6 @@ def test_module_http_requires_a_strong_bearer_token(monkeypatch, capsys) -> None
     assert "HARBORRAG_MCP_BEARER_TOKEN" in capsys.readouterr().err
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     ("host", "address"),
     [
@@ -103,10 +104,11 @@ def test_start_up_lines_give_the_address_of_a_bind_a_client_can_open(
     ]
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("host", ["0.0.0.0", "::"])
 @pytest.mark.parametrize("ui", [False, True])
-def test_start_up_line_gives_no_address_for_a_bind_to_every_interface(host: str, ui: bool) -> None:
+def test_start_up_line_gives_no_address_for_a_bind_to_every_interface(
+    host: str, *, ui: bool
+) -> None:
     import harborrag_mcp_server.__main__ as cli
 
     arguments = argparse.Namespace(host=host, port=8010, path="/mcp")
@@ -229,7 +231,11 @@ async def test_mcp_registry_exposes_retrieval_tools():
         "vector_search",
         {"query": "harbor", "tenant_id": "demo"},
     )
-    assert result == {"ok": False, "error": "vector retrieval backend is not configured"}
+    assert result == {
+        "ok": False,
+        "error": "vector retrieval backend is not configured",
+        "error_code": "not_configured",
+    }
     with pytest.raises(ValueError):
         await server.call_tool("missing")
     with pytest.raises(ValueError):
@@ -418,7 +424,6 @@ def test_administration_follows_the_admin_scope_not_the_tenant_binding() -> None
     be read without source ACLs. Reading it as an admin demotion locked the owner
     out of the configuration API with a perfectly valid bearer token.
     """
-
     from types import SimpleNamespace
 
     from harborrag_mcp_server.server.http_auth import (
@@ -459,14 +464,13 @@ def test_the_transport_masks_details_of_an_unexpected_failure() -> None:
     FastMCP defaults ``mask_error_details`` off, which relays any exception
     escaping a tool as ``Error calling tool 'x': {exc}`` -- enough to leak a
     connection URL or a server path. The HTTP route already masks; the MCP
-    transport has to agree.
+    transport has to agree. FastMCP keeps the resolved setting private, so the
+    test reads the private attribute.
     """
-
     pytest.importorskip("fastmcp")
 
     transport = create_mcp_server(allow_unauthenticated_local=True)
 
-    # FastMCP keeps the resolved setting private; there is no public accessor.
     assert transport._mask_error_details is True
 
 
@@ -475,9 +479,11 @@ async def test_a_refused_request_is_audited_before_it_is_rejected(monkeypatch) -
     """A token probing another tenant is exactly what the trail exists to show.
 
     Resolving the principal as a call argument put it before ``call_tool``, so
-    an authorization refusal produced no audit record at all.
+    an authorization refusal produced no audit record at all. The test uses the
+    tenant-scoped ``list_sources``, because ``describe_graph`` declares no tenant
+    and cannot express this refusal. The refusal arrives as a ToolError so the
+    masked transport still names it.
     """
-
     from types import SimpleNamespace
 
     dependencies = pytest.importorskip("fastmcp.server.dependencies")
@@ -493,11 +499,8 @@ async def test_a_refused_request_is_audited_before_it_is_rejected(monkeypatch) -
     )
     monkeypatch.setattr(dependencies, "get_access_token", lambda: intruder)
     server = McpServer(audit=McpAuditLog())
-    # A tenant-scoped tool: ``describe_graph`` declares no tenant and is never
-    # bound to one, so it cannot express this refusal.
     handler = _tool_handler(server, "list_sources")
 
-    # Delivered as a ToolError so the masked transport still names the refusal.
     with pytest.raises(ToolError, match="requested tenant"):
         await handler(tenant_id="someone-else")
 
@@ -522,7 +525,6 @@ async def test_describe_graph_needs_no_tenant_on_the_default_transports(monkeypa
     local HTTP transport mints, leaving it reachable only from an API key
     carrying exactly one concrete tenant.
     """
-
     from types import SimpleNamespace
 
     dependencies = pytest.importorskip("fastmcp.server.dependencies")
@@ -545,7 +547,6 @@ async def test_describe_graph_needs_no_tenant_on_the_default_transports(monkeypa
 @pytest.mark.asyncio
 async def test_a_tenant_free_tool_still_refuses_a_token_without_a_read_role(monkeypatch) -> None:
     """Skipping the tenant binding must not skip authorizing the principal."""
-
     from types import SimpleNamespace
 
     dependencies = pytest.importorskip("fastmcp.server.dependencies")
@@ -570,8 +571,13 @@ async def test_a_tenant_free_tool_still_refuses_a_token_without_a_read_role(monk
 
 @pytest.mark.asyncio
 async def test_the_audit_records_which_tenant_a_call_touched() -> None:
-    """The first question asked of a trail, and it could not answer it."""
+    """The first question asked of a trail, and it could not answer it.
 
+    The ``vector_search`` call is rejected for its missing query; the point is
+    that the attempt is recorded against the tenant it aimed at. ``describe_graph``
+    takes no tenant, and ``vector_search`` records the canonical stripped value
+    that drove policy and validation.
+    """
     from harborrag_mcp_server.audit import McpAuditLog
 
     log = McpAuditLog()
@@ -579,13 +585,9 @@ async def test_the_audit_records_which_tenant_a_call_touched() -> None:
 
     await server.call_tool("describe_graph", {}, principal_id="reader-1")
     with contextlib.suppress(Exception):
-        # Rejected for a missing query; the point is that the attempt is
-        # recorded against the tenant it was aimed at.
         await server.call_tool("vector_search", {"tenant_id": "  ACME  "}, principal_id="reader-1")
 
     tenants = [entry["tenant_id"] for entry in log.entries]
-    # describe_graph takes no tenant; vector_search records the canonical
-    # stripped value, the same one that drove policy and validation.
     assert tenants[0] is None
     assert "ACME" in tenants
 
@@ -596,7 +598,6 @@ def test_a_relative_audit_path_does_not_follow_the_launch_directory(tmp_path, mo
     A relative path also meant the owner-only directory rules the writer
     enforces landed wherever the client happened to start the server.
     """
-
     from harborrag_mcp_server.audit import McpAuditLog
 
     monkeypatch.setenv("HOME", str(tmp_path))
@@ -619,7 +620,6 @@ def test_an_absolute_audit_path_is_left_alone(tmp_path) -> None:
 
 def test_one_predicate_decides_whether_a_result_failed() -> None:
     """The audit and the MCP handler disagreed about status == "error"."""
-
     from harborrag_mcp_server.server.base import tool_reported_error
 
     assert tool_reported_error({"ok": False}) is True
@@ -629,6 +629,8 @@ def test_one_predicate_decides_whether_a_result_failed() -> None:
 
 
 class FailingProbe(BaseTool):
+    """A tool whose every failure is internal and must not reach a client verbatim."""
+
     spec = ToolSpec(
         "failing_probe",
         "Raise an unexpected internal error in a test.",
@@ -646,8 +648,6 @@ class FailingProbe(BaseTool):
     )
 
     async def call(self, arguments, *, principal_id):
-        # Every failure raised inside the tool's own execution, whatever its type,
-        # is internal: none of these may reach a remote client verbatim.
         failure = {
             "runtime": RuntimeError,
             "type": TypeError,
@@ -664,7 +664,6 @@ async def test_caller_correctable_errors_survive_the_masked_transport(tmp_path) 
     ``mask_error_details`` reduced them to "Error calling tool 'x'"; an
     unexpected failure must still be masked.
     """
-
     import fastmcp
     from fastmcp.exceptions import ToolError
 
@@ -703,6 +702,48 @@ async def test_caller_correctable_errors_survive_the_masked_transport(tmp_path) 
         "ValueError",
         "PermissionError",
     ]
+
+
+class ReportingFailureProbe(BaseTool):
+    """A tool that reports its own failure with an error code."""
+
+    spec = ToolSpec(
+        "reporting_failure_probe",
+        "Report a tool failure with an error code in a test.",
+        {
+            "type": "object",
+            "properties": {"tenant_id": {"type": "string"}},
+            "required": ["tenant_id"],
+            "additionalProperties": False,
+        },
+        output_schema={"type": "object"},
+    )
+
+    async def call(self, arguments, *, principal_id):
+        return {
+            "ok": False,
+            "error": "No content has been ingested yet, so there is nothing to search",
+            "error_code": "no_indexed_content",
+        }
+
+
+@pytest.mark.asyncio
+async def test_a_reported_tool_failure_reaches_the_client_with_its_error_code() -> None:
+    import fastmcp
+    from fastmcp.exceptions import ToolError
+
+    from harborrag_mcp_server.audit import McpAuditLog
+
+    registry = McpServer(tools=[ReportingFailureProbe()], audit=McpAuditLog())
+    transport = create_mcp_server(registry=registry, allow_unauthenticated_local=True)
+
+    async with fastmcp.Client(transport) as client:
+        with pytest.raises(ToolError) as raised:
+            await client.call_tool("reporting_failure_probe", {"tenant_id": "demo"})
+
+    assert str(raised.value) == (
+        "no_indexed_content: No content has been ingested yet, so there is nothing to search"
+    )
 
 
 @pytest.mark.asyncio

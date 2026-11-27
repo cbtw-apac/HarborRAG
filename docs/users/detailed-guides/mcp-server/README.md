@@ -54,6 +54,29 @@ What the catalog leaves out:
 The server also sends clients that show server-level `instructions` a short
 guide to which tool fits which question.
 
+## When a tool call fails
+
+A failed call carries an error code that says whose problem it is. Over MCP the
+call returns an error result whose text starts with the code, such as
+`no_indexed_content: No content has been ingested yet, so there is nothing to search`.
+Called from Python, a tool returns `ok: false`, an `error` message and the same
+code as `error_code`.
+
+| `error_code` | Meaning | What to do |
+| --- | --- | --- |
+| `invalid_request` | An argument is wrong; the message says which. | Fix the argument and call again. |
+| `query_too_broad` | A graph query outlived the store's deadline. | Narrow it as the message suggests. |
+| `not_enabled` | The deployment has not turned this feature on, such as entity search. | Use another tool, or ask the operator. |
+| `no_indexed_content` | Nothing has been ingested for this tenant yet. | Ingest a source, then search again. |
+| `not_configured` | The server has no backend for this tool. | Ask the operator; retrying does not help. |
+| `backend_unavailable` | A store or model the tool needs failed. | Retry later; the operator sees the cause in the server logs. |
+
+The message never contains stored content, store names or provider details. A
+call refused before the tool runs, for example because an argument breaks the
+tool's schema or the token does not grant the tenant, carries no code; its
+message says what to fix. Only `not_configured` and `backend_unavailable` count
+toward the server's error rate.
+
 ## Defaults and limits
 
 Each deployment sets tool defaults and limits in

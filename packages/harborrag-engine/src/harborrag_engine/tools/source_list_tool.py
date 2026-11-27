@@ -7,7 +7,6 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from harborrag_core.contracts.errors import HarborCapabilityError, HarborValidationError
 from harborrag_core.contracts.reader import (
     SOURCE_LIST_LIMIT,
     SourceListRequest,
@@ -15,9 +14,10 @@ from harborrag_core.contracts.reader import (
 )
 from harborrag_core.contracts.tools import ToolInvocationContext
 
+from .failures import invalid_arguments, tool_failure
 from .reader_base import ReaderTool
 from .reader_catalog import LIST_SOURCES_SPEC
-from .reader_support import cursor_payload, failure, match_cursor_value, source, success
+from .reader_support import cursor_payload, match_cursor_value, source, success
 from .retrieval_inputs import access, integer, optional_text, string_list, text
 
 logger = logging.getLogger("harborrag.engine.tools.source_list_tool")
@@ -65,7 +65,7 @@ class ListSourcesTool(ReaderTool):
                     int(stored.get("limit", requested_limit)),
                 )
             except ValueError as exc:
-                return failure(str(exc))
+                return invalid_arguments("list_sources", exc, logger)
             response = await self.require_knowledge().list_sources(request)
             next_cursor = self._next_cursor(
                 response, tenant_id, principal_id, source_ids, connector_types
@@ -79,11 +79,8 @@ class ListSourcesTool(ReaderTool):
                 complete=next_cursor is None,
                 reasons=[] if next_cursor is None else ["page_limit"],
             )
-        except (HarborValidationError, HarborCapabilityError) as exc:
-            return failure(str(exc))
-        except Exception:
-            logger.exception("list_sources failed")
-            return failure("source discovery failed")
+        except Exception as exc:  # noqa: BLE001 - the tool's boundary; tool_failure logs it
+            return tool_failure("list_sources", exc, logger, "source discovery failed")
 
     def _cursor(
         self, arguments: dict[str, object], tenant_id: str, principal_id: str

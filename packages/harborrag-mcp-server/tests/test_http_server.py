@@ -200,6 +200,7 @@ async def test_http_routes_expose_ui_health_and_authenticated_mcp(tmp_path) -> N
     assert call_response.json()["result"] == {
         "ok": False,
         "error": "vector retrieval backend is not configured",
+        "error_code": "not_configured",
     }
     assert audit.entries[-1]["principal_id"] == "harborrag-local"
     assert oversized_call.status_code == 422

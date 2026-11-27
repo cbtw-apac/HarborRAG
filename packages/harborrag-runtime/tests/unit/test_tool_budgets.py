@@ -7,6 +7,8 @@ import pytest
 from harborrag_engine.tools.base import ToolSpec
 from harborrag_engine.tools.budgets import ToolBudget, result_count
 
+pytestmark = pytest.mark.unit
+
 _SCHEMA: dict[str, object] = {
     "type": "object",
     "required": ["query"],
@@ -22,7 +24,7 @@ def _spec(**overrides: object) -> ToolSpec:
         "input_schema": _SCHEMA,
     }
     fields.update(overrides)
-    return ToolSpec(**fields)  # type: ignore[arg-type]
+    return ToolSpec(**fields)  # type: ignore[arg-type]  # overrides hold ToolSpec fields
 
 
 def test_an_ingestion_tool_is_refused_unless_it_is_switched_on() -> None:
@@ -38,7 +40,6 @@ def test_an_ingestion_tool_is_refused_unless_it_is_switched_on() -> None:
 
 def test_a_payload_that_cannot_be_serialized_is_named_as_such() -> None:
     """Otherwise a bare TypeError escapes as an unexplained transport fault."""
-
     budget = ToolBudget(label="MCP")
 
     with pytest.raises(ValueError, match="MCP arguments must be JSON serializable"):
@@ -63,7 +64,6 @@ def test_a_tool_whose_schema_is_invalid_is_our_bug_not_the_callers() -> None:
 
 def test_detail_names_the_failing_field_only_when_asked() -> None:
     """The default reports the bare contract; a budget that opts in names the field."""
-
     quiet = ToolBudget(label="MCP")
     loud = ToolBudget(label="MCP", detail_in_errors=True)
 
@@ -74,6 +74,50 @@ def test_detail_names_the_failing_field_only_when_asked() -> None:
 
     assert str(silent.value) == "MCP arguments do not match the tool schema."
     assert "query: " in str(spoken.value)
+
+
+_MARKER = "synthetic-probe-marker"
+_DETAILED_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "required": ["query", "lane"],
+    "properties": {
+        "query": {"type": "string", "maxLength": 8},
+        "lane": {"type": "string", "enum": ["dense", "sparse", "hybrid"]},
+        "top_k": {"type": "integer", "minimum": 1, "maximum": 20},
+        "filters": {"type": "object", "additionalProperties": {"type": "string"}},
+        "mode": {"anyOf": [{"const": "flat"}, {"const": "local_semantic"}]},
+    },
+    "additionalProperties": False,
+}
+
+
+@pytest.mark.parametrize(
+    ("arguments", "expected"),
+    [
+        ({"query": [_MARKER], "lane": "dense"}, "query: must be of type string"),
+        ({"query": _MARKER, "lane": "dense"}, "query: must be at most 8 characters long"),
+        ({"query": "x", "lane": _MARKER}, 'lane: must be one of ["dense","sparse","hybrid"]'),
+        ({"query": "x", "lane": "dense", "top_k": 21}, "top_k: must be at most 20"),
+        ({"query": "x"}, "lane: is required"),
+        (
+            {"query": "x", "lane": "dense", _MARKER: 1},
+            'arguments: allows only ["filters","lane","mode","query","top_k"]',
+        ),
+        ({"query": "x", "lane": "dense", "filters": {f"{_MARKER} text": 1}}, "filters.*: must be"),
+        ({"query": "x", "lane": "dense", "mode": _MARKER}, "mode: does not satisfy anyOf"),
+    ],
+)
+def test_detail_names_the_field_and_constraint_but_never_the_value(
+    arguments: dict[str, object], expected: str
+) -> None:
+    """The refusal text reaches the client and the MCP library's span status in traces."""
+    budget = ToolBudget(label="MCP", detail_in_errors=True)
+
+    with pytest.raises(ValueError) as rejected:
+        budget.check_call(_spec(input_schema=_DETAILED_SCHEMA), arguments)
+
+    assert expected in str(rejected.value)
+    assert _MARKER not in str(rejected.value)
 
 
 def test_a_long_detail_is_truncated_rather_than_forwarded_whole() -> None:
@@ -101,8 +145,10 @@ def test_results_are_counted_from_whichever_list_a_tool_returns() -> None:
 
 
 def test_a_compiled_schema_is_reused_across_calls() -> None:
-    """check_schema dominates the cost, so it must not run per call."""
+    """check_schema dominates the cost, so it must not run per call.
 
+    A separate dict with identical content keys to the same compiled validator.
+    """
     from harborrag_engine.tools.budgets import _compiled, _validator
 
     _compiled.cache_clear()
@@ -111,6 +157,5 @@ def test_a_compiled_schema_is_reused_across_calls() -> None:
 
     budget.check_call(spec, {"query": "x"})
     budget.check_call(spec, {"query": "y"})
-    # A separate dict with identical content keys to the same compiled validator.
     assert _validator(dict(_SCHEMA)) is _validator(spec.input_schema)
     assert _compiled.cache_info().hits >= 2

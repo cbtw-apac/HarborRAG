@@ -13,7 +13,6 @@ from dataclasses import dataclass
 from typing import Any
 
 from harborrag_core.contracts.errors import (
-    HarborCapabilityError,
     HarborDeadlineExceeded,
     HarborValidationError,
 )
@@ -27,6 +26,7 @@ from harborrag_core.contracts.reader import (
 from harborrag_core.contracts.tools import ToolInvocationContext
 from harborrag_core.retrieval import GraphNodeResolutionQuery, GraphNodeSelectorKind
 
+from .failures import invalid_arguments, tool_failure
 from .graph_search_support import node_selector
 from .reader_base import ReaderTool
 from .reader_catalog import (
@@ -38,7 +38,6 @@ from .reader_support import (
     cursor_payload,
     evidence_item,
     evidence_selector,
-    failure,
     match_cursor_value,
     node,
     success,
@@ -73,7 +72,7 @@ class FetchEvidenceTool(ReaderTool):
                 selectors = tuple(evidence_selector(item) for item in raw_items)
                 request = EvidenceReadRequest(access(arguments, principal_id), selectors)
             except ValueError as exc:
-                return failure(str(exc))
+                return invalid_arguments("fetch_evidence", exc, logger)
             response = await self.require_knowledge().read_evidence(request)
             items = [evidence_item(item) for item in response.items]
             reasons = sorted(
@@ -85,11 +84,8 @@ class FetchEvidenceTool(ReaderTool):
                 complete=not reasons,
                 reasons=reasons,
             )
-        except (HarborValidationError, HarborCapabilityError) as exc:
-            return failure(str(exc))
-        except Exception:
-            logger.exception("fetch_evidence failed")
-            return failure("evidence retrieval failed")
+        except Exception as exc:  # noqa: BLE001 - the tool's boundary; tool_failure logs it
+            return tool_failure("fetch_evidence", exc, logger, "evidence retrieval failed")
 
 
 @dataclass(slots=True)
@@ -122,7 +118,7 @@ class GetDocumentContextTool(ReaderTool):
                     include_outline=selected["include_outline"],
                 )
             except ValueError as exc:
-                return failure(str(exc))
+                return invalid_arguments("get_document_context", exc, logger)
             response = await self.require_knowledge().get_document_context(request)
             next_cursor = self._context_cursor(response, selected, arguments, principal_id)
             outline_complete = bool(
@@ -165,11 +161,10 @@ class GetDocumentContextTool(ReaderTool):
                 complete=not reasons,
                 reasons=reasons,
             )
-        except (HarborValidationError, HarborCapabilityError) as exc:
-            return failure(str(exc))
-        except Exception:
-            logger.exception("get_document_context failed")
-            return failure("document context retrieval failed")
+        except Exception as exc:  # noqa: BLE001 - the tool's boundary; tool_failure logs it
+            return tool_failure(
+                "get_document_context", exc, logger, "document context retrieval failed"
+            )
 
     def _context_arguments(self, arguments: dict[str, object], principal_id: str) -> dict[str, Any]:
         tenant_id = text(arguments, "tenant_id")
@@ -270,7 +265,7 @@ class ResolveGraphNodesTool(ReaderTool):
                 query = _resolution_query(arguments)
                 request = GraphNodeResolveRequest(access(arguments, principal_id), query)
             except ValueError as exc:
-                return failure(str(exc))
+                return invalid_arguments("resolve_graph_nodes", exc, logger)
             response = await self.require_knowledge().resolve_graph_nodes(request)
             candidates = [node(item) for item in response.candidates]
             resolution = (
@@ -286,17 +281,16 @@ class ResolveGraphNodesTool(ReaderTool):
                 complete=not response.truncated,
                 reasons=[] if not response.truncated else ["candidate_limit"],
             )
-        except (HarborValidationError, HarborCapabilityError) as exc:
-            return failure(str(exc))
-        except HarborDeadlineExceeded:
-            logger.warning("resolve_graph_nodes graph query timed out")
-            return failure(
+        except HarborDeadlineExceeded as exc:
+            return tool_failure(
+                "resolve_graph_nodes",
+                exc,
+                logger,
                 "graph query timed out; narrow with source_ids or entity_types, "
-                "or use a node_key or provider_id selector"
+                "or use a node_key or provider_id selector",
             )
-        except Exception:
-            logger.exception("resolve_graph_nodes failed")
-            return failure("graph node resolution failed")
+        except Exception as exc:  # noqa: BLE001 - the tool's boundary; tool_failure logs it
+            return tool_failure("resolve_graph_nodes", exc, logger, "graph node resolution failed")
 
 
 def _resolution_query(arguments: dict[str, object]) -> GraphNodeResolutionQuery:

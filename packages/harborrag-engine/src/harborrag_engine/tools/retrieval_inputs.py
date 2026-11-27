@@ -10,6 +10,7 @@ from harborrag_core.schemas.ids import TenantId
 from harborrag_core.security import AccessContext
 
 from .context import current_invocation
+from .failures import ToolErrorCode
 
 
 def text(arguments: Mapping[str, object], name: str) -> str:
@@ -113,17 +114,26 @@ TENANT_PROPERTY: dict[str, object] = {
 
 FAILURE_RESULT_SCHEMA: dict[str, object] = {
     "type": "object",
-    "required": ["ok", "error"],
+    "required": ["ok", "error", "error_code"],
     "properties": {
         "ok": {"const": False},
         "error": {"type": "string"},
+        "error_code": {
+            "type": "string",
+            "enum": [code.value for code in ToolErrorCode],
+            "description": (
+                "Why the call failed: invalid_request and query_too_broad are the caller's to "
+                "fix; not_enabled and no_indexed_content describe the deployment; "
+                "not_configured needs an operator; backend_unavailable is worth retrying later."
+            ),
+        },
     },
     "additionalProperties": False,
 }
 
 
 def success_or_failure_schema(success_schema: dict[str, object]) -> dict[str, object]:
-    """Wrap a tool's success-shape schema with the shared ``{"ok": False, "error"}`` shape.
+    """Wrap a tool's success-shape schema with the shared ``{"ok": False, "error", "error_code"}`` shape.
 
     Every retrieval tool's ``call()`` returns one of exactly two shapes: the declared
     success payload, or the uniform failure payload used across the package. Modeling

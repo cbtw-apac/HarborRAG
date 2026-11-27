@@ -141,7 +141,11 @@ async def test_a_graph_timeout_is_reported_as_actionable(
 
     result = await tool_cls(runtime=runtime).call(arguments, principal_id="reader-1")
 
-    assert result == {"ok": False, "error": f"graph query timed out; narrow {narrow}"}
+    assert result == {
+        "ok": False,
+        "error": f"graph query timed out; narrow {narrow}",
+        "error_code": "query_too_broad",
+    }
 
 
 class _RecordingKnowledge:

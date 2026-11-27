@@ -14,6 +14,7 @@ from harborrag_engine.retrieval.evidence_filters import validate_evidence_filter
 from harborrag_engine.tools.base import MAX_TOOL_RESULTS
 
 from .base import BaseTool, ToolSpec
+from .failures import ToolErrorCode, failure, invalid_arguments, tool_failure
 from .output_schemas import RETRIEVAL_DIAGNOSTICS_SCHEMA, RETRIEVAL_RESULT_SCHEMA
 from .retrieval_cost import RETRIEVAL_COST_SCHEMA, unavailable_retrieval_cost
 from .retrieval_inputs import (
@@ -33,6 +34,7 @@ if TYPE_CHECKING:
     from harborrag_core.ports.reader import ReaderServices, RetrievalReader
 
 logger = logging.getLogger("harborrag.engine.tools.vector_search")
+TOOL_NAME = "vector_search"
 
 _DEFAULT_TOP_K = 5
 _MAX_TOP_K = MAX_TOOL_RESULTS
@@ -92,7 +94,7 @@ class VectorSearchTool(BaseTool):
     runtime: ReaderServices | None = None
     reader: RetrievalReader | None = None
     spec = ToolSpec(
-        "vector_search",
+        TOOL_NAME,
         "Search tenant-scoped vectors with explicit retrieval controls. Set include_content "
         "to false for compact discovery, then fetch_evidence for selected chunk IDs.",
         vector_search_schema(max_results=_MAX_TOP_K, tenant=TENANT_PROPERTY),
@@ -161,7 +163,7 @@ class VectorSearchTool(BaseTool):
             )
             include_content = boolean(arguments, "include_content", True)
         except (HarborValidationError, ValueError) as exc:
-            return {"ok": False, "error": str(exc)}
+            return invalid_arguments(TOOL_NAME, exc, logger)
         return await _search(
             self.reader or (self.runtime.retrieval if self.runtime is not None else None),
             request,
@@ -180,19 +182,17 @@ async def _search(
     """Search the vector backend and return the tool response.
 
     A refused filter, such as an unindexed source field or a range on an exact-match key, is the
-    caller's to fix, so the error says what to fix instead of "failed". Any other failure shows the
-    caller only a generic message; the real cause, such as a misconfigured provider or an
-    unreachable store, appears in the server logs and never in the tool response.
+    caller's to fix, so the error says what to fix instead of "failed". A tenant with nothing
+    ingested gets ``no_indexed_content`` and says so. Any other failure shows the caller only a
+    generic message; the real cause, such as a misconfigured provider or an unreachable store,
+    appears in the server logs and never in the tool response.
     """
     if reader is None:
-        return {"ok": False, "error": "vector retrieval backend is not configured"}
+        return failure("vector retrieval backend is not configured", ToolErrorCode.NOT_CONFIGURED)
     try:
         response = await reader.search(request)
-    except HarborValidationError as exc:
-        return {"ok": False, "error": str(exc)}
-    except Exception:
-        logger.exception("vector retrieval backend raised during search")
-        return {"ok": False, "error": "vector retrieval backend failed"}
+    except Exception as exc:  # noqa: BLE001 - the tool's boundary; tool_failure logs it
+        return tool_failure(TOOL_NAME, exc, logger, "vector retrieval backend failed")
     return {
         "ok": True,
         "request_id": response.request_id,
