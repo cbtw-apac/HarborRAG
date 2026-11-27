@@ -60,6 +60,7 @@ _INGESTION_STATUS_MEMO_PATCH = "harborrag-source-ingestion-status-memo"
 _INGESTION_STATUS_MEMO = "HarborRAGIngestionStatus"
 _NATIVE_GRACEFUL_CANCEL_PATCH = "harborrag-source-native-graceful-cancel"
 _SCHEDULED_CHILD_CANCEL_PATCH = "harborrag-scheduled-child-cancel"
+_NATIVE_PAUSE_QUEUE_TIMEOUT_PATCH = "harborrag-native-pause-queue-timeout"
 
 
 @workflow.defn(name="harborrag.scheduled_source_ingestion")
@@ -165,7 +166,7 @@ class ScheduledSourceIngestionWorkflow:
                     SourceCancellationInput(task_id=task_id),
                     start_to_close_timeout=timedelta(seconds=10),
                     retry_policy=RetryPolicy(maximum_attempts=3),
-                    result_type=SourceIngestionResult | None,
+                    result_type=cast(type, SourceIngestionResult | None),
                 )
                 if cancelled_result is not None:
                     return ScheduledSourceIngestionResult(
@@ -621,6 +622,11 @@ class SourceIngestionWorkflow:
                     WorkflowExecutionControlInput(workflow_id=info.workflow_id, run_id=info.run_id),
                     task_queue=request.workflow_options.task_queues.discovery,
                     start_to_close_timeout=timedelta(seconds=5),
+                    schedule_to_close_timeout=(
+                        timedelta(seconds=10)
+                        if workflow.patched(_NATIVE_PAUSE_QUEUE_TIMEOUT_PATCH)
+                        else None
+                    ),
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
         except ActivityError as error:

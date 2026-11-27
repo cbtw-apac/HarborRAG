@@ -7,6 +7,7 @@ import logging
 import re
 from datetime import timedelta
 from time import perf_counter
+from typing import cast
 
 import temporalio
 from temporalio import activity
@@ -47,6 +48,7 @@ from .schemas import (
     SourceFinalizationInput,
     SourceIngestionInput,
     SourceIngestionResult,
+    SourceIngestionStatus,
     SourcePauseInput,
     SourceResumeInput,
     WorkflowExecutionControlInput,
@@ -78,6 +80,8 @@ class SourceActivitiesMixin:
         if self._temporal_client is None:
             raise RuntimeError("Temporal client is required for workflow cancellation")
         info = activity.info()
+        if info.workflow_id is None or info.workflow_run_id is None:
+            raise RuntimeError("Source cancellation requires a workflow execution")
         await self._temporal_client.get_workflow_handle(
             info.workflow_id, run_id=info.workflow_run_id
         ).cancel()
@@ -89,9 +93,14 @@ class SourceActivitiesMixin:
         """Read a scheduled source's graceful cancellation summary from its closed execution."""
         if self._temporal_client is None:
             raise RuntimeError("Temporal client is required to read a cancellation result")
-        return await self._temporal_client.get_workflow_handle(
-            RunKind.SOURCE.workflow_id(request.task_id)
-        ).query("get_graceful_cancel_result", result_type=SourceIngestionResult | None)
+        return cast(
+            SourceIngestionResult | None,
+            await self._temporal_client.get_workflow_handle(
+                RunKind.SOURCE.workflow_id(request.task_id)
+            ).query(
+                "get_graceful_cancel_result", result_type=cast(type, SourceIngestionResult | None)
+            ),
+        )
 
     @activity.defn(name="harborrag.pause_workflow_execution")
     async def pause_workflow_execution(self, request: WorkflowExecutionControlInput) -> None:
@@ -105,7 +114,9 @@ class SourceActivitiesMixin:
         info = activity.info()
         try:
             async with asyncio.timeout(_NATIVE_PAUSE_RPC_BUDGET_SECONDS):
-                if request.run_id and not await self._supports_native_pause(self._temporal_client):
+                if request.run_id and not await self._should_pause_source(
+                    self._temporal_client, request
+                ):
                     return
                 await self._temporal_client.workflow_service.pause_workflow_execution(
                     PauseWorkflowExecutionRequest(
@@ -126,6 +137,21 @@ class SourceActivitiesMixin:
             }:
                 return
             raise
+
+    async def _should_pause_source(
+        self, client: Client, request: WorkflowExecutionControlInput
+    ) -> bool:
+        if not await self._supports_native_pause(client):
+            return False
+        status = cast(
+            SourceIngestionStatus,
+            await client.get_workflow_handle(request.workflow_id, run_id=request.run_id).query(
+                "get_status",
+                result_type=SourceIngestionStatus,
+                rpc_timeout=_NATIVE_PAUSE_RPC_TIMEOUT,
+            ),
+        )
+        return status.native_pause_pending and status.paused and not status.cancel_requested
 
     @staticmethod
     async def _supports_native_pause(client: Client) -> bool:

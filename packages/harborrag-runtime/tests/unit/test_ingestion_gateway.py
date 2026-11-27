@@ -81,7 +81,7 @@ async def test_gateway_translates_submissions_and_retries_without_exposing_workf
 
 @pytest.mark.asyncio
 async def test_gateway_translates_status_and_result_while_preserving_response_fields():
-    status = SourceIngestionStatus("task-1", "RUNNING", False, False)
+    status = SourceIngestionStatus("task-1", "PAUSED", True, False, native_pause_pending=True)
     result = SourceIngestionResult("task-1", "scan-1", 5, 3, 1, 1, ("removed",), 2, "PARTIAL")
     client = SimpleNamespace(
         get_status=AsyncMock(return_value=status), result=AsyncMock(return_value=result)

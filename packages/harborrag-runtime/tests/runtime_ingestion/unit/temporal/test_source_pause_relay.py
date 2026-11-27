@@ -43,6 +43,7 @@ from harborrag_runtime.temporal.schemas import (
     SourceFinalizationInput,
     SourceIngestionInput,
     SourceIngestionResult,
+    SourceIngestionStatus,
     WorkflowArtifactReference,
     WorkflowExecutionControlInput,
 )
@@ -609,4 +610,39 @@ async def test_timed_out_native_pause_does_not_send_a_late_request(
     finally:
         release.set()
         await asyncio.gather(task, return_exceptions=True)
+    pause.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "status",
+    [
+        SourceIngestionStatus("task-1", "RUNNING", False, False, native_pause_pending=True),
+        SourceIngestionStatus("task-1", "CANCELLING", False, True, native_pause_pending=True),
+        SourceIngestionStatus("task-1", "PAUSED", True, False),
+    ],
+    ids=["resumed", "cancelled", "expired"],
+)
+async def test_queued_native_pause_skips_rpc_after_release(
+    monkeypatch: pytest.MonkeyPatch, status: SourceIngestionStatus
+) -> None:
+    activities = SourceActivitiesMixin()
+    pause = AsyncMock()
+    query = AsyncMock(return_value=status)
+    activities._temporal_client = SimpleNamespace(
+        namespace="harborrag",
+        workflow_service=SimpleNamespace(pause_workflow_execution=pause),
+        get_workflow_handle=lambda *_args, **_kwargs: SimpleNamespace(query=query),
+    )
+    monkeypatch.setattr(
+        SourceActivitiesMixin, "_supports_native_pause", AsyncMock(return_value=True)
+    )
+    monkeypatch.setattr(
+        source_activities_module.activity,
+        "info",
+        lambda: SimpleNamespace(workflow_id="harborrag-source:task-1", activity_id="7"),
+    )
+    await activities.pause_workflow_execution(
+        WorkflowExecutionControlInput(workflow_id="harborrag-source:task-1", run_id="run-1")
+    )
     pause.assert_not_awaited()

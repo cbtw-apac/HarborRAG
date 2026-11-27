@@ -13,8 +13,9 @@ from unittest.mock import AsyncMock
 import pytest
 import pytest_asyncio
 from temporalio import activity, workflow
-from temporalio.client import WorkflowFailureError
+from temporalio.client import WorkflowFailureError, WorkflowHandle
 from temporalio.exceptions import ApplicationError
+from temporalio.service import RPCError, RPCStatusCode
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
@@ -125,17 +126,31 @@ async def _run(
             task_queue=_DISCOVERY,
         )
         if cancel:
-            while "started" not in activities.outcomes or not activities.prepared:
-                await asyncio.sleep(0.05)
-            await asyncio.sleep(0.2)
-            target = handle
-            if connection_id == "graceful-child":
+            async with asyncio.timeout(10):
+                while not activities.prepared:
+                    await asyncio.sleep(0.05)
                 task_id = activities.prepared[0].task_id
-                target = environment.client.get_workflow_handle(f"harborrag-source:{task_id}")
+                child = environment.client.get_workflow_handle(f"harborrag-source:{task_id}")
+                cancel_child = connection_id == "graceful-child"
+                await _wait_for_child(child, require_summary=cancel_child)
+            target = child if cancel_child else handle
             await target.cancel()
             with environment.auto_time_skipping_disabled():
                 return await _outcome(activities, handle)
         return await _outcome(activities, handle)
+
+
+async def _wait_for_child(child: WorkflowHandle, *, require_summary: bool) -> None:
+    while True:
+        try:
+            result = await child.query(_ChildIngestion.get_graceful_cancel_result)
+        except RPCError as error:
+            if error.status != RPCStatusCode.NOT_FOUND:
+                raise
+        else:
+            if result is not None or not require_summary:
+                return
+        await asyncio.sleep(0.05)
 
 
 async def _outcome(

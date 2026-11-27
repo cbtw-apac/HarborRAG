@@ -193,8 +193,12 @@ class IngestionTemporalClient:
         except WorkflowFailureError as error:
             if not isinstance(error.cause, CancelledError):
                 raise
-            result = await handle.query(
-                "get_graceful_cancel_result", result_type=SourceIngestionResult | None
+            result = cast(
+                SourceIngestionResult | None,
+                await handle.query(
+                    "get_graceful_cancel_result",
+                    result_type=cast(type, SourceIngestionResult | None),
+                ),
             )
             if result is None:
                 raise
@@ -474,8 +478,6 @@ class IngestionTemporalClient:
         """Unpause even if the worker's native pause RPC races with the control signal."""
         workflow_id = self._workflow_id(task_id)
         await self._unpause_execution(workflow_id, reason=reason)
-        if not self._config.workflow_native_pause:
-            return
         try:
             async with asyncio.timeout(_PAUSE_SETTLE_SECONDS):
                 while await self._pause_in_flight(task_id):
@@ -492,8 +494,24 @@ class IngestionTemporalClient:
         except WorkflowNotFoundError:
             return False
         except WorkflowOperationError:
-            return await self.execution_status(task_id) in {"running", "paused"}
+            state = await self.execution_status(task_id)
+            return state == "paused" or (
+                state == "running" and await self._started_with_native_pause(task_id)
+            )
         return status.native_pause_pending
+
+    async def _started_with_native_pause(self, task_id: str) -> bool:
+        """Read the run's captured policy when its worker cannot answer a status query."""
+        events = self._source_handle(task_id).fetch_history_events(page_size=1)
+        event = await self._operation(
+            f"read workflow input for ingestion task {task_id!r}", anext(events, None)
+        )
+        if event is None:
+            return False
+        (request,) = await self._client.data_converter.decode_wrapper(
+            event.workflow_execution_started_event_attributes.input, [SourceIngestionInput]
+        )
+        return cast(SourceIngestionInput, request).workflow_options.native_pause
 
     async def _unpause_execution(
         self,
