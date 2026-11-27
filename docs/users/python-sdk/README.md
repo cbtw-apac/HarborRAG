@@ -125,10 +125,10 @@ Pause and resume are cooperative. A pause lets document work that already starte
 finish, then stops the next batch from starting; poll `status(task_id)` until `paused`
 is `True` before you treat the run as paused. Resume lets new batches start again.
 Cancel starts no further batch and cancels the document work in flight, recording each
-cancelled document as a `cancelled` failure; a document that is publishing finishes and
-counts as published. A cancel during discovery stops discovery at its next heartbeat,
-within about a minute, and the run ends cancelled without processing a document.
-Cancelling a paused run releases that wait the same way.
+cancelled document as a `document_release_cancelled` failure; a document that is
+publishing finishes and counts as published. A cancel during discovery stops discovery
+at its next heartbeat, within about a minute, and the run ends cancelled without
+processing a document. Cancelling a paused run releases that wait the same way.
 
 `status(task_id)` returns an `IngestionStatus` with `task_id`, `status`, `paused` and
 `cancel_requested`, and nothing more: no stages and no progress counts. Its `status` is

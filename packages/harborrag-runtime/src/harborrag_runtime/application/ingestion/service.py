@@ -414,24 +414,19 @@ class IngestionApplicationService:
     async def _cancel_unsubmitted(
         self, store: PublicTaskStore, task_id: str, *, reason: str
     ) -> None:
-        """Record a queued run with no workflow as cancelled while holding its submission claim.
+        """Record a queued run with no workflow as cancelled, holding its submission claim if free.
 
-        The claim keeps recovery from starting the run meanwhile. A submit that is
-        already starting it gets no further than the run's first activity, which
-        refuses a cancelled run.
-
-        Raises:
-            IngestionActionStateError: Recovery or an execution is starting the run.
+        The claim keeps recovery from starting the run meanwhile. A claim another
+        pass holds does not stop the cancel: a recovery whose start failed keeps it
+        until it goes stale, minutes later, and any start that does go through gets
+        no further than the run's first activity, which refuses a cancelled run.
         """
         claim = await store.claim_submission(task_id)
-        if claim is None:
-            raise IngestionActionStateError(
-                "the ingestion is being started; cancel it again in a moment"
-            )
         try:
             await store.close_abandoned(task_id, IngestionTaskState.CANCELLED, reason=reason)
         finally:
-            await self._release_claim(store, task_id, claim)
+            if claim is not None:
+                await self._release_claim(store, task_id, claim)
 
     async def settle_if_ended(self, task_id: str) -> bool:
         """Record the end of a run whose workflow ended without recording it.

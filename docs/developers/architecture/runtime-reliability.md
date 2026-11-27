@@ -95,11 +95,11 @@ pending, with `<time>` in UTC, and nothing while it runs. Batch and document wor
 none.
 
 A graceful cancellation starts no further document and cancels the document workflows in
-flight, which record themselves as `cancelled` failures, so the run ends within seconds and
-frees its connection. A document that is publishing is the exception: publishing has no
-heartbeat, so the document waits for the publish to end and records the version as
-published. A cancel during discovery cancels the discovery activity, which hears of it at
-its next heartbeat that reaches Temporal: about a minute, the smaller of 0.8 times its
+flight, which record themselves as `document_release_cancelled` failures, so the run ends
+within seconds and frees its connection. A document that is publishing is the exception:
+publishing has no heartbeat, so the document waits for the publish to end and records the
+version as published. A cancel during discovery cancels the discovery activity, which hears of
+it at its next heartbeat that reaches Temporal: about a minute, the smaller of 0.8 times its
 2-minute heartbeat timeout and the Worker's 60-second heartbeat throttle. The run then ends
 cancelled without a plan. A cancellation keeps the immutable artifacts already written and
 prevents an unverified version from becoming active.

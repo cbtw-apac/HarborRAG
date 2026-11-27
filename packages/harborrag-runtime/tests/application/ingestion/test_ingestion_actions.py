@@ -340,23 +340,22 @@ async def test_cancelling_a_queued_run_that_was_never_started_records_the_cancel
 
 
 @pytest.mark.asyncio
-async def test_cancelling_a_queued_run_that_recovery_is_starting_is_a_conflict(
+async def test_cancelling_a_queued_run_whose_claim_recovery_still_holds_records_the_cancellation(
     service_resources: _Resources,
 ) -> None:
-    _, control, temporal = service_resources
+    service, control, temporal = service_resources
     task_id = await _queue_unstarted(service_resources)
     claim = await control.tasks.claim_submission(task_id)
     assert claim is not None
 
-    with pytest.raises(IngestionActionStateError) as raised:
-        await _operations(service_resources, _Clock()).act(
-            tenant_id=_TENANT, ingestion_id=task_id, action="cancel", actor="u_alex"
-        )
+    view = await _operations(service_resources, _Clock()).act(
+        tenant_id=_TENANT, ingestion_id=task_id, action="cancel", actor="u_alex"
+    )
 
-    assert raised.value.error_code == "invalid_state"
+    assert view["status"] == "cancelled"
     stored = await control.tasks.get(task_id)
-    assert stored is not None and stored.status is IngestionTaskState.PENDING
-    assert await control.tasks.release_submission_claim(task_id, claim) is True
+    assert stored is not None and stored.status is IngestionTaskState.CANCELLED
+    assert await service.recover_pending_submissions() == 0
     assert temporal.started == []
 
 

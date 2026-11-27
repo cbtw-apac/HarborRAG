@@ -394,8 +394,8 @@ resume and 30 s for cancel. If the wait ends first, the answer is the run as it 
   takes that pause back. Any other state, including `running` with no pending pause,
   is `409 invalid_state`, and the run is unchanged.
 - `cancel` starts no further document and cancels the documents in flight. Each of them
-  is recorded as a failure with the category `cancelled`, so `retry-failures` can run
-  it again. A document caught while it publishes finishes publishing instead, and counts
+  is recorded as a failure with the category `document_release_cancelled`, so
+  `retry-failures` can run it again. A document caught while it publishes finishes publishing instead, and counts
   as published. The run usually reaches `cancelled` within a few seconds, inside the
   wait. Once the answer shows `cancelled`, a new ingestion of the connection can start.
 - A cancel sent during discovery stops discovery at its next heartbeat, within about a
@@ -412,8 +412,8 @@ resume and 30 s for cancel. If the wait ends first, the answer is the run as it 
   retention; its `error_category` is then `workflow_not_found`.
 - Cancelling a queued run whose workflow Temporal does not have, because it never
   started or was lost, records it as `cancelled` at once, with `error_category`
-  `workflow_not_found`. While HarborRAG is still starting that workflow, the cancel
-  answers `409 invalid_state`; send it again a moment later.
+  `workflow_not_found`. If a start of that workflow races the cancel, the run's first
+  activity refuses the cancelled run, so it stays `cancelled`.
 - A run paused by HarborRAG still shows as Running in the Temporal UI. The Current
   Details of its `harborrag-source:<ingestion_id>` workflow read
   `Paused by HarborRAG at <time>; resume with POST /v1/admin/ingestions/<ingestion_id>/resume`
