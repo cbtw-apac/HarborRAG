@@ -98,11 +98,12 @@ Nothing is stored when a `PUT` is refused.
 
 | Status | Cause |
 | --- | --- |
+| `404 not_found` | A `DELETE` of the same schedule finished while the `PUT` ran. |
+| `409 already_exists` | `If-None-Match: *` and the ID is taken. |
+| `409 invalid_state` | The connection is being deleted, including when its deletion began during the `PUT`. |
+| `412 precondition_failed` | `If-Match` does not match the schedule's current `ETag`, or `If-Match: *` names a schedule that does not exist. |
 | `422 validation_error` | A field breaks the schema or a timetable rule. `details` lists each broken rule as `{field, issue}`: an `interval` under `schedules.min_interval` or over `P366D`; a `cron` expression that is invalid or runs closer together than `schedules.min_interval`; an unknown `timezone`; a `jitter` over its limit; both or neither of `interval` and `cron`; or `input.connection_id` when the connection already has `schedules.max_per_connection` schedules (5 unless changed). |
 | `422 reference_not_found` | The project or the connection does not exist; `details.field` is `input.project_id` or `input.connection_id`. |
-| `409 invalid_state` | The connection is being deleted, including when its deletion began during the `PUT`. |
-| `409 already_exists` | `If-None-Match: *` and the ID is taken. |
-| `412 precondition_failed` | `If-Match` does not match the schedule's current `ETag`, or `If-Match: *` names a schedule that does not exist. |
 | `503 dependency_unavailable` | Temporal cannot be reached. A new schedule is not created, and a stored one keeps its previous configuration. Send the same `PUT` again once Temporal answers. |
 
 ## Check a schedule
@@ -114,6 +115,9 @@ newest first, and its `ETag`:
 curl -i -H "Authorization: Bearer $TOKEN" \
   http://127.0.0.1:8000/v1/admin/schedules/demo-tickets-hourly
 ```
+
+A `schedule_id` the tenant does not have answers `404 not_found`, here and on `DELETE`,
+pause, resume and trigger.
 
 Besides the fields you set, the schedule carries:
 
@@ -137,7 +141,7 @@ Each slot's `outcome` and `reason`:
 | `skipped` | `disabled_by_setting` | `schedules.enabled` is `false`. |
 | `skipped` | `connection_deleting` | The connection is being deleted. |
 | `skipped` | `reference_not_found` | The project or the connection no longer exists. |
-| `skipped` | `null` | The run's checks refused it, for example because the connection's stored settings no longer match its source type. The slot counts as a failed run toward `pause_after_failures`, and the API logs `Schedule slot could not start a run schedule_id=<schedule_id> error_type=<error_type>`. |
+| `skipped` | `null` | The run's own checks refused it, for example because the connection's stored settings no longer match its source type. The slot counts as a failed run toward `pause_after_failures`, and the API logs `Schedule slot could not start a run schedule_id=<schedule_id> error_type=<error_type>`. |
 
 A paused schedule fires no slots and records none, and a slot dropped after its catch-up
 window records nothing either.
@@ -206,9 +210,9 @@ curl -X POST -H "Authorization: Bearer $TOKEN" \
 ```
 
 Resuming clears the pause and `consecutive_failures`, and answers `200` with the
-schedule. Resuming an active schedule changes nothing. Either way, resuming writes the
-schedule's Temporal Schedule again, so it also recreates one that went missing, for
-example after a Temporal namespace was reset.
+schedule. Resuming an active schedule leaves the schedule as it is. Either way, resuming
+writes the schedule's Temporal Schedule again, so it also recreates one that went
+missing, for example after a Temporal namespace was reset.
 
 Pause and resume also answer the schedule's `ETag`, ready for the `If-Match` of a later
 `PUT`. A pause or resume that changes the schedule advances it, such as from
@@ -281,7 +285,7 @@ the schedule started keeps going. Deleting a connection, or a project with
 - Do not edit these schedules in the Temporal UI: the next write from the API replaces
   the whole Temporal Schedule.
 
-### Stop every schedule for maintenance
+## Stop every schedule for maintenance
 
 The tenant setting `schedules.enabled: false` records every slot as `skipped` with the
 reason `disabled_by_setting`, and `next_run_at` reads `null`, until you set it back to
@@ -297,7 +301,7 @@ curl -X PATCH -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/js
 `schedules.min_interval` and `schedules.max_per_connection` set the limits a `PUT`
 checks; see [Runtime settings](configuration/runtime-settings.md#settings-and-their-levels).
 
-### Monitor schedules
+## Monitor schedules
 
 - `GET /v1/admin/schedules?state=paused` lists the paused schedules; `paused.by` is
   `system` for those paused after failed runs.
@@ -373,7 +377,9 @@ groups:
 ```
 
 A schedule whose slots often meet a long run skips with `already_running` as intended;
-leave that reason out of the rule, or set `if_running: queue` on the schedule.
+leave that reason out of the rule, or set `if_running: queue` on the schedule. A firing
+with the reason `none` means the run's own checks refused each slot, for example because
+the connection's stored settings no longer match its source type; fix the connection.
 
 ## Declare schedules in a file
 

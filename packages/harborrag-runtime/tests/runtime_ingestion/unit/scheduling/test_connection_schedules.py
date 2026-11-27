@@ -47,7 +47,10 @@ from harborrag_runtime.config.connectors.models.spec import (
     FieldIssue,
 )
 from harborrag_runtime.config.settings import RuntimeSettings
-from harborrag_runtime.ingestion.connections import ConnectionUnavailableError
+from harborrag_runtime.ingestion.connections import (
+    ConnectionNotFoundError,
+    ConnectionUnavailableError,
+)
 from harborrag_runtime.observability.schedule_metrics import ScheduleSlotMetrics
 from harborrag_runtime.testing.connection_fakes import (
     Removal,
@@ -208,21 +211,47 @@ async def test_put_leaves_a_stored_schedule_alone_while_the_timer_is_unreachable
 
 async def test_put_keeps_its_stored_write_when_the_timer_drops_after_taking_it() -> None:
     world = _world()
-    await _put(world)
+    timed: list[int | None] = []
     put_timer = world.timers.put
 
     async def dropping_put(schedule: Schedule, *, catch_up_window_seconds: int) -> datetime | None:
+        timed.append(schedule.interval_seconds)
         next_run = await put_timer(schedule, catch_up_window_seconds=catch_up_window_seconds)
         world.timers.unreachable = True
         return next_run
 
     world.timers.put = dropping_put  # type: ignore[method-assign]  # test double
 
-    _, version, created = await _put(world, replace(WRITE, interval="PT2H"))
+    view, version, created = await _put(world, replace(WRITE, interval="PT2H"))
 
     stored = world.schedules.rows[(TENANT, "nightly")]
-    assert (version, created, stored.interval_seconds) == (2, False, 7200)
-    assert world.timers.calls[-1] == ("put", "nightly", 60, None)
+    assert (version, created, stored.interval_seconds) == (1, True, 7200)
+    assert timed == [7200, 7200]
+    assert view["next_run_at"] == NEXT_RUN
+
+
+@pytest.mark.parametrize(("existing", "intervals"), [(True, [10_800, 3_600]), (False, [10_800])])
+async def test_put_sets_the_timer_back_when_the_store_fails_the_write(
+    existing: bool, intervals: list[int]
+) -> None:
+    world = _world()
+    if existing:
+        await _put(world)
+
+    async def store_down(*_: Any, **__: Any) -> Any:
+        raise RuntimeError("control database down")
+
+    def fail_store() -> None:
+        world.schedules.put = store_down  # type: ignore[method-assign]  # test double
+        world.schedules.get = store_down  # type: ignore[method-assign]  # test double
+
+    timed = _race_on_timer_put(world, 1, fail_store)
+
+    with pytest.raises(RuntimeError, match="control database down"):
+        await _put(world, replace(WRITE, interval="PT3H"))
+
+    assert timed == intervals
+    assert world.timers.calls[-1][0] == ("put" if existing else "delete")
 
 
 @pytest.mark.parametrize(
@@ -474,6 +503,7 @@ async def test_run_slot_skips_while_schedules_are_disabled() -> None:
     [
         (ConnectionUnavailableError("deleting"), "connection_deleting"),
         (UnknownReferenceError("gone", {"field": "connection_id"}), "reference_not_found"),
+        (ConnectionNotFoundError("gone"), "reference_not_found"),
     ],
 )
 async def test_run_slot_records_why_a_run_could_not_start(error: Exception, reason: str) -> None:
@@ -482,9 +512,11 @@ async def test_run_slot_records_why_a_run_could_not_start(error: Exception, reas
     world.starter.errors.append(error)
 
     start = await world.service.run_slot(KEY, due_at=DUE)
+    view, _ = await world.service.get(KEY)
 
     assert start.outcome == "skipped"
     assert world.schedules.slots[(TENANT, "nightly")][0].reason == reason
+    assert view["consecutive_failures"] == 0
 
 
 async def test_run_slot_skips_a_busy_connection_by_default() -> None:
@@ -658,6 +690,25 @@ async def test_put_removes_a_schedule_whose_connection_went_away_meanwhile(
 
     assert world.schedules.rows == {}
     assert world.timers.calls[-1] == ("delete", "nightly")
+
+
+async def test_put_removes_a_schedule_for_a_removed_connection_while_the_timer_is_down() -> None:
+    world = _world()
+    connections = world.control_plane.connections.connections
+
+    def start_deleting() -> None:
+        connections["c-demo-tickets"] = _connection(status="deleting")
+
+    async def unreachable_delete(tenant_id: str, schedule_id: str) -> None:
+        raise HarborUnavailableError("timer engine down")
+
+    _race_on_timer_put(world, 1, start_deleting)
+    world.timers.delete = unreachable_delete  # type: ignore[method-assign]  # test double
+
+    with pytest.raises(ConnectionUnavailableError):
+        await _put(world)
+
+    assert world.schedules.rows == {}
 
 
 @pytest.mark.parametrize("paused", [True, False])

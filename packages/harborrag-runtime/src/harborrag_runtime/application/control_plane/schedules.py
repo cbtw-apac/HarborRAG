@@ -38,7 +38,10 @@ from harborrag_core.ingestion import IngestionTask
 from harborrag_core.ports.control_plane import ScheduleRepositoryPort
 from harborrag_engine.control_plane.connection_views import ANY_VERSION, ingestion_status
 from harborrag_runtime.composition import ControlPlaneRepositories
-from harborrag_runtime.ingestion.connections import ConnectionUnavailableError
+from harborrag_runtime.ingestion.connections import (
+    ConnectionNotFoundError,
+    ConnectionUnavailableError,
+)
 from harborrag_runtime.observability.schedule_metrics import (
     SCHEDULE_SLOT_METRICS,
     ScheduleSlotMetrics,
@@ -125,12 +128,13 @@ class ConnectionScheduleService:
         """Create or overwrite a schedule, setting its timer before storing it.
 
         The timer is set first, so a timer engine that cannot be reached leaves the
-        stored schedule as it was. Once the schedule is stored, the call no longer fails
-        on the timer engine: the timer is set again from whatever is stored, so a write
-        or a delete that raced this one never leaves the timer out of step, and a
-        failure to do so is only logged, since the timer already holds this write. The
-        connection is then checked again in case its removal began meanwhile. An
-        overwrite keeps the schedule's pause, failure count and slots.
+        stored schedule as it was. When the store then refuses or fails the write, the
+        timer is set back before the error is raised. Once the schedule is stored, the
+        call no longer fails on the timer engine: the timer is set again from whatever
+        is stored, so a write or a delete that raced this one never leaves the timer out
+        of step, and a failure to do so is only logged, since the timer already holds
+        this write. The connection is then checked again in case its removal began
+        meanwhile. An overwrite keeps the schedule's pause, failure count and slots.
 
         Args:
             key: The schedule to write.
@@ -162,7 +166,7 @@ class ConnectionScheduleService:
         window = catch_up_window_seconds(
             catch_up=write.catch_up, period_seconds=timetable.period_seconds
         )
-        await (await self._timers()).put(
+        next_run_at = await (await self._timers()).put(
             replace(schedule, paused=current.paused if current is not None else None),
             catch_up_window_seconds=window,
         )
@@ -171,8 +175,11 @@ class ConnectionScheduleService:
                 schedule, expected_version=expected_version, create_only=conditions.create_only
             )
         except BaseException:
-            await self._sync_timer_quietly(key)
+            await self._undo_timer(key, current)
             raise
+        await self._schedules().set_next_run_at(
+            tenant_id=key.tenant_id, schedule_id=key.schedule_id, next_run_at=next_run_at
+        )
         await self._sync_timer_quietly(key)
         await self._remove_if_connection_gone(key, write)
         view, version = await self.get(key)
@@ -327,7 +334,7 @@ class ConnectionScheduleService:
         except ConnectionUnavailableError:
             await self._release_queue(key, attempt)
             return await self._skip(schedule, due_at, "connection_deleting", None)
-        except UnknownReferenceError:
+        except (UnknownReferenceError, ConnectionNotFoundError):
             await self._release_queue(key, attempt)
             return await self._skip(schedule, due_at, "reference_not_found", None)
         except HarborValidationError as error:
@@ -502,8 +509,41 @@ class ConnectionScheduleService:
                 key.schedule_id,
             )
 
+    async def _undo_timer(self, key: ScheduleKey, before: Schedule | None) -> None:
+        """Set the timer back after a failed write, leaving the write's own error to raise.
+
+        The timer follows the stored schedule when the store answers. Otherwise it goes
+        back to the schedule read before the write, or is removed when there was none.
+        """
+        try:
+            await self._sync_timer(key)
+            return
+        except Exception:
+            logger.warning(
+                "Could not read a schedule to set its timer back schedule_id=%s",
+                key.schedule_id,
+                exc_info=True,
+            )
+        try:
+            timers = await self._timers()
+            if before is None:
+                await timers.delete(key.tenant_id, key.schedule_id)
+                return
+            window = catch_up_window_seconds(
+                catch_up=before.catch_up, period_seconds=_period_seconds(before)
+            )
+            await timers.put(before, catch_up_window_seconds=window)
+        except Exception:
+            logger.exception(
+                "Could not set a schedule's timer back after a failed write schedule_id=%s",
+                key.schedule_id,
+            )
+
     async def _remove_if_connection_gone(self, key: ScheduleKey, write: ScheduleWrite) -> None:
         """Remove a schedule just written for a connection that is gone or being deleted.
+
+        The schedule is removed even when its timer cannot be: the timer's slots then
+        find no schedule and do nothing, and the log names it for an operator.
 
         Raises:
             UnknownReferenceError: The connection no longer exists.
@@ -514,7 +554,16 @@ class ConnectionScheduleService:
         )
         if connection is not None and connection.status != "deleting":
             return
-        await self._remove(key)
+        try:
+            await (await self._timers()).delete(key.tenant_id, key.schedule_id)
+        except HarborUnavailableError:
+            logger.exception(
+                "Could not remove the timer of a schedule written for a removed connection "
+                "tenant_id=%s schedule_id=%s",
+                key.tenant_id,
+                key.schedule_id,
+            )
+        await self._schedules().delete(tenant_id=key.tenant_id, schedule_id=key.schedule_id)
         if connection is None:
             raise UnknownReferenceError(
                 f"connection {write.connection_id!r} not found", {"field": "input.connection_id"}
