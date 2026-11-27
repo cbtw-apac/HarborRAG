@@ -171,6 +171,18 @@ class IngestionNotFoundError(HarborNotFoundError):
     error_code = "not_found"
 
 
+class ScheduleNotFoundError(HarborNotFoundError):
+    """The named schedule does not exist for the caller's tenant."""
+
+    error_code = "not_found"
+
+
+class ScheduleIdTakenError(HarborConflictError):
+    """A create-only write named a ``schedule_id`` the tenant already uses."""
+
+    error_code = "already_exists"
+
+
 class IngestionAlreadyCompletedError(HarborConflictError):
     """The ingestion already reached a terminal state."""
 

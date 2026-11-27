@@ -21,6 +21,7 @@ from harborrag_core.ports.control_plane import (
     PendingEffectRepositoryPort,
     ProjectRepositoryPort,
     ProviderRepositoryPort,
+    ScheduleRepositoryPort,
     SettingsRepositoryPort,
 )
 from harborrag_core.ports.conversation import ConversationHistoryRepository
@@ -67,6 +68,7 @@ class ControlPlaneRepositories:
     # not wire one, in which case every tenant uses the process-wide catalog.
     model_catalog: TenantModelCatalogPort | None = None
     connection_revisions: ConnectionRevisionRepositoryPort | None = None
+    schedules: ScheduleRepositoryPort | None = None
     config_store: SettingsStore | None = None
     config: ConfigProvider | None = None
 

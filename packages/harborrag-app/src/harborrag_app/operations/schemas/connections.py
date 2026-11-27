@@ -220,7 +220,9 @@ class CountersOut(BaseModel):
 class TriggeredByOut(BaseModel):
     """Who started an ingestion, read from the credential."""
 
-    principal_type: Literal["user", "api_key"]
+    principal_type: Literal["user", "api_key", "schedule"] = Field(
+        description="schedule for runs a schedule started; principal_id is then the schedule_id"
+    )
     principal_id: str
 
 
