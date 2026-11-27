@@ -33,6 +33,7 @@ _PATH_VALUES = {
     "connection_id": "demo-tickets",
     "session_id": "session-1",
     "ingestion_id": "ing_1",
+    "schedule_id": "demo-hourly",
 }
 
 

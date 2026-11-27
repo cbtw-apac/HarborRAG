@@ -13,6 +13,7 @@ from cli_operation_samples import SAMPLES
 
 from harborrag_app.operations import ConnectionRef, LocalOperations, Operations, Scope
 from harborrag_app.operations.contract import OPERATIONS
+from harborrag_app.operations.etags import Preconditions
 from harborrag_app.operations.principal import Principal
 from harborrag_app.operations.results import Tagged
 from harborrag_app.operations.schemas.chat import (
@@ -31,8 +32,11 @@ from harborrag_app.operations.schemas.ingestions import (
     IngestionDocumentQuery,
     IngestionListQuery,
 )
+from harborrag_app.operations.schemas.schedules import ScheduleListQuery, ScheduleWriteRequest
 from harborrag_core.domain.member import Role
+from harborrag_core.domain.schedule import Schedule
 from harborrag_runtime.application.chat.completion_request import CompletionOutcome
+from harborrag_runtime.application.control_plane.schedule_views import schedule_view
 from harborrag_runtime.application.control_plane.settings_service import (
     SettingsPatched,
     SettingsRead,
@@ -103,6 +107,15 @@ _CONNECTION = _wire("get_connection")
 _PROJECT = _wire("get_project")
 _INGESTION = _wire("get_ingestion")
 _ANSWER = cast(Tagged[Any], SAMPLES["create_chat_completion"])
+_SCHEDULE = schedule_view(
+    Schedule("acme", "engineering-hourly", "engineering", "jira-main", interval_seconds=3600),
+    slots=[],
+    runs={},
+    enabled=True,
+)
+_SCHEDULE_WRITE = ScheduleWriteRequest.model_validate(
+    {"input": {"project_id": "engineering", "connection_id": "jira-main"}, "interval": "PT1H"}
+)
 _SESSION = {
     "session_id": "ses_1",
     "title": "",
@@ -241,6 +254,43 @@ _CASES: dict[str, _Case] = {
         lambda ops: ops.retry_failures(_SCOPE, FailureRetryRequest(ids=["f1"])),
         "failure_inbox.retry",
         {"ingestion_id": "ing_2", "ingestion_ids": ["ing_2"], "queued": 1},
+    ),
+    "list_schedules": _Case(
+        lambda ops: ops.list_schedules(_SCOPE, ScheduleListQuery()),
+        "schedule_service.page",
+        {"items": [_SCHEDULE], "next_cursor": None},
+    ),
+    "get_schedule": _Case(
+        lambda ops: ops.get_schedule(_SCOPE, "engineering-hourly"),
+        "schedule_service.get",
+        (_SCHEDULE, 1),
+    ),
+    "put_schedule": _Case(
+        lambda ops: ops.put_schedule(
+            _SCOPE, "engineering-hourly", _SCHEDULE_WRITE, preconditions=Preconditions()
+        ),
+        "schedule_service.put",
+        (_SCHEDULE, 1, True),
+    ),
+    "delete_schedule": _Case(
+        lambda ops: ops.delete_schedule(_SCOPE, "engineering-hourly"),
+        "schedule_service.delete",
+        None,
+    ),
+    "pause_schedule": _Case(
+        lambda ops: ops.pause_schedule(_SCOPE, "engineering-hourly", None),
+        "schedule_service.pause",
+        _SCHEDULE,
+    ),
+    "resume_schedule": _Case(
+        lambda ops: ops.resume_schedule(_SCOPE, "engineering-hourly"),
+        "schedule_service.resume",
+        _SCHEDULE,
+    ),
+    "trigger_schedule": _Case(
+        lambda ops: ops.trigger_schedule(_SCOPE, "engineering-hourly"),
+        "schedule_service.trigger",
+        _INGESTION,
     ),
     "read_settings": _Case(
         lambda ops: ops.read_settings(_SCOPE, level=None, effective=False),

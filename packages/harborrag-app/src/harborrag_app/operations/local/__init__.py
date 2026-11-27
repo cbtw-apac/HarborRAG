@@ -14,13 +14,14 @@ from harborrag_app.operations.port import Operations
 from .admin import AdminOps
 from .chat import ChatOps
 from .ingestions import IngestionOps
+from .schedules import ScheduleOps
 from .settings import SettingsOps
 
 if TYPE_CHECKING:
     from harborrag_runtime.application.composition.service import AppService
 
 
-class LocalOperations(AdminOps, IngestionOps, SettingsOps, ChatOps):
+class LocalOperations(AdminOps, IngestionOps, ScheduleOps, SettingsOps, ChatOps):
     """The application operations, run in-process against the application service.
 
     Args:

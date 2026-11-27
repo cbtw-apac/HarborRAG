@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, FastAPI
 from harborrag_app.api.deadline import enforce_deadline
 from harborrag_app.api.probes import router as probes_router
 from harborrag_app.api.v1.admin.connection_routes import routers as connection_admin_routers
+from harborrag_app.api.v1.admin.schedule_routes import router as schedules_router
 from harborrag_app.api.v1.admin.settings_routes import router as settings_router
 from harborrag_app.api.v1.chat.routes import router as chat_router
 from harborrag_app.api.v1.ingestion.failure_routes import router as failures_router
@@ -31,6 +32,7 @@ def register_routes(app: FastAPI) -> None:
         settings_router,
         ingestion_router,
         failures_router,
+        schedules_router,
     ):
         public.include_router(router)
     app.include_router(public)

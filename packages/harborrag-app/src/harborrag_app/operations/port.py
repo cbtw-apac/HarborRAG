@@ -13,6 +13,7 @@ from collections.abc import AsyncGenerator, AsyncIterator, Mapping
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from harborrag_app.operations.etags import Preconditions
 from harborrag_app.operations.principal import Principal
 from harborrag_app.operations.results import Accepted, Saved, Tagged
 from harborrag_app.operations.schemas.chat import (
@@ -50,6 +51,13 @@ from harborrag_app.operations.schemas.ingestions import (
     RetryFailuresRequest,
 )
 from harborrag_app.operations.schemas.me import MeOut
+from harborrag_app.operations.schemas.schedules import (
+    ScheduleListQuery,
+    ScheduleOut,
+    SchedulePage,
+    SchedulePauseRequest,
+    ScheduleWriteRequest,
+)
 from harborrag_app.operations.schemas.settings import SettingsOut, SettingsPatchOut
 from harborrag_app.operations.scope import ConnectionRef, Scope
 from harborrag_core.contracts.events import HarborEvent
@@ -218,6 +226,43 @@ class Operations(Protocol):
 
     async def retry_failures(self, scope: Scope, body: FailureRetryRequest) -> FailureRetryAccepted:
         """Retry the chosen failed items."""
+        ...
+
+    async def list_schedules(self, scope: Scope, query: ScheduleListQuery) -> SchedulePage:
+        """List the tenant's schedules, newest first, each with its latest slot."""
+        ...
+
+    async def get_schedule(self, scope: Scope, schedule_id: str) -> Tagged[ScheduleOut]:
+        """Read one schedule with its last 20 slots and its ETag."""
+        ...
+
+    async def put_schedule(
+        self,
+        scope: Scope,
+        schedule_id: str,
+        body: ScheduleWriteRequest,
+        *,
+        preconditions: Preconditions,
+    ) -> Saved[ScheduleOut]:
+        """Create or overwrite a schedule; ``If-None-Match: *`` makes it create-only."""
+        ...
+
+    async def delete_schedule(self, scope: Scope, schedule_id: str) -> None:
+        """Remove a schedule; a run it started keeps going."""
+        ...
+
+    async def pause_schedule(
+        self, scope: Scope, schedule_id: str, body: SchedulePauseRequest | None
+    ) -> ScheduleOut:
+        """Pause a schedule; pausing a paused one returns it unchanged."""
+        ...
+
+    async def resume_schedule(self, scope: Scope, schedule_id: str) -> ScheduleOut:
+        """Resume a schedule and clear its failure count."""
+        ...
+
+    async def trigger_schedule(self, scope: Scope, schedule_id: str) -> Accepted[IngestionOut]:
+        """Start one run now with the schedule's input, even while it is paused."""
         ...
 
     async def read_settings(
