@@ -73,12 +73,14 @@ class SlotRunInput:
         schedule_id: The schedule whose slot came due.
         due_at: When the slot came due.
         attempt: ``due`` when it came due, ``after_wait`` once the run it waited for ended.
+        fired_at: When the workflow ran the attempt; ``None`` skips the lateness check.
     """
 
     tenant_id: str
     schedule_id: str
     due_at: datetime
     attempt: str = SlotAttempt.DUE.value
+    fired_at: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -218,6 +220,7 @@ async def _run_slot(
             schedule_id=request.schedule_id,
             due_at=due_at,
             attempt=attempt.value,
+            fired_at=workflow.now(),
         ),
         result_type=SlotRunResult,
         start_to_close_timeout=_ACTIVITY_TIMEOUT,
@@ -294,6 +297,7 @@ class ScheduleSlotActivities:
             ScheduleKey(request.tenant_id, request.schedule_id),
             due_at=request.due_at,
             attempt=SlotAttempt(request.attempt),
+            fired_at=request.fired_at,
         )
         return SlotRunResult(outcome=start.outcome, ingestion_id=start.ingestion_id)
 

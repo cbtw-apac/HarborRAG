@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -604,6 +604,29 @@ async def test_run_slot_queues_one_slot_and_requeues_it_without_a_new_record() -
         "queued",
     ]
     assert world.schedules.waiting == set()
+
+
+@pytest.mark.parametrize(
+    ("write", "late_by", "outcome"),
+    [
+        (WRITE, timedelta(seconds=30), "started"),
+        (WRITE, timedelta(minutes=5), "ignored"),
+        (replace(WRITE, jitter="PT10M"), timedelta(minutes=5), "started"),
+        (replace(WRITE, catch_up=True), timedelta(minutes=50), "started"),
+        (replace(WRITE, catch_up=True), timedelta(minutes=70), "ignored"),
+    ],
+)
+async def test_run_slot_ignores_a_due_slot_fired_after_its_catch_up_window(
+    write: ScheduleWrite, late_by: timedelta, outcome: str
+) -> None:
+    world = _world()
+    await _put(world, write)
+
+    start = await world.service.run_slot(KEY, due_at=DUE, fired_at=DUE + late_by)
+
+    assert start.outcome == outcome
+    assert len(world.starter.calls) == (1 if outcome == "started" else 0)
+    assert len(world.schedules.slots.get((TENANT, "nightly"), [])) == len(world.starter.calls)
 
 
 async def test_run_slot_gives_the_waiting_place_back_when_its_slot_cannot_be_recorded() -> None:

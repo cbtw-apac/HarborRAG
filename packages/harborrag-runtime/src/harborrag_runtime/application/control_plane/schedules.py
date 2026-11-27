@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Awaitable, Callable, Sequence
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Final
 
 from harborrag_core.base import utc_now
@@ -262,19 +262,27 @@ class ConnectionScheduleService:
             )
 
     async def run_slot(
-        self, key: ScheduleKey, *, due_at: datetime, attempt: SlotAttempt = SlotAttempt.DUE
+        self,
+        key: ScheduleKey,
+        *,
+        due_at: datetime,
+        attempt: SlotAttempt = SlotAttempt.DUE,
+        fired_at: datetime | None = None,
     ) -> SlotStart:
         """Run one slot: start the schedule's operation or record why it did not start.
 
         A slot that comes while the connection has a run is skipped, or with
         ``if_running: queue`` waits when no other slot does. A waiting slot that
-        finds the connection busy again keeps waiting without a new record.
+        finds the connection busy again keeps waiting without a new record. A due
+        slot that fires later than its catch-up window and jitter allow, as after an
+        outage of every API replica, is ignored without a record.
 
         Args:
             key: The schedule whose slot came due.
             due_at: When the slot came due.
             attempt: ``DUE`` when the slot comes due, ``AFTER_WAIT`` once the run it
                 waited for ended.
+            fired_at: When a worker picked the slot up; ``None`` skips the lateness check.
 
         Returns:
             What the slot did and the run involved.
@@ -282,6 +290,12 @@ class ConnectionScheduleService:
         schedule = await self._schedules().get(tenant_id=key.tenant_id, schedule_id=key.schedule_id)
         if schedule is None or schedule.paused is not None:
             await self._release_queue(key, attempt)
+            return SlotStart("ignored")
+        if attempt is SlotAttempt.DUE and _fired_too_late(schedule, due_at, fired_at):
+            logger.info(
+                "Schedule slot fired after its catch-up window schedule_id=%s",
+                schedule.schedule_id,
+            )
             return SlotStart("ignored")
         if not (await self._settings(key.tenant_id)).enabled:
             await self._release_queue(key, attempt)
@@ -564,6 +578,16 @@ class ConnectionScheduleService:
         if repository is None:
             raise HarborUnavailableError("this deployment has no schedule store")
         return repository
+
+
+def _fired_too_late(schedule: Schedule, due_at: datetime, fired_at: datetime | None) -> bool:
+    """Whether a slot fired later than its catch-up window plus its jitter."""
+    if fired_at is None:
+        return False
+    window = catch_up_window_seconds(
+        catch_up=schedule.catch_up, period_seconds=_period_seconds(schedule)
+    )
+    return fired_at - due_at > timedelta(seconds=window + schedule.jitter_seconds)
 
 
 def _period_seconds(schedule: Schedule) -> int:

@@ -54,9 +54,15 @@ class _Schedules:
     released: int = 0
 
     async def run_slot(
-        self, key: ScheduleKey, *, due_at: datetime, attempt: SlotAttempt
+        self,
+        key: ScheduleKey,
+        *,
+        due_at: datetime,
+        attempt: SlotAttempt,
+        fired_at: datetime | None = None,
     ) -> SlotStart:
         assert key == ScheduleKey("acme", "nightly")
+        assert fired_at is not None and fired_at >= due_at
         self.attempts.append(attempt)
         self.due_at.append(due_at)
         start = self.starts.pop(0)
