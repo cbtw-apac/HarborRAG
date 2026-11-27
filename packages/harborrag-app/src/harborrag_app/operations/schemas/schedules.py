@@ -138,7 +138,10 @@ class ScheduleSlotOut(BaseModel):
             "already_running", "disabled_by_setting", "connection_deleting", "reference_not_found"
         ]
         | None
-    ) = Field(description="Why the slot was skipped or queued")
+    ) = Field(
+        description="Why the slot was skipped or queued; null when it started, or when the "
+        "run's own checks refused it"
+    )
     manual: bool = Field(description="true when POST …/trigger started it")
     run: SlotRunOut | None
 

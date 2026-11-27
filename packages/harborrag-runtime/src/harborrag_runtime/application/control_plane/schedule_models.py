@@ -136,10 +136,6 @@ class ScheduleTimers(Protocol):
         """Stop firing slots; a missing timer is a no-op."""
         ...
 
-    async def resume(self, tenant_id: str, schedule_id: str) -> datetime | None:
-        """Fire slots again and return when the next one fires."""
-        ...
-
     async def next_run_at(self, tenant_id: str, schedule_id: str) -> datetime | None:
         """When the next slot fires; ``None`` while paused or when the timer is missing."""
         ...

@@ -125,7 +125,8 @@ class ScheduleSlot:
     Args:
         due_at: When the slot came due, or when ``trigger`` ran it.
         outcome: ``started``, ``skipped`` or ``queued``.
-        reason: Why the slot was skipped or queued; ``None`` when it started.
+        reason: Why the slot was skipped or queued; ``None`` when it started, or when
+            the run's own checks refused it.
         manual: Whether ``trigger`` started it.
         ingestion_id: The run it started, or the run that made it skip or wait.
     """

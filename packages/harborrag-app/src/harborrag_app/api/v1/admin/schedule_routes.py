@@ -39,6 +39,7 @@ _LIST_ERRORS = documented_error_responses(
 _READ_ERRORS = documented_error_responses({404: _NOT_FOUND})
 _PUT_ERRORS = documented_error_responses(
     {
+        404: "A DELETE of the same schedule finished while this PUT ran (not_found)",
         409: "If-None-Match: * and the schedule_id is taken (already_exists), or the "
         "connection is being deleted (invalid_state)",
         412: "If-Match doesn't match the current ETag; re-read and retry (precondition_failed)",
