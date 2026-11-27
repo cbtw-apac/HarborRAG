@@ -119,7 +119,8 @@ def test_redis_loss_uses_local_fallback_without_losing_future_recovery(
 
     assert fallback_calls == [(scope, 60)]
     assert "private endpoint" not in caplog.text
-    assert "local fallback" in caplog.text
+    assert "connector.rate_limiter_fallback" in caplog.text
+    assert "backend=redis" in caplog.text
 
 
 def test_closing_redis_limiter_closes_owned_client() -> None:

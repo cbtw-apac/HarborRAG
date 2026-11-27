@@ -16,9 +16,11 @@ import logging
 from collections.abc import Iterator
 from typing import Any
 
+from harborrag_adapters._shared.logging import log_adapter_failure
 from harborrag_adapters.connectors.exceptions import AuthorizationError, FetchError
 from harborrag_core.domain.source import SourceRecord
 from harborrag_core.ingestion.connector_contracts import ConnectorQuery
+from harborrag_core.observability.log_events import FailureKind, log_event
 
 from .allowlist import SharePointAllowlist, library_names
 from .client import SharePointClient
@@ -652,13 +654,20 @@ class SharePointDriveAPI:
             should_process, _ = callback(
                 item_name(item), int(item.get("size") or 0), item_mime_type(item)
             )
-        except Exception:
+        except Exception as error:
             if self.config.fail_on_error:
                 raise
-            logger.exception("SharePoint file callback failed for item %s", item_id)
+            log_adapter_failure(
+                logger,
+                "sharepoint.file_callback_failed",
+                error,
+                "sharepoint",
+                FailureKind.UNEXPECTED,
+                item_id=item_id,
+            )
             return False
         if not should_process:
-            logger.debug("Skipping SharePoint file %s declined by process_file_callback", item_id)
+            log_event(logger, "sharepoint.file_declined", level=logging.DEBUG, item_id=item_id)
             return False
         return True
 

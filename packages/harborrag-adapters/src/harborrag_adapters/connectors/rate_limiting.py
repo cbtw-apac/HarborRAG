@@ -12,6 +12,9 @@ from threading import Lock
 from typing import Any, Protocol
 from urllib.parse import urlsplit
 
+from harborrag_adapters._shared.logging import log_adapter_failure
+from harborrag_core.observability.log_events import FailureKind
+
 logger = logging.getLogger("harborrag.adapters.connectors.rate_limiting")
 
 _SAFE_KEY_PART = re.compile(r"[^a-z0-9._-]+")
@@ -225,9 +228,8 @@ class RedisTokenBucketRateLimiter:
             self._redis_available = True
         except Exception as error:
             if self._redis_available:
-                logger.warning(
-                    "Redis connector rate limiter unavailable; using local fallback (%s)",
-                    type(error).__name__,
+                log_adapter_failure(
+                    logger, "connector.rate_limiter_fallback", error, "redis", FailureKind.EXPECTED
                 )
             self._redis_available = False
             self._fallback.acquire(
@@ -291,7 +293,6 @@ def _notify_wait(
     try:
         observer(scope, wait_seconds)
     except Exception as error:
-        logger.warning(
-            "Connector rate-limit observer failed (%s)",
-            type(error).__name__,
+        log_adapter_failure(
+            logger, "connector.rate_limit_observer_failed", error, "telemetry", FailureKind.EXPECTED
         )

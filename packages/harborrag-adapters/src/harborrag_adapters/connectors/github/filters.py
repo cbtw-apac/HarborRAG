@@ -16,9 +16,11 @@ import logging
 from collections.abc import Sequence
 from typing import Any
 
+from harborrag_adapters._shared.logging import log_adapter_failure
 from harborrag_adapters.connectors.file_filters import ExtensionFilter
 from harborrag_adapters.connectors.query_values import normalized_string_list
 from harborrag_core.ingestion.connector_contracts import ConnectorQuery
+from harborrag_core.observability.log_events import FailureKind, log_event
 
 from .config import GitHubRepositoryConfig
 from .mappers import commit_timestamp
@@ -209,11 +211,18 @@ def _callback_allows_file(
             size,
             guess_mime_type(path),
         )
-    except Exception:
+    except Exception as error:
         if config.fail_on_error:
             raise
-        logger.exception("GitHub file callback failed for %s", path)
+        log_adapter_failure(
+            logger,
+            "github.file_callback_failed",
+            error,
+            "github",
+            FailureKind.UNEXPECTED,
+            size_bytes=size,
+        )
         return False
     if not should_process:
-        logger.debug("Skipping GitHub file %s: %s", path, reason)
+        log_event(logger, "github.file_declined", level=logging.DEBUG, size_bytes=size)
     return should_process

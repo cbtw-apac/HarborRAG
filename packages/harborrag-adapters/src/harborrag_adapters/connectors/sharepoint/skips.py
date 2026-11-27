@@ -14,7 +14,6 @@ Typical usage example:
 
 from __future__ import annotations
 
-import json
 import logging
 from collections import Counter
 
@@ -27,6 +26,7 @@ from harborrag_adapters.connectors.exceptions import (
 )
 from harborrag_core.ingestion import SourceRetriesExhaustedError, UnsupportedDocumentError
 from harborrag_core.ingestion.connector_contracts import ConnectorSkip
+from harborrag_core.observability.log_events import log_event
 
 logger = logging.getLogger("harborrag.adapters.connectors.sharepoint")
 
@@ -269,27 +269,10 @@ def log_skip(reason: str, *, item_id: str | None = None, run_id: str | None = No
         run_id: Run ID that tags the entry.
     """
     log_event(
-        logging.WARNING,
+        logger,
         "sharepoint.item_skipped",
+        level=logging.WARNING,
         run_id=run_id,
         skip_reason=reason,
         item_id=item_id,
     )
-
-
-def log_event(level: int, event: str, *, run_id: str | None, **fields: object) -> None:
-    """Emit one structured SharePoint log entry as a single JSON object.
-
-    The same fields also go in ``extra`` with a ``sharepoint_`` prefix, so none
-    collides with a ``LogRecord`` attribute.
-
-    Args:
-        level: ``logging`` level of the entry.
-        event: Event name, such as ``sharepoint.discovery_summary``.
-        run_id: Run ID that tags the entry.
-        **fields: IDs, reason codes and counts only. Never a URL, path, name,
-            title or document text.
-    """
-    payload = {"event": event, "run_id": run_id, **fields}
-    extra = {f"sharepoint_{key}": value for key, value in payload.items()}
-    logger.log(level, json.dumps(payload, default=str, sort_keys=True), extra=extra)

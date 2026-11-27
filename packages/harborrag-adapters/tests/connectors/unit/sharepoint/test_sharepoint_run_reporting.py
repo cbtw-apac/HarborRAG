@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from datetime import UTC, datetime
 from typing import Any
@@ -61,9 +60,15 @@ class _RaisingGraphClient(FakeGraphClient):
 
 
 def _events(caplog: pytest.LogCaptureFixture) -> list[dict[str, object]]:
-    """Return the JSON log entries, skipping plain-text debug lines."""
-    messages = [record.getMessage() for record in caplog.records if record.name == _LOGGER]
-    return [json.loads(message) for message in messages if message.startswith("{")]
+    """Return each structured event as its name plus the fields its message lists."""
+    events: list[dict[str, object]] = []
+    for record in caplog.records:
+        event = vars(record).get("event")
+        if record.name != _LOGGER or not isinstance(event, str):
+            continue
+        names = [token.split("=", 1)[0] for token in record.getMessage().split()[1:]]
+        events.append({"event": event, **{name: vars(record)[name] for name in names}})
+    return events
 
 
 def _logged_text(caplog: pytest.LogCaptureFixture) -> str:
@@ -111,9 +116,9 @@ def test_discover_bound_run_id_tags_skip_and_summary_logs(
     assert summary == {
         "event": "sharepoint.discovery_summary",
         "run_id": "task-42",
-        "discovered": 1,
-        "skipped": 1,
-        "skipped_by_reason": {"EXCEEDS_SIZE_LIMIT": 1},
+        "discovered_count": 1,
+        "skipped_count": 1,
+        "skipped_reason": "exceeds_size_limit:1",
     }
 
 

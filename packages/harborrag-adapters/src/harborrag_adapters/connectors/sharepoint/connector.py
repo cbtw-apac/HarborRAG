@@ -35,6 +35,7 @@ from harborrag_core.ingestion.connector_contracts import (
     ConnectorQuery,
     ConnectorSkip,
 )
+from harborrag_core.observability.log_events import log_event
 
 from .client import SharePointClient, _RequestsGraphClient
 from .config import SharePointSiteConfig
@@ -60,10 +61,11 @@ from .skips import (
     SharePointItemSkippedError,
     SharePointSkipRecorder,
     item_load_error,
-    log_event,
     log_skip,
     skip_reason_for_error,
 )
+
+logger = logging.getLogger("harborrag.adapters.connectors.sharepoint")
 
 
 class SharePointConnector(BaseConnector):
@@ -162,12 +164,12 @@ class SharePointConnector(BaseConnector):
             return
         drives = self._drive.resolve_drives(site)
         log_event(
-            logging.INFO,
+            logger,
             "sharepoint.discovery_started",
             run_id=self.run_id,
             site_id=site.get("id"),
-            drive_ids=[drive.get("id") for drive in drives],
-            include_pages=self.config.include_pages,
+            drive_count=len(drives),
+            pages_status="included" if self.config.include_pages else "excluded",
         )
 
         seen: set[str] = set()
@@ -184,12 +186,14 @@ class SharePointConnector(BaseConnector):
         """Log what one completed traversal found and declined, by reason."""
         skips = self._skips.counts_by_reason()
         log_event(
-            logging.INFO,
+            logger,
             "sharepoint.discovery_summary",
             run_id=self.run_id,
-            discovered=discovered,
-            skipped=sum(skips.values()),
-            skipped_by_reason=skips,
+            discovered_count=discovered,
+            skipped_count=sum(skips.values()),
+            skipped_reason=",".join(
+                f"{reason.lower()}:{count}" for reason, count in sorted(skips.items())
+            ),
         )
 
     def _iter_records(
@@ -347,14 +351,14 @@ class SharePointConnector(BaseConnector):
         title = page_title(page)
         if not has_text:
             log_event(
-                logging.INFO,
+                logger,
                 "sharepoint.page_title_only",
                 run_id=self.run_id,
                 page_id=page_id,
-                detail="page has no text web parts; loading its title only",
+                reason="no_text_web_parts",
             )
         log_event(
-            logging.INFO,
+            logger,
             "sharepoint.page_loading",
             run_id=self.run_id,
             page_id=page_id,
@@ -416,7 +420,7 @@ class SharePointConnector(BaseConnector):
             raise SharePointItemSkippedError(reason, detail, item_id=item_id, url=url)
 
         log_event(
-            logging.INFO,
+            logger,
             "sharepoint.file_loading",
             run_id=self.run_id,
             item_id=item_id,
