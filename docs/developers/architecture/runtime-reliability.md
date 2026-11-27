@@ -86,8 +86,11 @@ graceful-cancel signals. From the CLI these are `harborrag ingestions get`, `get
 [Run and control ingestion](../../users/cli-reference/README.md#run-and-control-ingestion).
 
 A pause stops scheduling new expensive work after the current safe boundary. A graceful
-cancellation keeps the immutable artifacts already written and prevents an unverified version
-from becoming active.
+cancellation starts no further document and cancels the document workflows in flight, which
+record themselves as `cancelled` failures, so the run ends within seconds and frees its
+connection. It keeps the immutable artifacts already written and prevents an unverified
+version from becoming active. Batches recorded before the `harborrag-batch-prompt-cancel` patch
+let their documents in flight finish instead.
 
 Forcefully terminating infrastructure is different from cancelling in the domain sense.
 Workers must be able to restart, replay history and continue from idempotent effects, without

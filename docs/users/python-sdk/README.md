@@ -124,7 +124,9 @@ Under `direct` they raise `ExecutionCapabilityError`.
 Pause and resume are cooperative. A pause lets document work that already started
 finish, then stops the next batch from starting; poll `status(task_id)` until `paused`
 is `True` before you treat the run as paused. Resume lets new batches start again.
-Cancelling a paused run releases that wait and stops at the same safe boundary.
+Cancel starts no further batch and cancels the document work in flight, recording each
+cancelled document as a `cancelled` failure; cancelling a paused run releases that wait
+the same way.
 
 `status(task_id)` returns an `IngestionStatus` with `task_id`, `status`, `paused` and
 `cancel_requested`, and nothing more: no stages and no progress counts. Its `status` is

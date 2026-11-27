@@ -207,6 +207,7 @@ Follow the [upgrade guide](docs/users/upgrading.md) before upgrading; entries ma
 - A run's `EXTRACTION_FAILED` skip count covers only parser rejections (`parser_rejected_document` and `document_unsupported`), no longer outages, a missing parser or cancellations at the parse stage
 - **Breaking:** a connection test whose source answers a `4xx` that is not retried, other than `401`, `403`, `404`, `408` and `429`, such as a `400` or `422`, fails its `permissions` check with `error_category` `forbidden` and `the source refused the request`, instead of `unreachable`; a refused response is still `unreachable`
 - Deleting a connection, or a project with `cascade=true`, removes the connection's schedules of `/v1/admin/schedules` before its data
+- Cancelling a source ingestion (`POST /v1/admin/ingestions/{ingestion_id}/cancel`, `harborrag ingestions cancel`) cancels the documents in flight instead of waiting for them, recording each as a `cancelled` failure that `retry-failures` can run again, so the run reaches `cancelled` within seconds and a new ingestion of the connection can start; batches started before the upgrade keep waiting for theirs
 
 #### Deployment
 

@@ -34,6 +34,7 @@ from harborrag_runtime.temporal_models import TemporalWorkflowOptions
 pytestmark = pytest.mark.graybox
 
 _CANCEL_PATCH = "harborrag-document-records-cancellation"
+_PROMPT_CANCEL_PATCH = "harborrag-batch-prompt-cancel"
 _PLAN = WorkflowArtifactReference(
     bucket="artifacts",
     key="source-plans/scan-1.json",
@@ -179,6 +180,43 @@ async def test_a_batch_counts_a_cancelled_document_as_failed_and_finishes(
     assert activities.failures == ["cancelled"]
 
 
+@pytest.mark.asyncio
+async def test_a_graceful_cancel_cancels_the_documents_in_flight(
+    environment: WorkflowEnvironment,
+) -> None:
+    activities = _Activities()
+    workers, runs = await _run_workers(environment, activities)
+    task_id = f"task-{uuid.uuid4().hex[:8]}"
+    try:
+        with environment.auto_time_skipping_disabled():
+            batch = await environment.client.start_workflow(
+                SourceBatchWorkflow.run,
+                SourceBatchInput(
+                    task_id=task_id,
+                    tenant_id="tenant-1",
+                    connector_name="local-docs",
+                    plan_reference=_PLAN,
+                    start_index=0,
+                    end_index=2,
+                    batch_number=0,
+                    document_concurrency=1,
+                ),
+                id=f"harborrag-source-batch:{task_id}:0",
+                task_queue=TemporalWorkflowOptions().task_queues.transform,
+            )
+            await asyncio.wait_for(activities.entered.wait(), 10)
+            await batch.signal("request_graceful_cancel")
+            summary = await asyncio.wait_for(batch.result(), 10)
+            history = await batch.fetch_history()
+    finally:
+        await _stop(activities, workers, runs)
+
+    assert summary == DocumentDispatchSummary(failed=1)
+    assert activities.failures == ["cancelled"]
+    assert _PROMPT_CANCEL_PATCH in _patch_ids(history)
+    assert await _replay_failure(history, SourceBatchWorkflow) is None
+
+
 def _patch_ids(history: WorkflowHistory) -> set[str]:
     return {
         json.loads(payload.data)["id"]
@@ -188,9 +226,11 @@ def _patch_ids(history: WorkflowHistory) -> set[str]:
     }
 
 
-async def _replay_failure(history: WorkflowHistory) -> Exception | None:
+async def _replay_failure(
+    history: WorkflowHistory, workflow: type[Any] = DocumentIngestionWorkflow
+) -> Exception | None:
     replayer = Replayer(
-        workflows=[DocumentIngestionWorkflow],
+        workflows=[workflow],
         workflow_runner=UnsandboxedWorkflowRunner(),
     )
     result = await replayer.replay_workflow(history, raise_on_replay_failure=False)

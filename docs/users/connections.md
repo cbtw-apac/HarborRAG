@@ -372,6 +372,11 @@ resume and 30 s for cancel. If the wait ends first, the answer is the run as it 
   holds a pause it has not applied yet, such as one sent during discovery; resuming
   takes that pause back. Any other state, including `running` with no pending pause,
   is `409 invalid_state`, and the run is unchanged.
+- `cancel` starts no further document and cancels the documents in flight. Each of them
+  is recorded as a failure with the category `cancelled`, so `retry-failures` can run
+  it again, and the run usually reaches `cancelled` within a few seconds, inside the
+  wait. Once the answer shows `cancelled`, a new ingestion of the connection can start.
+  A cancel sent during discovery takes effect when discovery ends.
 - A retry run, started by `retry-failures` or `POST /v1/admin/failures/retry`, can be
   cancelled but not paused or resumed: `pause` and `resume` on it are
   `409 invalid_state`.
