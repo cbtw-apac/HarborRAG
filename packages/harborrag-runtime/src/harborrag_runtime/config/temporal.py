@@ -172,6 +172,7 @@ class TemporalRuntimeConfig:
     ingestion: IngestionConfig = IngestionConfig()
     workflow_execution_timeout_seconds: int = 2_592_000
     workflow_task_timeout_seconds: int = 10
+    workflow_native_pause: bool = False
     health_timeout_seconds: float = 5.0
 
     def __post_init__(self) -> None:
@@ -198,7 +199,10 @@ class TemporalRuntimeConfig:
         """Freeze configurable routing, retries and budgets into workflow history."""
 
         return TemporalWorkflowOptions(
-            task_queues=self.task_queues, retries=self.retries, timeouts=self.timeouts
+            task_queues=self.task_queues,
+            retries=self.retries,
+            timeouts=self.timeouts,
+            native_pause=self.workflow_native_pause,
         )
 
     @classmethod

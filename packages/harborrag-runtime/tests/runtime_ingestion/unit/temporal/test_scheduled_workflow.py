@@ -13,8 +13,9 @@ from unittest.mock import AsyncMock
 import pytest
 import pytest_asyncio
 from temporalio import activity, workflow
-from temporalio.client import WorkflowFailureError
+from temporalio.client import WorkflowFailureError, WorkflowHandle
 from temporalio.exceptions import ApplicationError
+from temporalio.service import RPCError, RPCStatusCode
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
@@ -32,6 +33,7 @@ from harborrag_runtime.temporal.schemas import (
     SourceIngestionInput,
     SourceIngestionResult,
 )
+from harborrag_runtime.temporal.source_activities import SourceActivitiesMixin
 from harborrag_runtime.temporal.source_workflow import ScheduledSourceIngestionWorkflow
 
 from .test_client import _source, _source_result
@@ -45,14 +47,26 @@ _DISCOVERY = "harborrag-discovery"
 class _ChildIngestion:
     """Stand-in child whose behaviour is chosen by the connection ID."""
 
+    def __init__(self) -> None:
+        self._cancelled_result: SourceIngestionResult | None = None
+
     @workflow.run
     async def run(self, source: SourceIngestionInput) -> SourceIngestionResult:
+        if source.connection_id == "graceful-child":
+            self._cancelled_result = replace(
+                _source_result(), task_id=source.task_id, status="CANCELLED"
+            )
+            await workflow.wait_condition(lambda: False)
         if source.connection_id == "hangs":
             await workflow.wait_condition(lambda: False)
         if source.connection_id == "fails":
             raise ApplicationError("discovery failed", non_retryable=True)
         status = "PARTIAL" if source.connection_id == "partial" else "COMPLETED"
         return replace(_source_result(), task_id=source.task_id, status=status)
+
+    @workflow.query
+    def get_graceful_cancel_result(self) -> SourceIngestionResult | None:
+        return self._cancelled_result
 
 
 class _Activities:
@@ -94,11 +108,13 @@ async def _run(
     executing it, losing the "cancelled" outcome.
     """
     activities = _Activities()
+    control = SourceActivitiesMixin()
+    control._temporal_client = environment.client
     async with Worker(
         environment.client,
         task_queue=_DISCOVERY,
         workflows=[ScheduledSourceIngestionWorkflow, _ChildIngestion],
-        activities=[activities.prepare, activities.record],
+        activities=[activities.prepare, activities.record, control.read_cancelled_source_result],
         workflow_runner=UnsandboxedWorkflowRunner(),
     ):
         handle = await environment.client.start_workflow(
@@ -110,13 +126,31 @@ async def _run(
             task_queue=_DISCOVERY,
         )
         if cancel:
-            while "started" not in activities.outcomes or not activities.prepared:
-                await asyncio.sleep(0.05)
-            await asyncio.sleep(0.2)
-            await handle.cancel()
+            async with asyncio.timeout(10):
+                while not activities.prepared:
+                    await asyncio.sleep(0.05)
+                task_id = activities.prepared[0].task_id
+                child = environment.client.get_workflow_handle(f"harborrag-source:{task_id}")
+                cancel_child = connection_id == "graceful-child"
+                await _wait_for_child(child, require_summary=cancel_child)
+            target = child if cancel_child else handle
+            await target.cancel()
             with environment.auto_time_skipping_disabled():
                 return await _outcome(activities, handle)
         return await _outcome(activities, handle)
+
+
+async def _wait_for_child(child: WorkflowHandle, *, require_summary: bool) -> None:
+    while True:
+        try:
+            result = await child.query(_ChildIngestion.get_graceful_cancel_result)
+        except RPCError as error:
+            if error.status != RPCStatusCode.NOT_FOUND:
+                raise
+        else:
+            if result is not None or not require_summary:
+                return
+        await asyncio.sleep(0.05)
 
 
 async def _outcome(
@@ -176,6 +210,19 @@ async def test_cancelled_run_is_recorded_as_cancelled(environment: WorkflowEnvir
     activities, result = await _run(environment, "hangs", cancel=True)
 
     assert isinstance(result, WorkflowFailureError)
+    assert activities.outcomes == ["started", "cancelled"]
+
+
+@pytest.mark.asyncio
+async def test_gracefully_cancelled_child_keeps_the_scheduled_result(
+    environment: WorkflowEnvironment,
+) -> None:
+    activities, result = await _run(environment, "graceful-child", cancel=True)
+
+    assert isinstance(result, ScheduledSourceIngestionResult)
+    assert result.outcome == "cancelled"
+    assert result.result is not None and result.result.status == "CANCELLED"
+    assert result.result.task_id == result.task_id
     assert activities.outcomes == ["started", "cancelled"]
 
 

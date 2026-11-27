@@ -106,14 +106,16 @@ in [Connections](../../docs/users/connections.md#post-v1adminingestions). Values
 `SUCCESS`, `PARTIAL`, `Completed` and `CompletedWithErrors` are not public. Two points depend
 on Temporal:
 
-- Pause and resume take effect at safe batch boundaries. HarborRAG pauses a run by signal
-  only, so the Temporal UI shows a paused run as `Running`: Temporal 1.31 never dispatches a
-  workflow task that was scheduled when a native pause landed, which would strand the run.
-  `frontend.WorkflowPauseEnabled` stays on in `dynamicconfig/development-sql.yaml` so that
-  resume and cancel can natively unpause a run an earlier release paused. Do not pause a
-  HarborRAG run from the Temporal UI or CLI on 1.31.x: that native pause can strand it the
-  same way. Native pause is safe only on Temporal 1.32 or later together with `temporalio`
-  1.35 or later.
+- Use the HarborRAG API or CLI to pause or resume an ingestion. HarborRAG pauses
+  document dispatch before pausing the root execution `harborrag-source:<ingestion_id>`.
+  The Compose stack enables `workflow.native_pause` with Temporal Server 1.32.2,
+  Python SDK 1.37, and `frontend.WorkflowPauseEnabled` for its default namespace.
+  Older deployments and runs created with the setting off use cooperative pause, so
+  their execution stays `Running` and **Memo** shows `HarborRAGIngestionStatus: paused`
+  after the worker applies the pause.
+- Graceful cancellation drains active work, records the ingestion summary, and then
+  closes the root execution as `Canceled`. Older executions that closed as
+  `Completed` retain their history and show `status: CANCELLED` in their result.
 - Vector and graph projection writes are separate idempotent activities, followed by
   verification. A test that requires a single atomic `index_upsert` activity describes a
   different implementation contract.

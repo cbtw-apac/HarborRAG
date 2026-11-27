@@ -2,7 +2,7 @@ name: harborrag-temporal
 
 services:
   temporal-schema:
-    image: temporalio/admin-tools:1.31.2
+    image: temporalio/admin-tools:1.32.2
     environment:
       DB_PORT: "5432"
       POSTGRES_SEEDS: ${TEMPORAL_POSTGRES_HOST:-postgres}
@@ -72,7 +72,7 @@ services:
     restart: "no"
 
   temporal:
-    image: temporalio/server:1.31.2
+    image: temporalio/server:1.32.2
     depends_on:
       temporal-schema:
         condition: service_completed_successfully
@@ -99,7 +99,7 @@ services:
     restart: unless-stopped
 
   temporal-namespace:
-    image: temporalio/admin-tools:1.31.2
+    image: temporalio/admin-tools:1.32.2
     depends_on:
       temporal:
         condition: service_started
@@ -144,7 +144,7 @@ services:
     restart: "no"
 
   temporal-ui:
-    image: temporalio/ui:2.52.0
+    image: temporalio/ui:2.58.1
     depends_on:
       temporal-namespace:
         condition: service_completed_successfully

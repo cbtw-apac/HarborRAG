@@ -4,10 +4,8 @@ system.forceSearchAttributesCacheRefreshOnRead:
   - value: true
     constraints: {}
 
-# Experimental native workflow pause/unpause (server 1.31+). HarborRAG pauses
-# runs by signal only; it keeps this on so resume and cancel can natively
-# unpause a run an earlier release paused. Without it UnpauseWorkflowExecution
-# fails as UNIMPLEMENTED and such a run stays paused.
+# HarborRAG applies native pause to the root execution after it pauses dispatch.
+# Keep unpause available for resume and cancellation of native-paused runs.
 frontend.WorkflowPauseEnabled:
   - value: true
     constraints:

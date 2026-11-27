@@ -48,6 +48,7 @@ ingestion:
 workflow:
   execution_timeout_seconds: 2592000
   task_timeout_seconds: 10
+  native_pause: true
 
 health:
   timeout_seconds: 5

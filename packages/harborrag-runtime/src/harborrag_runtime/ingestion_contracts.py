@@ -30,6 +30,7 @@ class IngestionExecutionStatus:
     paused: bool
     cancel_requested: bool
     pause_applied: bool = False
+    native_pause_pending: bool = False
 
 
 @dataclass(frozen=True, slots=True)

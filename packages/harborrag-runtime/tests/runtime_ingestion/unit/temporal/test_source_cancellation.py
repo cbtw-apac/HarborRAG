@@ -33,6 +33,8 @@ from temporalio.worker import (
     WorkflowOutboundInterceptor,
 )
 
+from harborrag_runtime.config.temporal import TemporalRuntimeConfig
+from harborrag_runtime.temporal.client import IngestionTemporalClient
 from harborrag_runtime.temporal.maintenance_schemas import ProjectionCleanupResult
 from harborrag_runtime.temporal.schemas import (
     DocumentDispatchSummary,
@@ -43,6 +45,7 @@ from harborrag_runtime.temporal.schemas import (
     SourceIngestionResult,
     WorkflowArtifactReference,
 )
+from harborrag_runtime.temporal.source_activities import SourceActivitiesMixin
 from harborrag_runtime.temporal.source_workflow import SourceIngestionWorkflow
 
 from .test_client import _source
@@ -230,12 +233,14 @@ async def _source_run(
 
     task_id = f"task-{uuid.uuid4().hex[:8]}"
     source: SourceIngestionInput = replace(_source(), task_id=task_id)
+    control = SourceActivitiesMixin()
+    control._temporal_client = environment.client
     workers = [
         Worker(
             environment.client,
             task_queue=queue,
             workflows=[SourceIngestionWorkflow, _Batch],
-            activities=activities.all(),
+            activities=[*activities.all(), control.close_cancelled_source_execution],
             workflow_runner=UnsandboxedWorkflowRunner(),
             interceptors=interceptors,
         )
@@ -389,16 +394,18 @@ async def test_a_pause_that_cannot_be_persisted_after_discovery_fails_the_run_re
 
 
 @pytest.mark.asyncio
-async def test_a_graceful_cancel_returns_every_skip_of_the_run(
+async def test_a_graceful_cancel_closes_as_canceled_and_returns_every_skip(
     environment: WorkflowEnvironment,
 ) -> None:
     activities = _Activities()
     async with _source_run(environment, activities) as (handle, child):
         await _until(lambda: _exists(child))
         await handle.signal("request_graceful_cancel")
-        status, result = await _close(handle)
+        status, _ = await _close(handle)
+        client = IngestionTemporalClient(environment.client, TemporalRuntimeConfig())
+        result = await client.result(handle.id.split(":", 1)[1])
 
-    assert status is WorkflowExecutionStatus.COMPLETED
+    assert status is WorkflowExecutionStatus.CANCELED
     assert result.status == "CANCELLED"
     assert result.skipped_by_reason == _RUN_SKIPS
     assert result.skipped == sum(_RUN_SKIPS.values())
@@ -417,10 +424,11 @@ async def test_a_graceful_cancel_racing_the_batch_close_cancels_the_run(
         await child.signal("finish")
         await _until(lambda: _closed(child))
         held.release.set()
-        status, result = await _close(handle)
+        status, _ = await _close(handle)
         history = await handle.fetch_history()
+        result = await handle.query("get_graceful_cancel_result", result_type=SourceIngestionResult)
 
-    assert status is WorkflowExecutionStatus.COMPLETED, result
+    assert status is WorkflowExecutionStatus.CANCELED, result
     assert result.status == "CANCELLED"
     assert "record_source_failure" not in activities.calls
     assert _CLOSED_BATCH_PATCH in _patch_ids(history)

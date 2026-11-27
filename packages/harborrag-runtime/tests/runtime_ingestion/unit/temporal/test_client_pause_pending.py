@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from harborrag_runtime.config.temporal import TemporalRuntimeConfig
@@ -52,3 +54,20 @@ async def test_a_pause_overtaken_by_cancellation_still_reports_failure(
         await client.pause("task-1")
 
     sdk.workflow_service.pause_workflow_execution.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_stalled_status_query_cannot_extend_the_pause_wait(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def stalled_query(*args: object, **kwargs: object) -> SourceIngestionStatus:
+        await asyncio.Event().wait()
+        return _pending()
+
+    sdk = _SdkClient()
+    sdk.source_handle.query.side_effect = stalled_query
+    monkeypatch.setattr(client_module, "_PAUSE_SETTLE_SECONDS", 0.01)
+    client = IngestionTemporalClient(sdk, TemporalRuntimeConfig())
+
+    with pytest.raises(WorkflowOperationError, match="pause relay did not settle"):
+        await asyncio.wait_for(client.pause("task-1"), 0.25)
