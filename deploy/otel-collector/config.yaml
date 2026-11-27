@@ -1,0 +1,109 @@
+# OpenTelemetry collector of the HarborRAG monitoring stack
+# (deploy/compose/docker-compose.monitoring.yml). The API, the ingestion worker and
+# the MCP server send OTLP over HTTP to otel-collector:4318 on harborrag-data-network
+# once OTEL_EXPORTER_OTLP_ENDPOINT is set in their env file.
+#
+# Traces: allow-listed attributes -> span metrics (every span) -> tail sampling -> Tempo.
+# Logs: allow-listed attributes, e-mail addresses and phone numbers masked -> Loki.
+# Metrics: OTLP, span metrics and the MCP health probe -> Prometheus scrape on :8889.
+
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+  # Feeds the "MCP down" alert. The MCP server answers only to a loopback Host header
+  # (HTTP 421 otherwise), so the probe sends one.
+  http_check/mcp:
+    collection_interval: 30s
+    targets:
+      - endpoint: http://mcp:8010/healthz
+        method: GET
+        headers:
+          Host: localhost
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 200
+    spike_limit_mib: 50
+  # Attribute allow-list: span, span event and log record attributes whose key does
+  # not match are dropped, so document text, titles, file names and exception
+  # messages never leave the collector. Resource attributes are kept as sent.
+  transform/allowlist:
+    error_mode: ignore
+    trace_statements:
+      - context: span
+        statements:
+          - keep_matching_keys(span.attributes, "^(service\\..*|deployment\\..*|telemetry\\..*|harborrag\\..*|mcp\\.(tool(\\..*)?|method\\.name|session\\.id|protocol\\.version)|gen_ai\\.(operation\\.name|provider\\.name|request\\.model|response\\.model|response\\.finish_reasons|usage\\..*)|http\\.(request\\.method|response\\.status_code|route)|db\\.(system.*|operation.*|collection\\.name)|server\\.address|error\\.type|exception\\.type|code\\..*|otel\\..*|temporal.*|rpc\\..*|.*_id|.*_count|.*_ms|.*_seconds|lane|stage|outcome|attempt|status|mode|tool|reason|connector.*|.*_code|.*_type|.*_reason|.*_status|.*_kind|.*_bytes|error_chain|retryable|backend|event|dropped_fields|operation|config_path|server_address|server_port)$")
+      - context: spanevent
+        statements:
+          - keep_matching_keys(spanevent.attributes, "^(service\\..*|deployment\\..*|telemetry\\..*|harborrag\\..*|mcp\\.(tool(\\..*)?|method\\.name|session\\.id|protocol\\.version)|gen_ai\\.(operation\\.name|provider\\.name|request\\.model|response\\.model|response\\.finish_reasons|usage\\..*)|http\\.(request\\.method|response\\.status_code|route)|db\\.(system.*|operation.*|collection\\.name)|server\\.address|error\\.type|exception\\.type|code\\..*|otel\\..*|temporal.*|rpc\\..*|.*_id|.*_count|.*_ms|.*_seconds|lane|stage|outcome|attempt|status|mode|tool|reason|connector.*|.*_code|.*_type|.*_reason|.*_status|.*_kind|.*_bytes|error_chain|retryable|backend|event|dropped_fields|operation|config_path|server_address|server_port)$")
+    log_statements:
+      - context: log
+        statements:
+          - keep_matching_keys(log.attributes, "^(service\\..*|deployment\\..*|telemetry\\..*|harborrag\\..*|mcp\\.(tool(\\..*)?|method\\.name|session\\.id|protocol\\.version)|gen_ai\\.(operation\\.name|provider\\.name|request\\.model|response\\.model|response\\.finish_reasons|usage\\..*)|http\\.(request\\.method|response\\.status_code|route)|db\\.(system.*|operation.*|collection\\.name)|server\\.address|error\\.type|exception\\.type|code\\..*|otel\\..*|temporal.*|rpc\\..*|.*_id|.*_count|.*_ms|.*_seconds|lane|stage|outcome|attempt|status|mode|tool|reason|connector.*|.*_code|.*_type|.*_reason|.*_status|.*_kind|.*_bytes|error_chain|retryable|backend|event|dropped_fields|operation|config_path|server_address|server_port)$")
+          - replace_pattern(log.body, "[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+([.][A-Za-z0-9-]+)+", "<email>") where IsString(log.body)
+          - replace_pattern(log.body, "[+][0-9][0-9 ().-]{6,18}[0-9]", "<phone>") where IsString(log.body)
+          - replace_pattern(log.body, "\\b0[0-9]{2,3}[ .-]?[0-9]{3}[ .-]?[0-9]{3,4}\\b", "<phone>") where IsString(log.body)
+  # Keeps every trace with an error, every trace slower than 2s, and
+  # HARBORRAG_TRACE_SAMPLE_PERCENT of the rest (100 locally; production uses about 10).
+  # Spans arriving after a trace was kept follow that decision.
+  tail_sampling:
+    decision_wait: 10s
+    decision_cache:
+      sampled_cache_size: 100000
+    policies:
+      - name: errors
+        type: status_code
+        status_code:
+          status_codes: [ERROR]
+      - name: slow
+        type: latency
+        latency:
+          threshold_ms: 2000
+      - name: share
+        type: probabilistic
+        probabilistic:
+          sampling_percentage: ${env:HARBORRAG_TRACE_SAMPLE_PERCENT}
+  batch: {}
+
+connectors:
+  # Request, error and duration metrics from every span, before sampling drops any.
+  span_metrics:
+    histogram:
+      unit: s
+    exemplars:
+      enabled: true
+    metrics_flush_interval: 15s
+  forward/sampling: {}
+
+exporters:
+  otlp_http/tempo:
+    endpoint: http://tempo:4318
+  otlp_http/loki:
+    endpoint: http://loki:3100/otlp
+  prometheus:
+    endpoint: 0.0.0.0:8889
+    resource_to_telemetry_conversion:
+      enabled: true
+    enable_open_metrics: true
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, transform/allowlist]
+      exporters: [span_metrics, forward/sampling]
+    traces/sampled:
+      receivers: [forward/sampling]
+      processors: [tail_sampling, batch]
+      exporters: [otlp_http/tempo]
+    metrics:
+      receivers: [otlp, span_metrics, http_check/mcp]
+      processors: [memory_limiter, batch]
+      exporters: [prometheus]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, transform/allowlist, batch]
+      exporters: [otlp_http/loki]

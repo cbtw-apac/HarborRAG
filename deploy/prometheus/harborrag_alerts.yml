@@ -1,4 +1,182 @@
 groups:
+  # Thresholds shared by alerts and dashboards. Change a value here, not in the rules.
+  # The MCP latency threshold is provisional until two weeks of baseline exist.
+  - name: harborrag-thresholds
+    rules:
+      - record: harborrag:threshold:mcp_p95_seconds
+        expr: vector(2)
+      - record: harborrag:threshold:llm_daily_budget_usd
+        expr: vector(50)
+      - record: harborrag:threshold:temporal_pickup_p95_seconds
+        expr: vector(120)
+
+  - name: harborrag-online
+    rules:
+      - alert: HarborRAGMcpDown
+        expr: |
+          max by (http_url) (httpcheck_status{http_status_class="2xx"}) < 1
+          or
+          (absent(httpcheck_status{http_status_class="2xx"}) and on () (up{job="otel-collector"} == 1))
+        for: 2m
+        labels:
+          severity: critical
+          side: online
+        annotations:
+          summary: The MCP server fails its health check
+          description: "The collector's probe of {{ $labels.http_url }} has not answered 2xx for 2 minutes."
+          dashboard: harborrag-online-overview
+          runbook_url: https://github.com/cbtw-apac/HarborRAG/blob/main/docs/developers/deployment/observability-runbooks.md#mcp-down
+
+      # A server-side failure is a server error, or a tool's own failure the server caused
+      # (backend_unavailable, not_configured). A server error has no error_code, which matches "".
+      - alert: HarborRAGMcpErrors
+        expr: |
+          sum(rate(harborrag_mcp_tool_calls_total{status=~"error|tool_error",error_code=~"|backend_unavailable|not_configured"}[10m]))
+            / sum(rate(harborrag_mcp_tool_calls_total[10m])) > 0.05
+        for: 10m
+        labels:
+          severity: critical
+          side: online
+        annotations:
+          summary: More than 5% of MCP tool calls fail on the server
+          description: "{{ $value | humanizePercentage }} of MCP tool calls failed server-side over 10 minutes: a server error, or a store or model the tool could not reach."
+          dashboard: harborrag-mcp-retrieval
+          runbook_url: https://github.com/cbtw-apac/HarborRAG/blob/main/docs/developers/deployment/observability-runbooks.md#mcp-errors
+
+      - alert: HarborRAGMcpSlow
+        expr: |
+          histogram_quantile(0.95, sum by (le) (rate(harborrag_mcp_tool_duration_seconds_bucket[5m])))
+            > scalar(harborrag:threshold:mcp_p95_seconds)
+        for: 15m
+        labels:
+          severity: warning
+          side: online
+        annotations:
+          summary: MCP tool calls are slow
+          description: "MCP p95 latency is {{ $value | humanizeDuration }}, above the threshold for 15 minutes."
+          dashboard: harborrag-mcp-retrieval
+          runbook_url: https://github.com/cbtw-apac/HarborRAG/blob/main/docs/developers/deployment/observability-runbooks.md#mcp-slow
+
+      # Fires when the last hour's empty-result rate is at least double its 7-day
+      # baseline and above 10%, so a quiet corpus with a few misses stays silent.
+      - alert: HarborRAGEmptyResultsSpike
+        expr: |
+          (
+            sum(rate(harborrag_retrieval_results_bucket{le=~"0|0[.]0"}[1h]))
+              / sum(rate(harborrag_retrieval_results_count[1h]))
+          ) > 2 * (
+            sum(rate(harborrag_retrieval_results_bucket{le=~"0|0[.]0"}[7d]))
+              / sum(rate(harborrag_retrieval_results_count[7d]))
+          )
+          and
+          (
+            sum(rate(harborrag_retrieval_results_bucket{le=~"0|0[.]0"}[1h]))
+              / sum(rate(harborrag_retrieval_results_count[1h]))
+          ) > 0.1
+        for: 30m
+        labels:
+          severity: warning
+          side: online
+        annotations:
+          summary: Retrieval tools return nothing far more often than usual
+          description: "{{ $value | humanizePercentage }} of successful retrieval calls returned no result in the last hour."
+          dashboard: harborrag-mcp-retrieval
+          runbook_url: https://github.com/cbtw-apac/HarborRAG/blob/main/docs/developers/deployment/observability-runbooks.md#empty-results-spike
+
+      - alert: HarborRAGLlmSpend
+        expr: sum(increase(harborrag_model_cost_usd_total[1d])) > scalar(harborrag:threshold:llm_daily_budget_usd)
+        for: 0m
+        labels:
+          severity: warning
+          side: online
+        annotations:
+          summary: Model spend is above the daily budget
+          description: "Models reported {{ $value | printf \"%.2f\" }} USD over the last 24 hours."
+          dashboard: harborrag-chat-llm
+          runbook_url: https://github.com/cbtw-apac/HarborRAG/blob/main/docs/developers/deployment/observability-runbooks.md#llm-spend
+
+  - name: harborrag-shared
+    rules:
+      - alert: HarborRAGHostResources
+        expr: (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) > 0.9
+        for: 5m
+        labels:
+          severity: critical
+          side: shared
+          resource: memory
+        annotations:
+          summary: Host memory is above 90%
+          description: "The host uses {{ $value | humanizePercentage }} of its memory."
+          dashboard: harborrag-stores-host
+          runbook_url: https://github.com/cbtw-apac/HarborRAG/blob/main/docs/developers/deployment/observability-runbooks.md#host-resources
+
+      - alert: HarborRAGHostResources
+        expr: |
+          max by (mountpoint) (
+            1 - node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs|9p|drvfs"}
+              / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs|9p|drvfs"}
+          ) > 0.85
+        for: 5m
+        labels:
+          severity: critical
+          side: shared
+          resource: disk
+        annotations:
+          summary: Host disk is above 85%
+          description: "{{ $labels.mountpoint }} is {{ $value | humanizePercentage }} full."
+          dashboard: harborrag-stores-host
+          runbook_url: https://github.com/cbtw-apac/HarborRAG/blob/main/docs/developers/deployment/observability-runbooks.md#host-resources
+
+  - name: harborrag-offline
+    rules:
+      # Vector and graph writes fail independently: the document stays findable
+      # through the other index, so the outcome is only a warning on the run.
+      - alert: HarborRAGIndexPartialFailures
+        expr: |
+          sum(increase(harborrag_ingestion_stage_operations_total{stage=~"qdrant_write|falkordb_write",outcome="failed"}[1h]))
+            / clamp_min(sum(increase(harborrag_ingestion_documents_total{outcome="admitted"}[1h])), 1)
+          > 0.01
+        for: 15m
+        labels:
+          severity: warning
+          side: offline
+        annotations:
+          summary: Vector or graph indexing fails for more than 1% of documents
+          description: "Failed index writes reached {{ $value | humanizePercentage }} of admitted documents in the last hour."
+          dashboard: harborrag-ingestion
+          runbook_url: https://github.com/cbtw-apac/HarborRAG/blob/main/docs/developers/deployment/observability-runbooks.md#index-partial-failures
+
+      - alert: HarborRAGSyncStale
+        expr: |
+          (sum by (schedule_id) (increase(harborrag_temporal_scheduled_runs_total{outcome=~"completed|partial"}[26h])) == 0)
+          and on (schedule_id)
+          (harborrag_temporal_schedule_paused == 0)
+        for: 30m
+        labels:
+          severity: warning
+          side: offline
+        annotations:
+          summary: A HarborRAG schedule has not completed a run for over a day
+          description: "Schedule {{ $labels.schedule_id }} is not paused but has completed no run in 26 hours."
+          dashboard: harborrag-ingestion
+          runbook_url: https://github.com/cbtw-apac/HarborRAG/blob/main/docs/developers/deployment/observability-runbooks.md#sync-missed-or-stale
+
+      # The worker's SDK records how long each activity waited for a free slot. A
+      # stopped worker records nothing, so this alert cannot see one; Sync stale does.
+      - alert: HarborRAGTemporalBacklog
+        expr: |
+          histogram_quantile(0.95, sum by (le, task_queue) (rate(temporal_activity_schedule_to_start_latency_seconds_bucket[10m])))
+            > scalar(harborrag:threshold:temporal_pickup_p95_seconds)
+        for: 30m
+        labels:
+          severity: warning
+          side: offline
+        annotations:
+          summary: Activities wait too long for a Temporal worker
+          description: "On task queue {{ $labels.task_queue }}, the p95 wait for a worker slot is {{ $value | humanizeDuration }}, above the threshold for 30 minutes."
+          dashboard: harborrag-ingestion
+          runbook_url: https://github.com/cbtw-apac/HarborRAG/blob/main/docs/developers/deployment/observability-runbooks.md#temporal-backlog
+
   - name: harborrag-temporal-schedules
     rules:
       - alert: HarborRAGScheduledWorkflowFailed
@@ -6,18 +184,22 @@ groups:
         for: 0m
         labels:
           severity: warning
+          side: offline
         annotations:
           summary: A HarborRAG scheduled workflow failed
           description: "Schedule {{ $labels.schedule_id }} has a failed run in the last 15 minutes."
+          dashboard: harborrag-ingestion
 
       - alert: HarborRAGScheduleUnexpectedlyPaused
         expr: harborrag_temporal_schedule_paused > harborrag_temporal_schedule_expected_paused
         for: 2m
         labels:
           severity: warning
+          side: offline
         annotations:
           summary: A HarborRAG schedule is paused unexpectedly
           description: "Schedule {{ $labels.schedule_id }} is paused but is not configured to be paused."
+          dashboard: harborrag-ingestion
       # A run is skipped while another ingestion holds the source scope. Skips
       # with no successful run for a day mean a long-running or stranded scan.
       - alert: HarborRAGScheduleKeepsSkipping
@@ -28,6 +210,8 @@ groups:
         for: 15m
         labels:
           severity: warning
+          side: offline
         annotations:
           summary: A HarborRAG schedule keeps skipping its runs
           description: "Schedule {{ $labels.schedule_id }} skipped runs in the last 24 hours without completing one; its source scope is held by another ingestion or a stranded scan."
+          dashboard: harborrag-ingestion

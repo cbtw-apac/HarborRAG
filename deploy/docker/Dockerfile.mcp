@@ -40,7 +40,7 @@ RUN uv export --quiet --frozen --package harborrag-mcp-server --extra reader \
         -e packages/harborrag-core \
         -e packages/harborrag-memory \
         -e packages/harborrag-engine \
-        -e 'packages/harborrag-adapters[control-plane,falkordb,llm,postgres,qdrant,s3]' \
+        -e 'packages/harborrag-adapters[control-plane,falkordb,llm,opentelemetry,postgres,qdrant,s3]' \
         -e 'packages/harborrag-runtime[reader]' \
         -e 'packages/harborrag-mcp-server[reader]' \
     && rm -f /tmp/harborrag-lock.txt \

@@ -182,6 +182,9 @@ services:
       HARBORRAG_METRICS_PORT: "9464"
       HARBORRAG_METRICS_BIND_ADDRESS: 0.0.0.0
       HARBORRAG_LANGFUSE_ENABLED: ${HARBORRAG_LANGFUSE_ENABLED:-false}
+      # From env/.env.temporal, which is not an env_file of the worker. Without a
+      # value here the variable stays unset in the container unless that file sets it.
+      OTEL_EXPORTER_OTLP_ENDPOINT:
       # Pin image-internal paths. Host-relative values from env files are not
       # valid after WORKDIR changes to /var/lib/harborrag.
       HARBORRAG_TEMPORAL_CONFIG_PATH: /app/config/temporal.yaml

@@ -1,0 +1,1017 @@
+{
+  "uid": "harborrag-chat-llm",
+  "title": "Chat and LLM",
+  "tags": [
+    "harborrag",
+    "online",
+    "chat"
+  ],
+  "editable": true,
+  "schemaVersion": 41,
+  "version": 1,
+  "graphTooltip": 1,
+  "timezone": "browser",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "refresh": "1m",
+  "templating": {
+    "list": [
+      {
+        "name": "env",
+        "label": "Environment",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "harborrag-prometheus"
+        },
+        "query": {
+          "query": "label_values(target_info, deployment_environment)",
+          "refId": "env-values"
+        },
+        "definition": "label_values(target_info, deployment_environment)",
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "refresh": 2,
+        "sort": 1,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        }
+      },
+      {
+        "name": "tenant",
+        "label": "Tenant",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "harborrag-prometheus"
+        },
+        "query": {
+          "query": "label_values(harborrag_mcp_tool_calls_total, tenant)",
+          "refId": "tenant-values"
+        },
+        "definition": "label_values(harborrag_mcp_tool_calls_total, tenant)",
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "refresh": 2,
+        "sort": 1,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        }
+      },
+      {
+        "name": "mode",
+        "label": "Mode",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "harborrag-prometheus"
+        },
+        "query": {
+          "query": "label_values(harborrag_chat_turns_total, mode)",
+          "refId": "mode-values"
+        },
+        "definition": "label_values(harborrag_chat_turns_total, mode)",
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "refresh": 2,
+        "sort": 1,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        }
+      }
+    ]
+  },
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      },
+      {
+        "name": "Deploys",
+        "enable": true,
+        "iconColor": "blue",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "harborrag-prometheus"
+        },
+        "expr": "count by (job, service_version) (target_info) unless count by (job, service_version) (last_over_time(target_info[1d] offset 5m))",
+        "step": "1m",
+        "titleFormat": "Deploy {{job}}",
+        "textFormat": "version {{service_version}}"
+      },
+      {
+        "name": "Alerts firing",
+        "enable": true,
+        "iconColor": "red",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "harborrag-prometheus"
+        },
+        "expr": "ALERTS{alertstate=\"firing\"}",
+        "step": "1m",
+        "titleFormat": "{{alertname}}",
+        "textFormat": "{{severity}} {{side}}"
+      }
+    ]
+  },
+  "links": [
+    {
+      "title": "HarborRAG",
+      "type": "dashboards",
+      "tags": [
+        "harborrag"
+      ],
+      "asDropdown": true,
+      "includeVars": true,
+      "keepTime": true
+    },
+    {
+      "title": "Runbooks",
+      "type": "link",
+      "icon": "doc",
+      "targetBlank": true,
+      "url": "https://github.com/cbtw-apac/HarborRAG/blob/main/docs/developers/deployment/observability-runbooks.md",
+      "tooltip": "What each alert means and how to respond"
+    }
+  ],
+  "panels": [
+    {
+      "type": "row",
+      "title": "Is it healthy now",
+      "id": 1,
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "type": "stat",
+      "title": "Turns, 24 h",
+      "description": "Chat turns in the last 24 hours.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "sum(increase(harborrag_chat_turns_total{mode=~\"$mode\",tenant=~\"$tenant\",deployment_environment=~\"$env\"}[24h]))",
+          "refId": "A",
+          "legendFormat": "__auto",
+          "exemplar": false,
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 0,
+          "noValue": "No chat turns"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "graphMode": "none",
+        "colorMode": "value",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "id": 2,
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 5,
+        "h": 4
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Error rate, 5 min",
+      "description": "Server-side failures per turn.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "(sum(rate(harborrag_chat_turns_total{mode=~\"$mode\",tenant=~\"$tenant\",deployment_environment=~\"$env\",status=\"error\"}[5m])) or vector(0)) / sum(rate(harborrag_chat_turns_total{mode=~\"$mode\",tenant=~\"$tenant\",deployment_environment=~\"$env\"}[5m]))",
+          "refId": "A",
+          "legendFormat": "__auto",
+          "exemplar": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.05
+              }
+            ]
+          },
+          "noValue": "No chat turns"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "graphMode": "none",
+        "colorMode": "value",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "id": 3,
+      "gridPos": {
+        "x": 5,
+        "y": 1,
+        "w": 5,
+        "h": 4
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Time to first token p95, 5 min",
+      "description": "p95 time from the start of a turn to its first answer text.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(harborrag_chat_ttft_seconds_bucket{mode=~\"$mode\",tenant=~\"$tenant\",deployment_environment=~\"$env\"}[5m])))",
+          "refId": "A",
+          "legendFormat": "__auto",
+          "exemplar": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "No chat turns"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "graphMode": "area",
+        "colorMode": "value",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "id": 4,
+      "gridPos": {
+        "x": 10,
+        "y": 1,
+        "w": 5,
+        "h": 4
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Citation pass rate, 24 h",
+      "description": "Share of answers whose citations all name a passage they were given.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "sum(increase(harborrag_chat_citation_checks_total{result=\"pass\"}[24h])) / sum(increase(harborrag_chat_citation_checks_total[24h]))",
+          "refId": "A",
+          "legendFormat": "__auto",
+          "exemplar": false,
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "No chat turns"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "graphMode": "none",
+        "colorMode": "value",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "id": 5,
+      "gridPos": {
+        "x": 15,
+        "y": 1,
+        "w": 5,
+        "h": 4
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Model cost, 24 h",
+      "description": "Model cost of every service in the last 24 hours: ingestion embeddings, chat and search. Red above the 50 USD daily budget. Cost is what the LiteLLM proxy reports from its price list: an estimate, not the invoice. Self-hosted models report 0. There is no tenant label, so cost cannot be split per tenant.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "sum(increase(harborrag_model_cost_usd_total[24h])) or vector(0)",
+          "refId": "A",
+          "legendFormat": "__auto",
+          "exemplar": false,
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 50
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "graphMode": "none",
+        "colorMode": "value",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "id": 6,
+      "gridPos": {
+        "x": 20,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      }
+    },
+    {
+      "type": "row",
+      "title": "How is it trending",
+      "id": 7,
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Turns by mode",
+      "description": "Chat turns per second by mode.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "sum by (mode) (rate(harborrag_chat_turns_total{mode=~\"$mode\",tenant=~\"$tenant\",deployment_environment=~\"$env\"}[$__rate_interval]))",
+          "refId": "A",
+          "legendFormat": "{{mode}}",
+          "exemplar": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "axisLabel": "",
+            "spanNulls": 300000,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisSoftMax": 1
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 8,
+      "gridPos": {
+        "x": 0,
+        "y": 6,
+        "w": 8,
+        "h": 8
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Time to first token, p50 and p95",
+      "description": "Per mode. An exemplar opens the turn's trace.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le, mode) (rate(harborrag_chat_ttft_seconds_bucket{mode=~\"$mode\",tenant=~\"$tenant\",deployment_environment=~\"$env\"}[$__rate_interval])))",
+          "refId": "A",
+          "legendFormat": "p95 {{mode}}",
+          "exemplar": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "histogram_quantile(0.5, sum by (le, mode) (rate(harborrag_chat_ttft_seconds_bucket{mode=~\"$mode\",tenant=~\"$tenant\",deployment_environment=~\"$env\"}[$__rate_interval])))",
+          "refId": "B",
+          "legendFormat": "p50 {{mode}}",
+          "exemplar": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "axisLabel": "",
+            "spanNulls": 300000,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisSoftMax": 1
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 9,
+      "gridPos": {
+        "x": 8,
+        "y": 6,
+        "w": 8,
+        "h": 8
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Citation results",
+      "description": "Share of answers per citation result. A rising fail share: check retrieval.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "sum by (result) (increase(harborrag_chat_citation_checks_total[$__interval]))",
+          "refId": "A",
+          "legendFormat": "{{result}}",
+          "exemplar": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 80,
+            "showPoints": "never",
+            "axisLabel": "",
+            "spanNulls": 300000,
+            "stacking": {
+              "mode": "percent",
+              "group": "A"
+            },
+            "axisSoftMax": 1
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "interval": "1m",
+      "id": 10,
+      "gridPos": {
+        "x": 16,
+        "y": 6,
+        "w": 8,
+        "h": 8
+      }
+    },
+    {
+      "type": "row",
+      "title": "Where is it coming from",
+      "id": 11,
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 14,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Tokens per day by service and model",
+      "description": "Prompt and completion tokens per day, by service, operation and model. Input-heavy chat turns mean trimming the context; ingestion embeds every new or changed document.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "sum by (job, gen_ai_operation_name, gen_ai_response_model, token_type) (increase(harborrag_model_tokens_total{token_type!=\"total_tokens\"}[1d]))",
+          "refId": "A",
+          "legendFormat": "{{job}} {{gen_ai_operation_name}} {{gen_ai_response_model}} {{token_type}}",
+          "exemplar": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 80,
+            "showPoints": "never",
+            "axisLabel": "",
+            "spanNulls": 300000,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "axisSoftMax": 1
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "^harborrag-worker( .*)?$"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#338ced"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "^harborrag-api( .*)?$"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#e76624"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "^harborrag-mcp( .*)?$"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#00a888"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 12,
+      "gridPos": {
+        "x": 0,
+        "y": 15,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Cost per day by service and model",
+      "description": "Model cost per day by service (ingestion worker, chat API, MCP search), operation and model. The line is the daily budget alert. Cost is what the LiteLLM proxy reports from its price list: an estimate, not the invoice. Self-hosted models report 0. There is no tenant label, so cost cannot be split per tenant.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "sum by (job, gen_ai_operation_name, gen_ai_response_model) (increase(harborrag_model_cost_usd_total[1d]))",
+          "refId": "A",
+          "legendFormat": "{{job}} {{gen_ai_operation_name}} {{gen_ai_response_model}}",
+          "exemplar": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 80,
+            "showPoints": "never",
+            "axisLabel": "",
+            "spanNulls": 300000,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "line"
+            },
+            "axisSoftMax": 0.01
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 50
+              }
+            ]
+          },
+          "min": 0,
+          "noValue": "No model cost reported",
+          "decimals": 4
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "^harborrag-worker( .*)?$"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#338ced"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "^harborrag-api( .*)?$"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#e76624"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "^harborrag-mcp( .*)?$"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#00a888"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 13,
+      "gridPos": {
+        "x": 12,
+        "y": 15,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "type": "row",
+      "title": "What do I open",
+      "id": 14,
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 23,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "type": "table",
+      "title": "Slowest and failed turns, last hour",
+      "description": "Chat requests that failed or took over 8 seconds. No prompt or answer text is recorded.",
+      "datasource": {
+        "type": "tempo",
+        "uid": "harborrag-tempo"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "tempo",
+            "uid": "harborrag-tempo"
+          },
+          "refId": "A",
+          "queryType": "traceql",
+          "query": "{ name =~ \"POST /v1/chat.*\" && (status = error || duration > 8s) }",
+          "limit": 20,
+          "spss": 3,
+          "tableType": "traces"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "Duration",
+            "desc": true
+          }
+        ]
+      },
+      "timeFrom": "1h",
+      "id": 15,
+      "gridPos": {
+        "x": 0,
+        "y": 24,
+        "w": 24,
+        "h": 9
+      }
+    }
+  ]
+}

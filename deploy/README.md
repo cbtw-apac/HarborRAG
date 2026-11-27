@@ -11,8 +11,8 @@ which environment file, and what a production deployment still needs are in
   variant), the API, the MCP server, the Explorer MCP UI and monitoring.
 - `docker/` - the Dockerfiles for the API, CLI, MCP server, Explorer MCP UI and the
   ingestion worker (with a GPU variant).
-- `grafana/`, `loki/`, `prometheus/` - provisioning for the monitoring stack, independent of
-  how the stack is run.
+- `grafana/`, `loki/`, `otel-collector/`, `prometheus/`, `tempo/` - configuration for the
+  monitoring stack, independent of how the stack is run.
 - `temporal/` - the local Temporal server's dynamic configuration; its
   [README](temporal/README.md) describes HarborRAG's Temporal settings.
 - `aws/` - empty placeholders for cloud infrastructure-as-code; see its

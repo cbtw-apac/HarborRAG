@@ -18,6 +18,7 @@ DEV_SCRIPT = ROOT / "scripts/deployment/dev.sh"
 MCP_SCRIPT = ROOT / "scripts/deployment/mcp.sh"
 MCP_LAUNCHER = ROOT / "scripts/deployment/common/mcp-launcher.sh"
 DEV_CHECKS = ROOT / "scripts/deployment/common/dev-checks.sh"
+OBSERVABILITY_SCRIPT = ROOT / "scripts/deployment/observability.sh"
 
 
 def test_development_entrypoint_orchestrates_explicit_components() -> None:
@@ -33,6 +34,8 @@ def test_development_entrypoint_orchestrates_explicit_components() -> None:
     assert "start_monitoring" not in script
     assert "monitoring_compose" not in script
     assert "    monitoring)" not in script
+    assert "docker-compose.monitoring.yml" not in script
+    assert "observability.sh" not in script
     assert "up [--no-worker] [--build]" in script
     assert "chmod 600" in script
 
@@ -634,7 +637,12 @@ def test_mcp_entrypoint_requires_bootstrapped_environment(tmp_path: Path) -> Non
 def test_deployment_has_explicit_orchestration_and_mcp_entrypoints() -> None:
     scripts = sorted((ROOT / "scripts/deployment").glob("*.sh"))
 
-    assert [script.name for script in scripts] == ["dev.sh", "mcp-ui.sh", "mcp.sh"]
+    assert [script.name for script in scripts] == [
+        "dev.sh",
+        "mcp-ui.sh",
+        "mcp.sh",
+        "observability.sh",
+    ]
     assert all(script.stat().st_mode & stat.S_IXUSR for script in scripts)
 
 
@@ -864,3 +872,157 @@ def test_the_worker_receives_the_removed_tenant_name_so_it_refuses_to_start() ->
 
     assert worker["HARBORRAG_INGESTION_TENANT_ID"] == "${HARBORRAG_INGESTION_TENANT_ID:-}"
     assert "INGESTION_TENANT_ID" not in api
+
+
+_OBSERVABILITY_FAKE_DOCKER = """#!/usr/bin/env sh
+printf '%s POSTGRES_DB=%s\\n' "$*" "${POSTGRES_DB:-}" >> "$DOCKER_LOG"
+case " $* " in
+  *" network inspect "*) [ -z "${NETWORK_ABSENT:-}" ] ;;
+  *" exec "*" postgres "*)
+    cat > "$DOCKER_STDIN"
+    printf '%s' "${HARBORRAG_OBSERVER_PASSWORD:-}" > "$DOCKER_STDIN.password" ;;
+esac
+"""
+
+
+def _observability_project(tmp_path: Path) -> tuple[Path, dict[str, str]]:
+    """Copy the launcher, its helpers, template and role SQL; return it with a fake docker."""
+    for relative in (
+        "scripts/deployment/observability.sh",
+        "scripts/deployment/common/dev-checks.sh",
+        "env-example/.env.monitoring.example",
+        "deploy/compose/postgres/observer-role.sql",
+    ):
+        target = tmp_path / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes((ROOT / relative).read_bytes())
+    (tmp_path / "env").mkdir()
+    (tmp_path / "env/.env.database").write_text(
+        "POSTGRES_USER=owner\nPOSTGRES_PASSWORD=owner-secret\nPOSTGRES_DB=harborrag\n",
+        encoding="utf-8",
+    )
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir()
+    (fake_bin / "docker").write_text(_OBSERVABILITY_FAKE_DOCKER, encoding="utf-8")
+    (fake_bin / "docker").chmod(0o755)
+    env = {
+        **{key: value for key, value in os.environ.items() if key != "POSTGRES_DB"},
+        "DOCKER_LOG": str(tmp_path / "docker.log"),
+        "DOCKER_STDIN": str(tmp_path / "stdin"),
+        "PATH": f"{fake_bin}:{os.environ['PATH']}",
+    }
+    return tmp_path / "scripts/deployment/observability.sh", env
+
+
+def _run_observability(
+    script: Path, env: dict[str, str], *arguments: str
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["bash", str(script), *arguments],
+        env=env,
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        check=False,
+        text=True,
+    )
+
+
+def _docker_calls(tmp_path: Path) -> str:
+    log = tmp_path / "docker.log"
+    return log.read_text(encoding="utf-8") if log.exists() else ""
+
+
+@pytest.mark.unit
+def test_observability_entrypoint_documents_its_commands() -> None:
+    script = OBSERVABILITY_SCRIPT.read_text(encoding="utf-8")
+
+    assert OBSERVABILITY_SCRIPT.stat().st_mode & stat.S_IXUSR
+    assert script.startswith("#!/usr/bin/env bash\nset -euo pipefail\n")
+    for command in (
+        "  bootstrap ",
+        "  up ",
+        "  down [--volumes] ",
+        "  status ",
+        "  logs [SERVICE...] ",
+        "  db-access ",
+    ):
+        assert command in script
+    assert 'MONITORING_ENV_FILE="${MONITORING_ENV_FILE:-env/.env.monitoring}"' in script
+
+
+@pytest.mark.unit
+def test_observability_bootstrap_writes_protected_generated_passwords_once(
+    tmp_path: Path,
+) -> None:
+    script, env = _observability_project(tmp_path)
+    monitoring = tmp_path / "env/.env.monitoring"
+
+    def passwords() -> list[str]:
+        result = _run_observability(script, env, "bootstrap")
+        assert result.returncode == 0, result.stderr
+        text = monitoring.read_text(encoding="utf-8")
+        values = [
+            re.findall(rf"^{name}=(.*)$", text, re.MULTILINE)
+            for name in ("GRAFANA_ADMIN_PASSWORD", "HARBORRAG_OBSERVER_PASSWORD")
+        ]
+        assert all(len(found) == 1 and re.fullmatch(r"[0-9a-f]{64}", found[0]) for found in values)
+        return [found[0] for found in values]
+
+    first = passwords()
+
+    assert passwords() == first
+    assert monitoring.stat().st_mode & 0o777 == 0o600
+    assert _docker_calls(tmp_path) == ""
+
+
+@pytest.mark.unit
+def test_observability_up_passes_compose_only_the_database_name(tmp_path: Path) -> None:
+    script, env = _observability_project(tmp_path)
+    assert _run_observability(script, env, "bootstrap").returncode == 0
+
+    result = _run_observability(script, env, "up")
+
+    assert result.returncode == 0, result.stderr
+    compose_calls = [line for line in _docker_calls(tmp_path).splitlines() if "compose" in line]
+    assert any("docker-compose.monitoring.yml up --detach --wait" in line for line in compose_calls)
+    assert all(line.endswith("POSTGRES_DB=harborrag") for line in compose_calls)
+    assert not any(".env.database" in line for line in compose_calls)
+    assert "OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318" in result.stdout
+    for restart in ("dev.sh api", "dev.sh worker", "mcp.sh --http"):
+        assert restart in result.stdout
+
+
+@pytest.mark.unit
+def test_observability_up_names_the_fix_when_the_data_network_is_missing(
+    tmp_path: Path,
+) -> None:
+    script, env = _observability_project(tmp_path)
+    assert _run_observability(script, env, "bootstrap").returncode == 0
+
+    result = _run_observability(script, {**env, "NETWORK_ABSENT": "1"}, "up")
+
+    assert result.returncode == 2
+    assert "scripts/deployment/dev.sh data" in result.stderr
+    assert " up " not in _docker_calls(tmp_path)
+
+
+@pytest.mark.unit
+def test_observability_db_access_hands_the_password_over_outside_argv(tmp_path: Path) -> None:
+    script, env = _observability_project(tmp_path)
+    assert _run_observability(script, env, "bootstrap").returncode == 0
+    password = re.findall(
+        r"^HARBORRAG_OBSERVER_PASSWORD=(.*)$",
+        (tmp_path / "env/.env.monitoring").read_text(encoding="utf-8"),
+        re.MULTILINE,
+    )[0]
+
+    result = _run_observability(script, env, "db-access")
+
+    assert result.returncode == 0, result.stderr
+    calls = _docker_calls(tmp_path)
+    assert "docker-compose.database.yml exec -T -e HARBORRAG_OBSERVER_PASSWORD postgres" in calls
+    assert password not in calls
+    assert (tmp_path / "stdin.password").read_text(encoding="utf-8") == password
+    assert (tmp_path / "stdin").read_bytes() == (
+        ROOT / "deploy/compose/postgres/observer-role.sql"
+    ).read_bytes()

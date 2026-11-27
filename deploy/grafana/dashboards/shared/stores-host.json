@@ -1,0 +1,1209 @@
+{
+  "uid": "harborrag-stores-host",
+  "title": "Stores and host",
+  "tags": [
+    "harborrag",
+    "shared",
+    "stores"
+  ],
+  "editable": true,
+  "schemaVersion": 41,
+  "version": 1,
+  "graphTooltip": 1,
+  "timezone": "browser",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "refresh": "1m",
+  "templating": {
+    "list": [
+      {
+        "name": "env",
+        "label": "Environment",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "harborrag-prometheus"
+        },
+        "query": {
+          "query": "label_values(target_info, deployment_environment)",
+          "refId": "env-values"
+        },
+        "definition": "label_values(target_info, deployment_environment)",
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "refresh": 2,
+        "sort": 1,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        }
+      },
+      {
+        "name": "tenant",
+        "label": "Tenant",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "harborrag-prometheus"
+        },
+        "query": {
+          "query": "label_values(harborrag_mcp_tool_calls_total, tenant)",
+          "refId": "tenant-values"
+        },
+        "definition": "label_values(harborrag_mcp_tool_calls_total, tenant)",
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "refresh": 2,
+        "sort": 1,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        }
+      }
+    ]
+  },
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      },
+      {
+        "name": "Deploys",
+        "enable": true,
+        "iconColor": "blue",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "harborrag-prometheus"
+        },
+        "expr": "count by (job, service_version) (target_info) unless count by (job, service_version) (last_over_time(target_info[1d] offset 5m))",
+        "step": "1m",
+        "titleFormat": "Deploy {{job}}",
+        "textFormat": "version {{service_version}}"
+      },
+      {
+        "name": "Alerts firing",
+        "enable": true,
+        "iconColor": "red",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "harborrag-prometheus"
+        },
+        "expr": "ALERTS{alertstate=\"firing\"}",
+        "step": "1m",
+        "titleFormat": "{{alertname}}",
+        "textFormat": "{{severity}} {{side}}"
+      },
+      {
+        "name": "Ingestion runs",
+        "enable": true,
+        "iconColor": "purple",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "harborrag-postgres"
+        },
+        "rawQuery": "SELECT started_at AS time, completed_at AS timeend, status AS text FROM ingestion_tasks WHERE started_at IS NOT NULL AND $__timeFilter(started_at) ORDER BY started_at",
+        "rawSql": "SELECT started_at AS time, completed_at AS timeend, status AS text FROM ingestion_tasks WHERE started_at IS NOT NULL AND $__timeFilter(started_at) ORDER BY started_at",
+        "format": "table"
+      }
+    ]
+  },
+  "links": [
+    {
+      "title": "HarborRAG",
+      "type": "dashboards",
+      "tags": [
+        "harborrag"
+      ],
+      "asDropdown": true,
+      "includeVars": true,
+      "keepTime": true
+    },
+    {
+      "title": "Runbooks",
+      "type": "link",
+      "icon": "doc",
+      "targetBlank": true,
+      "url": "https://github.com/cbtw-apac/HarborRAG/blob/main/docs/developers/deployment/observability-runbooks.md",
+      "tooltip": "What each alert means and how to respond"
+    }
+  ],
+  "panels": [
+    {
+      "type": "row",
+      "title": "Is it healthy now",
+      "id": 1,
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "type": "stat",
+      "title": "Host memory",
+      "description": "Used host memory. Red at 90%, the host resources alert.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes",
+          "refId": "A",
+          "legendFormat": "__auto",
+          "exemplar": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.8
+              },
+              {
+                "color": "red",
+                "value": 0.9
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "graphMode": "area",
+        "colorMode": "value",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "id": 2,
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Host disk",
+      "description": "Used space on the fullest real filesystem. Red at 85%, the host resources alert.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "max(1 - node_filesystem_avail_bytes{fstype!~\"tmpfs|overlay|squashfs|9p|drvfs\"} / node_filesystem_size_bytes{fstype!~\"tmpfs|overlay|squashfs|9p|drvfs\"})",
+          "refId": "A",
+          "legendFormat": "__auto",
+          "exemplar": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.75
+              },
+              {
+                "color": "red",
+                "value": 0.85
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "graphMode": "area",
+        "colorMode": "value",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "id": 3,
+      "gridPos": {
+        "x": 4,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Slowest store p95",
+      "description": "p95 of the slowest store-facing span over 5 minutes.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "max(histogram_quantile(0.95, sum by (le, span_name) (rate(traces_span_metrics_duration_seconds_bucket{deployment_environment=~\"$env\",span_name=~\"retrieval[.].*|harborrag[.]ingestion[.](qdrant_write|falkordb_write|canonical_persist|fetch)\"}[5m]))))",
+          "refId": "A",
+          "legendFormat": "__auto",
+          "exemplar": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "graphMode": "none",
+        "colorMode": "value",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "id": 4,
+      "gridPos": {
+        "x": 8,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Store error rate",
+      "description": "Share of store-facing spans that ended in error over 5 minutes.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "(sum(rate(traces_span_metrics_calls_total{deployment_environment=~\"$env\",span_name=~\"retrieval[.].*|harborrag[.]ingestion[.](qdrant_write|falkordb_write|canonical_persist|fetch)\",status_code=\"STATUS_CODE_ERROR\"}[5m])) or vector(0)) / sum(rate(traces_span_metrics_calls_total{deployment_environment=~\"$env\",span_name=~\"retrieval[.].*|harborrag[.]ingestion[.](qdrant_write|falkordb_write|canonical_persist|fetch)\"}[5m]))",
+          "refId": "A",
+          "legendFormat": "__auto",
+          "exemplar": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.01
+              },
+              {
+                "color": "red",
+                "value": 0.05
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "graphMode": "none",
+        "colorMode": "value",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "id": 5,
+      "gridPos": {
+        "x": 12,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      }
+    },
+    {
+      "type": "stat",
+      "title": "DB connections",
+      "description": "Open connections to the control database, from postgres_exporter.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "sum(pg_stat_database_numbackends)",
+          "refId": "A",
+          "legendFormat": "__auto",
+          "exemplar": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "graphMode": "area",
+        "colorMode": "value",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "id": 6,
+      "gridPos": {
+        "x": 16,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Database size",
+      "description": "Size of every database on the PostgreSQL server, from postgres_exporter.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "sum(pg_database_size_bytes)",
+          "refId": "A",
+          "legendFormat": "__auto",
+          "exemplar": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "graphMode": "area",
+        "colorMode": "value",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "id": 7,
+      "gridPos": {
+        "x": 20,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      }
+    },
+    {
+      "type": "row",
+      "title": "How is it trending",
+      "id": 8,
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Retrieval step p95",
+      "description": "p95 of each retrieval step from HarborRAG's own spans: embedding, the Qdrant query, graph expansion, evidence loading. Exemplars open traces.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le, span_name) (rate(traces_span_metrics_duration_seconds_bucket{deployment_environment=~\"$env\",span_name=~\"retrieval[.].*\"}[$__rate_interval])))",
+          "refId": "A",
+          "legendFormat": "{{span_name}}",
+          "exemplar": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "axisLabel": "",
+            "spanNulls": 300000,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisSoftMax": 1
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0,
+          "noValue": "No retrieval in range"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "retrieval.dense.embed"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#338ced"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "retrieval.sparse.encode"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#e76624"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "retrieval.vector.query"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#00a888"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "retrieval.graph.expand"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d28e05"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "retrieval.evidence.load"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#e24d8b"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "retrieval.assembly"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#0aac23"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 9,
+      "gridPos": {
+        "x": 0,
+        "y": 6,
+        "w": 8,
+        "h": 8
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Ingestion write p95",
+      "description": "p95 of ingestion's source fetches and store writes: canonical records, Qdrant points and FalkorDB nodes. Exemplars open traces.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le, span_name) (rate(traces_span_metrics_duration_seconds_bucket{deployment_environment=~\"$env\",span_name=~\"harborrag[.]ingestion[.](fetch|canonical_persist|qdrant_write|falkordb_write)\"}[$__rate_interval])))",
+          "refId": "A",
+          "legendFormat": "{{span_name}}",
+          "exemplar": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "axisLabel": "",
+            "spanNulls": 300000,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisSoftMax": 1
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0,
+          "noValue": "No ingestion in range"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "harborrag.ingestion.fetch"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#338ced"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "harborrag.ingestion.canonical_persist"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#e76624"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "harborrag.ingestion.qdrant_write"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#00a888"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "harborrag.ingestion.falkordb_write"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d28e05"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 10,
+      "gridPos": {
+        "x": 8,
+        "y": 6,
+        "w": 8,
+        "h": 8
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Store errors",
+      "description": "Store-facing spans that ended in error, per second.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "sum by (span_name) (rate(traces_span_metrics_calls_total{deployment_environment=~\"$env\",span_name=~\"retrieval[.].*|harborrag[.]ingestion[.](qdrant_write|falkordb_write|canonical_persist|fetch)\",status_code=\"STATUS_CODE_ERROR\"}[$__rate_interval]))",
+          "refId": "A",
+          "legendFormat": "{{span_name}}",
+          "exemplar": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "axisLabel": "",
+            "spanNulls": 300000,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisSoftMax": 1
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0,
+          "noValue": "No store errors"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 11,
+      "gridPos": {
+        "x": 16,
+        "y": 6,
+        "w": 8,
+        "h": 8
+      }
+    },
+    {
+      "type": "row",
+      "title": "Where is it coming from",
+      "id": 12,
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 14,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "type": "bargauge",
+      "title": "Memory per container",
+      "description": "Working-set memory per container, largest first: who crowds the host. Where cAdvisor cannot read container names, as on Docker Desktop, rows show the short container ID that docker ps prints.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "sort_desc(sum by (name) (container_memory_working_set_bytes{name!=\"\"}) or sum by (name) (label_replace(container_memory_working_set_bytes{id=~\"/docker/[0-9a-f]{64}|/system[.]slice/docker-[0-9a-f]{64}[.]scope\"}, \"name\", \"$1\", \"id\", \".*docker[-/]([0-9a-f]{12}).*\")))",
+          "refId": "A",
+          "legendFormat": "{{name}}",
+          "exemplar": false,
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "basic",
+        "showUnfilled": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "valueMode": "color",
+        "namePlacement": "left",
+        "sizing": "manual",
+        "minVizHeight": 16,
+        "maxVizHeight": 22,
+        "minVizWidth": 8,
+        "text": {
+          "titleSize": 12,
+          "valueSize": 13
+        }
+      },
+      "transformations": [],
+      "id": 13,
+      "gridPos": {
+        "x": 0,
+        "y": 15,
+        "w": 8,
+        "h": 11
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Host CPU, memory, disk",
+      "description": "Host load with the alert levels.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "1 - avg(rate(node_cpu_seconds_total{mode=\"idle\"}[$__rate_interval]))",
+          "refId": "A",
+          "legendFormat": "CPU",
+          "exemplar": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes",
+          "refId": "B",
+          "legendFormat": "memory",
+          "exemplar": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "max(1 - node_filesystem_avail_bytes{fstype!~\"tmpfs|overlay|squashfs|9p|drvfs\"} / node_filesystem_size_bytes{fstype!~\"tmpfs|overlay|squashfs|9p|drvfs\"})",
+          "refId": "C",
+          "legendFormat": "disk",
+          "exemplar": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "axisLabel": "",
+            "spanNulls": 300000,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "line"
+            },
+            "axisSoftMax": 0.1
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.85
+              }
+            ]
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 14,
+      "gridPos": {
+        "x": 8,
+        "y": 15,
+        "w": 8,
+        "h": 11
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Postgres commits per second",
+      "description": "Committed transactions per second on the PostgreSQL server, from postgres_exporter. Ingestion runs drive it; connections and size are tiles in the top row.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "sum(rate(pg_stat_database_xact_commit[$__rate_interval]))",
+          "refId": "A",
+          "legendFormat": "commits/s",
+          "exemplar": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "axisLabel": "",
+            "spanNulls": 300000,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisSoftMax": 1
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 15,
+      "gridPos": {
+        "x": 16,
+        "y": 15,
+        "w": 8,
+        "h": 11
+      }
+    },
+    {
+      "type": "row",
+      "title": "What do I open",
+      "id": 16,
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 26,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "type": "table",
+      "title": "Slowest store calls, last hour",
+      "description": "Store-facing spans over 500 ms, one row per span. Ingestion spans belong to a per-run trace whose root is never recorded, so they are listed as spans, not traces.",
+      "datasource": {
+        "type": "tempo",
+        "uid": "harborrag-tempo"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "tempo",
+            "uid": "harborrag-tempo"
+          },
+          "refId": "A",
+          "queryType": "traceql",
+          "query": "{ (name =~ \"retrieval.*\" || name =~ \"harborrag.ingestion.(qdrant_write|falkordb_write)\") && duration > 500ms }",
+          "limit": 20,
+          "spss": 3,
+          "tableType": "spans"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "Duration",
+            "desc": true
+          }
+        ]
+      },
+      "timeFrom": "1h",
+      "id": 17,
+      "gridPos": {
+        "x": 0,
+        "y": 27,
+        "w": 24,
+        "h": 9
+      }
+    }
+  ]
+}

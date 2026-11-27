@@ -1,0 +1,2243 @@
+{
+  "uid": "harborrag-mcp-retrieval",
+  "title": "MCP and retrieval",
+  "tags": [
+    "harborrag",
+    "online",
+    "mcp"
+  ],
+  "editable": true,
+  "schemaVersion": 41,
+  "version": 1,
+  "graphTooltip": 1,
+  "timezone": "browser",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "refresh": "1m",
+  "templating": {
+    "list": [
+      {
+        "name": "env",
+        "label": "Environment",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "harborrag-prometheus"
+        },
+        "query": {
+          "query": "label_values(target_info, deployment_environment)",
+          "refId": "env-values"
+        },
+        "definition": "label_values(target_info, deployment_environment)",
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "refresh": 2,
+        "sort": 1,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        }
+      },
+      {
+        "name": "tenant",
+        "label": "Tenant",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "harborrag-prometheus"
+        },
+        "query": {
+          "query": "label_values(harborrag_mcp_tool_calls_total, tenant)",
+          "refId": "tenant-values"
+        },
+        "definition": "label_values(harborrag_mcp_tool_calls_total, tenant)",
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "refresh": 2,
+        "sort": 1,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        }
+      },
+      {
+        "name": "tool",
+        "label": "Tool",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "harborrag-prometheus"
+        },
+        "query": {
+          "query": "label_values(harborrag_mcp_tool_calls_total, tool)",
+          "refId": "tool-values"
+        },
+        "definition": "label_values(harborrag_mcp_tool_calls_total, tool)",
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "refresh": 2,
+        "sort": 1,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        }
+      }
+    ]
+  },
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      },
+      {
+        "name": "Deploys",
+        "enable": true,
+        "iconColor": "blue",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "harborrag-prometheus"
+        },
+        "expr": "count by (job, service_version) (target_info) unless count by (job, service_version) (last_over_time(target_info[1d] offset 5m))",
+        "step": "1m",
+        "titleFormat": "Deploy {{job}}",
+        "textFormat": "version {{service_version}}"
+      },
+      {
+        "name": "Alerts firing",
+        "enable": true,
+        "iconColor": "red",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "harborrag-prometheus"
+        },
+        "expr": "ALERTS{alertstate=\"firing\"}",
+        "step": "1m",
+        "titleFormat": "{{alertname}}",
+        "textFormat": "{{severity}} {{side}}"
+      }
+    ]
+  },
+  "links": [
+    {
+      "title": "HarborRAG",
+      "type": "dashboards",
+      "tags": [
+        "harborrag"
+      ],
+      "asDropdown": true,
+      "includeVars": true,
+      "keepTime": true
+    },
+    {
+      "title": "Runbooks",
+      "type": "link",
+      "icon": "doc",
+      "targetBlank": true,
+      "url": "https://github.com/cbtw-apac/HarborRAG/blob/main/docs/developers/deployment/observability-runbooks.md",
+      "tooltip": "What each alert means and how to respond"
+    }
+  ],
+  "panels": [
+    {
+      "type": "row",
+      "title": "Is it healthy now",
+      "id": 1,
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "type": "stat",
+      "title": "Calls, 5 min",
+      "description": "MCP tool calls per second for the selected tools.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "sum(rate(harborrag_mcp_tool_calls_total{tool=~\"$tool\",tenant=~\"$tenant\",deployment_environment=~\"$env\"}[5m]))",
+          "refId": "A",
+          "legendFormat": "__auto",
+          "exemplar": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "graphMode": "area",
+        "colorMode": "value",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "id": 2,
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 5,
+        "h": 4
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Error rate, 5 min",
+      "description": "Server-side failures per call. Red above 5%, the MCP errors alert level. Server-side failures are server errors plus tool failures the server caused (error_code backend_unavailable or not_configured).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "(sum(rate(harborrag_mcp_tool_calls_total{tool=~\"$tool\",tenant=~\"$tenant\",deployment_environment=~\"$env\",status=~\"error|tool_error\",error_code=~\"|backend_unavailable|not_configured\"}[5m])) or vector(0)) / sum(rate(harborrag_mcp_tool_calls_total{tool=~\"$tool\",tenant=~\"$tenant\",deployment_environment=~\"$env\"}[5m]))",
+          "refId": "A",
+          "legendFormat": "__auto",
+          "exemplar": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.05
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "graphMode": "none",
+        "colorMode": "value",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "id": 3,
+      "gridPos": {
+        "x": 5,
+        "y": 1,
+        "w": 5,
+        "h": 4
+      }
+    },
+    {
+      "type": "stat",
+      "title": "p95 latency, 5 min",
+      "description": "p95 of tool calls. Red above the MCP slow alert threshold.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(harborrag_mcp_tool_duration_seconds_bucket{tool=~\"$tool\",tenant=~\"$tenant\",deployment_environment=~\"$env\"}[5m])))",
+          "refId": "A",
+          "legendFormat": "__auto",
+          "exemplar": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 2
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "graphMode": "area",
+        "colorMode": "value",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "id": 4,
+      "gridPos": {
+        "x": 10,
+        "y": 1,
+        "w": 5,
+        "h": 4
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Empty-result rate, 1 h",
+      "description": "Share of successful retrieval calls that returned nothing, vector and graph tools together: the silent failure of a deterministic tool.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "sum(rate(harborrag_retrieval_results_bucket{tool=~\"$tool\",tenant=~\"$tenant\",deployment_environment=~\"$env\",le=~\"0|0[.]0\"}[1h])) / sum(rate(harborrag_retrieval_results_count{tool=~\"$tool\",tenant=~\"$tenant\",deployment_environment=~\"$env\"}[1h]))",
+          "refId": "A",
+          "legendFormat": "__auto",
+          "exemplar": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.2
+              },
+              {
+                "color": "red",
+                "value": 0.4
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "graphMode": "none",
+        "colorMode": "value",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "id": 5,
+      "gridPos": {
+        "x": 15,
+        "y": 1,
+        "w": 5,
+        "h": 4
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Query tokens, 24 h",
+      "description": "Tokens the MCP server sent to the embedding model for search queries in 24 hours. Shown as tokens, not dollars: a search costs a small fraction of a cent.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "sum(increase(harborrag_model_tokens_total{job=\"harborrag-mcp\",token_type=\"prompt_tokens\"}[24h]))",
+          "refId": "A",
+          "legendFormat": "__auto",
+          "exemplar": false,
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 0,
+          "noValue": "No queries"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "graphMode": "none",
+        "colorMode": "value",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "id": 6,
+      "gridPos": {
+        "x": 20,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      }
+    },
+    {
+      "type": "row",
+      "title": "How is it trending",
+      "id": 7,
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Calls by tool family",
+      "description": "Calls per second, stacked by family: search (vector_search), documents (fetch_evidence, get_document_context, list_documents, list_sources) and graph. Per-tool figures are in Per-tool summary.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "sum by (family) (label_replace(label_replace(label_replace(label_replace(rate(harborrag_mcp_tool_calls_total{tool=~\"$tool\",tenant=~\"$tenant\",deployment_environment=~\"$env\"}[$__rate_interval]), \"family\", \"other\", \"tool\", \".*\"), \"family\", \"search\", \"tool\", \"vector_search\"), \"family\", \"documents\", \"tool\", \"fetch_evidence|get_document_context|list_documents|list_sources\"), \"family\", \"graph\", \"tool\", \"resolve_graph_nodes|graph_.*|describe_graph\"))",
+          "refId": "A",
+          "legendFormat": "{{family}}",
+          "exemplar": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "axisLabel": "",
+            "spanNulls": 300000,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "axisSoftMax": 1
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "search"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#338ced"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "documents"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#e76624"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "graph"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#00a888"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "other"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#8e8e8e"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 8,
+      "gridPos": {
+        "x": 0,
+        "y": 6,
+        "w": 8,
+        "h": 8
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Failures by kind",
+      "description": "Share of calls that failed, by kind. Server-side failures (server errors, and tool failures with error_code backend_unavailable or not_configured) count toward the MCP errors alert (5% line). Caller or deployment failures do not: a bad argument, a feature not turned on, an empty index. Refused calls broke the tool's schema or a policy. Per-tool shares are in Per-tool summary.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "(sum(rate(harborrag_mcp_tool_calls_total{tool=~\"$tool\",tenant=~\"$tenant\",deployment_environment=~\"$env\",status=~\"error|tool_error\",error_code=~\"|backend_unavailable|not_configured\"}[$__rate_interval])) or vector(0)) / sum(rate(harborrag_mcp_tool_calls_total{tool=~\"$tool\",tenant=~\"$tenant\",deployment_environment=~\"$env\"}[$__rate_interval]))",
+          "refId": "A",
+          "legendFormat": "server-side",
+          "exemplar": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "(sum(rate(harborrag_mcp_tool_calls_total{tool=~\"$tool\",tenant=~\"$tenant\",deployment_environment=~\"$env\",status=\"tool_error\",error_code!~\"|backend_unavailable|not_configured\"}[$__rate_interval])) or vector(0)) / sum(rate(harborrag_mcp_tool_calls_total{tool=~\"$tool\",tenant=~\"$tenant\",deployment_environment=~\"$env\"}[$__rate_interval]))",
+          "refId": "B",
+          "legendFormat": "caller or deployment",
+          "exemplar": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "(sum(rate(harborrag_mcp_tool_calls_total{tool=~\"$tool\",tenant=~\"$tenant\",deployment_environment=~\"$env\",status=\"refused\"}[$__rate_interval])) or vector(0)) / sum(rate(harborrag_mcp_tool_calls_total{tool=~\"$tool\",tenant=~\"$tenant\",deployment_environment=~\"$env\"}[$__rate_interval]))",
+          "refId": "C",
+          "legendFormat": "refused",
+          "exemplar": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "axisLabel": "",
+            "spanNulls": 300000,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "line"
+            },
+            "axisSoftMax": 0.1
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.05
+              }
+            ]
+          },
+          "min": 0,
+          "noValue": "No calls"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "server-side"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#dc3c3d"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "caller or deployment"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#f18a59"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "refused"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#8e8e8e"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 9,
+      "gridPos": {
+        "x": 8,
+        "y": 6,
+        "w": 8,
+        "h": 8
+      }
+    },
+    {
+      "type": "heatmap",
+      "title": "Latency distribution",
+      "description": "Tool call duration over time. An exemplar dot opens that exact call's trace in Tempo.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "sum by (le) (rate(harborrag_mcp_tool_duration_seconds_bucket{tool=~\"$tool\",tenant=~\"$tenant\",deployment_environment=~\"$env\"}[$__rate_interval]))",
+          "refId": "A",
+          "legendFormat": "{{le}}",
+          "exemplar": true,
+          "format": "heatmap"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "calculate": false,
+        "yAxis": {
+          "unit": "s"
+        },
+        "cellGap": 1,
+        "color": {
+          "mode": "scheme",
+          "scheme": "Oranges",
+          "steps": 64
+        },
+        "exemplars": {
+          "color": "rgba(255,0,255,0.7)"
+        },
+        "tooltip": {
+          "mode": "single",
+          "yHistogram": true
+        },
+        "legend": {
+          "show": false
+        },
+        "rowsFrame": {
+          "layout": "auto"
+        }
+      },
+      "id": 10,
+      "gridPos": {
+        "x": 16,
+        "y": 6,
+        "w": 8,
+        "h": 8
+      }
+    },
+    {
+      "type": "row",
+      "title": "Where is it coming from",
+      "id": 11,
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 14,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "type": "table",
+      "title": "Per-tool summary",
+      "description": "One row per tool over the dashboard's range: calls, the share that failed server-side (the MCP errors alert counts these: server errors and error_code backend_unavailable or not_configured), the share that failed for a caller or deployment reason (a bad argument, a feature not turned on, an empty index), p95 latency, and the share of retrieval calls that returned nothing (- for tools that return no result list). Sorted by calls.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "sum by (tool) (increase(harborrag_mcp_tool_calls_total{tool=~\"$tool\",tenant=~\"$tenant\",deployment_environment=~\"$env\"}[$__range]))",
+          "refId": "A",
+          "legendFormat": "__auto",
+          "exemplar": false,
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "(sum by (tool) (increase(harborrag_mcp_tool_calls_total{tool=~\"$tool\",tenant=~\"$tenant\",deployment_environment=~\"$env\",status=~\"error|tool_error\",error_code=~\"|backend_unavailable|not_configured\"}[$__range])) or sum by (tool) (increase(harborrag_mcp_tool_calls_total{tool=~\"$tool\",tenant=~\"$tenant\",deployment_environment=~\"$env\"}[$__range])) * 0) / sum by (tool) (increase(harborrag_mcp_tool_calls_total{tool=~\"$tool\",tenant=~\"$tenant\",deployment_environment=~\"$env\"}[$__range]))",
+          "refId": "B",
+          "legendFormat": "__auto",
+          "exemplar": false,
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "(sum by (tool) (increase(harborrag_mcp_tool_calls_total{tool=~\"$tool\",tenant=~\"$tenant\",deployment_environment=~\"$env\",status=\"tool_error\",error_code!~\"|backend_unavailable|not_configured\"}[$__range])) or sum by (tool) (increase(harborrag_mcp_tool_calls_total{tool=~\"$tool\",tenant=~\"$tenant\",deployment_environment=~\"$env\"}[$__range])) * 0) / sum by (tool) (increase(harborrag_mcp_tool_calls_total{tool=~\"$tool\",tenant=~\"$tenant\",deployment_environment=~\"$env\"}[$__range]))",
+          "refId": "C",
+          "legendFormat": "__auto",
+          "exemplar": false,
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le, tool) (rate(harborrag_mcp_tool_duration_seconds_bucket{tool=~\"$tool\",tenant=~\"$tenant\",deployment_environment=~\"$env\"}[$__range])))",
+          "refId": "D",
+          "legendFormat": "__auto",
+          "exemplar": false,
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "sum by (tool) (rate(harborrag_retrieval_results_bucket{tool=~\"$tool\",tenant=~\"$tenant\",deployment_environment=~\"$env\",le=~\"0|0[.]0\"}[$__range])) / sum by (tool) (rate(harborrag_retrieval_results_count{tool=~\"$tool\",tenant=~\"$tenant\",deployment_environment=~\"$env\"}[$__range]))",
+          "refId": "E",
+          "legendFormat": "__auto",
+          "exemplar": false,
+          "instant": true,
+          "range": false,
+          "format": "table"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "tool": "Tool",
+              "Value #A": "Calls",
+              "Value #B": "Server-side",
+              "Value #C": "Caller or deployment",
+              "Value #D": "p95",
+              "Value #E": "Empty results"
+            },
+            "indexByName": {
+              "tool": 0,
+              "Value #A": 1,
+              "Value #B": 2,
+              "Value #C": 3,
+              "Value #D": 4,
+              "Value #E": 5
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Calls",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Calls"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Server-side"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "#0aac23",
+                      "value": null
+                    },
+                    {
+                      "color": "#dc3c3d",
+                      "value": 0.05
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Caller or deployment"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "text",
+                      "value": null
+                    },
+                    {
+                      "color": "#f18a59",
+                      "value": 0.05
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "p95"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "text",
+                      "value": null
+                    },
+                    {
+                      "color": "#dc3c3d",
+                      "value": 2
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Empty results"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "noValue",
+                "value": "-"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "text",
+                      "value": null
+                    },
+                    {
+                      "color": "#fbb315",
+                      "value": 0.2
+                    },
+                    {
+                      "color": "#dc3c3d",
+                      "value": 0.4
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 12,
+      "gridPos": {
+        "x": 0,
+        "y": 15,
+        "w": 24,
+        "h": 13
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Empty-result rate by tool",
+      "description": "Share of successful retrieval calls that returned no result. A subgraph with no relations counts as empty.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "sum by (tool) (rate(harborrag_retrieval_results_bucket{tool=~\"$tool\",tenant=~\"$tenant\",deployment_environment=~\"$env\",le=~\"0|0[.]0\"}[$__rate_interval])) / sum by (tool) (rate(harborrag_retrieval_results_count{tool=~\"$tool\",tenant=~\"$tenant\",deployment_environment=~\"$env\"}[$__rate_interval]))",
+          "refId": "A",
+          "legendFormat": "{{tool}}",
+          "exemplar": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "axisLabel": "",
+            "spanNulls": 300000,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisSoftMax": 0.1
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "max": 1,
+          "min": 0,
+          "noValue": "No retrieval calls"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "vector_search"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#338ced"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "resolve_graph_nodes"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d28e05"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "graph_triplet_search"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#e24d8b"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "graph_subgraph_search"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#0aac23"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "graph_path_search"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#9887ef"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "describe_graph"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#8e8e8e"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 13,
+      "gridPos": {
+        "x": 0,
+        "y": 28,
+        "w": 8,
+        "h": 8
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Mean time per retrieval step",
+      "description": "Mean seconds per vector_search step from span metrics. Means add up; p95s do not. Graph tools have their own band below.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "sum by (span_name) (rate(traces_span_metrics_duration_seconds_sum{span_name=~\"retrieval.*\"}[$__rate_interval])) / sum by (span_name) (rate(traces_span_metrics_duration_seconds_count{span_name=~\"retrieval.*\"}[$__rate_interval]))",
+          "refId": "A",
+          "legendFormat": "{{span_name}}",
+          "exemplar": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 80,
+            "showPoints": "never",
+            "axisLabel": "",
+            "spanNulls": 300000,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "axisSoftMax": 1
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "retrieval.dense.embed"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#338ced"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "retrieval.sparse.encode"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#e76624"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "retrieval.vector.query"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#00a888"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "retrieval.graph.expand"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d28e05"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "retrieval.evidence.load"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#e24d8b"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "retrieval.assembly"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#0aac23"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 14,
+      "gridPos": {
+        "x": 8,
+        "y": 28,
+        "w": 8,
+        "h": 8
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Auth failures by reason",
+      "description": "Requests refused for their bearer token, per interval; a client may retry each refusal. A spike of rejected_token: check key revocations.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "sum by (reason) (increase(harborrag_mcp_auth_failures_total[$__interval]))",
+          "refId": "A",
+          "legendFormat": "{{reason}}",
+          "exemplar": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 80,
+            "showPoints": "never",
+            "axisLabel": "",
+            "spanNulls": 300000,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "axisSoftMax": 1
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0,
+          "noValue": "No refused tokens"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "interval": "1m",
+      "id": 15,
+      "gridPos": {
+        "x": 16,
+        "y": 28,
+        "w": 8,
+        "h": 8
+      }
+    },
+    {
+      "type": "row",
+      "title": "Graph traversal",
+      "id": 16,
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 36,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Graph calls by tool",
+      "description": "Calls per second to the graph tools: node resolution, triplet, subgraph and path search.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "sum by (tool) (rate(harborrag_mcp_tool_calls_total{tool=~\"$tool\",tenant=~\"$tenant\",deployment_environment=~\"$env\",tool=~\"resolve_graph_nodes|graph_.*|describe_graph\"}[$__rate_interval]))",
+          "refId": "A",
+          "legendFormat": "{{tool}}",
+          "exemplar": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "axisLabel": "",
+            "spanNulls": 300000,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "axisSoftMax": 1
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0,
+          "noValue": "No graph calls"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "vector_search"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#338ced"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "resolve_graph_nodes"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d28e05"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "graph_triplet_search"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#e24d8b"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "graph_subgraph_search"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#0aac23"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "graph_path_search"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#9887ef"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "describe_graph"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#8e8e8e"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 17,
+      "gridPos": {
+        "x": 0,
+        "y": 37,
+        "w": 8,
+        "h": 8
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Graph p95 by tool",
+      "description": "p95 per graph tool. Each call is a few graph-store queries, so this is the store's latency as callers see it; deeper max_depth and larger max_nodes cost more.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le, tool) (rate(harborrag_mcp_tool_duration_seconds_bucket{tool=~\"$tool\",tenant=~\"$tenant\",deployment_environment=~\"$env\",tool=~\"resolve_graph_nodes|graph_.*|describe_graph\"}[$__rate_interval])))",
+          "refId": "A",
+          "legendFormat": "{{tool}}",
+          "exemplar": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "axisLabel": "",
+            "spanNulls": 300000,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "line"
+            },
+            "axisSoftMax": 1
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 2
+              }
+            ]
+          },
+          "min": 0,
+          "noValue": "No graph calls"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "vector_search"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#338ced"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "resolve_graph_nodes"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d28e05"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "graph_triplet_search"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#e24d8b"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "graph_subgraph_search"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#0aac23"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "graph_path_search"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#9887ef"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "describe_graph"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#8e8e8e"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 18,
+      "gridPos": {
+        "x": 8,
+        "y": 37,
+        "w": 8,
+        "h": 8
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Graph results per call",
+      "description": "Mean results per successful call: candidates for resolve_graph_nodes, triplets, paths, and relations for a subgraph. Falling to 0 after an ingestion: check the graph projection.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "sum by (tool) (rate(harborrag_retrieval_results_sum{tool=~\"$tool\",tenant=~\"$tenant\",deployment_environment=~\"$env\",tool=~\"resolve_graph_nodes|graph_.*|describe_graph\"}[$__rate_interval])) / sum by (tool) (rate(harborrag_retrieval_results_count{tool=~\"$tool\",tenant=~\"$tenant\",deployment_environment=~\"$env\",tool=~\"resolve_graph_nodes|graph_.*|describe_graph\"}[$__rate_interval]))",
+          "refId": "A",
+          "legendFormat": "{{tool}}",
+          "exemplar": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "axisLabel": "",
+            "spanNulls": 300000,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisSoftMax": 1
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0,
+          "noValue": "No graph calls"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "vector_search"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#338ced"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "resolve_graph_nodes"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d28e05"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "graph_triplet_search"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#e24d8b"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "graph_subgraph_search"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#0aac23"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "graph_path_search"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#9887ef"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "describe_graph"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#8e8e8e"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 19,
+      "gridPos": {
+        "x": 16,
+        "y": 37,
+        "w": 8,
+        "h": 8
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Incomplete answers by reason",
+      "description": "Successful graph calls whose answer is incomplete, per interval and reason code: max_nodes, max_depth, max_paths, edge_limit or candidate_limit mean a limit cut it short (the caller can narrow the query); projection_truncated means the store capped the traversal.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "sum by (reason) (increase(harborrag_mcp_tool_incomplete_total{tool=~\"$tool\",tenant=~\"$tenant\",deployment_environment=~\"$env\",tool=~\"resolve_graph_nodes|graph_.*|describe_graph\"}[$__interval]))",
+          "refId": "A",
+          "legendFormat": "{{reason}}",
+          "exemplar": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 80,
+            "showPoints": "never",
+            "axisLabel": "",
+            "spanNulls": 300000,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "axisSoftMax": 1
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0,
+          "noValue": "No incomplete answers"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "interval": "1m",
+      "id": 20,
+      "gridPos": {
+        "x": 0,
+        "y": 45,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Stale or unpublished candidates dropped",
+      "description": "Candidates a retrieval tool dropped, graph or vector, because their document has a newer version (stale) or is not yet published. A steady stream after an ingestion means the graph projection lags Postgres.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "sum by (tool, reason) (increase(harborrag_mcp_tool_rejected_candidates_total{tool=~\"$tool\",tenant=~\"$tenant\",deployment_environment=~\"$env\"}[$__interval]))",
+          "refId": "A",
+          "legendFormat": "{{tool}} {{reason}}",
+          "exemplar": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 80,
+            "showPoints": "never",
+            "axisLabel": "",
+            "spanNulls": 300000,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "axisSoftMax": 1
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0,
+          "noValue": "None dropped"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "interval": "1m",
+      "id": 21,
+      "gridPos": {
+        "x": 12,
+        "y": 45,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "type": "row",
+      "title": "What do I open",
+      "id": 22,
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 53,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "type": "table",
+      "title": "Slowest and failed calls, last hour",
+      "description": "Tool calls that failed or took over a second. A row opens its trace.",
+      "datasource": {
+        "type": "tempo",
+        "uid": "harborrag-tempo"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "tempo",
+            "uid": "harborrag-tempo"
+          },
+          "refId": "A",
+          "queryType": "traceql",
+          "query": "{ name =~ \"mcp.tool.*\" && (status = error || duration > 1s) }",
+          "limit": 20,
+          "spss": 3,
+          "tableType": "traces"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "Duration",
+            "desc": true
+          }
+        ]
+      },
+      "timeFrom": "1h",
+      "id": 23,
+      "gridPos": {
+        "x": 0,
+        "y": 54,
+        "w": 24,
+        "h": 9
+      }
+    }
+  ]
+}

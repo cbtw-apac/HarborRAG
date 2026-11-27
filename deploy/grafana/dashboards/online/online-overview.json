@@ -1,0 +1,987 @@
+{
+  "uid": "harborrag-online-overview",
+  "title": "Online overview",
+  "tags": [
+    "harborrag",
+    "online",
+    "home"
+  ],
+  "editable": true,
+  "schemaVersion": 41,
+  "version": 1,
+  "graphTooltip": 1,
+  "timezone": "browser",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "refresh": "1m",
+  "templating": {
+    "list": [
+      {
+        "name": "env",
+        "label": "Environment",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "harborrag-prometheus"
+        },
+        "query": {
+          "query": "label_values(target_info, deployment_environment)",
+          "refId": "env-values"
+        },
+        "definition": "label_values(target_info, deployment_environment)",
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "refresh": 2,
+        "sort": 1,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        }
+      },
+      {
+        "name": "tenant",
+        "label": "Tenant",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "harborrag-prometheus"
+        },
+        "query": {
+          "query": "label_values(harborrag_mcp_tool_calls_total, tenant)",
+          "refId": "tenant-values"
+        },
+        "definition": "label_values(harborrag_mcp_tool_calls_total, tenant)",
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "refresh": 2,
+        "sort": 1,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        }
+      }
+    ]
+  },
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      },
+      {
+        "name": "Deploys",
+        "enable": true,
+        "iconColor": "blue",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "harborrag-prometheus"
+        },
+        "expr": "count by (job, service_version) (target_info) unless count by (job, service_version) (last_over_time(target_info[1d] offset 5m))",
+        "step": "1m",
+        "titleFormat": "Deploy {{job}}",
+        "textFormat": "version {{service_version}}"
+      },
+      {
+        "name": "Alerts firing",
+        "enable": true,
+        "iconColor": "red",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "harborrag-prometheus"
+        },
+        "expr": "ALERTS{alertstate=\"firing\"}",
+        "step": "1m",
+        "titleFormat": "{{alertname}}",
+        "textFormat": "{{severity}} {{side}}"
+      },
+      {
+        "name": "Ingestion runs",
+        "enable": true,
+        "iconColor": "purple",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "harborrag-postgres"
+        },
+        "rawQuery": "SELECT started_at AS time, completed_at AS timeend, status AS text FROM ingestion_tasks WHERE started_at IS NOT NULL AND $__timeFilter(started_at) ORDER BY started_at",
+        "rawSql": "SELECT started_at AS time, completed_at AS timeend, status AS text FROM ingestion_tasks WHERE started_at IS NOT NULL AND $__timeFilter(started_at) ORDER BY started_at",
+        "format": "table"
+      }
+    ]
+  },
+  "links": [
+    {
+      "title": "HarborRAG",
+      "type": "dashboards",
+      "tags": [
+        "harborrag"
+      ],
+      "asDropdown": true,
+      "includeVars": true,
+      "keepTime": true
+    },
+    {
+      "title": "Runbooks",
+      "type": "link",
+      "icon": "doc",
+      "targetBlank": true,
+      "url": "https://github.com/cbtw-apac/HarborRAG/blob/main/docs/developers/deployment/observability-runbooks.md",
+      "tooltip": "What each alert means and how to respond"
+    }
+  ],
+  "panels": [
+    {
+      "type": "row",
+      "title": "Is it healthy now",
+      "id": 1,
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "type": "stat",
+      "title": "MCP availability",
+      "description": "Share of MCP tool calls without a server-side failure over 30 days (SLO 99.5%). Server-side failures are server errors plus tool failures the server caused (error_code backend_unavailable or not_configured). Red: open MCP and retrieval.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "1 - (sum(increase(harborrag_mcp_tool_calls_total{tenant=~\"$tenant\",deployment_environment=~\"$env\",status=~\"error|tool_error\",error_code=~\"|backend_unavailable|not_configured\"}[30d])) or vector(0)) / sum(increase(harborrag_mcp_tool_calls_total{tenant=~\"$tenant\",deployment_environment=~\"$env\"}[30d]))",
+          "refId": "A",
+          "legendFormat": "__auto",
+          "exemplar": false,
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.99
+              },
+              {
+                "color": "green",
+                "value": 0.995
+              }
+            ]
+          },
+          "decimals": 2,
+          "links": [
+            {
+              "title": "MCP and retrieval",
+              "url": "/d/harborrag-mcp-retrieval?${__url_time_range}&${__all_variables}"
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "graphMode": "none",
+        "colorMode": "value",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "id": 2,
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      }
+    },
+    {
+      "type": "stat",
+      "title": "MCP p95 latency",
+      "description": "p95 of MCP tool calls over 5 minutes. Threshold set after two weeks of baseline.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(harborrag_mcp_tool_duration_seconds_bucket{tenant=~\"$tenant\",deployment_environment=~\"$env\"}[5m])))",
+          "refId": "A",
+          "legendFormat": "__auto",
+          "exemplar": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 2
+              }
+            ]
+          },
+          "links": [
+            {
+              "title": "MCP and retrieval",
+              "url": "/d/harborrag-mcp-retrieval?${__url_time_range}&${__all_variables}"
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "graphMode": "area",
+        "colorMode": "value",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "id": 3,
+      "gridPos": {
+        "x": 4,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      }
+    },
+    {
+      "type": "stat",
+      "title": "MCP error rate, 5 min",
+      "description": "Server-side failures per MCP tool call over 5 minutes. Red above 5%, the MCP errors alert level. Server-side failures are server errors plus tool failures the server caused (error_code backend_unavailable or not_configured).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "(sum(rate(harborrag_mcp_tool_calls_total{tenant=~\"$tenant\",deployment_environment=~\"$env\",status=~\"error|tool_error\",error_code=~\"|backend_unavailable|not_configured\"}[5m])) or vector(0)) / sum(rate(harborrag_mcp_tool_calls_total{tenant=~\"$tenant\",deployment_environment=~\"$env\"}[5m]))",
+          "refId": "A",
+          "legendFormat": "__auto",
+          "exemplar": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.05
+              }
+            ]
+          },
+          "links": [
+            {
+              "title": "MCP and retrieval",
+              "url": "/d/harborrag-mcp-retrieval?${__url_time_range}&${__all_variables}"
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "graphMode": "none",
+        "colorMode": "value",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "id": 4,
+      "gridPos": {
+        "x": 8,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Chat first token",
+      "description": "p95 over 5 minutes of the time from the start of a chat turn to its first answer text.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(harborrag_chat_ttft_seconds_bucket{tenant=~\"$tenant\",deployment_environment=~\"$env\"}[5m])))",
+          "refId": "A",
+          "legendFormat": "__auto",
+          "exemplar": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "No chat turns",
+          "links": [
+            {
+              "title": "Chat and LLM",
+              "url": "/d/harborrag-chat-llm?${__url_time_range}&${__all_variables}"
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "graphMode": "none",
+        "colorMode": "value",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "id": 5,
+      "gridPos": {
+        "x": 12,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      }
+    },
+    {
+      "type": "bargauge",
+      "title": "Spend vs budget",
+      "description": "Model cost of all services in the last 24 hours as a share of the daily budget (harborrag:threshold:llm_daily_budget_usd), the LLM spend alert level. Dollars by service are on Chat and LLM. Cost is what the LiteLLM proxy reports from its price list: an estimate, not the invoice. Self-hosted models report 0. There is no tenant label, so cost cannot be split per tenant.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "(sum(increase(harborrag_model_cost_usd_total[24h])) or vector(0)) / scalar(harborrag:threshold:llm_daily_budget_usd)",
+          "refId": "A",
+          "legendFormat": "__auto",
+          "exemplar": false,
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#0aac23",
+                "value": null
+              },
+              {
+                "color": "#fbb315",
+                "value": 0.8
+              },
+              {
+                "color": "#dc3c3d",
+                "value": 1
+              }
+            ]
+          },
+          "links": [
+            {
+              "title": "Chat and LLM",
+              "url": "/d/harborrag-chat-llm?${__url_time_range}&${__all_variables}"
+            }
+          ],
+          "min": 0,
+          "max": 1,
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "basic",
+        "showUnfilled": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "valueMode": "color",
+        "namePlacement": "hidden",
+        "sizing": "auto",
+        "minVizHeight": 16,
+        "maxVizHeight": 22,
+        "minVizWidth": 8,
+        "text": {
+          "valueSize": 28
+        }
+      },
+      "transformations": [],
+      "id": 6,
+      "gridPos": {
+        "x": 16,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      }
+    },
+    {
+      "type": "alertlist",
+      "title": "Firing online alerts",
+      "description": "Firing alerts labelled side=online, critical first. Each alert names its runbook.",
+      "options": {
+        "viewMode": "list",
+        "groupMode": "default",
+        "maxItems": 20,
+        "sortOrder": 3,
+        "dashboardAlerts": false,
+        "alertName": "",
+        "alertInstanceLabelFilter": "{side=\"online\"}",
+        "stateFilter": {
+          "firing": true,
+          "pending": true,
+          "noData": false,
+          "normal": false,
+          "error": true
+        }
+      },
+      "id": 7,
+      "gridPos": {
+        "x": 20,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      }
+    },
+    {
+      "type": "row",
+      "title": "How is it trending",
+      "id": 8,
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Traffic: MCP calls and chat turns",
+      "description": "Requests per second. Deploy, ingestion-run and alert annotations show what changed.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "sum(rate(harborrag_mcp_tool_calls_total{tenant=~\"$tenant\",deployment_environment=~\"$env\"}[$__rate_interval]))",
+          "refId": "A",
+          "legendFormat": "MCP calls",
+          "exemplar": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "sum(rate(harborrag_chat_turns_total{tenant=~\"$tenant\",deployment_environment=~\"$env\"}[$__rate_interval]))",
+          "refId": "B",
+          "legendFormat": "chat turns",
+          "exemplar": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "axisLabel": "",
+            "spanNulls": 300000,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisSoftMax": 1
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 9,
+      "gridPos": {
+        "x": 0,
+        "y": 6,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Error rate by service",
+      "description": "Failures per request. MCP server-side failures and chat errors are what the alerts count (5% line). Server-side failures are server errors plus tool failures the server caused (error_code backend_unavailable or not_configured). MCP caller and deployment failures (a bad argument, a feature not turned on, an empty index) are shown but do not alert.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "(sum(rate(harborrag_mcp_tool_calls_total{tenant=~\"$tenant\",deployment_environment=~\"$env\",status=~\"error|tool_error\",error_code=~\"|backend_unavailable|not_configured\"}[$__rate_interval])) or vector(0)) / sum(rate(harborrag_mcp_tool_calls_total{tenant=~\"$tenant\",deployment_environment=~\"$env\"}[$__rate_interval]))",
+          "refId": "A",
+          "legendFormat": "MCP server-side failures",
+          "exemplar": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "(sum(rate(harborrag_mcp_tool_calls_total{tenant=~\"$tenant\",deployment_environment=~\"$env\",status=\"tool_error\",error_code!~\"|backend_unavailable|not_configured\"}[$__rate_interval])) or vector(0)) / sum(rate(harborrag_mcp_tool_calls_total{tenant=~\"$tenant\",deployment_environment=~\"$env\"}[$__rate_interval]))",
+          "refId": "C",
+          "legendFormat": "MCP caller and deployment failures",
+          "exemplar": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "(sum(rate(harborrag_chat_turns_total{tenant=~\"$tenant\",deployment_environment=~\"$env\",status=\"error\"}[$__rate_interval])) or vector(0)) / sum(rate(harborrag_chat_turns_total{tenant=~\"$tenant\",deployment_environment=~\"$env\"}[$__rate_interval]))",
+          "refId": "B",
+          "legendFormat": "chat errors",
+          "exemplar": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "axisLabel": "",
+            "spanNulls": 300000,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "line"
+            },
+            "axisSoftMax": 0.1
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.05
+              }
+            ]
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 10,
+      "gridPos": {
+        "x": 12,
+        "y": 6,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "type": "row",
+      "title": "Where is it coming from",
+      "id": 11,
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 14,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "type": "bargauge",
+      "title": "p95 by store and operation",
+      "description": "p95 of HarborRAG's own retrieval and store spans over the range, slowest first. Open Stores and host for detail.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "sort_desc(histogram_quantile(0.95, sum by (le, span_name) (rate(traces_span_metrics_duration_seconds_bucket{span_name=~\"retrieval.*|harborrag.ingestion.(qdrant_write|falkordb_write)\"}[$__range]))))",
+          "refId": "A",
+          "legendFormat": "{{span_name}}",
+          "exemplar": false,
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "links": [
+            {
+              "title": "Stores and host",
+              "url": "/d/harborrag-stores-host?${__url_time_range}&${__all_variables}"
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "basic",
+        "showUnfilled": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "valueMode": "color",
+        "namePlacement": "left",
+        "sizing": "manual",
+        "minVizHeight": 16,
+        "maxVizHeight": 22,
+        "minVizWidth": 8,
+        "text": {
+          "titleSize": 12,
+          "valueSize": 13
+        }
+      },
+      "transformations": [],
+      "id": 12,
+      "gridPos": {
+        "x": 0,
+        "y": 15,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Host memory and CPU",
+      "description": "Host load from node_exporter. Shaded ingestion runs show whether a sync starves MCP on the shared host.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes",
+          "refId": "A",
+          "legendFormat": "memory",
+          "exemplar": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "1 - avg(rate(node_cpu_seconds_total{mode=\"idle\"}[$__rate_interval]))",
+          "refId": "B",
+          "legendFormat": "CPU",
+          "exemplar": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "axisLabel": "",
+            "spanNulls": 300000,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "line"
+            },
+            "axisSoftMax": 0.1
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.9
+              }
+            ]
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 13,
+      "gridPos": {
+        "x": 12,
+        "y": 15,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "type": "row",
+      "title": "What do I open",
+      "id": 14,
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 23,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "type": "table",
+      "title": "Slowest and failed requests, last hour",
+      "description": "MCP tool calls and API requests that failed or took over a second. A row opens its trace.",
+      "datasource": {
+        "type": "tempo",
+        "uid": "harborrag-tempo"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "tempo",
+            "uid": "harborrag-tempo"
+          },
+          "refId": "A",
+          "queryType": "traceql",
+          "query": "{ (name =~ \"mcp.tool.*\" || name =~ \"POST /v1/chat.*\") && (status = error || duration > 1s) }",
+          "limit": 20,
+          "spss": 3,
+          "tableType": "traces"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "Duration",
+            "desc": true
+          }
+        ]
+      },
+      "timeFrom": "1h",
+      "id": 15,
+      "gridPos": {
+        "x": 0,
+        "y": 24,
+        "w": 24,
+        "h": 9
+      }
+    }
+  ]
+}

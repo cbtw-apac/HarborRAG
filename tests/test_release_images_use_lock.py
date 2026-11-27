@@ -65,9 +65,9 @@ def test_api_image_contains_control_plane_and_retrieval_dependencies() -> None:
     assert "--extra api --extra production" in install_block
     assert "--package harborrag-adapters" in install_block
     assert "--extra control-plane --extra falkordb --extra llm" in install_block
-    assert "--extra postgres --extra qdrant --extra s3" in install_block
+    assert "--extra opentelemetry --extra postgres --extra qdrant --extra s3" in install_block
     assert (
-        "-e 'packages/harborrag-adapters[control-plane,falkordb,llm,postgres,qdrant,s3]'"
+        "-e 'packages/harborrag-adapters[control-plane,falkordb,llm,opentelemetry,postgres,qdrant,s3]'"
         in install_block
     )
     assert "-e 'packages/harborrag-app[api,production]'" in install_block

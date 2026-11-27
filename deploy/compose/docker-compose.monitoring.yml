@@ -1,8 +1,47 @@
 name: harborrag-monitoring
 
+# Started and stopped by scripts/deployment/observability.sh. It reads the monitoring
+# environment file and takes only POSTGRES_DB from the database one.
+
 services:
+  # Receives OTLP over HTTP from the API, the worker and the MCP server on
+  # harborrag-data-network (otel-collector:4318), and from processes run in a
+  # checkout on the published loopback port.
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.165.0
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    environment:
+      HARBORRAG_TRACE_SAMPLE_PERCENT: ${HARBORRAG_TRACE_SAMPLE_PERCENT:-100}
+    ports:
+      - "${HARBORRAG_MONITORING_BIND_ADDRESS:-127.0.0.1}:${OTEL_COLLECTOR_PORT:-4318}:4318"
+    expose:
+      - "8889"
+    volumes:
+      - ../otel-collector/config.yaml:/etc/otelcol-contrib/config.yaml:ro
+    mem_limit: 256m
+    networks:
+      - monitoring-network
+      - harborrag-data-network
+
+  tempo:
+    image: grafana/tempo:2.8.2
+    command: ["-config.file=/etc/tempo/tempo.yaml"]
+    expose:
+      - "3200"
+    volumes:
+      - ../tempo/tempo.yaml:/etc/tempo/tempo.yaml:ro
+      - tempo_data:/var/tempo
+    mem_limit: 512m
+    networks:
+      - monitoring-network
+
   prometheus:
     image: prom/prometheus:v3.13.1
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=30d
+      - --enable-feature=exemplar-storage
     ports:
       - "${HARBORRAG_MONITORING_BIND_ADDRESS:-127.0.0.1}:${PROMETHEUS_PORT:-9090}:9090"
     volumes:
@@ -11,6 +50,7 @@ services:
       - prometheus_data:/prometheus
     secrets:
       - api-scrape-token
+    mem_limit: 1g
     networks:
       - monitoring-network
       - harborrag-data-network
@@ -18,18 +58,51 @@ services:
   grafana:
     image: grafana/grafana:13.1.0
     ports:
-      - "${HARBORRAG_MONITORING_BIND_ADDRESS:-127.0.0.1}:${GRAFANA_PORT:-3000}:3000"
+      - "${HARBORRAG_MONITORING_BIND_ADDRESS:-127.0.0.1}:${GRAFANA_PORT:-3030}:3000"
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in the monitoring environment file}
       GF_AUTH_ANONYMOUS_ENABLED: "false"
       GF_USERS_ALLOW_SIGN_UP: "false"
+      # grafana-ui-network gives Grafana a route out; send nothing over it.
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      # Read by the PostgreSQL data source in ../grafana/provisioning/datasources.
+      HARBORRAG_OBSERVER_DATABASE: ${POSTGRES_DB:?run scripts/deployment/observability.sh, which reads POSTGRES_DB from the database environment file}
+      HARBORRAG_OBSERVER_PASSWORD: ${HARBORRAG_OBSERVER_PASSWORD:?set HARBORRAG_OBSERVER_PASSWORD in the monitoring environment file}
     volumes:
       - ../grafana/provisioning:/etc/grafana/provisioning:ro
       - ../grafana/dashboards:/var/lib/grafana/dashboards:ro
       - grafana_secure_data:/var/lib/grafana
+    mem_limit: 512m
+    # Docker publishes no port of a container that sits only on internal networks,
+    # so Grafana alone also joins grafana-ui-network. The data network lets it read
+    # PostgreSQL as harborrag_observer.
     networks:
       - monitoring-network
+      - grafana-ui-network
+      - harborrag-data-network
+
+  # Routes Prometheus alerts by severity to the on-call and team webhooks. Webhooks
+  # leave the host, so Alertmanager alone joins alert-egress-network.
+  alertmanager:
+    image: prom/alertmanager:v0.28.1
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    expose:
+      - "9093"
+    volumes:
+      - ../alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager_data:/alertmanager
+    secrets:
+      - alert-oncall-webhook
+      - alert-team-webhook
+    mem_limit: 64m
+    networks:
+      - monitoring-network
+      - alert-egress-network
 
   loki:
     image: grafana/loki:3.7.2
@@ -39,12 +112,71 @@ services:
     volumes:
       - ../loki/loki-config.yml:/etc/loki/loki-config.yml:ro
       - loki_data:/loki
+    mem_limit: 512m
     networks:
       - monitoring-network
+
+  # Host CPU, memory, disk and network. node-exporter and cAdvisor read the host
+  # through read-only mounts, and node-exporter shares the host's process namespace
+  # to read /proc: they can see every process, mount and container on the machine,
+  # which is why they stay on the private monitoring network with no published port.
+  # cAdvisor also gets the Docker socket to name containers, and a read-only mount
+  # does not make the socket read-only: whoever controls cAdvisor can drive the
+  # Docker API, which is root on the host. Leave both services out (or run them on a
+  # dedicated monitoring host) where that is not acceptable.
+  node-exporter:
+    image: prom/node-exporter:v1.13.1
+    pid: host
+    command:
+      - --path.rootfs=/host
+    expose:
+      - "9100"
+    volumes:
+      - /:/host:ro
+    mem_limit: 64m
+    networks:
+      - monitoring-network
+
+  cadvisor:
+    image: ghcr.io/google/cadvisor:0.57.0
+    # Docker containers are reported by cgroup id; cAdvisor adds their names only
+    # where it also reaches containerd's socket, which Docker Desktop does not expose.
+    command:
+      - --docker_only=true
+      - --raw_cgroup_prefix_whitelist=/docker/,/system.slice/docker-
+      - --housekeeping_interval=30s
+    expose:
+      - "8080"
+    volumes:
+      - /:/rootfs:ro
+      - /sys:/sys:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker:/var/lib/docker:ro
+    mem_limit: 256m
+    networks:
+      - monitoring-network
+
+  # PostgreSQL server and database statistics, read as the harborrag_observer role
+  # that 'scripts/deployment/observability.sh db-access' creates.
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.21.1
+    environment:
+      DATA_SOURCE_URI: postgres:5432/${POSTGRES_DB:?run scripts/deployment/observability.sh, which reads POSTGRES_DB from the database environment file}?sslmode=disable
+      DATA_SOURCE_USER: harborrag_observer
+      DATA_SOURCE_PASS: ${HARBORRAG_OBSERVER_PASSWORD:?set HARBORRAG_OBSERVER_PASSWORD in the monitoring environment file}
+    expose:
+      - "9187"
+    mem_limit: 64m
+    networks:
+      - harborrag-data-network
 
 secrets:
   api-scrape-token:
     environment: HARBORRAG_METRICS_SCRAPE_TOKEN
+  alert-oncall-webhook:
+    environment: HARBORRAG_ALERT_ONCALL_WEBHOOK_URL
+  alert-team-webhook:
+    environment: HARBORRAG_ALERT_TEAM_WEBHOOK_URL
 
 volumes:
   prometheus_data:
@@ -52,10 +184,14 @@ volumes:
   # may have initialized that volume with the former admin/admin default.
   grafana_secure_data:
   loki_data:
+  tempo_data:
+  alertmanager_data:
 
 networks:
   monitoring-network:
     internal: true
+  grafana-ui-network:
+  alert-egress-network:
   harborrag-data-network:
     name: harborrag-data-network
     external: true

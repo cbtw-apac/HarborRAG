@@ -74,12 +74,6 @@ require_control_plane_encryption_key() {
     fi
 }
 
-# GNU, BSD and BusyBox sed all accept an attached backup suffix; plain `sed -i` is GNU-only.
-replace_env_line() {
-    sed -i.bak "$1" "$2"
-    rm -f "$2.bak"
-}
-
 # A blank key with no database volume means nothing was stored with one, so generating loses nothing.
 generate_encryption_key() {
     local target_path="${ROOT_DIR}/${DATABASE_ENV_FILE}"
@@ -99,36 +93,6 @@ generate_encryption_key() {
     fi
     chmod 600 "${target_path}"
     echo "Generated HARBORRAG_SECRETS_ENCRYPTION_KEY in ${DATABASE_ENV_FILE}; back it up: stored connection secrets cannot be read without it."
-}
-
-# The last NAME=value of an env file, read the way Compose reads it: without a carriage
-# return, a trailing comment or surrounding quotes. Empty when unset.
-env_file_value() {
-    local value
-    value="$(sed -n "s/^$2=//p" "${ROOT_DIR}/$1" | tail -n 1)"
-    value="${value%$'\r'}"
-    value="${value%%[[:space:]]#*}"
-    value="${value#[\"\']}"
-    value="${value%[\"\']}"
-    printf '%s\n' "${value}"
-}
-
-# Write a random value for NAME into an env file when it has none.
-ensure_generated_value() {
-    local file="$1" name="$2"
-    local target_path="${ROOT_DIR}/${file}"
-    local value
-
-    [[ -z "$(env_file_value "${file}" "${name}")" ]] || return 0
-    command -v openssl >/dev/null || fail "OpenSSL is required to generate ${name}."
-    value="$(openssl rand -hex 32)"
-    if grep -Eq "^${name}=" "${target_path}"; then
-        replace_env_line "s/^${name}=.*/${name}=${value}/" "${target_path}"
-    else
-        printf '\n%s=%s\n' "${name}" "${value}" >>"${target_path}"
-    fi
-    chmod 600 "${target_path}"
-    echo "Generated ${name} in ${file}."
 }
 
 # The monitoring stack reads the same value from env/.env.monitoring.
@@ -164,22 +128,6 @@ grant_mcp_store_access() {
         <"${ROOT_DIR}/deploy/compose/minio/mcp-reader-policy.json"
     echo "The MCP server reads as harborrag_mcp in PostgreSQL and harborrag-mcp in MinIO."
     echo "Start or restart it to use them: scripts/deployment/mcp.sh --http"
-}
-
-ensure_environment_file() {
-    local target="$1"
-    local template="$2"
-
-    if [[ -f "${ROOT_DIR}/${target}" ]]; then
-        chmod 600 "${ROOT_DIR}/${target}"
-        return
-    fi
-    umask 077
-    mkdir -p "$(dirname "${ROOT_DIR}/${target}")"
-    cp "${ROOT_DIR}/${template}" "${ROOT_DIR}/${target}"
-    chmod 600 "${ROOT_DIR}/${target}"
-    echo "Created ${target} from ${template}."
-    created_environment=1
 }
 
 ensure_mcp_environment_file() {

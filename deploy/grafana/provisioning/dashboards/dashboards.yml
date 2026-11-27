@@ -1,11 +1,32 @@
 apiVersion: 1
 
+# One Grafana folder per subfolder of deploy/grafana/dashboards: online (query
+# serving), offline (ingestion) and shared (infrastructure and the collector).
 providers:
-  - name: HarborRAG
+  - name: HarborRAG Online
     orgId: 1
-    folder: HarborRAG
+    folder: Online
+    folderUid: harborrag-online
     type: file
     disableDeletion: false
     editable: true
     options:
-      path: /var/lib/grafana/dashboards
+      path: /var/lib/grafana/dashboards/online
+  - name: HarborRAG Offline
+    orgId: 1
+    folder: Offline
+    folderUid: harborrag-offline
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      path: /var/lib/grafana/dashboards/offline
+  - name: HarborRAG Shared
+    orgId: 1
+    folder: Shared
+    folderUid: harborrag-shared
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      path: /var/lib/grafana/dashboards/shared

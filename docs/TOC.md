@@ -45,6 +45,7 @@
 - [Extending HarborRAG](developers/extending/README.md)
 - [Testing](developers/testing/README.md)
 - [Deployment](developers/deployment/README.md)
+  - [Observability runbooks](developers/deployment/observability-runbooks.md)
 - [Release Process](developers/release-process.md)
 - [Open-Source Publication Guidelines](developers/publication-guidelines.md)
 

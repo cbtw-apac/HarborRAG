@@ -1,0 +1,2050 @@
+{
+  "uid": "harborrag-ingestion",
+  "title": "Ingestion and schedules",
+  "tags": [
+    "harborrag",
+    "offline",
+    "home",
+    "ingestion"
+  ],
+  "editable": true,
+  "schemaVersion": 41,
+  "version": 1,
+  "graphTooltip": 1,
+  "timezone": "browser",
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
+  "refresh": "5m",
+  "templating": {
+    "list": [
+      {
+        "name": "env",
+        "label": "Environment",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "harborrag-prometheus"
+        },
+        "query": {
+          "query": "label_values(target_info, deployment_environment)",
+          "refId": "env-values"
+        },
+        "definition": "label_values(target_info, deployment_environment)",
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "refresh": 2,
+        "sort": 1,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        }
+      },
+      {
+        "name": "tenant",
+        "label": "Tenant",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "harborrag-prometheus"
+        },
+        "query": {
+          "query": "label_values(harborrag_mcp_tool_calls_total, tenant)",
+          "refId": "tenant-values"
+        },
+        "definition": "label_values(harborrag_mcp_tool_calls_total, tenant)",
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "refresh": 2,
+        "sort": 1,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        }
+      },
+      {
+        "name": "connector",
+        "label": "Connector",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "harborrag-prometheus"
+        },
+        "query": {
+          "query": "label_values(harborrag_ingestion_documents_total, connector_type)",
+          "refId": "connector-values"
+        },
+        "definition": "label_values(harborrag_ingestion_documents_total, connector_type)",
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "refresh": 2,
+        "sort": 1,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        }
+      },
+      {
+        "name": "task_queue",
+        "label": "Task queue",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "harborrag-prometheus"
+        },
+        "query": {
+          "query": "label_values(harborrag_temporal_worker_slots, task_queue)",
+          "refId": "task_queue-values"
+        },
+        "definition": "label_values(harborrag_temporal_worker_slots, task_queue)",
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "refresh": 2,
+        "sort": 1,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        }
+      },
+      {
+        "name": "run",
+        "label": "Run",
+        "type": "textbox",
+        "query": "",
+        "description": "An ingestion task id; the admin console fills it to show one run.",
+        "current": {
+          "text": "",
+          "value": ""
+        }
+      },
+      {
+        "name": "temporal_ui",
+        "type": "constant",
+        "hide": 2,
+        "query": "http://127.0.0.1:8080",
+        "description": "Temporal UI base URL for the run links; the same value as HARBORRAG_TEMPORAL_UI_URL.",
+        "current": {
+          "text": "http://127.0.0.1:8080",
+          "value": "http://127.0.0.1:8080"
+        }
+      },
+      {
+        "name": "temporal_namespace",
+        "type": "constant",
+        "hide": 2,
+        "query": "harborrag",
+        "description": "connection.namespace in config/temporal.yaml.",
+        "current": {
+          "text": "harborrag",
+          "value": "harborrag"
+        }
+      }
+    ]
+  },
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      },
+      {
+        "name": "Deploys",
+        "enable": true,
+        "iconColor": "blue",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "harborrag-prometheus"
+        },
+        "expr": "count by (job, service_version) (target_info) unless count by (job, service_version) (last_over_time(target_info[1d] offset 5m))",
+        "step": "1m",
+        "titleFormat": "Deploy {{job}}",
+        "textFormat": "version {{service_version}}"
+      },
+      {
+        "name": "Alerts firing",
+        "enable": true,
+        "iconColor": "red",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "harborrag-prometheus"
+        },
+        "expr": "ALERTS{alertstate=\"firing\"}",
+        "step": "1m",
+        "titleFormat": "{{alertname}}",
+        "textFormat": "{{severity}} {{side}}"
+      },
+      {
+        "name": "Ingestion runs",
+        "enable": true,
+        "iconColor": "purple",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "harborrag-postgres"
+        },
+        "rawQuery": "SELECT started_at AS time, completed_at AS timeend, status AS text FROM ingestion_tasks WHERE started_at IS NOT NULL AND $__timeFilter(started_at) ORDER BY started_at",
+        "rawSql": "SELECT started_at AS time, completed_at AS timeend, status AS text FROM ingestion_tasks WHERE started_at IS NOT NULL AND $__timeFilter(started_at) ORDER BY started_at",
+        "format": "table"
+      }
+    ]
+  },
+  "links": [
+    {
+      "title": "HarborRAG",
+      "type": "dashboards",
+      "tags": [
+        "harborrag"
+      ],
+      "asDropdown": true,
+      "includeVars": true,
+      "keepTime": true
+    },
+    {
+      "title": "Runbooks",
+      "type": "link",
+      "icon": "doc",
+      "targetBlank": true,
+      "url": "https://github.com/cbtw-apac/HarborRAG/blob/main/docs/developers/deployment/observability-runbooks.md",
+      "tooltip": "What each alert means and how to respond"
+    },
+    {
+      "title": "Temporal: this run",
+      "type": "link",
+      "icon": "external link",
+      "targetBlank": true,
+      "tooltip": "The run's source workflow; set the Run variable first",
+      "url": "${temporal_ui}/namespaces/${temporal_namespace}/workflows/harborrag-source:${run}"
+    },
+    {
+      "title": "Temporal: workflows",
+      "type": "link",
+      "icon": "external link",
+      "targetBlank": true,
+      "url": "${temporal_ui}/namespaces/${temporal_namespace}/workflows"
+    }
+  ],
+  "panels": [
+    {
+      "type": "row",
+      "title": "Is it healthy now",
+      "id": 1,
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "type": "stat",
+      "title": "Oldest source lag",
+      "description": "Time since the least recently synced source last completed. Red after a day: open its row below.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "harborrag-postgres"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "harborrag-postgres"
+          },
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT max(extract(epoch FROM now() - last_success)) AS oldest_lag FROM (SELECT max(completed_at) FILTER (WHERE status IN ('COMPLETED', 'PARTIAL')) AS last_success FROM ingestion_tasks WHERE tenant_id ~ '${tenant:regex}' GROUP BY source_scope_id) AS sources"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 86400
+              },
+              {
+                "color": "red",
+                "value": 93600
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      },
+      "id": 2,
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Failed documents",
+      "description": "Documents whose ingestion failed in the last 24 hours. A lower bound: failures before the worker's first scrape after a restart are missed. Documents by outcome per run has the exact count.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "sum(increase(harborrag_ingestion_documents_total{connector_type=~\"$connector\",outcome=\"failed\"}[24h])) or vector(0)",
+          "refId": "A",
+          "legendFormat": "__auto",
+          "exemplar": false,
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          },
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "graphMode": "none",
+        "colorMode": "value",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "id": 3,
+      "gridPos": {
+        "x": 4,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Index write failures",
+      "description": "Vector or graph write attempts in the last 24 hours that failed while the document stayed findable through the other index.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "sum(increase(harborrag_ingestion_stage_operations_total{stage=~\"qdrant_write|falkordb_write\",outcome=\"failed\"}[24h])) or vector(0)",
+          "refId": "A",
+          "legendFormat": "__auto",
+          "exemplar": false,
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "graphMode": "none",
+        "colorMode": "value",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "id": 4,
+      "gridPos": {
+        "x": 8,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Stale schedules",
+      "description": "Unpaused schedules with no completed run in 26 hours: the Sync missed or stale alert.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "count((sum by (schedule_id) (increase(harborrag_temporal_scheduled_runs_total{outcome=~\"completed|partial\"}[26h])) == 0) and on (schedule_id) (harborrag_temporal_schedule_paused == 0)) or vector(0)",
+          "refId": "A",
+          "legendFormat": "__auto",
+          "exemplar": false,
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "graphMode": "none",
+        "colorMode": "value",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "id": 5,
+      "gridPos": {
+        "x": 12,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Cost per 1k docs",
+      "description": "Ingestion's model cost per 1,000 documents indexed over the dashboard's range: mostly embeddings. Multiply by a corpus size to price a forced re-sync. Cost is what the LiteLLM proxy reports from its price list: an estimate, not the invoice. Self-hosted models report 0. There is no tenant label, so cost cannot be split per tenant.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "sum(increase(harborrag_model_cost_usd_total{job=\"harborrag-worker\"}[$__range])) / (sum(increase(harborrag_ingestion_documents_total{connector_type=~\"$connector\",outcome=\"activated\"}[$__range])) > 0) * 1000",
+          "refId": "A",
+          "legendFormat": "__auto",
+          "exemplar": false,
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 3,
+          "noValue": "No documents indexed"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "graphMode": "none",
+        "colorMode": "value",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "id": 6,
+      "gridPos": {
+        "x": 16,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      }
+    },
+    {
+      "type": "alertlist",
+      "title": "Firing offline alerts",
+      "description": "Firing alerts labelled side=offline, critical first. Each alert names its runbook.",
+      "options": {
+        "viewMode": "list",
+        "groupMode": "default",
+        "maxItems": 20,
+        "sortOrder": 3,
+        "dashboardAlerts": false,
+        "alertName": "",
+        "alertInstanceLabelFilter": "{side=\"offline\"}",
+        "stateFilter": {
+          "firing": true,
+          "pending": true,
+          "noData": false,
+          "normal": false,
+          "error": true
+        }
+      },
+      "id": 7,
+      "gridPos": {
+        "x": 20,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      }
+    },
+    {
+      "type": "row",
+      "title": "Did it run and what changed",
+      "id": 8,
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "type": "state-timeline",
+      "title": "Source runs",
+      "description": "Each source's runs by status. Rows are source scopes; hover a bar for its task.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "harborrag-postgres"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "harborrag-postgres"
+          },
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT started_at AS time, source_scope_id AS source, status FROM ingestion_tasks WHERE started_at IS NOT NULL AND $__timeFilter(started_at) AND tenant_id ~ '${tenant:regex}' AND (${run:sqlstring} = '' OR task_id = ${run:sqlstring}) ORDER BY started_at"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "COMPLETED": {
+                  "color": "green",
+                  "text": "Completed",
+                  "index": 0
+                },
+                "PARTIAL": {
+                  "color": "orange",
+                  "text": "Partial",
+                  "index": 1
+                },
+                "FAILED": {
+                  "color": "red",
+                  "text": "Failed",
+                  "index": 2
+                },
+                "CANCELLED": {
+                  "color": "text",
+                  "text": "Cancelled",
+                  "index": 3
+                },
+                "RUNNING": {
+                  "color": "blue",
+                  "text": "Running",
+                  "index": 4
+                },
+                "PAUSED": {
+                  "color": "purple",
+                  "text": "Paused",
+                  "index": 5
+                },
+                "PENDING": {
+                  "color": "text",
+                  "text": "Pending",
+                  "index": 6
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "mergeValues": false,
+        "showValue": "never",
+        "rowHeight": 0.8,
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "transformations": [
+        {
+          "id": "partitionByValues",
+          "options": {
+            "fields": [
+              "source"
+            ],
+            "keepFields": false
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^status (.*)$",
+            "renamePattern": "$1"
+          }
+        }
+      ],
+      "id": 9,
+      "gridPos": {
+        "x": 0,
+        "y": 6,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "type": "barchart",
+      "title": "Documents by outcome per run",
+      "description": "Document results of the latest runs. A large unchanged share proves incremental sync works.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "harborrag-postgres"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "harborrag-postgres"
+          },
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT to_char(t.started_at, 'MM-DD HH24:MI') || ' ' || left(t.task_id, 8) AS run, count(*) FILTER (WHERE r.status IN ('published', 'success')) AS indexed, count(*) FILTER (WHERE r.status IN ('unchanged', 'skipped')) AS skipped_unchanged, count(*) FILTER (WHERE r.status = 'failed') AS failed FROM ingestion_tasks t JOIN task_document_results r ON r.task_id = t.task_id WHERE $__timeFilter(t.started_at) AND t.tenant_id ~ '${tenant:regex}' AND (${run:sqlstring} = '' OR t.task_id = ${run:sqlstring}) GROUP BY t.task_id, t.started_at ORDER BY t.started_at DESC LIMIT 20"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "stacking": {
+              "mode": "normal"
+            },
+            "fillOpacity": 80
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "stacking": "normal",
+        "xField": "run",
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "id": 10,
+      "gridPos": {
+        "x": 12,
+        "y": 6,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Documents processed by outcome",
+      "description": "Documents per interval: activated (indexed), skipped (unchanged) and failed. The width of a run's bars is how long it took; their height is its throughput.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "sum by (outcome) (increase(harborrag_ingestion_documents_total{connector_type=~\"$connector\",outcome=~\"activated|skipped|failed\"}[$__interval]))",
+          "refId": "A",
+          "legendFormat": "{{outcome}}",
+          "exemplar": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 80,
+            "showPoints": "never",
+            "axisLabel": "",
+            "spanNulls": 300000,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "axisSoftMax": 1
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0,
+          "noValue": "No documents in range"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "activated"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#0aac23"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "skipped"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#8e8e8e"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "failed"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#dc3c3d"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "interval": "1m",
+      "id": 11,
+      "gridPos": {
+        "x": 0,
+        "y": 14,
+        "w": 16,
+        "h": 7
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Model cost per interval",
+      "description": "Ingestion's model cost per interval by operation, lined up with the run markers. Cost is what the LiteLLM proxy reports from its price list: an estimate, not the invoice. Self-hosted models report 0. There is no tenant label, so cost cannot be split per tenant.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "sum by (gen_ai_operation_name) (increase(harborrag_model_cost_usd_total{job=\"harborrag-worker\"}[$__interval]))",
+          "refId": "A",
+          "legendFormat": "{{gen_ai_operation_name}}",
+          "exemplar": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 80,
+            "showPoints": "never",
+            "axisLabel": "",
+            "spanNulls": 300000,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "axisSoftMax": 0.01
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0,
+          "noValue": "No model cost in range",
+          "decimals": 4
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "interval": "1m",
+      "id": 12,
+      "gridPos": {
+        "x": 16,
+        "y": 14,
+        "w": 8,
+        "h": 7
+      }
+    },
+    {
+      "type": "row",
+      "title": "Why: stages, indexes, connectors",
+      "id": 13,
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 21,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "type": "bargauge",
+      "title": "p95 per stage, in pipeline order",
+      "description": "p95 per ingestion stage over the range, in pipeline order, so the stalled stage stands out.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(harborrag_ingestion_stage_duration_seconds_bucket{stage=\"fetch\"}[$__range])))",
+          "refId": "S00",
+          "legendFormat": "fetch",
+          "exemplar": false,
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(harborrag_ingestion_stage_duration_seconds_bucket{stage=\"parse_normalize\"}[$__range])))",
+          "refId": "S01",
+          "legendFormat": "parse_normalize",
+          "exemplar": false,
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(harborrag_ingestion_stage_duration_seconds_bucket{stage=\"content_sync\"}[$__range])))",
+          "refId": "S02",
+          "legendFormat": "content_sync",
+          "exemplar": false,
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(harborrag_ingestion_stage_duration_seconds_bucket{stage=\"canonical_persist\"}[$__range])))",
+          "refId": "S03",
+          "legendFormat": "canonical_persist",
+          "exemplar": false,
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(harborrag_ingestion_stage_duration_seconds_bucket{stage=\"chunk\"}[$__range])))",
+          "refId": "S04",
+          "legendFormat": "chunk",
+          "exemplar": false,
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(harborrag_ingestion_stage_duration_seconds_bucket{stage=\"encode\"}[$__range])))",
+          "refId": "S05",
+          "legendFormat": "encode",
+          "exemplar": false,
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(harborrag_ingestion_stage_duration_seconds_bucket{stage=\"relation_build\"}[$__range])))",
+          "refId": "S06",
+          "legendFormat": "relation_build",
+          "exemplar": false,
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(harborrag_ingestion_stage_duration_seconds_bucket{stage=\"projection_build\"}[$__range])))",
+          "refId": "S07",
+          "legendFormat": "projection_build",
+          "exemplar": false,
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(harborrag_ingestion_stage_duration_seconds_bucket{stage=\"qdrant_write\"}[$__range])))",
+          "refId": "S08",
+          "legendFormat": "qdrant_write",
+          "exemplar": false,
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(harborrag_ingestion_stage_duration_seconds_bucket{stage=\"falkordb_write\"}[$__range])))",
+          "refId": "S09",
+          "legendFormat": "falkordb_write",
+          "exemplar": false,
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(harborrag_ingestion_stage_duration_seconds_bucket{stage=\"verification\"}[$__range])))",
+          "refId": "S10",
+          "legendFormat": "verification",
+          "exemplar": false,
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(harborrag_ingestion_stage_duration_seconds_bucket{stage=\"publication\"}[$__range])))",
+          "refId": "S11",
+          "legendFormat": "publication",
+          "exemplar": false,
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "basic",
+        "showUnfilled": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "valueMode": "color",
+        "namePlacement": "left",
+        "sizing": "manual",
+        "minVizHeight": 16,
+        "maxVizHeight": 22,
+        "minVizWidth": 8,
+        "text": {
+          "titleSize": 12,
+          "valueSize": 13
+        }
+      },
+      "transformations": [],
+      "id": 14,
+      "gridPos": {
+        "x": 0,
+        "y": 22,
+        "w": 8,
+        "h": 11
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Partial index failures",
+      "description": "Failed vector (qdrant_write) and graph (falkordb_write) write attempts.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "sum by (stage) (increase(harborrag_ingestion_stage_operations_total{stage=~\"qdrant_write|falkordb_write\",outcome=\"failed\"}[$__interval]))",
+          "refId": "A",
+          "legendFormat": "{{stage}}",
+          "exemplar": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 80,
+            "showPoints": "never",
+            "axisLabel": "",
+            "spanNulls": 300000,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisSoftMax": 1
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0,
+          "noValue": "No failed index writes"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "interval": "1m",
+      "id": 15,
+      "gridPos": {
+        "x": 8,
+        "y": 22,
+        "w": 8,
+        "h": 11
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Connector errors and 429s",
+      "description": "Non-2xx connector responses per interval. 4xx is usually a credential or permission problem (401 after a token expires); many 429s: slow the schedule down.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "sum by (connector_type, status) (increase(harborrag_ingestion_connector_requests_total{connector_type=~\"$connector\",status!=\"2xx\"}[$__interval]))",
+          "refId": "A",
+          "legendFormat": "{{connector_type}} {{status}}",
+          "exemplar": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 80,
+            "showPoints": "never",
+            "axisLabel": "",
+            "spanNulls": 300000,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "axisSoftMax": 1
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0,
+          "noValue": "No connector errors"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "interval": "1m",
+      "id": 16,
+      "gridPos": {
+        "x": 16,
+        "y": 22,
+        "w": 8,
+        "h": 11
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Parse time by parser, p95",
+      "description": "p95 parse time per parser family.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le, parser) (rate(harborrag_ingestion_parse_duration_seconds_bucket[$__rate_interval])))",
+          "refId": "A",
+          "legendFormat": "{{parser}}",
+          "exemplar": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "axisLabel": "",
+            "spanNulls": 300000,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisSoftMax": 1
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 17,
+      "gridPos": {
+        "x": 0,
+        "y": 33,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Activity failures by activity type",
+      "description": "Failed Temporal activity attempts, from the worker's SDK metrics. Retries follow retries.discovery and retries.document in config/temporal.yaml; a permanent error, such as a rejected document, fails on its first attempt. The Failed documents logs say why.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "sum by (activity_type) (increase(temporal_activity_execution_failed_total{namespace=~\"$temporal_namespace\",task_queue=~\"$task_queue\"}[$__interval]))",
+          "refId": "A",
+          "legendFormat": "{{activity_type}}",
+          "exemplar": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 80,
+            "showPoints": "never",
+            "axisLabel": "",
+            "spanNulls": 300000,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "axisSoftMax": 1
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0,
+          "noValue": "No failed activities"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "interval": "1m",
+      "id": 18,
+      "gridPos": {
+        "x": 12,
+        "y": 33,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "type": "row",
+      "title": "Temporal workers, against config/temporal.yaml",
+      "id": 19,
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 41,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Activity slots in use per task queue",
+      "description": "Most activity slots each task queue's worker used per interval, against worker.max_concurrent_activities in config/temporal.yaml (dashed). A queue pinned at the line during a run is limited by that setting. Values of 1 or less are hidden: an open poll alone holds one slot, so an idle queue shows nothing.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "max by (task_queue) (max_over_time(temporal_worker_task_slots_used{worker_type=\"ActivityWorker\",namespace=~\"$temporal_namespace\",task_queue=~\"$task_queue\"}[$__rate_interval])) > 1",
+          "refId": "A",
+          "legendFormat": "{{task_queue}}",
+          "exemplar": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "max(harborrag_temporal_worker_slots{task_queue=~\"$task_queue\"})",
+          "refId": "B",
+          "legendFormat": "configured (max_concurrent_activities)",
+          "exemplar": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "axisLabel": "",
+            "spanNulls": 300000,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisSoftMax": 4
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*"
+            },
+            "properties": [
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.lineInterpolation",
+                "value": "stepAfter"
+              },
+              {
+                "id": "custom.spanNulls",
+                "value": false
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "harborrag-discovery"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#338ced"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "harborrag-transform"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#e76624"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "harborrag-io"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#00a888"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "harborrag-parser"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d28e05"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "harborrag-model"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#e24d8b"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "harborrag-index"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#0aac23"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "configured (max_concurrent_activities)"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    10
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 20,
+      "gridPos": {
+        "x": 0,
+        "y": 42,
+        "w": 8,
+        "h": 8
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Temporal pickup delay per task queue",
+      "description": "p95 time an activity waited for a free worker slot, per task queue. It rises when slots are full. The line is the Temporal backlog alert level. A stopped worker reports nothing: check the worker container.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le, task_queue) (rate(temporal_activity_schedule_to_start_latency_seconds_bucket{namespace=~\"$temporal_namespace\",task_queue=~\"$task_queue\"}[$__rate_interval])))",
+          "refId": "A",
+          "legendFormat": "{{task_queue}}",
+          "exemplar": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "axisLabel": "",
+            "spanNulls": 300000,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "line"
+            },
+            "axisSoftMax": 1
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 120
+              }
+            ]
+          },
+          "min": 0,
+          "noValue": "No activities in range"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "harborrag-discovery"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#338ced"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "harborrag-transform"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#e76624"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "harborrag-io"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#00a888"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "harborrag-parser"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d28e05"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "harborrag-model"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#e24d8b"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "harborrag-index"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#0aac23"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 21,
+      "gridPos": {
+        "x": 8,
+        "y": 42,
+        "w": 8,
+        "h": 8
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Workflows completed and failed",
+      "description": "Temporal workflow completions and failures per interval, by workflow type.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "sum by (workflow_type) (increase(temporal_workflow_completed_total{namespace=~\"$temporal_namespace\"}[$__interval]))",
+          "refId": "A",
+          "legendFormat": "{{workflow_type}} completed",
+          "exemplar": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "sum by (workflow_type) (increase(temporal_workflow_failed_total{namespace=~\"$temporal_namespace\"}[$__interval]))",
+          "refId": "B",
+          "legendFormat": "{{workflow_type}} failed",
+          "exemplar": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 80,
+            "showPoints": "never",
+            "axisLabel": "",
+            "spanNulls": 300000,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "axisSoftMax": 1
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0,
+          "noValue": "No workflows in range"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "interval": "1m",
+      "id": 22,
+      "gridPos": {
+        "x": 16,
+        "y": 42,
+        "w": 8,
+        "h": 8
+      }
+    },
+    {
+      "type": "row",
+      "title": "What do I open",
+      "id": 23,
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 50,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "type": "table",
+      "title": "Last sync per source and tenant",
+      "description": "Sources by time since their last completed run, stalest first.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "harborrag-postgres"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "harborrag-postgres"
+          },
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT tenant_id AS tenant, source_scope_id AS source, max(completed_at) FILTER (WHERE status IN ('COMPLETED', 'PARTIAL')) AS last_success, extract(epoch FROM now() - max(completed_at) FILTER (WHERE status IN ('COMPLETED', 'PARTIAL'))) AS lag_seconds, (array_agg(status ORDER BY submitted_at DESC))[1] AS last_status FROM ingestion_tasks WHERE tenant_id ~ '${tenant:regex}' GROUP BY 1, 2 ORDER BY lag_seconds DESC NULLS FIRST"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "lag_seconds"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 86400
+                    },
+                    {
+                      "color": "red",
+                      "value": 93600
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true
+      },
+      "id": 24,
+      "gridPos": {
+        "x": 0,
+        "y": 51,
+        "w": 12,
+        "h": 9
+      }
+    },
+    {
+      "type": "logs",
+      "title": "Failed documents",
+      "description": "Failed documents, failed activities and failed runs, with their error type, code and stage. Each line carries its trace ID; open it to see where the run failed.",
+      "datasource": {
+        "type": "loki",
+        "uid": "harborrag-loki"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "harborrag-loki"
+          },
+          "refId": "A",
+          "expr": "{service_name=\"harborrag-worker\"} | event=~\"ingestion[.](document_failed|activity_failed|source_failed)\""
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending",
+        "enableLogDetails": true,
+        "dedupStrategy": "none"
+      },
+      "id": 25,
+      "gridPos": {
+        "x": 12,
+        "y": 51,
+        "w": 12,
+        "h": 9
+      }
+    }
+  ]
+}

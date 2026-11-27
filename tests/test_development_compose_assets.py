@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import tomllib
 from pathlib import Path
 from typing import Any
 
+import pytest
 import yaml
 
 from harborrag_runtime.config.connectors.importing import ConnectionImportService
@@ -74,15 +76,24 @@ def test_compose_files_require_operator_supplied_passwords() -> None:
 def test_monitoring_is_private_authenticated_and_version_pinned() -> None:
     monitoring = (ROOT / "deploy/compose/docker-compose.monitoring.yml").read_text(encoding="utf-8")
 
-    assert monitoring.count("HARBORRAG_MONITORING_BIND_ADDRESS:-127.0.0.1") == 2
+    assert monitoring.count("HARBORRAG_MONITORING_BIND_ADDRESS:-127.0.0.1") == 3
     assert "GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?" in monitoring
     assert 'GF_AUTH_ANONYMOUS_ENABLED: "false"' in monitoring
     assert 'GF_USERS_ALLOW_SIGN_UP: "false"' in monitoring
     assert 'expose:\n      - "3100"' in monitoring
     assert '"3100:3100"' not in monitoring
-    assert "image: prom/prometheus:v3.13.1" in monitoring
-    assert "image: grafana/grafana:13.1.0" in monitoring
-    assert "image: grafana/loki:3.7.2" in monitoring
+    for image in (
+        "prom/prometheus:v3.13.1",
+        "grafana/grafana:13.1.0",
+        "grafana/loki:3.7.2",
+        "grafana/tempo:2.8.2",
+        "otel/opentelemetry-collector-contrib:0.165.0",
+        "prom/node-exporter:v1.13.1",
+        "ghcr.io/google/cadvisor:0.57.0",
+        "prometheuscommunity/postgres-exporter:v0.21.1",
+        "prom/alertmanager:v0.28.1",
+    ):
+        assert f"image: {image}" in monitoring
     assert "@sha256:" not in monitoring
     assert ":latest" not in monitoring
     assert "internal: true" in monitoring
@@ -109,6 +120,164 @@ def test_prometheus_reads_the_scrape_token_from_the_monitoring_environment() -> 
     assert api_job["authorization"]["credentials_file"] == "/run/secrets/api-scrape-token"
     assert "HARBORRAG_METRICS_SCRAPE_TOKEN=\n" in example
     assert "api-scrape-token" not in DEV_SCRIPT.read_text(encoding="utf-8")
+
+
+def _yaml(path: str) -> dict[str, Any]:
+    """Return one YAML file of the repository, parsed."""
+    document: dict[str, Any] = yaml.safe_load((ROOT / path).read_text(encoding="utf-8"))
+    return document
+
+
+@pytest.mark.unit
+def test_monitoring_publishes_only_the_collector_prometheus_and_grafana() -> None:
+    monitoring = _yaml("deploy/compose/docker-compose.monitoring.yml")
+    services: dict[str, dict[str, Any]] = monitoring["services"]
+
+    published = {name for name, service in services.items() if service.get("ports")}
+
+    assert published == {"otel-collector", "prometheus", "grafana"}
+    assert all(service.get("mem_limit") for service in services.values())
+    assert monitoring["networks"]["grafana-ui-network"] is None
+    assert [
+        name for name, service in services.items() if "grafana-ui-network" in service["networks"]
+    ] == ["grafana"]
+    assert services["tempo"]["networks"] == ["monitoring-network"]
+    assert "harborrag-data-network" in services["otel-collector"]["networks"]
+    assert [
+        name for name, service in services.items() if "alert-egress-network" in service["networks"]
+    ] == ["alertmanager"]
+    assert services["alertmanager"]["secrets"] == ["alert-oncall-webhook", "alert-team-webhook"]
+    assert monitoring["secrets"]["alert-oncall-webhook"] == {
+        "environment": "HARBORRAG_ALERT_ONCALL_WEBHOOK_URL"
+    }
+
+
+@pytest.mark.unit
+def test_prometheus_scrapes_the_collector_with_exemplars_and_the_exporters() -> None:
+    prometheus = _yaml("deploy/compose/docker-compose.monitoring.yml")["services"]["prometheus"]
+    jobs = {
+        job["job_name"]: job for job in _yaml("deploy/prometheus/prometheus.yml")["scrape_configs"]
+    }
+
+    assert "--storage.tsdb.retention.time=30d" in prometheus["command"]
+    assert "--enable-feature=exemplar-storage" in prometheus["command"]
+    assert set(jobs) == {
+        "harborrag-ingestion-worker",
+        "harborrag-api",
+        "otel-collector",
+        "node-exporter",
+        "cadvisor",
+        "postgres-exporter",
+    }
+    assert jobs["otel-collector"]["scrape_protocols"][0] == "OpenMetricsText1.0.0"
+
+
+@pytest.mark.unit
+def test_collector_allow_lists_attributes_before_span_metrics_and_sampling() -> None:
+    collector = _yaml("deploy/otel-collector/config.yaml")
+    transform = collector["processors"]["transform/allowlist"]
+    pipelines = collector["service"]["pipelines"]
+    policies = {
+        policy["type"]: policy for policy in collector["processors"]["tail_sampling"]["policies"]
+    }
+
+    statements = {
+        group["context"]: " ".join(group["statements"])
+        for group in (*transform["trace_statements"], *transform["log_statements"])
+    }
+    assert {context: "keep_matching_keys(" in text for context, text in statements.items()} == {
+        "span": True,
+        "spanevent": True,
+        "log": True,
+    }
+    assert statements["log"].count("replace_pattern(log.body") == 3
+    assert pipelines["traces"]["processors"][-1] == "transform/allowlist"
+    assert pipelines["traces"]["exporters"] == ["span_metrics", "forward/sampling"]
+    assert pipelines["traces/sampled"]["processors"][0] == "tail_sampling"
+    assert pipelines["logs"]["processors"].index("transform/allowlist") == 1
+    assert policies["status_code"]["status_code"]["status_codes"] == ["ERROR"]
+    assert policies["latency"]["latency"]["threshold_ms"] == 2000
+    assert policies["probabilistic"]["probabilistic"]["sampling_percentage"] == (
+        "${env:HARBORRAG_TRACE_SAMPLE_PERCENT}"
+    )
+    assert collector["exporters"]["otlp_http/tempo"]["endpoint"] == "http://tempo:4318"
+    assert collector["exporters"]["otlp_http/loki"]["endpoint"] == "http://loki:3100/otlp"
+    assert collector["exporters"]["prometheus"]["enable_open_metrics"] is True
+
+
+@pytest.mark.unit
+def test_grafana_data_sources_have_fixed_uids_and_link_to_each_other() -> None:
+    sources = {
+        source["uid"]: source
+        for source in _yaml("deploy/grafana/provisioning/datasources/datasources.yml")[
+            "datasources"
+        ]
+    }
+
+    assert set(sources) == {
+        "harborrag-prometheus",
+        "harborrag-loki",
+        "harborrag-tempo",
+        "harborrag-postgres",
+    }
+    assert [uid for uid, source in sources.items() if source.get("isDefault")] == [
+        "harborrag-prometheus"
+    ]
+    tempo = sources["harborrag-tempo"]["jsonData"]
+    assert tempo["tracesToLogsV2"]["datasourceUid"] == "harborrag-loki"
+    assert tempo["serviceMap"]["datasourceUid"] == "harborrag-prometheus"
+    assert sources["harborrag-loki"]["jsonData"]["derivedFields"][0]["datasourceUid"] == (
+        "harborrag-tempo"
+    )
+    postgres = sources["harborrag-postgres"]
+    assert postgres["user"] == "harborrag_observer"
+    assert postgres["secureJsonData"]["password"] == "$HARBORRAG_OBSERVER_PASSWORD"
+
+
+@pytest.mark.unit
+def test_observer_role_cannot_read_document_titles_or_source_paths() -> None:
+    role = (ROOT / "deploy/compose/postgres/observer-role.sql").read_text(encoding="utf-8")
+    values = role.split("FROM (VALUES", 1)[1].split(") AS grants", 1)[0]
+    granted = {
+        table: {column.strip() for column in "".join(re.findall(r"'([^']*)'", columns)).split(",")}
+        for table, columns in re.findall(r"\(\s*'(\w+)',\s*((?:'[^']*'\s*)+)\)", values)
+    }
+
+    assert "GRANT SELECT ON" not in role
+    assert "ALTER DEFAULT PRIVILEGES" not in role
+    assert set(granted) == {"ingestion_tasks", "task_document_results"}
+    assert granted["task_document_results"].isdisjoint({"result"})
+    assert granted["ingestion_tasks"].isdisjoint({"request", "idempotency_key"})
+    assert {"task_id", "status", "completed_at"} <= granted["task_document_results"]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("compose_file", "service", "env_file"),
+    [
+        ("deploy/compose/docker-compose.yml", "api", "${HARBORRAG_API_ENV_FILE:-"),
+        ("deploy/compose/docker-compose.mcp.yml", "mcp", "${HARBORRAG_MCP_ENV_FILE:-"),
+    ],
+)
+def test_api_and_mcp_containers_receive_their_env_file(
+    compose_file: str, service: str, env_file: str
+) -> None:
+    paths = [entry["path"] for entry in _service(compose_file, service)["env_file"]]
+
+    assert any(path.startswith(env_file) for path in paths)
+
+
+@pytest.mark.unit
+def test_the_worker_receives_the_collector_endpoint_only_when_its_env_file_sets_it() -> None:
+    environment = _service("deploy/compose/docker-compose.temporal.yml", "temporal-worker")[
+        "environment"
+    ]
+
+    assert "OTEL_EXPORTER_OTLP_ENDPOINT" in environment
+    assert environment["OTEL_EXPORTER_OTLP_ENDPOINT"] is None
+    for name in (".env.api.example", ".env.temporal.example", ".env.mcp.example"):
+        template = (ROOT / "env-example" / name).read_text(encoding="utf-8")
+        assert "# OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318\n" in template, name
 
 
 def test_falkordb_constraints_use_restart_safe_snapshot_persistence() -> None:

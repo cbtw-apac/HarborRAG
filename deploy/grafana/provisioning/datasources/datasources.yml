@@ -1,12 +1,72 @@
 apiVersion: 1
 
+# Fixed uids let dashboards and the links between traces, logs and metrics refer to
+# each data source. Grafana expands $NAME from its environment in this file, so a
+# literal $ in a link template is written $$.
 datasources:
   - name: Prometheus
+    uid: harborrag-prometheus
     type: prometheus
     access: proxy
     url: http://prometheus:9090
     isDefault: true
+    jsonData:
+      exemplarTraceIdDestinations:
+        - name: trace_id
+          datasourceUid: harborrag-tempo
   - name: Loki
+    uid: harborrag-loki
     type: loki
     access: proxy
     url: http://loki:3100
+    jsonData:
+      derivedFields:
+        - name: Trace
+          matcherType: label
+          matcherRegex: trace_id
+          datasourceUid: harborrag-tempo
+          url: "$${__value.raw}"
+          urlDisplayLabel: View trace
+  - name: Tempo
+    uid: harborrag-tempo
+    type: tempo
+    access: proxy
+    url: http://tempo:3200
+    jsonData:
+      tracesToLogsV2:
+        datasourceUid: harborrag-loki
+        spanStartTimeShift: -5m
+        spanEndTimeShift: 5m
+        tags:
+          - key: service.name
+            value: service_name
+        filterByTraceID: true
+        customQuery: true
+        query: '{$${__tags}} | trace_id="$${__trace.traceId}"'
+      tracesToMetrics:
+        datasourceUid: harborrag-prometheus
+        spanStartTimeShift: -5m
+        spanEndTimeShift: 5m
+        tags:
+          - key: service.name
+            value: service_name
+      serviceMap:
+        datasourceUid: harborrag-prometheus
+      nodeGraph:
+        enabled: true
+      lokiSearch:
+        datasourceUid: harborrag-loki
+  # Reads the ingestion run tables as the read-only harborrag_observer role, which
+  # 'scripts/deployment/observability.sh db-access' creates in the data PostgreSQL.
+  - name: PostgreSQL
+    uid: harborrag-postgres
+    type: grafana-postgresql-datasource
+    access: proxy
+    url: postgres:5432
+    user: harborrag_observer
+    jsonData:
+      database: $HARBORRAG_OBSERVER_DATABASE
+      sslmode: disable
+      postgresVersion: 1500
+    secureJsonData:
+      password: $HARBORRAG_OBSERVER_PASSWORD

@@ -4,6 +4,11 @@ global:
 rule_files:
   - /etc/prometheus/harborrag_alerts.yml
 
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
 scrape_configs:
   - job_name: harborrag-ingestion-worker
     metrics_path: /metrics
@@ -16,3 +21,23 @@ scrape_configs:
       credentials_file: /run/secrets/api-scrape-token
     static_configs:
       - targets: ["api:9465"]
+  # OTLP metrics, span metrics and the MCP health probe from the OpenTelemetry
+  # collector. OpenMetrics comes first so exemplars (trace ids) arrive, and the
+  # collector's job and instance labels name the service that sent each series.
+  - job_name: otel-collector
+    honor_labels: true
+    scrape_protocols:
+      - OpenMetricsText1.0.0
+      - OpenMetricsText0.0.1
+      - PrometheusText0.0.4
+    static_configs:
+      - targets: ["otel-collector:8889"]
+  - job_name: node-exporter
+    static_configs:
+      - targets: ["node-exporter:9100"]
+  - job_name: cadvisor
+    static_configs:
+      - targets: ["cadvisor:8080"]
+  - job_name: postgres-exporter
+    static_configs:
+      - targets: ["postgres-exporter:9187"]

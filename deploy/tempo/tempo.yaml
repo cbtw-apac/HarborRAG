@@ -1,0 +1,28 @@
+# Single-binary Tempo of the HarborRAG monitoring stack. It receives the sampled
+# traces from the OpenTelemetry collector over OTLP/HTTP, keeps them on local disk
+# for 7 days, and serves Grafana on port 3200. Reachable only inside the private
+# monitoring network.
+stream_over_http_enabled: true
+
+server:
+  http_listen_port: 3200
+  log_level: warn
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        http:
+          endpoint: 0.0.0.0:4318
+
+compactor:
+  compaction:
+    block_retention: 168h
+
+storage:
+  trace:
+    backend: local
+    wal:
+      path: /var/tempo/wal
+    local:
+      path: /var/tempo/blocks

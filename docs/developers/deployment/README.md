@@ -24,9 +24,10 @@ it to copying templates by hand. Each service reads these files:
 | Service | Reads |
 | --- | --- |
 | Data services (`docker-compose.database.yml`) | `env/.env.database` |
-| Temporal server and worker (`docker-compose.temporal.yml`) | `env/.env.database` and `env/.env.temporal`; the worker also receives `env/.env.connector`, `env/.env.parser` and `env/.env.models` |
+| Temporal server and worker (`docker-compose.temporal.yml`) | `env/.env.database` and `env/.env.temporal`; the worker also receives `env/.env.connector`, `env/.env.parser` and `env/.env.models`, and from `env/.env.temporal` only the values its Compose service names, such as `OTEL_EXPORTER_OTLP_ENDPOINT` |
 | API (`docker-compose.yml`) | `env/.env.database`, `env/.env.temporal`, `env/.env.connector`, `env/.env.models` and `env/.env.api`; the container itself receives only `env/.env.api` and `env/.env.models` |
 | MCP server (`scripts/deployment/mcp.sh`) | `env/.env.mcp` (required) and `env/.env.models`; from `env/.env.database` only `POSTGRES_DB` and the passwords of its read-only accounts, `POSTGRES_MCP_PASSWORD` and `MINIO_MCP_PASSWORD`, never the Postgres owner or the MinIO root credentials; from `env/.env.api` only `HARBORRAG_ENV`, so it accepts the reader keys the API's environment issued |
+| Monitoring stack (`scripts/deployment/observability.sh`) | `env/.env.monitoring`; from `env/.env.database` only `POSTGRES_DB` |
 | Host `harborrag` command in a checkout | `env/.env.connector`, `env/.env.parser` and `env/.env.models`; from `env/.env.database` only the MinIO credentials, `HARBORRAG_LOCAL_SOURCE_ROOT` and an uncommented `HARBORRAG_CONTROL_DB_URL` line with its encryption key; from `env/.env.api` only `HARBORRAG_CORPUS_ACCESS_MODE`, `HARBORRAG_CORPUS_SHARED_TENANT_ID` and `HARBORRAG_TENANT_ID`, the last as its default tenant |
 
 `HARBORRAG_SECRETS_ENCRYPTION_KEY` in `env/.env.database` encrypts stored connector credentials
@@ -56,13 +57,15 @@ When upgrading an existing checkout:
   `env/.env.database` when they are blank, and creates or refreshes the read-only accounts the
   server connects with. Run it after every upgrade and after `dev.sh down --volumes`; see
   [Read-only database and object-store accounts](../../users/detailed-guides/mcp-server/setup-and-integration.md#read-only-database-and-object-store-accounts).
-- Monitoring uses a separate `env/.env.monitoring`. Create it from
-  `env-example/.env.monitoring.example` and set `GRAFANA_ADMIN_PASSWORD`, as in
+- Monitoring uses a separate `env/.env.monitoring`. Create it with
+  `scripts/deployment/observability.sh bootstrap`, as in
   [Run the monitoring stack](#run-the-monitoring-stack).
 - An `env/.env.monitoring` created from an older template has no
   `HARBORRAG_METRICS_SCRAPE_TOKEN=` line. Add that line from
   `env-example/.env.monitoring.example`, then copy the token into it as in
-  [Run the monitoring stack](#run-the-monitoring-stack).
+  [Run the monitoring stack](#run-the-monitoring-stack). Run
+  `scripts/deployment/observability.sh bootstrap` too: it adds a generated
+  `HARBORRAG_OBSERVER_PASSWORD`, which the stack now requires.
 
 Compose refuses to start an affected service when one of these required values is absent.
 [Upgrading](../../users/upgrading.md) lists the other steps each release needs.
@@ -79,8 +82,7 @@ Compose refuses to start an affected service when one of these required values i
 
 Host port `6379` is FalkorDB, not Redis: Redis is published on `6380` to avoid the collision.
 `HARBORRAG_REDIS_URL=redis://redis:6379/0` is still correct, because that URL is resolved
-inside the Docker network rather than on the host. The FalkorDB browser also defaults to host
-port `3000`, which collides with Grafana in the monitoring stack.
+inside the Docker network rather than on the host.
 
 The service image tags are pinned in the Compose file. The environment template controls
 ports and credentials. Its `DATABASE_PULL`, `DATABASE_STARTUP_TIMEOUT` and
@@ -160,23 +162,33 @@ authentication and their own secret, TLS and network policy.
 
 ## Run the monitoring stack
 
-`deploy/compose/docker-compose.monitoring.yml` defines version-pinned Prometheus, Grafana and
-Loki services using files under `deploy/prometheus`, `deploy/grafana` and `deploy/loki`.
-Prometheus and Grafana publish loopback-only ports by default; Loki is reachable only inside
-the private monitoring network.
+`scripts/deployment/observability.sh` runs the optional monitoring stack,
+`deploy/compose/docker-compose.monitoring.yml`, with configuration from `deploy/otel-collector`,
+`deploy/tempo`, `deploy/loki`, `deploy/prometheus` and `deploy/grafana`. Nothing runs it by
+default: `dev.sh` never starts or configures it, and the API, worker and MCP server export no
+telemetry until you [turn export on](#turn-telemetry-export-on).
 
-Prometheus joins `harborrag-data-network` and scrapes the ingestion worker on port `9464` and
-the API's ops port `9465`. The API exports request count, latency, in-flight, Python runtime
-and process metrics with bounded route template labels. The worker exports bounded stage,
-document, artifact, chunk, retry, cleanup, verification, stale-candidate and connector
-rate-limiting metrics. Dashboard and alert policy remain deployment-specific.
+| Service | What it does |
+| --- | --- |
+| `otel-collector` | Receives OTLP over HTTP at `http://otel-collector:4318` on `harborrag-data-network` and on loopback port `4318` (`OTEL_COLLECTOR_PORT`). Drops every span, span event and log attribute outside an allow-list, masks e-mail addresses and phone numbers in log bodies, turns every span into request, error and duration metrics, then keeps every failed trace, every trace slower than 2 seconds and `HARBORRAG_TRACE_SAMPLE_PERCENT` of the rest (100 locally, about 10 in production). Probes the MCP server's `/healthz` every 30 seconds. |
+| `tempo` | Stores the kept traces for 7 days. |
+| `loki` | Stores logs for 14 days. |
+| `prometheus` | Keeps metrics and their trace exemplars for 30 days. Scrapes the worker on `9464`, the API's ops port `9465`, the collector and the three exporters, and evaluates the alert rules. |
+| `alertmanager` | Sends critical alerts to the on-call webhook and warnings to the team webhook. |
+| `grafana` | Serves the Prometheus, Loki, Tempo and PostgreSQL data sources, linked so a trace opens its logs and metrics and a log or exemplar opens its trace. Dashboards load into the `Online`, `Offline` and `Shared` folders from [`deploy/grafana/dashboards`](../../../deploy/grafana/dashboards/README.md). |
+| `node-exporter` | Host CPU, memory, disk and network. |
+| `cadvisor` | CPU, memory and network of each container. |
+| `postgres-exporter` | PostgreSQL server and database statistics. |
+
+Only the collector, Prometheus and Grafana publish ports, on
+`HARBORRAG_MONITORING_BIND_ADDRESS` (`127.0.0.1` by default); the rest are reachable only inside
+the private monitoring network or `harborrag-data-network`. Every container has a memory limit.
 
 The API's `/metrics` answers only to the metrics scrape token in `env/.env.api`. Prometheus
 reads the same value from `env/.env.monitoring`: the monitoring Compose file turns
 `HARBORRAG_METRICS_SCRAPE_TOKEN` into the `api-scrape-token` secret, mounted in Prometheus at
 `/run/secrets/api-scrape-token`, and `deploy/prometheus/prometheus.yml` sends it as the bearer
-token. Monitoring stays separate from `dev.sh`, which never creates or writes
-`env/.env.monitoring`, so you copy the token by hand.
+token. `dev.sh` never writes `env/.env.monitoring`, so you copy the token by hand.
 
 ### Monitoring prerequisites
 
@@ -188,28 +200,111 @@ token. Monitoring stays separate from `dev.sh`, which never creates or writes
 
 ### Start the monitoring stack
 
-1. Create the protected monitoring environment file and copy the metrics scrape token into it.
-   The value must equal `HARBORRAG_METRICS_SCRAPE_TOKEN` in `env/.env.api`:
+1. Create the protected monitoring environment file. `bootstrap` copies the template to
+   `env/.env.monitoring` with mode `0600` and generates `GRAFANA_ADMIN_PASSWORD` and
+   `HARBORRAG_OBSERVER_PASSWORD`; on an existing file it only fills blank passwords:
 
    ```bash
-   cp env-example/.env.monitoring.example env/.env.monitoring
-   chmod 600 env/.env.monitoring
+   scripts/deployment/observability.sh bootstrap
+   ```
+
+2. Copy the metrics scrape token into it. The value must equal
+   `HARBORRAG_METRICS_SCRAPE_TOKEN` in `env/.env.api`:
+
+   ```bash
    sed -i "s/^HARBORRAG_METRICS_SCRAPE_TOKEN=.*/$(grep '^HARBORRAG_METRICS_SCRAPE_TOKEN=' env/.env.api)/" env/.env.monitoring
    ```
 
-2. Set `GRAFANA_ADMIN_PASSWORD` in `env/.env.monitoring`. It ships empty and has no
-   checked-in fallback, so Compose refuses to start until you set it.
-3. Grafana defaults to host port `3000`, which the FalkorDB browser already uses. Change
-   `GRAFANA_PORT` or `FALKORDB_BROWSER_PORT`.
-4. Start the stack:
+3. Start the stack. `up` prints the Grafana address, port `3030` by default (`GRAFANA_PORT`),
+   and the steps to turn export on:
 
    ```bash
-   docker compose --env-file env/.env.monitoring \
-     --file deploy/compose/docker-compose.monitoring.yml up --detach
+   scripts/deployment/observability.sh up
+   ```
+
+4. Let Grafana and postgres-exporter read PostgreSQL. `db-access` creates or refreshes the
+   read-only `harborrag_observer` role with `HARBORRAG_OBSERVER_PASSWORD`. The role gets the
+   statistics of `pg_monitor` and the run columns of `ingestion_tasks` and
+   `task_document_results`, never the request paths, document titles or file names those tables
+   also hold. Run it after `dev.sh up` has applied the migrations, and again after every
+   upgrade:
+
+   ```bash
+   scripts/deployment/observability.sh db-access
    ```
 
 In Prometheus, on port `9090` by default (`PROMETHEUS_PORT`), the `harborrag-api` target is
-`up` when the token matches.
+`up` when the token matches. `observability.sh status` lists the containers,
+`logs [SERVICE...]` shows their logs, and `down [--volumes]` stops the stack, with
+`--volumes` also deleting its stored data. `MONITORING_ENV_FILE` and `DATABASE_ENV_FILE`
+override the env file paths; the launcher reads only `POSTGRES_DB` from the database file.
+
+### Turn telemetry export on
+
+The API, the worker and the MCP server export traces, metrics and logs only when their env
+file sets `OTEL_EXPORTER_OTLP_ENDPOINT`. Add this line to `env/.env.api`, `env/.env.temporal`
+and `env/.env.mcp`:
+
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+```
+
+Then restart the three services so they read it:
+
+```bash
+scripts/deployment/dev.sh api
+scripts/deployment/dev.sh worker
+scripts/deployment/mcp.sh --http
+```
+
+Export uses OTLP over HTTP only. A process run from the checkout sends to
+`http://127.0.0.1:4318` instead. The worker receives the value through its Compose
+environment, so an `OTEL_EXPORTER_OTLP_ENDPOINT` exported in your shell overrides the one in
+`env/.env.temporal`. To stop exporting, remove the line and restart the services.
+
+### Dashboards and alerts
+
+Grafana loads five dashboards from [`deploy/grafana/dashboards`](../../../deploy/grafana/dashboards/README.md),
+each with fixed UIDs and the `env` and `tenant` variables:
+
+| Folder | Dashboard | Answers |
+| --- | --- | --- |
+| Online | Online overview | Are MCP and chat healthy right now, and which part is not? |
+| Online | MCP and retrieval | Which tool is slow, failing or returning nothing, and which store is behind it? |
+| Online | Chat and LLM | Are chat turns fast and grounded, and what do the models cost? |
+| Offline | Ingestion and schedules | Did each sync run, what did it change, and which stage or connector failed? |
+| Shared | Stores and host | Is a store or the host the bottleneck? |
+
+The ingestion dashboard reads run history from PostgreSQL, so it needs `db-access`.
+
+[`deploy/prometheus/harborrag_alerts.yml`](../../../deploy/prometheus/harborrag_alerts.yml)
+holds the alert rules and the thresholds they share with the dashboards. Each alert has a
+`severity`, a `side` label and a link to its section in
+[Observability runbooks](observability-runbooks.md). To deliver alerts, set the webhook URLs in
+`env/.env.monitoring`, then restart the stack:
+
+```bash
+HARBORRAG_ALERT_ONCALL_WEBHOOK_URL=<on-call webhook URL>
+HARBORRAG_ALERT_TEAM_WEBHOOK_URL=<team webhook URL>
+```
+
+Alertmanager posts its standard webhook payload. A chat tool that needs another format takes
+a relay, or a receiver in [`deploy/alertmanager/alertmanager.yml`](../../../deploy/alertmanager/alertmanager.yml).
+Blank URLs deliver nothing, and alerts still show in Grafana and Prometheus.
+
+Prometheus, Alertmanager and the collector read their configuration only when they start. After
+editing a file under `deploy/`, run `observability.sh down` and then `up`. On Docker Desktop, a
+container whose single-file mount was replaced by an editor fails to restart until it is
+recreated this way.
+
+### Host and container exporters
+
+`node-exporter` shares the host's process namespace and mounts the host's root file system
+read-only. `cadvisor` mounts the root file system, `/sys` and `/var/lib/docker` read-only, and
+the Docker socket. A read-only mount does not make the socket read-only: whoever controls
+`cadvisor` can drive the Docker API, which is root on the host. Both publish no port and sit
+only on the private monitoring network. Run them only on a machine where that access is
+acceptable. On Docker Desktop, `cadvisor` names containers by cgroup id rather than by name.
 
 ### If the API scrape fails
 
@@ -225,12 +320,13 @@ In Prometheus, on port `9090` by default (`PROMETHEUS_PORT`), the `harborrag-api
   the line is missing from `env/.env.monitoring`. Add `HARBORRAG_METRICS_SCRAPE_TOKEN=` from
   `env-example/.env.monitoring.example`, then rerun the copy step.
 
-Prometheus keeps the token it was created with. A plain `up --detach` leaves the running
-container and its old token in place, so recreate Prometheus after any token change:
+Prometheus keeps the token it was created with. `up` leaves the running container and its
+old token in place, so restart the stack after any token change. `down` without `--volumes`
+keeps the stored data:
 
 ```bash
-docker compose --env-file env/.env.monitoring \
-  --file deploy/compose/docker-compose.monitoring.yml up --detach --force-recreate prometheus
+scripts/deployment/observability.sh down
+scripts/deployment/observability.sh up
 ```
 
 To rule out the API side, scrape `/metrics` by hand with the token from `env/.env.api`. A

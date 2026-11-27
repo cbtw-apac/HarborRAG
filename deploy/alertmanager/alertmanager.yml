@@ -1,0 +1,29 @@
+# Routes the alerts in ../prometheus/harborrag_alerts.yml by severity: critical alerts
+# page the on-call webhook, everything else goes to the team webhook. Each URL comes
+# from a Compose secret filled from env/.env.monitoring. While one is blank, its alerts
+# are delivered nowhere but stay visible in Grafana and Prometheus.
+route:
+  receiver: team
+  group_by: [alertname, side]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    - matchers: ['severity="critical"']
+      receiver: on-call
+      repeat_interval: 1h
+
+receivers:
+  - name: on-call
+    webhook_configs:
+      - url_file: /run/secrets/alert-oncall-webhook
+        send_resolved: true
+  - name: team
+    webhook_configs:
+      - url_file: /run/secrets/alert-team-webhook
+        send_resolved: true
+
+# A server that is down also fails and slows every call: page once, for the outage.
+inhibit_rules:
+  - source_matchers: ['alertname="HarborRAGMcpDown"']
+    target_matchers: ['alertname=~"HarborRAGMcp(Errors|Slow)"']
