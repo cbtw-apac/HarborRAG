@@ -229,7 +229,8 @@ class SourceBatchWorkflow:
             # failure ran out of retries (a database outage, say). That is one
             # failed document, not a reason to fail the batch -- which used to
             # cancel every sibling in flight and fail the whole source task.
-            _warn("Document workflow failed index=%d", index)
+            if not self._cancel_requested:
+                _warn("Document workflow failed index=%d", index)
             return DocumentIngestionOutcome.FAILED
         except asyncio.CancelledError:
             if not self._cancel_requested:

@@ -57,7 +57,6 @@ class _Client:
         self.start_workflow = AsyncMock()
         self.handle = SimpleNamespace(
             pause=AsyncMock(),
-            unpause=AsyncMock(),
             delete=AsyncMock(),
             update=AsyncMock(),
             describe=AsyncMock(
@@ -151,23 +150,22 @@ async def test_put_replaces_an_existing_timer_in_place() -> None:
 
 async def test_missing_timers_are_no_ops() -> None:
     client = _Client()
-    for method in ("pause", "unpause", "delete", "describe"):
+    for method in ("pause", "delete", "describe"):
         getattr(client.handle, method).side_effect = _missing()
     timers = _timers(client)
 
     await timers.pause("acme", "nightly", note="maintenance")
     await timers.delete("acme", "nightly")
 
-    assert await timers.resume("acme", "nightly") is None
     assert await timers.next_run_at("acme", "nightly") is None
 
 
-async def test_resume_returns_the_next_slot_and_paused_timers_have_none() -> None:
-    assert await _timers(_Client()).resume("acme", "nightly") == NEXT_RUN
+async def test_next_run_at_returns_the_next_slot_and_paused_timers_have_none() -> None:
+    assert await _timers(_Client()).next_run_at("acme", "nightly") == NEXT_RUN
     assert await _timers(_Client(paused=True)).next_run_at("acme", "nightly") is None
 
 
-@pytest.mark.parametrize("method", ["pause", "unpause", "delete", "describe", "update"])
+@pytest.mark.parametrize("method", ["pause", "delete", "describe", "update"])
 async def test_an_unreachable_temporal_is_unavailable_with_ids_only(method: str) -> None:
     client = _Client()
     client.create_schedule.side_effect = (
@@ -177,7 +175,6 @@ async def test_an_unreachable_temporal_is_unavailable_with_ids_only(method: str)
     timers = _timers(client)
     calls = {
         "pause": lambda: timers.pause("acme", "nightly", note="maintenance"),
-        "unpause": lambda: timers.resume("acme", "nightly"),
         "delete": lambda: timers.delete("acme", "nightly"),
         "describe": lambda: timers.next_run_at("acme", "nightly"),
         "update": lambda: timers.put(_schedule(), catch_up_window_seconds=60),
@@ -196,9 +193,7 @@ async def test_a_timer_that_was_set_survives_a_failed_read_back() -> None:
     timers = _timers(client)
 
     assert await timers.put(_schedule(), catch_up_window_seconds=60) is None
-    assert await timers.resume("acme", "nightly") is None
     client.create_schedule.assert_awaited_once()
-    client.handle.unpause.assert_awaited_once()
 
 
 async def test_a_failed_create_is_unavailable() -> None:

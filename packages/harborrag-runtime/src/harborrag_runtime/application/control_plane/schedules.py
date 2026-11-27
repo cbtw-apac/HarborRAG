@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Awaitable, Callable, Sequence
+from dataclasses import replace
 from datetime import datetime, timedelta
 from typing import Any, Final
 
@@ -21,6 +22,7 @@ from harborrag_core.contracts.errors import (
     HarborPreconditionFailedError,
     HarborUnavailableError,
     HarborValidationError,
+    ScheduleIdTakenError,
     ScheduleNotFoundError,
     UnknownReferenceError,
 )
@@ -54,7 +56,7 @@ from .schedule_models import (
     SlotStart,
     WriteConditions,
 )
-from .schedule_rules import catch_up_window_seconds, parse_timetable
+from .schedule_rules import Timetable, catch_up_window_seconds, parse_timetable
 from .schedule_settings import read_schedule_settings
 from .schedule_views import schedule_view
 
@@ -120,10 +122,15 @@ class ConnectionScheduleService:
     async def put(
         self, key: ScheduleKey, write: ScheduleWrite, *, actor: str, conditions: WriteConditions
     ) -> tuple[dict[str, Any], int, bool]:
-        """Create or overwrite a schedule, then set its timer to the new timetable.
+        """Create or overwrite a schedule, setting its timer before storing it.
 
-        An overwrite keeps the schedule's pause, failure count and slots. When the
-        timer cannot be set, a schedule this call created is removed again.
+        The timer is set first, so a timer engine that cannot be reached leaves the
+        stored schedule as it was. Once the schedule is stored, the call no longer fails
+        on the timer engine: the timer is set again from whatever is stored, so a write
+        or a delete that raced this one never leaves the timer out of step, and a
+        failure to do so is only logged, since the timer already holds this write. The
+        connection is then checked again in case its removal began meanwhile. An
+        overwrite keeps the schedule's pause, failure count and slots.
 
         Args:
             key: The schedule to write.
@@ -141,6 +148,7 @@ class ConnectionScheduleService:
             ConnectionUnavailableError: The connection is being deleted.
             ScheduleIdTakenError: ``create_only`` and the schedule exists.
             HarborPreconditionFailedError: ``expected_version`` does not hold.
+            ScheduleNotFoundError: A delete that raced this call removed the schedule.
             HarborUnavailableError: The timer engine cannot be reached.
         """
         settings = await self._settings(key.tenant_id)
@@ -148,29 +156,25 @@ class ConnectionScheduleService:
             write, min_interval_seconds=parse_iso8601_duration_seconds(settings.min_interval)
         )
         await self._check_connection(key, write, max_per_connection=settings.max_per_connection)
-        expected_version = await self._expected_version(key, conditions)
-        stored, created = await self._schedules().put(
-            Schedule(
-                tenant_id=key.tenant_id,
-                schedule_id=key.schedule_id,
-                project_id=write.project_id,
-                connection_id=write.connection_id,
-                mode=write.mode,
-                description=write.description,
-                interval_seconds=timetable.interval_seconds,
-                cron=timetable.cron,
-                timezone=timetable.timezone,
-                jitter_seconds=timetable.jitter_seconds,
-                if_running=write.if_running,
-                catch_up=write.catch_up,
-                pause_after_failures=write.pause_after_failures,
-                created_by=actor,
-                updated_by=actor,
-            ),
-            expected_version=expected_version,
-            create_only=conditions.create_only,
+        current = await self._schedules().get(tenant_id=key.tenant_id, schedule_id=key.schedule_id)
+        expected_version = _expected_version(current, conditions)
+        schedule = _schedule_from(key, write, timetable, actor=actor)
+        window = catch_up_window_seconds(
+            catch_up=write.catch_up, period_seconds=timetable.period_seconds
         )
-        await self._set_timer(stored, period_seconds=timetable.period_seconds, created=created)
+        await (await self._timers()).put(
+            replace(schedule, paused=current.paused if current is not None else None),
+            catch_up_window_seconds=window,
+        )
+        try:
+            _, created = await self._schedules().put(
+                schedule, expected_version=expected_version, create_only=conditions.create_only
+            )
+        except BaseException:
+            await self._sync_timer_quietly(key)
+            raise
+        await self._sync_timer_quietly(key)
+        await self._remove_if_connection_gone(key, write)
         view, version = await self.get(key)
         return view, version, created
 
@@ -208,6 +212,9 @@ class ConnectionScheduleService:
     async def resume(self, key: ScheduleKey, *, actor: str) -> tuple[dict[str, Any], int]:
         """Resume a schedule and clear its failure count; resuming an active one changes nothing.
 
+        The timer is set again from the stored schedule, which recreates one that went
+        missing, for example after a Temporal namespace reset.
+
         Returns:
             The schedule view and its version.
 
@@ -216,10 +223,7 @@ class ConnectionScheduleService:
             HarborUnavailableError: The timer engine cannot be reached.
         """
         await self._set_paused(key, None, actor=actor)
-        next_run_at = await (await self._timers()).resume(key.tenant_id, key.schedule_id)
-        await self._schedules().set_next_run_at(
-            tenant_id=key.tenant_id, schedule_id=key.schedule_id, next_run_at=next_run_at
-        )
+        await self._sync_timer(key)
         return await self.get(key)
 
     async def trigger(self, key: ScheduleKey) -> dict[str, Any]:
@@ -289,7 +293,9 @@ class ConnectionScheduleService:
         ``if_running: queue`` waits when no other slot does. A waiting slot that
         finds the connection busy again keeps waiting without a new record. A due
         slot that fires later than its catch-up window and jitter allow, as after an
-        outage of every API replica, is ignored without a record.
+        outage of every API replica, is ignored without a record. A slot whose run the
+        connection's stored settings refuse is skipped with no reason and counts as a
+        failed run toward ``pause_after_failures``.
 
         Args:
             key: The schedule whose slot came due.
@@ -324,6 +330,9 @@ class ConnectionScheduleService:
         except UnknownReferenceError:
             await self._release_queue(key, attempt)
             return await self._skip(schedule, due_at, "reference_not_found", None)
+        except HarborValidationError as error:
+            await self._release_queue(key, attempt)
+            return await self._refused(schedule, due_at, error)
         await self._release_queue(key, attempt)
         ingestion_id = str(ingestion["ingestion_id"])
         await self._record(
@@ -360,13 +369,17 @@ class ConnectionScheduleService:
         status = ingestion_status(task.status)
         if status not in {"succeeded", "failed"}:
             return
+        await self._count_run(key, failed=status == "failed", category=_error_category(task))
+
+    async def _count_run(self, key: ScheduleKey, *, failed: bool, category: str) -> None:
+        """Count a run's outcome and pause the schedule as ``system`` at its failure limit."""
         failures = await self._schedules().record_run_outcome(
-            tenant_id=key.tenant_id, schedule_id=key.schedule_id, failed=status == "failed"
+            tenant_id=key.tenant_id, schedule_id=key.schedule_id, failed=failed
         )
         schedule = await self._schedules().get(tenant_id=key.tenant_id, schedule_id=key.schedule_id)
         if schedule is None or not _reached_failure_limit(schedule, failures):
             return
-        reason = f"Paused after {failures} failed runs in a row ({_error_category(task)})"
+        reason = f"Paused after {failures} failed runs in a row ({category})"
         pause = SchedulePause(reason=reason, by=SYSTEM_PAUSER, at=utc_now())
         await self._set_paused(key, pause, actor=SYSTEM_PAUSER)
         await (await self._timers()).pause(key.tenant_id, key.schedule_id, note=reason)
@@ -375,6 +388,23 @@ class ConnectionScheduleService:
             key.schedule_id,
             failures,
         )
+
+    async def _refused(
+        self, schedule: Schedule, due_at: datetime, error: HarborValidationError
+    ) -> SlotStart:
+        """Record a slot whose run the connection refused, and count it as a failed run."""
+        logger.warning(
+            "Schedule slot could not start a run schedule_id=%s error_type=%s",
+            schedule.schedule_id,
+            type(error).__name__,
+        )
+        start = await self._skip(schedule, due_at, None, None)
+        await self._count_run(
+            ScheduleKey(schedule.tenant_id, schedule.schedule_id),
+            failed=True,
+            category=str(getattr(error, "error_code", None) or "validation_error"),
+        )
+        return start
 
     async def release_waiting_slot(self, key: ScheduleKey) -> None:
         """Stop a slot from waiting, so a later slot of the schedule may wait instead."""
@@ -418,7 +448,11 @@ class ConnectionScheduleService:
             raise
 
     async def _skip(
-        self, schedule: Schedule, due_at: datetime, reason: SlotReason, blocking: str | None
+        self,
+        schedule: Schedule,
+        due_at: datetime,
+        reason: SlotReason | None,
+        blocking: str | None,
     ) -> SlotStart:
         """Record a skipped slot."""
         await self._record(
@@ -440,28 +474,52 @@ class ConnectionScheduleService:
         if attempt is SlotAttempt.AFTER_WAIT:
             await self.release_waiting_slot(key)
 
-    async def _set_timer(self, schedule: Schedule, *, period_seconds: int, created: bool) -> None:
-        """Set the timer to the stored timetable; undo a create the timer could not follow.
+    async def _sync_timer(self, key: ScheduleKey) -> None:
+        """Set the timer to the stored schedule, or remove it when nothing is stored.
 
-        A write that lands while this one sets the timer may have set it first, so the
-        timer is set again from the stored schedule until the version stops moving.
+        A write that lands meanwhile moves the stored version, so the timer is set again
+        until the version stops moving and the last write wins.
         """
-        try:
-            await self._put_timer(schedule, period_seconds=period_seconds)
-        except HarborUnavailableError:
-            if created:
-                await self._schedules().delete(
-                    tenant_id=schedule.tenant_id, schedule_id=schedule.schedule_id
-                )
-            raise
+        schedules = self._schedules()
+        stored = await schedules.get(tenant_id=key.tenant_id, schedule_id=key.schedule_id)
         for _ in range(_TIMER_SYNC_ROUNDS):
-            current = await self._schedules().get(
-                tenant_id=schedule.tenant_id, schedule_id=schedule.schedule_id
-            )
-            if current is None or current.version == schedule.version:
+            if stored is None:
+                await (await self._timers()).delete(key.tenant_id, key.schedule_id)
                 return
-            schedule = current
-            await self._put_timer(schedule, period_seconds=_period_seconds(schedule))
+            await self._put_timer(stored, period_seconds=_period_seconds(stored))
+            current = await schedules.get(tenant_id=key.tenant_id, schedule_id=key.schedule_id)
+            if current is not None and current.version == stored.version:
+                return
+            stored = current
+
+    async def _sync_timer_quietly(self, key: ScheduleKey) -> None:
+        """Set the timer from the stored schedule; an unreachable engine is logged, not raised."""
+        try:
+            await self._sync_timer(key)
+        except HarborUnavailableError:
+            logger.exception(
+                "Could not set a schedule's timer from the stored schedule schedule_id=%s",
+                key.schedule_id,
+            )
+
+    async def _remove_if_connection_gone(self, key: ScheduleKey, write: ScheduleWrite) -> None:
+        """Remove a schedule just written for a connection that is gone or being deleted.
+
+        Raises:
+            UnknownReferenceError: The connection no longer exists.
+            ConnectionUnavailableError: The connection is being deleted.
+        """
+        connection = await self._control_plane().connections.get(
+            tenant_id=key.tenant_id, project_id=write.project_id, connection_id=write.connection_id
+        )
+        if connection is not None and connection.status != "deleting":
+            return
+        await self._remove(key)
+        if connection is None:
+            raise UnknownReferenceError(
+                f"connection {write.connection_id!r} not found", {"field": "input.connection_id"}
+            )
+        raise ConnectionUnavailableError(f"connection {connection.ref!r} is being deleted")
 
     async def _put_timer(self, schedule: Schedule, *, period_seconds: int) -> None:
         """Set the timer to one stored schedule and store its next slot time."""
@@ -529,15 +587,6 @@ class ConnectionScheduleService:
                 },
             )
 
-    async def _expected_version(self, key: ScheduleKey, conditions: WriteConditions) -> int | None:
-        """Turn ``If-Match`` into the version the stored schedule must have."""
-        if conditions.expected_version != ANY_VERSION:
-            return conditions.expected_version
-        current = await self._schedules().get(tenant_id=key.tenant_id, schedule_id=key.schedule_id)
-        if current is None:
-            raise HarborPreconditionFailedError("If-Match: * needs an existing schedule")
-        return current.version
-
     async def _require(self, key: ScheduleKey) -> Schedule:
         schedule = await self._schedules().get(tenant_id=key.tenant_id, schedule_id=key.schedule_id)
         if schedule is None:
@@ -588,6 +637,51 @@ class ConnectionScheduleService:
         if repository is None:
             raise HarborUnavailableError("this deployment has no schedule store")
         return repository
+
+
+def _expected_version(current: Schedule | None, conditions: WriteConditions) -> int | None:
+    """Turn ``If-Match`` into the version the stored schedule must have, checked early.
+
+    The repository checks again atomically; checking here keeps a write that will be
+    refused from touching the timer.
+
+    Raises:
+        ScheduleIdTakenError: ``create_only`` and the schedule exists.
+        HarborPreconditionFailedError: ``If-Match`` does not hold.
+    """
+    if conditions.create_only and current is not None:
+        raise ScheduleIdTakenError(f"schedule {current.schedule_id!r} already exists")
+    expected = conditions.expected_version
+    if expected == ANY_VERSION:
+        if current is None:
+            raise HarborPreconditionFailedError("If-Match: * needs an existing schedule")
+        return current.version
+    if expected is not None and (current is None or current.version != expected):
+        raise HarborPreconditionFailedError("the schedule's version does not match If-Match")
+    return expected
+
+
+def _schedule_from(
+    key: ScheduleKey, write: ScheduleWrite, timetable: Timetable, *, actor: str
+) -> Schedule:
+    """Build the schedule a ``PUT`` stores from its checked configuration."""
+    return Schedule(
+        tenant_id=key.tenant_id,
+        schedule_id=key.schedule_id,
+        project_id=write.project_id,
+        connection_id=write.connection_id,
+        mode=write.mode,
+        description=write.description,
+        interval_seconds=timetable.interval_seconds,
+        cron=timetable.cron,
+        timezone=timetable.timezone,
+        jitter_seconds=timetable.jitter_seconds,
+        if_running=write.if_running,
+        catch_up=write.catch_up,
+        pause_after_failures=write.pause_after_failures,
+        created_by=actor,
+        updated_by=actor,
+    )
 
 
 def _fired_too_late(schedule: Schedule, due_at: datetime, fired_at: datetime | None) -> bool:

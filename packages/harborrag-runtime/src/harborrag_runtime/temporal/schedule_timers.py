@@ -97,16 +97,6 @@ class TemporalScheduleTimers:
         except RPCError as error:
             _raise_unless_missing(error, "pause", temporal_id)
 
-    async def resume(self, tenant_id: str, schedule_id: str) -> datetime | None:
-        """Unpause the Temporal Schedule and return its next slot; ``None`` when it is missing."""
-        temporal_id = _temporal_id(tenant_id, schedule_id)
-        try:
-            await self._handle(temporal_id).unpause()
-        except RPCError as error:
-            _raise_unless_missing(error, "unpause", temporal_id)
-            return None
-        return await self._next_run_once_set(tenant_id, schedule_id)
-
     async def next_run_at(self, tenant_id: str, schedule_id: str) -> datetime | None:
         """The next slot time Temporal reports; ``None`` while paused or when missing."""
         temporal_id = _temporal_id(tenant_id, schedule_id)

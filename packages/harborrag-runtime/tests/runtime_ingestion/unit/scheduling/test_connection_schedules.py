@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from dataclasses import dataclass, field, replace
+from collections.abc import Callable
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -11,8 +11,6 @@ import pytest
 
 from harborrag_adapters.connectors.policies.network import DestinationPolicy
 from harborrag_core.base import utc_now
-from harborrag_core.config_store.levels import SettingsLevel
-from harborrag_core.config_store.resolution import EffectiveSettings, EffectiveValue
 from harborrag_core.contracts.errors import (
     HarborAlreadyRunningError,
     HarborPreconditionFailedError,
@@ -25,13 +23,11 @@ from harborrag_core.contracts.errors import (
 from harborrag_core.domain.connection import Connection
 from harborrag_core.domain.project import Project
 from harborrag_core.domain.schedule import (
-    RECENT_SLOT_LIMIT,
     Schedule,
     ScheduleFilter,
-    SchedulePause,
     ScheduleSlot,
 )
-from harborrag_core.ingestion import IngestionTask, IngestionTaskState
+from harborrag_core.ingestion import IngestionTaskState
 from harborrag_core.testing.fakes import FakeSecrets
 from harborrag_engine.control_plane.connection_views import ANY_VERSION
 from harborrag_runtime.application.control_plane.connection_models import ConnectionKey
@@ -46,6 +42,10 @@ from harborrag_runtime.application.control_plane.schedule_models import (
 )
 from harborrag_runtime.application.control_plane.schedules import ConnectionScheduleService
 from harborrag_runtime.composition import ControlPlaneRepositories
+from harborrag_runtime.config.connectors.models.spec import (
+    ConnectionValidationError,
+    FieldIssue,
+)
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.ingestion.connections import ConnectionUnavailableError
 from harborrag_runtime.observability.schedule_metrics import ScheduleSlotMetrics
@@ -56,237 +56,31 @@ from harborrag_runtime.testing.connection_fakes import (
     fake_control_plane,
 )
 
+from .schedule_doubles import (
+    NEXT_RUN,
+    TENANT,
+    FakeConfig,
+    FakeRuns,
+    FakeSchedules,
+    FakeStarter,
+    FakeTimers,
+)
+
 pytestmark = [pytest.mark.unit, pytest.mark.asyncio]
 
-TENANT = "acme"
 KEY = ScheduleKey(TENANT, "nightly")
 WRITE = ScheduleWrite(project_id="demo", connection_id="demo-tickets", interval="PT1H")
-NEXT_RUN = datetime(2026, 11, 28, 2, 0, tzinfo=UTC)
 DUE = datetime(2026, 11, 27, 2, 0, tzinfo=UTC)
 UNCONDITIONAL = WriteConditions()
-
-
-class _Schedules:
-    """``ScheduleRepositoryPort`` in memory, following the port's version rules."""
-
-    def __init__(self) -> None:
-        self.rows: dict[tuple[str, str], Schedule] = {}
-        self.slots: dict[tuple[str, str], list[ScheduleSlot]] = {}
-        self.waiting: set[tuple[str, str]] = set()
-
-    async def get(self, *, tenant_id: str, schedule_id: str) -> Schedule | None:
-        return self.rows.get((tenant_id, schedule_id))
-
-    async def page(
-        self, *, tenant_id: str, filters: ScheduleFilter, limit: int, cursor: str | None
-    ) -> tuple[list[Schedule], str | None]:
-        rows = [row for (tenant, _), row in self.rows.items() if tenant == tenant_id]
-        return sorted(rows, key=lambda row: row.created_at, reverse=True)[:limit], None
-
-    async def list_for_connection(
-        self, *, tenant_id: str, project_id: str, connection_id: str
-    ) -> list[Schedule]:
-        return [
-            row
-            for row in self.rows.values()
-            if (row.tenant_id, row.project_id, row.connection_id)
-            == (tenant_id, project_id, connection_id)
-        ]
-
-    async def next_runs(
-        self, *, tenant_id: str, connections: Sequence[tuple[str, str]]
-    ) -> dict[tuple[str, str], datetime]:
-        wanted = set(connections)
-        earliest: dict[tuple[str, str], datetime] = {}
-        for row in self.rows.values():
-            key = (row.project_id, row.connection_id)
-            if row.tenant_id != tenant_id or key not in wanted or row.paused is not None:
-                continue
-            if row.next_run_at is not None and (
-                key not in earliest or row.next_run_at < earliest[key]
-            ):
-                earliest[key] = row.next_run_at
-        return earliest
-
-    async def put(
-        self, schedule: Schedule, *, expected_version: int | None, create_only: bool
-    ) -> tuple[Schedule, bool]:
-        key = (schedule.tenant_id, schedule.schedule_id)
-        current = self.rows.get(key)
-        if current is not None and create_only:
-            raise ScheduleIdTakenError("taken")
-        if expected_version is not None and (
-            current is None or current.version != expected_version
-        ):
-            raise HarborPreconditionFailedError("version mismatch")
-        if current is None:
-            self.rows[key] = schedule
-            return schedule, True
-        stored = replace(
-            schedule,
-            paused=current.paused,
-            consecutive_failures=current.consecutive_failures,
-            next_run_at=current.next_run_at,
-            version=current.version + 1,
-            created_by=current.created_by,
-            created_at=current.created_at,
-        )
-        self.rows[key] = stored
-        return stored, False
-
-    async def set_paused(
-        self, *, tenant_id: str, schedule_id: str, paused: SchedulePause | None, actor: str
-    ) -> Schedule | None:
-        current = self.rows.get((tenant_id, schedule_id))
-        if current is None or (current.paused is None) == (paused is None):
-            return current
-        stored = replace(
-            current,
-            paused=paused,
-            version=current.version + 1,
-            updated_by=actor,
-            consecutive_failures=current.consecutive_failures if paused else 0,
-            next_run_at=None if paused else current.next_run_at,
-        )
-        self.rows[(tenant_id, schedule_id)] = stored
-        return stored
-
-    async def set_next_run_at(
-        self, *, tenant_id: str, schedule_id: str, next_run_at: datetime | None
-    ) -> None:
-        current = self.rows.get((tenant_id, schedule_id))
-        if current is not None:
-            self.rows[(tenant_id, schedule_id)] = replace(current, next_run_at=next_run_at)
-
-    async def record_run_outcome(self, *, tenant_id: str, schedule_id: str, failed: bool) -> int:
-        current = self.rows.get((tenant_id, schedule_id))
-        if current is None:
-            return 0
-        failures = current.consecutive_failures + 1 if failed else 0
-        self.rows[(tenant_id, schedule_id)] = replace(current, consecutive_failures=failures)
-        return failures
-
-    async def claim_queue(self, *, tenant_id: str, schedule_id: str) -> bool:
-        if (tenant_id, schedule_id) in self.waiting:
-            return False
-        self.waiting.add((tenant_id, schedule_id))
-        return True
-
-    async def release_queue(self, *, tenant_id: str, schedule_id: str) -> None:
-        self.waiting.discard((tenant_id, schedule_id))
-
-    async def record_slot(self, *, tenant_id: str, schedule_id: str, slot: ScheduleSlot) -> None:
-        if (tenant_id, schedule_id) in self.rows:
-            slots = self.slots.setdefault((tenant_id, schedule_id), [])
-            slots.insert(0, slot)
-            del slots[RECENT_SLOT_LIMIT:]
-
-    async def recent_slots(
-        self, *, tenant_id: str, schedule_ids: Sequence[str], limit: int
-    ) -> dict[str, list[ScheduleSlot]]:
-        return {
-            schedule_id: self.slots[(tenant_id, schedule_id)][:limit]
-            for schedule_id in schedule_ids
-            if (tenant_id, schedule_id) in self.slots
-        }
-
-    async def delete(self, *, tenant_id: str, schedule_id: str) -> bool:
-        self.slots.pop((tenant_id, schedule_id), None)
-        return self.rows.pop((tenant_id, schedule_id), None) is not None
-
-
-@dataclass
-class _Timers:
-    """Timer engine double that records every call and can be unreachable."""
-
-    unreachable: bool = False
-    calls: list[tuple[Any, ...]] = field(default_factory=list)
-
-    async def put(self, schedule: Schedule, *, catch_up_window_seconds: int) -> datetime | None:
-        self._check()
-        self.calls.append(("put", schedule.schedule_id, catch_up_window_seconds, schedule.paused))
-        return None if schedule.paused is not None else NEXT_RUN
-
-    async def pause(self, tenant_id: str, schedule_id: str, *, note: str) -> None:
-        self._check()
-        self.calls.append(("pause", schedule_id, note))
-
-    async def resume(self, tenant_id: str, schedule_id: str) -> datetime | None:
-        self._check()
-        self.calls.append(("resume", schedule_id))
-        return NEXT_RUN
-
-    async def next_run_at(self, tenant_id: str, schedule_id: str) -> datetime | None:
-        self.calls.append(("next_run_at", schedule_id))
-        return NEXT_RUN
-
-    async def delete(self, tenant_id: str, schedule_id: str) -> None:
-        self._check()
-        self.calls.append(("delete", schedule_id))
-
-    async def follow(self, tenant_id: str, schedule_id: str, ingestion_id: str) -> None:
-        self._check()
-        self.calls.append(("follow", schedule_id, ingestion_id))
-
-    def _check(self) -> None:
-        if self.unreachable:
-            raise HarborUnavailableError("timer engine down")
-
-
-@dataclass
-class _Starter:
-    """``IngestionStarter`` stand-in: queued runs ``ing_1``, ``ing_2``, ... or scripted errors."""
-
-    errors: list[Exception] = field(default_factory=list)
-    calls: list[dict[str, Any]] = field(default_factory=list)
-
-    async def start(self, key: ConnectionKey, **options: Any) -> dict[str, Any]:
-        self.calls.append({"key": key, **options})
-        if self.errors:
-            raise self.errors.pop(0)
-        return {"ingestion_id": f"ing_{len(self.calls)}", "status": "queued"}
-
-
-@dataclass
-class _Runs:
-    tasks: dict[str, IngestionTask] = field(default_factory=dict)
-
-    async def get(self, task_id: str) -> IngestionTask | None:
-        return self.tasks.get(task_id)
-
-    def add(self, task_id: str, status: IngestionTaskState, *, tenant_id: str = TENANT) -> None:
-        self.tasks[task_id] = IngestionTask(
-            task_id=task_id,
-            source_scope_id="scope-1",
-            status=status,
-            request={"tenant_id": tenant_id},
-            summary={"error_code": "connector_auth"},
-        )
-
-
-@dataclass
-class _Config:
-    """``ConfigProvider`` stand-in answering the ``schedules.*`` settings."""
-
-    values: dict[str, object]
-
-    async def effective(self, tenant_id: str, level: SettingsLevel) -> EffectiveSettings:
-        return EffectiveSettings(
-            revision=1,
-            values={
-                f"schedules.{name}": EffectiveValue(value, "tenant")
-                for name, value in self.values.items()
-            },
-        )
 
 
 @dataclass
 class _World:
     service: ConnectionScheduleService
-    schedules: _Schedules
-    timers: _Timers
-    starter: _Starter
-    runs: _Runs
+    schedules: FakeSchedules
+    timers: FakeTimers
+    starter: FakeStarter
+    runs: FakeRuns
     control_plane: ControlPlaneRepositories
     slot_metrics: ScheduleSlotMetrics
 
@@ -331,18 +125,18 @@ def _world(*, connection_status: str = "active", **settings: object) -> _World:
             "c-demo-wiki": _connection("demo-wiki"),
         }
     )
-    schedules, timers, starter, runs = _Schedules(), _Timers(), _Starter(), _Runs()
+    schedules, timers, starter, runs = FakeSchedules(), FakeTimers(), FakeStarter(), FakeRuns()
     config = (
-        _Config({"enabled": True, "min_interval": "PT15M", "max_per_connection": 5, **settings})
+        FakeConfig({"enabled": True, "min_interval": "PT15M", "max_per_connection": 5, **settings})
         if settings
         else None
     )
     wired = replace(control_plane, schedules=schedules, config=config)
 
-    async def provide_runs() -> _Runs:
+    async def provide_runs() -> FakeRuns:
         return runs
 
-    async def provide_timers() -> _Timers:
+    async def provide_timers() -> FakeTimers:
         return timers
 
     slot_metrics = ScheduleSlotMetrics()
@@ -366,7 +160,7 @@ async def test_put_creates_a_schedule_and_sets_its_timer() -> None:
     view, version, created = await _put(world)
 
     assert (created, version) == (True, 1)
-    assert world.timers.calls == [("put", "nightly", 60, None)]
+    assert world.timers.calls == [("put", "nightly", 60, None)] * 2
     assert view["interval"] == "PT1H" and view["cron"] is None
     assert view["state"] == "active" and view["next_run_at"] == NEXT_RUN
     assert view["input"] == {
@@ -386,11 +180,11 @@ async def test_put_overwrite_keeps_the_pause_and_widens_the_catch_up_window() ->
     assert (created, version) == (False, 3)
     assert view["state"] == "paused" and view["paused"]["reason"] == "maintenance"
     assert view["interval"] == "PT2H" and view["next_run_at"] is None
-    put_call = world.timers.calls[-1]
-    assert put_call[:3] == ("put", "nightly", 7200) and put_call[3] is not None
+    for put_call in world.timers.calls[-2:]:
+        assert put_call[:3] == ("put", "nightly", 7200) and put_call[3] is not None
 
 
-async def test_put_removes_a_created_schedule_the_timer_could_not_follow() -> None:
+async def test_put_stores_no_new_schedule_while_the_timer_is_unreachable() -> None:
     world = _world()
     world.timers.unreachable = True
 
@@ -400,7 +194,7 @@ async def test_put_removes_a_created_schedule_the_timer_could_not_follow() -> No
     assert await world.schedules.get(tenant_id=TENANT, schedule_id="nightly") is None
 
 
-async def test_put_keeps_an_overwritten_schedule_when_the_timer_is_unreachable() -> None:
+async def test_put_leaves_a_stored_schedule_alone_while_the_timer_is_unreachable() -> None:
     world = _world()
     await _put(world)
     world.timers.unreachable = True
@@ -409,7 +203,48 @@ async def test_put_keeps_an_overwritten_schedule_when_the_timer_is_unreachable()
         await _put(world, replace(WRITE, interval="PT2H"))
 
     stored = await world.schedules.get(tenant_id=TENANT, schedule_id="nightly")
-    assert stored is not None and stored.interval_seconds == 7200
+    assert stored is not None and (stored.interval_seconds, stored.version) == (3600, 1)
+
+
+async def test_put_keeps_its_stored_write_when_the_timer_drops_after_taking_it() -> None:
+    world = _world()
+    await _put(world)
+    put_timer = world.timers.put
+
+    async def dropping_put(schedule: Schedule, *, catch_up_window_seconds: int) -> datetime | None:
+        next_run = await put_timer(schedule, catch_up_window_seconds=catch_up_window_seconds)
+        world.timers.unreachable = True
+        return next_run
+
+    world.timers.put = dropping_put  # type: ignore[method-assign]  # test double
+
+    _, version, created = await _put(world, replace(WRITE, interval="PT2H"))
+
+    stored = world.schedules.rows[(TENANT, "nightly")]
+    assert (version, created, stored.interval_seconds) == (2, False, 7200)
+    assert world.timers.calls[-1] == ("put", "nightly", 60, None)
+
+
+@pytest.mark.parametrize(
+    ("conditions", "error"),
+    [
+        (WriteConditions(create_only=True), ScheduleIdTakenError),
+        (WriteConditions(expected_version=7), HarborPreconditionFailedError),
+    ],
+)
+async def test_put_refuses_a_failed_precondition_before_touching_the_timer(
+    conditions: WriteConditions, error: type[Exception]
+) -> None:
+    world = _world()
+    await _put(world)
+    calls = list(world.timers.calls)
+
+    with pytest.raises(error):
+        await world.service.put(
+            KEY, replace(WRITE, interval="PT2H"), actor="u_ops", conditions=conditions
+        )
+
+    assert world.timers.calls == calls
 
 
 @pytest.mark.parametrize(
@@ -516,11 +351,11 @@ async def test_pause_and_resume_are_idempotent_and_drive_the_timer() -> None:
     assert resumed["state"] == "active" and resumed["next_run_at"] == NEXT_RUN
     assert resumed_again["state"] == "active" and version == 3
     assert (first_version, again_version, resumed_version, last_version) == (2, 2, 3, 3)
-    assert [call for call in world.timers.calls if call[0] in {"pause", "resume"}] == [
+    assert world.timers.calls[2:] == [
         ("pause", "nightly", "maintenance"),
         ("pause", "nightly", "maintenance"),
-        ("resume", "nightly"),
-        ("resume", "nightly"),
+        ("put", "nightly", 60, None),
+        ("put", "nightly", 60, None),
     ]
 
 
@@ -733,26 +568,96 @@ async def test_run_slot_gives_the_waiting_place_back_when_its_slot_cannot_be_rec
     assert world.schedules.waiting == set()
 
 
-async def test_put_sets_the_timer_again_when_another_write_moved_the_version() -> None:
-    world = _world()
-    await _put(world)
+def _race_on_timer_put(world: _World, call: int, race: Callable[[], object]) -> list[int | None]:
+    """Run ``race`` as the timer is set for the ``call``-th time; return each interval set."""
     timed: list[int | None] = []
     put_timer = world.timers.put
 
     async def racing_put(schedule: Schedule, *, catch_up_window_seconds: int) -> datetime | None:
-        if not timed:
-            stored = world.schedules.rows[(TENANT, "nightly")]
-            world.schedules.rows[(TENANT, "nightly")] = replace(
-                stored, version=stored.version + 1, interval_seconds=7_200
-            )
         timed.append(schedule.interval_seconds)
+        if len(timed) == call:
+            race()
         return await put_timer(schedule, catch_up_window_seconds=catch_up_window_seconds)
 
     world.timers.put = racing_put  # type: ignore[method-assign]  # test double
+    return timed
+
+
+def _other_write(world: _World) -> Callable[[], None]:
+    """A write by another caller that sets the interval to two hours."""
+
+    def write() -> None:
+        stored = world.schedules.rows[(TENANT, "nightly")]
+        world.schedules.rows[(TENANT, "nightly")] = replace(
+            stored, version=stored.version + 1, interval_seconds=7_200
+        )
+
+    return write
+
+
+async def test_put_sets_the_timer_again_when_another_write_moved_the_version() -> None:
+    world = _world()
+    await _put(world)
+    timed = _race_on_timer_put(world, 2, _other_write(world))
 
     await _put(world, replace(WRITE, interval="PT3H"))
 
+    assert timed == [10_800, 10_800, 7_200]
+
+
+async def test_put_sets_the_timer_back_when_a_racing_write_refuses_its_own() -> None:
+    world = _world()
+    await _put(world)
+    timed = _race_on_timer_put(world, 1, _other_write(world))
+
+    with pytest.raises(HarborPreconditionFailedError):
+        await world.service.put(
+            KEY,
+            replace(WRITE, interval="PT3H"),
+            actor="u_ops",
+            conditions=WriteConditions(expected_version=1),
+        )
+
     assert timed == [10_800, 7_200]
+
+
+async def test_put_removes_the_timer_when_a_racing_delete_removed_the_schedule() -> None:
+    world = _world()
+    await _put(world)
+    _race_on_timer_put(world, 2, lambda: world.schedules.rows.pop((TENANT, "nightly")))
+
+    with pytest.raises(ScheduleNotFoundError):
+        await _put(world, replace(WRITE, interval="PT3H"))
+
+    assert world.timers.calls[-1] == ("delete", "nightly")
+
+
+@pytest.mark.parametrize(
+    ("change", "error"),
+    [
+        ({"status": "deleting"}, ConnectionUnavailableError),
+        (None, UnknownReferenceError),
+    ],
+)
+async def test_put_removes_a_schedule_whose_connection_went_away_meanwhile(
+    change: dict[str, str] | None, error: type[Exception]
+) -> None:
+    world = _world()
+    connections = world.control_plane.connections.connections
+
+    def remove_connection() -> None:
+        if change is None:
+            del connections["c-demo-tickets"]
+        else:
+            connections["c-demo-tickets"] = _connection(**change)
+
+    _race_on_timer_put(world, 1, remove_connection)
+
+    with pytest.raises(error):
+        await _put(world)
+
+    assert world.schedules.rows == {}
+    assert world.timers.calls[-1] == ("delete", "nightly")
 
 
 @pytest.mark.parametrize("paused", [True, False])
@@ -766,6 +671,26 @@ async def test_run_slot_ignores_a_paused_or_missing_schedule(paused: bool) -> No
 
     assert start == SlotStart("ignored")
     assert world.starter.calls == []
+
+
+async def test_run_slot_counts_a_start_the_connection_refuses_as_a_failed_run() -> None:
+    world = _world()
+    await _put(world, replace(WRITE, pause_after_failures=2))
+    refused = ConnectionValidationError([FieldIssue("config.base_url", "missing")])
+    world.starter.errors.extend([refused, refused])
+
+    first = await world.service.run_slot(KEY, due_at=DUE)
+    counted, _ = await world.service.get(KEY)
+    await world.service.run_slot(KEY, due_at=DUE + timedelta(hours=1))
+    paused, _ = await world.service.get(KEY)
+
+    assert first == SlotStart("skipped")
+    assert [slot.reason for slot in world.schedules.slots[(TENANT, "nightly")]] == [None, None]
+    assert counted["consecutive_failures"] == 1 and counted["state"] == "active"
+    reason = "Paused after 2 failed runs in a row (validation_error)"
+    assert paused["paused"] is not None and paused["paused"]["by"] == "system"
+    assert paused["paused"]["reason"] == reason
+    assert _slot_counts(world.slot_metrics) == {("skipped", "none"): 2}
 
 
 async def test_finish_run_pauses_as_system_after_the_failure_limit() -> None:

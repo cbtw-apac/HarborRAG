@@ -363,7 +363,6 @@ class IngestionApplicationService:
         Raises:
             IngestionNotFoundError: No such run.
             IngestionAlreadyCompletedError: The run already ended.
-            IngestionActionStateError: The queued run's workflow is being started.
             HarborConnectionError: The workflow service could not take the request.
         """
         store = await self._task_store_provider()
@@ -387,11 +386,10 @@ class IngestionApplicationService:
         A run whose workflow is gone or closed, such as one whose history passed the
         namespace retention, is recorded as cancelled here, since no workflow is left
         to record it. So is a queued source run whose workflow start was never
-        confirmed, unless that start is under way.
+        confirmed; a start that races the cancel is refused by the run's first activity.
 
         Raises:
             HarborConnectionError: Temporal could not take the request.
-            IngestionActionStateError: The queued run's workflow is being started.
         """
         kind = RunKind.of(task.request)
         try:
