@@ -101,6 +101,8 @@ class ConnectionService:
         destination_policy: Hosts a connection test may reach beyond public addresses.
         instance_id: ID of this process, which names the holder of a connection sync lease.
         settings: Settings that choose each tenant's corpus mode.
+        schedule_removal: Removes a connection's schedules before its data; ``None``
+            when nothing schedules connections.
     """
 
     def __init__(  # noqa: PLR0913 - the stores and settings the service composes
@@ -113,6 +115,7 @@ class ConnectionService:
         destination_policy: DestinationPolicy,
         instance_id: str,
         settings: RuntimeSettings,
+        schedule_removal: Callable[[ConnectionKey], Awaitable[None]] | None = None,
     ) -> None:
         self._control_plane = control_plane
         self._runs = runs
@@ -121,6 +124,7 @@ class ConnectionService:
         self._destination_policy = destination_policy
         self._instance_id = instance_id
         self._settings = settings
+        self._schedule_removal = schedule_removal
         self._background: set[asyncio.Task[None]] = set()
         self._removing: set[tuple[str, str]] = set()
 
@@ -546,7 +550,7 @@ class ConnectionService:
         return job.id
 
     async def finish_deletion(self, connection: Connection, *, job_id: str, purge: bool) -> None:
-        """Remove the documents, then the secrets, then the row; idempotent and resumable."""
+        """Remove the schedules, documents, secrets, then the row; idempotent and resumable."""
         marker = (connection.tenant_id, connection.source_key)
         if marker in self._removing:
             return
@@ -565,6 +569,7 @@ class ConnectionService:
         control_plane = self._control_plane()
         job = await control_plane.jobs.get(job_id, tenant_ids=frozenset({connection.tenant_id}))
         try:
+            await self._remove_schedules(connection)
             await self._removal().remove(
                 tenant_id=connection.tenant_id, source_key=connection.source_key, purge=purge
             )
@@ -595,6 +600,13 @@ class ConnectionService:
             return
         if job is not None and job.job_type == _DELETE_CONNECTION_JOB:
             await control_plane.jobs.save(_finished(job, "succeeded"))
+
+    async def _remove_schedules(self, connection: Connection) -> None:
+        """Remove the connection's schedules first, so no slot starts a run during removal."""
+        if self._schedule_removal is not None:
+            await self._schedule_removal(
+                ConnectionKey(connection.tenant_id, connection.project_id, connection.connection_id)
+            )
 
     async def resume_deletions(self) -> int:
         """Finish every removal a previous process left in ``deleting``."""

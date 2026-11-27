@@ -5,7 +5,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Awaitable, Callable
+from typing import cast
 
 from harborrag_adapters.connectors.policies.network import DestinationPolicy
 from harborrag_core.contracts.errors import HarborUnavailableError
@@ -24,6 +25,7 @@ from harborrag_runtime.composition import CompositionRoot, ControlPlaneRepositor
 from harborrag_runtime.config.connectors.importing import import_connectors_once
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.config_store.defaults import registry_for
+from harborrag_runtime.temporal.optional import load_temporal_attribute
 
 from ..chat import ChatApplicationService, ChatClientMixin
 from ..control_plane.connections import ConnectionService
@@ -33,6 +35,7 @@ from ..control_plane.effect_recovery import (
     recover_pending_control_plane_effects,
 )
 from ..control_plane.projects import ProjectService
+from ..control_plane.schedules import ConnectionScheduleService
 from ..control_plane.settings_import import SeedOutcome, SettingsImporter, seed_settings_once
 from ..control_plane.settings_service import SettingsService
 from ..control_plane.tenants import tenant_has_data, tenants_with_data
@@ -159,6 +162,7 @@ class AppService(
             destination_policy=DestinationPolicy.from_environ(),
             instance_id=self._instance_id,
             settings=self._settings,
+            schedule_removal=lambda key: self._schedule_service.remove_for_connection(key),
         )
         self._ingestion_operations = IngestionOperations(
             connections=lambda: self._control_plane().connections,
@@ -184,6 +188,12 @@ class AppService(
             projects=self._project_service,
             connections=self._connection_service,
             runs=self._ingestion_operations,
+        )
+        self._schedule_service = ConnectionScheduleService(
+            control_plane=self._control_plane,
+            runs=self._resources.task_registry,
+            starter=self._ingestion_starter,
+            timers=self._resources.schedule_timers,
         )
         self._ingestion_follower = IngestionFollower(
             runs=self._ingestion_operations, events=self.stream_ingestion_events
@@ -240,6 +250,28 @@ class AppService(
     def project_service(self) -> ProjectService:
         """Project use cases behind the ``/v1/admin/projects`` routes."""
         return self._project_service
+
+    @property
+    def schedule_service(self) -> ConnectionScheduleService:
+        """Schedule use cases behind the ``/v1/admin/schedules`` routes."""
+        return self._schedule_service
+
+    async def run_schedule_slots(self) -> None:
+        """Run the worker that fires schedule slots in this process until cancelled.
+
+        Slots start runs through ``POST /v1/admin/ingestions``, which only the API
+        composes, so their worker runs here and not on the ingestion worker.
+
+        Raises:
+            RuntimeConnectionError: Temporal cannot be reached; the caller retries.
+        """
+        serve = cast(  # the loader returns object; the module defines this coroutine function
+            "Callable[[RuntimeSettings, ConnectionScheduleService], Awaitable[None]]",
+            load_temporal_attribute(
+                "harborrag_runtime.temporal.schedule_slots", "serve_schedule_slots"
+            ),
+        )
+        await serve(self._settings, self._schedule_service)
 
     async def import_connectors_once(self) -> int:
         """Import ``connectors.yaml`` on the first start of a fresh install."""

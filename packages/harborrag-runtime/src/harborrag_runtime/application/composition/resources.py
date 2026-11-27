@@ -20,6 +20,7 @@ from .tenant_models import tenant_model_sources
 if TYPE_CHECKING:
     from harborrag_core.ports.events import EventBusPort
 
+    from ..control_plane.schedule_models import ScheduleTimers
     from ..ingestion.ports import PublicTaskStore
     from .factories import AppServiceFactories, TaskRegistry
 
@@ -49,12 +50,14 @@ class AppResources:
         self._tenant_models = tenant_model_sources(composition, settings)
         self._client: IngestionGateway | None = None
         self._schedule_backend: ScheduleBackend | None = None
+        self._schedule_timers: ScheduleTimers | None = None
         self._retrieval_runtime: HarborRAG | None = None
         self._task_registry: TaskRegistry | None = None
         self._event_bus: EventBusPort | None = None
         self._connection_removal: ConnectionRemoval | None = None
         self._client_lock = asyncio.Lock()
         self._schedule_backend_lock = asyncio.Lock()
+        self._schedule_timers_lock = asyncio.Lock()
         self._task_registry_lock = asyncio.Lock()
 
     async def runtime_client(self) -> IngestionGateway:
@@ -74,6 +77,20 @@ class AppResources:
             if self._schedule_backend is None:
                 self._schedule_backend = await self._factories.schedule_backend(self._settings)
         return self._schedule_backend
+
+    async def schedule_timers(self) -> ScheduleTimers:
+        """Return the timers of ``/v1/admin/schedules``, connecting on first use.
+
+        Raises:
+            HarborUnavailableError: The timer engine cannot be reached; the next call
+                tries again.
+        """
+        if self._schedule_timers is not None:
+            return self._schedule_timers
+        async with self._schedule_timers_lock:
+            if self._schedule_timers is None:
+                self._schedule_timers = await self._factories.schedule_timers(self._settings)
+        return self._schedule_timers
 
     def runtime_sdk(self) -> HarborRAG:
         """Build the SDK once, telling chat about tenant catalogs if any are wired.
@@ -116,9 +133,10 @@ class AppResources:
     async def aclose(self) -> None:
         """Close every resource that was created, then report any failures together.
 
-        Temporal clients (the ingestion gateway and the schedule backend) expose no close;
-        their connections end with the process. Every close runs even when another fails, so
-        one failing resource cannot keep its siblings from releasing.
+        Temporal clients (the ingestion gateway, the schedule backend and the schedule
+        timers) expose no close; their connections end with the process. Every close runs
+        even when another fails, so one failing resource cannot keep its siblings from
+        releasing.
 
         Raises:
             ExceptionGroup: One or more resources failed to close.
