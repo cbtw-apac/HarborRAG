@@ -606,6 +606,46 @@ async def test_run_slot_queues_one_slot_and_requeues_it_without_a_new_record() -
     assert world.schedules.waiting == set()
 
 
+async def test_run_slot_gives_the_waiting_place_back_when_its_slot_cannot_be_recorded() -> None:
+    world = _world()
+    await _put(world, replace(WRITE, if_running="queue"))
+    world.starter.errors.append(
+        HarborAlreadyRunningError("busy", details={"ingestion_id": "ing_busy"})
+    )
+
+    async def unrecordable(**_: Any) -> None:
+        raise HarborUnavailableError("control database down")
+
+    world.schedules.record_slot = unrecordable  # type: ignore[method-assign]  # test double
+
+    with pytest.raises(HarborUnavailableError):
+        await world.service.run_slot(KEY, due_at=DUE)
+
+    assert world.schedules.waiting == set()
+
+
+async def test_put_sets_the_timer_again_when_another_write_moved_the_version() -> None:
+    world = _world()
+    await _put(world)
+    timed: list[int | None] = []
+    put_timer = world.timers.put
+
+    async def racing_put(schedule: Schedule, *, catch_up_window_seconds: int) -> datetime | None:
+        if not timed:
+            stored = world.schedules.rows[(TENANT, "nightly")]
+            world.schedules.rows[(TENANT, "nightly")] = replace(
+                stored, version=stored.version + 1, interval_seconds=7_200
+            )
+        timed.append(schedule.interval_seconds)
+        return await put_timer(schedule, catch_up_window_seconds=catch_up_window_seconds)
+
+    world.timers.put = racing_put  # type: ignore[method-assign]  # test double
+
+    await _put(world, replace(WRITE, interval="PT3H"))
+
+    assert timed == [10_800, 7_200]
+
+
 @pytest.mark.parametrize("paused", [True, False])
 async def test_run_slot_ignores_a_paused_or_missing_schedule(paused: bool) -> None:
     world = _world()

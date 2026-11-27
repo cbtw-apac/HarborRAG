@@ -438,7 +438,11 @@ class ScheduleRepositoryPort(Protocol):
         """
 
     async def claim_queue(self, *, tenant_id: str, schedule_id: str) -> bool:
-        """Mark that one slot waits for the connection's run; False when one already waits."""
+        """Mark that one slot waits for the connection's run; False when one already waits.
+
+        A mark older than ``QUEUE_WAIT_LIMIT`` plus an hour no longer holds the place,
+        so a slot whose release was lost cannot block queueing for good.
+        """
 
     async def release_queue(self, *, tenant_id: str, schedule_id: str) -> None:
         """Clear the waiting-slot mark; a missing schedule is a no-op."""

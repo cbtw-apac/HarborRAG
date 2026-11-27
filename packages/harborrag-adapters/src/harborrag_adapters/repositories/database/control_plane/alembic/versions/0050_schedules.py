@@ -45,7 +45,7 @@ def upgrade() -> None:
         sa.Column("paused_at", _TZDT, nullable=True),
         sa.Column("consecutive_failures", sa.Integer(), nullable=False),
         sa.Column("next_run_at", _TZDT, nullable=True),
-        sa.Column("queued", sa.Boolean(), nullable=False),
+        sa.Column("queued_at", _TZDT, nullable=True),
         sa.Column("version", sa.Integer(), nullable=False),
         sa.Column("created_by", sa.String(256), nullable=False),
         sa.Column("updated_by", sa.String(256), nullable=False),

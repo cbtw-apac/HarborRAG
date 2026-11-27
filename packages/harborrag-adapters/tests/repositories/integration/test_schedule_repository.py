@@ -18,6 +18,7 @@ from harborrag_adapters.repositories.database.control_plane.migrations import (
 from harborrag_adapters.repositories.database.control_plane.schedules import (
     SqlScheduleRepository,
 )
+from harborrag_adapters.repositories.database.control_plane.schemas_schedules import ScheduleRow
 from harborrag_adapters.repositories.database.control_plane.session import SessionFactory
 from harborrag_core.contracts.errors import (
     HarborPreconditionFailedError,
@@ -25,6 +26,7 @@ from harborrag_core.contracts.errors import (
     ScheduleIdTakenError,
 )
 from harborrag_core.domain.schedule import (
+    QUEUE_WAIT_LIMIT,
     RECENT_SLOT_LIMIT,
     Schedule,
     ScheduleFilter,
@@ -328,6 +330,25 @@ async def test_claim_queue_lets_one_slot_wait_until_released(sessions: SessionFa
 
     assert not await repository.claim_queue(tenant_id="acme", schedule_id="missing")
     await repository.release_queue(tenant_id="acme", schedule_id="missing")
+
+
+@pytest.mark.asyncio
+async def test_claim_queue_takes_over_a_mark_older_than_the_wait_limit(
+    sessions: SessionFactory,
+) -> None:
+    repository = SqlScheduleRepository(sessions)
+    await repository.put(_schedule("nightly"), expected_version=None, create_only=True)
+    assert await repository.claim_queue(tenant_id="acme", schedule_id="nightly")
+
+    async with sessions.begin() as session:
+        await session.execute(
+            sa.update(ScheduleRow).values(
+                queued_at=datetime.now(UTC) - QUEUE_WAIT_LIMIT - timedelta(hours=2)
+            )
+        )
+
+    assert await repository.claim_queue(tenant_id="acme", schedule_id="nightly")
+    assert not await repository.claim_queue(tenant_id="acme", schedule_id="nightly")
 
 
 @pytest.mark.asyncio

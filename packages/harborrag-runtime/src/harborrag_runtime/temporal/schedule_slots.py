@@ -18,6 +18,7 @@ from temporalio.common import RetryPolicy, SearchAttributeKey
 from temporalio.exceptions import ActivityError
 from temporalio.worker import Worker
 
+from harborrag_core.domain.schedule import QUEUE_WAIT_LIMIT
 from harborrag_runtime.application.control_plane.schedule_models import ScheduleKey, SlotAttempt
 from harborrag_runtime.config.temporal import TemporalRuntimeConfig
 
@@ -36,7 +37,7 @@ if TYPE_CHECKING:
 SLOT_WORKFLOW: Final = "harborrag.schedule_slot"
 FIRST_POLL: Final = timedelta(seconds=30)
 LONGEST_POLL: Final = timedelta(minutes=5)
-LONGEST_WAIT: Final = timedelta(hours=24)
+LONGEST_WAIT: Final = QUEUE_WAIT_LIMIT
 LONGEST_FOLLOW: Final = timedelta(days=7)
 POLLS_PER_RUN: Final = 200
 _ACTIVITY_TIMEOUT: Final = timedelta(seconds=60)

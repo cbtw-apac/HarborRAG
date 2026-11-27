@@ -7,7 +7,7 @@ call the same operation as the matching endpoint, so this module holds values on
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Literal
 
 from harborrag_core.base import utc_now
@@ -26,6 +26,7 @@ SlotReason = Literal[
 
 SCHEDULE_ID_PATTERN = CONNECTION_ID_PATTERN
 RECENT_SLOT_LIMIT = 20
+QUEUE_WAIT_LIMIT = timedelta(hours=24)
 SYSTEM_PAUSER = "system"
 
 

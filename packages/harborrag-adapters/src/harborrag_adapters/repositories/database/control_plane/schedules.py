@@ -12,7 +12,7 @@ import base64
 import json
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, assert_never, cast
 
 import sqlalchemy as sa
@@ -25,6 +25,7 @@ from harborrag_core.contracts.errors import (
     ScheduleIdTakenError,
 )
 from harborrag_core.domain.schedule import (
+    QUEUE_WAIT_LIMIT,
     RECENT_SLOT_LIMIT,
     Schedule,
     ScheduleFilter,
@@ -36,6 +37,8 @@ from harborrag_core.domain.schedule import (
 from .mapping import utc_now
 from .schemas_schedules import ScheduleRow, ScheduleSlotRow
 from .session import SessionFactory
+
+_STALE_QUEUE_MARK = QUEUE_WAIT_LIMIT + timedelta(hours=1)
 
 
 @dataclass(slots=True)
@@ -166,16 +169,22 @@ class SqlScheduleRepository:
         return stored or 0
 
     async def claim_queue(self, *, tenant_id: str, schedule_id: str) -> bool:
-        """Set the waiting-slot mark in one conditional UPDATE; False when set or missing."""
+        """Set the waiting-slot mark in one conditional UPDATE; False when held or missing."""
+        now = utc_now()
         return await self._changed(
             _update_one(tenant_id, schedule_id)
-            .where(ScheduleRow.queued.is_(False))
-            .values(queued=True)
+            .where(
+                sa.or_(
+                    ScheduleRow.queued_at.is_(None),
+                    ScheduleRow.queued_at < now - _STALE_QUEUE_MARK,
+                )
+            )
+            .values(queued_at=now)
         )
 
     async def release_queue(self, *, tenant_id: str, schedule_id: str) -> None:
         """Clear the waiting-slot mark; a missing schedule is a no-op."""
-        await self._changed(_update_one(tenant_id, schedule_id).values(queued=False))
+        await self._changed(_update_one(tenant_id, schedule_id).values(queued_at=None))
 
     async def record_slot(self, *, tenant_id: str, schedule_id: str, slot: ScheduleSlot) -> None:
         """Append a slot and prune older ones in one transaction under the schedule's lock."""
@@ -348,7 +357,7 @@ def _new_row(schedule: Schedule) -> ScheduleRow:
         paused_at=None,
         consecutive_failures=0,
         next_run_at=None,
-        queued=False,
+        queued_at=None,
         version=1,
         created_by=schedule.created_by,
         updated_by=schedule.updated_by,

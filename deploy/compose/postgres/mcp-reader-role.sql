@@ -50,6 +50,8 @@ FROM unnest(ARRAY[
     'projects',
     'providers',
     'routing_rules',
+    'schedule_slots',
+    'schedules',
     'secrets',
     'singleton_leases',
     'sources',

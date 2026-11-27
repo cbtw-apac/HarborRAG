@@ -38,6 +38,7 @@ from harborrag_core.ports.control_plane import ScheduleRepositoryPort
 from harborrag_engine.control_plane.connection_views import ANY_VERSION, ingestion_status
 from harborrag_runtime.composition import ControlPlaneRepositories
 from harborrag_runtime.ingestion.connections import ConnectionUnavailableError
+from harborrag_runtime.scheduling.validation import min_cron_gap_seconds
 
 from ..ingestion.starter import IngestionStarter
 from .connection_models import ConnectionKey, ConnectionRuns
@@ -58,6 +59,7 @@ logger = logging.getLogger("harborrag.runtime.application.control_plane.schedule
 SCHEDULE_ACTOR_TYPE: Final = "schedule"
 DEFAULT_PAUSE_REASON: Final = "Paused by an operator"
 _ENDED_STATUSES: Final = frozenset({"succeeded", "failed", "cancelled"})
+_TIMER_SYNC_ROUNDS: Final = 3
 
 
 class ConnectionScheduleService:
@@ -370,17 +372,22 @@ class ConnectionScheduleService:
         if schedule.if_running == "queue" and await self._schedules().claim_queue(
             tenant_id=schedule.tenant_id, schedule_id=schedule.schedule_id
         ):
-            await self._record(
-                schedule,
-                ScheduleSlot(
-                    due_at=due_at,
-                    outcome="queued",
-                    reason="already_running",
-                    ingestion_id=blocking,
-                ),
-            )
+            await self._record_waiting(schedule, due_at, blocking)
             return SlotStart("queued", blocking)
         return await self._skip(schedule, due_at, "already_running", blocking)
+
+    async def _record_waiting(
+        self, schedule: Schedule, due_at: datetime, blocking: str | None
+    ) -> None:
+        """Record a slot that waits; give its place back when the record cannot be written."""
+        slot = ScheduleSlot(
+            due_at=due_at, outcome="queued", reason="already_running", ingestion_id=blocking
+        )
+        try:
+            await self._record(schedule, slot)
+        except BaseException:
+            await self.release_waiting_slot(ScheduleKey(schedule.tenant_id, schedule.schedule_id))
+            raise
 
     async def _skip(
         self, schedule: Schedule, due_at: datetime, reason: SlotReason, blocking: str | None
@@ -404,16 +411,32 @@ class ConnectionScheduleService:
             await self.release_waiting_slot(key)
 
     async def _set_timer(self, schedule: Schedule, *, period_seconds: int, created: bool) -> None:
-        """Set the timer to the stored timetable; undo a create the timer could not follow."""
-        window = catch_up_window_seconds(catch_up=schedule.catch_up, period_seconds=period_seconds)
+        """Set the timer to the stored timetable; undo a create the timer could not follow.
+
+        A write that lands while this one sets the timer may have set it first, so the
+        timer is set again from the stored schedule until the version stops moving.
+        """
         try:
-            next_run_at = await (await self._timers()).put(schedule, catch_up_window_seconds=window)
+            await self._put_timer(schedule, period_seconds=period_seconds)
         except HarborUnavailableError:
             if created:
                 await self._schedules().delete(
                     tenant_id=schedule.tenant_id, schedule_id=schedule.schedule_id
                 )
             raise
+        for _ in range(_TIMER_SYNC_ROUNDS):
+            current = await self._schedules().get(
+                tenant_id=schedule.tenant_id, schedule_id=schedule.schedule_id
+            )
+            if current is None or current.version == schedule.version:
+                return
+            schedule = current
+            await self._put_timer(schedule, period_seconds=_period_seconds(schedule))
+
+    async def _put_timer(self, schedule: Schedule, *, period_seconds: int) -> None:
+        """Set the timer to one stored schedule and store its next slot time."""
+        window = catch_up_window_seconds(catch_up=schedule.catch_up, period_seconds=period_seconds)
+        next_run_at = await (await self._timers()).put(schedule, catch_up_window_seconds=window)
         await self._schedules().set_next_run_at(
             tenant_id=schedule.tenant_id,
             schedule_id=schedule.schedule_id,
@@ -541,6 +564,13 @@ class ConnectionScheduleService:
         if repository is None:
             raise HarborUnavailableError("this deployment has no schedule store")
         return repository
+
+
+def _period_seconds(schedule: Schedule) -> int:
+    """The interval, or the shortest gap between the cron expression's runs."""
+    if schedule.interval_seconds is not None:
+        return schedule.interval_seconds
+    return min_cron_gap_seconds(schedule.cron or "")
 
 
 def _blocking_run(error: HarborAlreadyRunningError) -> str | None:

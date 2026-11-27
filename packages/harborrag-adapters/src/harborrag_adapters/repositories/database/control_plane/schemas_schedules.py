@@ -26,8 +26,8 @@ from .schemas import Base
 class ScheduleRow(Base):
     """One schedule: a connection operation, its timetable and its runtime state.
 
-    ``paused_at`` set means paused. ``queued`` marks one slot that waits for the
-    connection's current run.
+    ``paused_at`` set means paused. ``queued_at`` marks when one slot started to wait
+    for the connection's current run.
     """
 
     __tablename__ = "schedules"
@@ -55,7 +55,7 @@ class ScheduleRow(Base):
     paused_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     consecutive_failures: Mapped[int] = mapped_column(sa.Integer, default=0, nullable=False)
     next_run_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
-    queued: Mapped[bool] = mapped_column(sa.Boolean, default=False, nullable=False)
+    queued_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     version: Mapped[int] = mapped_column(sa.Integer, nullable=False)
     created_by: Mapped[str] = mapped_column(sa.String(256), nullable=False)
     updated_by: Mapped[str] = mapped_column(sa.String(256), nullable=False)
