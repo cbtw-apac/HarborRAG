@@ -58,6 +58,9 @@ class TaskRegistry(PublicTaskStore, Protocol):
     async def connection_document_count(self, *, tenant_id: str, connection_id: str) -> int:
         """Count the documents the connection's runs have recorded."""
 
+    async def source_keys(self, *, tenant_id: str) -> frozenset[str]:
+        """Return every source key the tenant's runs were registered under."""
+
     async def source_scope_ids_by_connection(
         self, *, tenant_id: str, connection_ids: Sequence[str]
     ) -> dict[str, list[str]]:

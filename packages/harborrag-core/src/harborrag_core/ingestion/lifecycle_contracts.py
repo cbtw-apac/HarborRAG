@@ -89,6 +89,8 @@ class ReindexJob(StrictModel):
 
 
 TASK_PROVENANCE_KEYS = ("actor", "actor_type")
+DEFAULT_ACTOR_TYPE = "user"
+"""Actor type of a run whose request records none."""
 
 
 class IngestionTask(StrictModel):

@@ -123,6 +123,20 @@ class ConnectionRecordRepository:
         async with self._client.sessions() as session:
             return [str(value) for value in (await session.execute(statement)).scalars()]
 
+    async def source_keys(self, *, tenant_id: str) -> frozenset[str]:
+        """Every connection the tenant's runs were registered under, deleted ones included.
+
+        A connection removed without a purge keeps its source scopes, so its runs stay
+        findable by its source key.
+        """
+        statement = (
+            select(SOURCE_SCOPES.c.connection_id)
+            .where(SOURCE_SCOPES.c.tenant_id == tenant_id)
+            .distinct()
+        )
+        async with self._client.sessions() as session:
+            return frozenset(str(value) for value in (await session.execute(statement)).scalars())
+
     async def latest_task(self, *, tenant_id: str, connection_id: str) -> IngestionTask | None:
         """The connection's most recently submitted run, or None."""
         return await self._one_task(tenant_id, connection_id, active_only=False)
