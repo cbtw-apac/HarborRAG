@@ -401,6 +401,12 @@ class FakeLeaseRepository:
         self.leases[name] = (holder, now + timedelta(seconds=ttl_seconds))
         return True
 
+    async def release(self, name: str, holder: str) -> None:
+        """Let ``name`` lapse now if ``holder`` still owns it."""
+        current_holder, _ = self.leases.get(name, ("", utc_now()))
+        if current_holder == holder:
+            self.leases[name] = (holder, utc_now())
+
 
 @dataclass(slots=True)
 class FakeMemberRepository:

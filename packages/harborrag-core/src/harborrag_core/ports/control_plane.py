@@ -305,6 +305,9 @@ class LeaseRepositoryPort(Protocol):
         lease expire after ``ttl_seconds``, letting another holder take over.
         """
 
+    async def release(self, name: str, holder: str) -> None:
+        """Let ``name`` lapse now if ``holder`` still owns it; another holder's lease stays."""
+
 
 class GraphConflictRepositoryPort(Protocol):
     """Durable queue of graph disagreements awaiting human resolution (plan §5.5).

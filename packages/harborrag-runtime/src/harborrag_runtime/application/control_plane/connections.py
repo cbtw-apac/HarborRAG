@@ -495,24 +495,27 @@ class ConnectionService:
             raise HarborAlreadyRunningError(
                 "an ingestion is starting for this connection", details={"ingestion_id": None}
             )
-        await self.refuse_if_running(key.tenant_id, connection.source_key)
-        accepted = await self._ingestions.submit(
-            IngestionCreateCommand(
-                tenant_id=key.tenant_id,
-                connection_id=connection.source_key,
-                force_reprocess=mode == "force",
-                public_request={
-                    "connection": connection.ref,
-                    "mode": mode,
-                    "updated_after": updated_after,
-                    "actor": actor,
-                },
-                updated_after=updated_after,
-                actor=actor,
-                actor_type=actor_type,
-            ),
-            idempotency_key=None,
-        )
+        try:
+            await self.refuse_if_running(key.tenant_id, connection.source_key)
+            accepted = await self._ingestions.submit(
+                IngestionCreateCommand(
+                    tenant_id=key.tenant_id,
+                    connection_id=connection.source_key,
+                    force_reprocess=mode == "force",
+                    public_request={
+                        "connection": connection.ref,
+                        "mode": mode,
+                        "updated_after": updated_after,
+                        "actor": actor,
+                    },
+                    updated_after=updated_after,
+                    actor=actor,
+                    actor_type=actor_type,
+                ),
+                idempotency_key=None,
+            )
+        finally:
+            await self._control_plane().leases.release(lease, holder)
         task = await runs.get(str(accepted["task_id"]))
         if task is None:
             raise HarborUnavailableError("the ingestion was accepted but cannot be read back")
