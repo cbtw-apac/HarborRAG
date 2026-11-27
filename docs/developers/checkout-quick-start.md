@@ -1,5 +1,5 @@
 # Running HarborRAG from a checkout
-
+-- update the document for testning the auto sync document website---
 Work on HarborRAG itself once the [Quick Start](../getting-started/quick-start.md) has your
 checkout and its local stack running. This page shows how to explore the code without
 services, start and rebuild one service at a time, drive ingestion runs, and run the tests.
