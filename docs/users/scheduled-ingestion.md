@@ -207,6 +207,10 @@ curl -X POST -H "Authorization: Bearer $TOKEN" \
 Resuming clears the pause and `consecutive_failures`, and answers `200` with the
 schedule. Resuming an active schedule changes nothing.
 
+Pause and resume also answer the schedule's `ETag`, ready for the `If-Match` of a later
+`PUT`. A pause or resume that changes the schedule advances it, such as from
+`W/"rev-2"` to `W/"rev-3"`; one that changes nothing returns it unchanged.
+
 Start one ingestion now with the schedule's input, even while the schedule is paused or
 `schedules.enabled` is `false`:
 
@@ -303,8 +307,69 @@ checks; see [Runtime settings](configuration/runtime-settings.md#settings-and-th
     docker logs harborrag-api-api-1 2>&1 | grep -i schedule
     ```
 
+- `GET /v1/admin/connections?scheduled=true` lists the connections that have a schedule
+  that is not paused, and `scheduled=false` the others; the filter applies before the
+  page is cut. `harborrag connections list --scheduled` and `--no-scheduled` do the same.
+  Each connection carries `next_run_at`, the earliest next slot among those schedules,
+  which is `null` when it has none, has only paused ones, or while `schedules.enabled`
+  is `false`.
+
 The worker metrics and alerts in [Monitor declared runs](#monitor-declared-runs) do not
 cover the schedules of `/v1/admin/schedules`.
+
+### List the runs of a schedule
+
+`recent_slots` keeps only the last 20 slots. To list every run a schedule started,
+`trigger` runs included, filter the ingestion list by `schedule_id`:
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://127.0.0.1:8000/v1/admin/ingestions?schedule_id=demo-tickets-hourly"
+```
+
+From a terminal, `harborrag ingestions list --schedule-id demo-tickets-hourly` does the
+same. `trigger=schedule`, or `--trigger schedule`, lists the runs of every schedule;
+`user` and `api_key` list the runs people and API keys started. A run from
+`config/sources/schedules.yaml` records no starter, so it counts as `user`. A
+`schedule_id` together with `trigger=user` or `trigger=api_key` gives an empty page. See
+[`GET /v1/admin/ingestions`](connections.md#get-v1adminingestions) for the other
+filters.
+
+### Alert on skipped slots
+
+The API counts every slot it records in `harborrag_schedule_slots_total`, on its own
+`/metrics` at the ops port (`HARBORRAG_OPS_PORT`, `9465` by default), which answers only
+to the `HARBORRAG_METRICS_SCRAPE_TOKEN` bearer token. The worker's metrics port does not
+carry it. Its labels are:
+
+- `outcome`: `started`, `skipped` or `queued`;
+- `reason`: the slot's reason, such as `already_running`, or `none` for a started slot.
+
+A `trigger` counts as `started` with the reason `none`. A queued slot counts once as
+`queued`, then once as `started` when its run starts. Slots that record nothing, such as
+those of a paused schedule or one dropped after its catch-up window, are not counted.
+Each API replica counts its own slots, so add the replicas up with `sum()`.
+
+The monitoring Compose stack scrapes the API as the `harborrag-api` job. This rule, added
+to a Prometheus rule file such as `deploy/prometheus/harborrag_alerts.yml`, fires when
+slots have been skipped every hour for two hours:
+
+```yaml
+groups:
+  - name: harborrag-api-schedules
+    rules:
+      - alert: HarborRAGScheduleSlotsKeepSkipping
+        expr: sum by (reason) (increase(harborrag_schedule_slots_total{outcome="skipped"}[1h])) > 0
+        for: 2h
+        labels:
+          severity: warning
+        annotations:
+          summary: HarborRAG schedule slots keep being skipped
+          description: "Schedule slots were skipped with reason {{ $labels.reason }} in every hour for two hours."
+```
+
+A schedule whose slots often meet a long run skips with `already_running` as intended;
+leave that reason out of the rule, or set `if_running: queue` on the schedule.
 
 ## Declare schedules in a file
 

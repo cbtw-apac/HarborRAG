@@ -452,14 +452,16 @@ Upgrade in this order:
    `scripts/deployment/mcp-ui.sh --build --http` if you use the Explorer. A preflight line
    that ends in `(cause: InvalidPasswordError)` means `mcp-access` has not run.
 
-Runs started before the upgrade replay on the new workers: the changed workflow code sits
-behind seven Temporal patch IDs, `harborrag-source-records-cancellation`,
-`harborrag-document-records-cancellation`, `harborrag-source-guarded-discovery-stop`,
-`harborrag-source-cancel-closed-batch`, `harborrag-retry-heartbeat-timeout`,
-`harborrag-document-retry-records-cancellation` and
-`harborrag-retry-counts-cancelled-document`. A batch workflow that 2.0.0a1 closed after
-one of its document workflows failed does not replay; see
-[Known limitations](#known-limitations).
+Runs started before the upgrade replay on the new workers, with no action on your part:
+the changed workflow code sits behind nine Temporal patch IDs,
+`harborrag-source-records-cancellation`, `harborrag-document-records-cancellation`,
+`harborrag-source-guarded-discovery-stop`, `harborrag-source-cancel-closed-batch`,
+`harborrag-retry-heartbeat-timeout`, `harborrag-document-retry-records-cancellation`,
+`harborrag-retry-counts-cancelled-document`, `harborrag-batch-prompt-cancel` and
+`harborrag-source-prompt-discovery-cancel`. Such a run keeps its earlier cancel
+behaviour: a cancel during its discovery waits for discovery to end, and its batches let
+the documents in flight finish. A batch workflow that 2.0.0a1 closed after one of its
+document workflows failed does not replay; see [Known limitations](#known-limitations).
 
 ### After the upgrade
 
@@ -976,9 +978,11 @@ connection with `"method": "api_token"` and the `email`; the stored token is kep
 - **`qdrant-client` must be 1.17 to 1.19.** Installs of the `qdrant` extra that pinned
   an older client need `pip install -U "qdrant-client>=1.17,<1.20"`.
 - **A paused run shows as `Running` in the Temporal UI.** HarborRAG now pauses a run by
-  signal only; its own status still reads `paused`. Do not pause a run from the Temporal
-  UI or CLI on Temporal 1.31.x: that native pause can strand the run. Native pause is
-  safe only on Temporal 1.32 or later together with `temporalio` 1.35 or later.
+  signal only; its own status still reads `paused`, and the Current Details of its
+  `harborrag-source:<ingestion_id>` workflow say it is paused and how to resume it, or
+  that a cancel is pending. Do not pause a run from the Temporal UI or CLI on Temporal
+  1.31.x: that native pause can strand the run. Native pause is safe only on Temporal
+  1.32 or later together with `temporalio` 1.35 or later.
 - **Cancel runs that an earlier release paused mid-batch before you upgrade.** A run
   started before the upgrade that was paused while a batch was running keeps the old
   native pause on its later pauses, until it continues as new (every 25 batches by
@@ -1356,7 +1360,9 @@ reads and lists everything, as before.
   `workflow_id`, `run_id`, `trace_id`, `links`, `created_at` and `finished_at`.
 - **Ingestion reads need role `editor` and send the tenant in `X-Tenant-Id`.** The
   `?tenant_id` query parameter is removed; a run in another tenant is `404`. The list
-  filters are `project_id`, `connection_ref`, `status` and `created_after`.
+  filters are `project_id`, `connection_ref`, `status`, `trigger`, `schedule_id` and
+  `created_after`. A list `cursor` issued before the upgrade is refused once with
+  `422 validation_error` on `cursor`; list again from the first page.
 - **Pause, resume and cancel answer `200` with the run** after waiting for the new
   status; an action the state does not allow is `409 invalid_state`. `resume` also
   accepts a `running` run whose workflow holds a pause it has not applied yet, such as a
@@ -1618,6 +1624,14 @@ reprocesses them once more.
       reader may not read, although a longer readable path exists;
     - each graph call lists the reader's documents again before it falls back to source
       scopes.
+- **A cancelled document can keep writing briefly.** Its capture, parse or release-stage
+  activity can go on writing until its next heartbeat. The index entries it leaves for
+  that failed version never reach search results, because retrieval checks every
+  candidate against the active document version.
+- **The failure inbox filters see only existing connections.** `GET /v1/admin/failures`
+  with `project_id` or `connection_ref` matches nothing for a deleted connection, although
+  `GET /v1/admin/ingestions` keeps listing the runs of a connection deleted without
+  `purge=true`.
 
 ## 2.0.0a1 to 2.0.0a2
 

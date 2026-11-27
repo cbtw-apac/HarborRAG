@@ -306,11 +306,18 @@ These routes need the `editor` role, except the reader list.
 
 | Call | What it does |
 | --- | --- |
-| `GET /v1/admin/connections` | Every connection in the tenant, those needing attention (`needs_reauth`, `error`) first. Filter with `project_id`, `source_type`, `status`; page with `limit` and `cursor`. |
+| `GET /v1/admin/connections` | Every connection in the tenant, those needing attention (`needs_reauth`, `error`) first. Filter with `project_id`, `source_type`, `status` (`active`, `needs_reauth`, `error` or `deleting`) and `scheduled` (`true` keeps the connections that have a schedule that is not paused, `false` the others, before the page is cut); page with `limit` and `cursor`. |
 | `GET /v1/admin/projects/{project_id}/connections/{connection_id}` | One connection. Secrets come back as their status, never the value. The `ETag` header is the version. |
 | `PUT /v1/admin/projects/{project_id}/connections/{connection_id}` | Creates or overwrites the connection. `config` is replaced whole, and so is `advanced` unless it is left out. Send `If-Match` with the `ETag` you read to fail with `412` if someone changed it since, `If-Match: *` to update only, or `If-None-Match: *` to create only. `source_type` cannot change (`409 immutable_field`, `details` `{"field": "source_type"}`). A `PUT` that changes nothing stores nothing: the `ETag` and `updated_at` stay the same. Saving never starts an ingestion. |
 | `DELETE /v1/admin/projects/{project_id}/connections/{connection_id}` | Answers `202` with a `job_id`. In the background, the connection's schedules of `/v1/admin/schedules` are removed first, so no slot starts a run during the removal; then its documents leave Qdrant and the graph, then its stored secrets are deleted, then the row. `purge=true` also drops its Postgres history. |
 | `GET /v1/projects/{project_id}/connections` | Role `reader`: the project's connections, for filter chips. Under `source_acl` it lists only connections with a source the caller may read, so a connection never ingested, which has no source yet, is hidden; a caller who may read more than 10,000 sources gets `409 invalid_state`. Under `tenant_shared` it lists every connection. Each item's `documents` counts all of the connection's documents, not only the readable ones. |
+
+A connection read, saved or listed through `/v1/admin` carries `next_run_at`: the
+earliest next slot among its schedules that are not paused; see
+[Scheduled ingestion](scheduled-ingestion.md). It is `null` when the connection has no
+such schedule, has only paused ones, or while `schedules.enabled` is `false`. From a
+terminal, `harborrag connections list` takes the same filters, with `--status deleting`
+and `--scheduled` or `--no-scheduled`.
 
 ## Start and control ingestions
 
@@ -338,12 +345,26 @@ A connection whose stored values fail its source type's schema is
 
 ### `GET /v1/admin/ingestions`
 
-Runs in the tenant, newest first. Filter with `project_id`, `connection_ref`
-(`project_id/connection_id`), `status` (`queued`, `running`, `paused`, `succeeded`,
-`failed`, `cancelled`) and `created_after` (a date-time with a UTC offset, such as
-`2026-11-01T00:00:00Z`; without one it is `422`). Page with `limit` (default 20, 1 to
-100) and `cursor`, which is bound to the filter it came from. A run in another tenant is
-`404`.
+Runs in the tenant, newest first. Page with `limit` (default 20, 1 to 100) and
+`cursor`, which works only with the filters it came from; any other cursor is
+`422 validation_error` on `cursor`. A run in another tenant is `404`. The filters:
+
+| Filter | Keeps |
+| --- | --- |
+| `project_id` | The runs of the project's connections. |
+| `connection_ref` | The runs of one connection, as `project_id/connection_id`. |
+| `status` | `queued`, `running`, `paused`, `succeeded`, `failed` or `cancelled`. |
+| `trigger` | The runs a `user`, an `api_key` or a `schedule` started, as `triggered_by.principal_type` shows. A run that records no starter, such as one from `config/sources/schedules.yaml`, counts as `user`. |
+| `schedule_id` | The runs that schedule of `/v1/admin/schedules` started, its triggered runs included. With `trigger=user` or `trigger=api_key`, the page is empty. |
+| `created_after` | Runs created at or after a date-time with a UTC offset, such as `2026-11-01T00:00:00Z`; without the offset it is `422`. |
+
+`project_id` and `connection_ref` also keep the runs of a connection deleted without
+`purge=true`. A deleted connection that was imported from `connectors.yaml` with a key
+that has no `project_id/` prefix, such as `jira-main`, is the exception: its runs no
+longer match either filter.
+
+From a terminal, `harborrag ingestions list` takes the same filters, such as
+`--trigger schedule` and `--schedule-id demo-tickets-hourly`.
 
 ### `GET /v1/admin/ingestions/{ingestion_id}`
 
@@ -374,9 +395,14 @@ resume and 30 s for cancel. If the wait ends first, the answer is the run as it 
   is `409 invalid_state`, and the run is unchanged.
 - `cancel` starts no further document and cancels the documents in flight. Each of them
   is recorded as a failure with the category `cancelled`, so `retry-failures` can run
-  it again, and the run usually reaches `cancelled` within a few seconds, inside the
+  it again. A document caught while it publishes finishes publishing instead, and counts
+  as published. The run usually reaches `cancelled` within a few seconds, inside the
   wait. Once the answer shows `cancelled`, a new ingestion of the connection can start.
-  A cancel sent during discovery takes effect when discovery ends.
+- A cancel sent during discovery stops discovery at its next heartbeat, within about a
+  minute, so the answer may still show `running`. The run then ends `cancelled` with no
+  document processed, and `counters.discovered` keeps the count discovery had recorded.
+  Until the run shows `cancelled`, a new start of the connection answers
+  `409 already_running`.
 - A retry run, started by `retry-failures` or `POST /v1/admin/failures/retry`, can be
   cancelled but not paused or resumed: `pause` and `resume` on it are
   `409 invalid_state`.
@@ -384,8 +410,18 @@ resume and 30 s for cancel. If the wait ends first, the answer is the run as it 
   `cancelled`. So does cancelling a running or paused run, or a retry run, whose
   workflow Temporal no longer has, for example after its history passed the namespace
   retention; its `error_category` is then `workflow_not_found`.
-- Cancelling a queued run that is not a retry run, and whose workflow Temporal does not
-  have, answers `503`, since the workflow may not have started yet.
+- Cancelling a queued run whose workflow Temporal does not have, because it never
+  started or was lost, records it as `cancelled` at once, with `error_category`
+  `workflow_not_found`. While HarborRAG is still starting that workflow, the cancel
+  answers `409 invalid_state`; send it again a moment later.
+- A run paused by HarborRAG still shows as Running in the Temporal UI. The Current
+  Details of its `harborrag-source:<ingestion_id>` workflow read
+  `Paused by HarborRAG at <time>; resume with POST /v1/admin/ingestions/<ingestion_id>/resume`
+  while it is paused, and `Cancelling at HarborRAG's request since <time>` while a
+  cancel is pending, with `<time>` in UTC, such as `2026-12-01T09:00:00Z`. They are
+  empty while the run runs; its batch and document workflows have none. Pause and
+  resume a run here or with `harborrag ingestions`, not in the Temporal UI, whose
+  native pause can hang the run on Temporal 1.31.
 
 ### `POST /v1/admin/ingestions/{ingestion_id}/retry-failures`
 
