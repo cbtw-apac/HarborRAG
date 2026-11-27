@@ -1,4 +1,3 @@
--- update the document for testning the auto sync document website---
 # HarborRAG Documentation
 
 ## Getting started
