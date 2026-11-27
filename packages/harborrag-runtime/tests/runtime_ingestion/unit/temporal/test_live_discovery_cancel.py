@@ -192,6 +192,57 @@ async def test_a_cancelled_walk_stops_reading_the_source_after_the_item_in_hand(
 
 
 @pytest.mark.asyncio
+async def test_a_cancelled_discovery_attempt_stops_quietly_and_the_cancel_closes_its_scan(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A graceful cancel cancels the attempt, waits for it to stop, then records the cancel."""
+    reached = threading.Event()
+    release = threading.Event()
+
+    def hold_at_the_sixth_item(index: int) -> None:
+        if index == 5:
+            reached.set()
+            release.wait(timeout=30)
+
+    connector = _WalkingConnector(hold_at_the_sixth_item)
+    control = build_control_plane(tmp_path)
+    resources = build_release_resources(control)
+    loop = asyncio.get_running_loop()
+    async with control, resources.store:
+        service = SourceIngestionService(
+            control=control, documents=build_release_service(resources)
+        )
+
+        async def connector_for_run(**kwargs: object) -> _WalkingConnector:
+            del kwargs
+            return connector
+
+        environment = _environment()
+        activities = _activities(service, connector_for_run)
+        with caplog.at_level(logging.INFO):
+            attempt = asyncio.create_task(
+                environment.run(activities.discover_source_items, _source())
+            )
+            assert await asyncio.to_thread(reached.wait, 30)
+            environment.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await attempt
+        release.set()
+        await loop.shutdown_default_executor()
+        open_after_the_attempt = await control.source_scans.has_running_scan("docs")
+        await service.cancel(_TASK)
+        open_after_the_cancel = await control.source_scans.has_running_scan("docs")
+        task = await control.tasks.get(_TASK)
+
+    assert connector.walked == 6
+    assert not [record for record in caplog.records if record.levelno >= logging.ERROR]
+    assert open_after_the_attempt
+    assert not open_after_the_cancel
+    assert task is not None
+    assert task.status is IngestionTaskState.CANCELLED
+
+
+@pytest.mark.asyncio
 async def test_a_conflict_in_a_run_that_is_not_cancelled_still_fails_loudly(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:

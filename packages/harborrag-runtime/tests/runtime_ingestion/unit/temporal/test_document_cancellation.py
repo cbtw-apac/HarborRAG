@@ -11,6 +11,7 @@ from typing import Any
 import pytest
 import pytest_asyncio
 from temporalio import activity
+from temporalio.api.enums.v1 import EventType
 from temporalio.client import (
     WorkflowExecutionStatus,
     WorkflowFailureError,
@@ -20,11 +21,14 @@ from temporalio.client import (
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 
+from harborrag_core.ingestion import DocumentIngestionOutcome
 from harborrag_runtime.temporal.document_workflow import DocumentIngestionWorkflow
 from harborrag_runtime.temporal.schemas import (
     DocumentDispatchSummary,
     DocumentFailureInput,
     DocumentIngestionInput,
+    PreparedDocument,
+    RawCaptureResult,
     SourceBatchInput,
     WorkflowArtifactReference,
 )
@@ -64,6 +68,38 @@ class _Activities:
 
     def all(self) -> list[Callable[..., Any]]:
         return [self.capture, self.record_failure]
+
+
+class _PublishingActivities(_Activities):
+    """A document that captures and parses at once, then publishes when released."""
+
+    @activity.defn(name="harborrag.fetch_and_capture_raw")
+    async def capture_at_once(self, request: DocumentIngestionInput) -> RawCaptureResult:
+        return RawCaptureResult(
+            document=request,
+            document_id="document-1",
+            document_version_id="version-1",
+            decision="changed",
+        )
+
+    @activity.defn(name="harborrag.parse_and_normalize")
+    async def parse(self, capture: RawCaptureResult) -> PreparedDocument:
+        return PreparedDocument(
+            document=capture.document,
+            document_id=capture.document_id,
+            document_version_id="version-1",
+            decision=capture.decision,
+        )
+
+    @activity.defn(name="harborrag.publish_version")
+    async def publish(self, prepared: PreparedDocument) -> DocumentIngestionOutcome:
+        del prepared
+        self.entered.set()
+        await self.released.wait()
+        return DocumentIngestionOutcome.PUBLISHED
+
+    def all(self) -> list[Callable[..., Any]]:
+        return [self.capture_at_once, self.parse, self.publish, self.record_failure]
 
 
 @pytest_asyncio.fixture
@@ -215,6 +251,60 @@ async def test_a_graceful_cancel_cancels_the_documents_in_flight(
     assert activities.failures == ["cancelled"]
     assert _PROMPT_CANCEL_PATCH in _patch_ids(history)
     assert await _replay_failure(history, SourceBatchWorkflow) is None
+
+
+@pytest.mark.asyncio
+async def test_a_graceful_cancel_waits_for_a_publish_in_flight_and_counts_it_published(
+    environment: WorkflowEnvironment,
+) -> None:
+    activities = _PublishingActivities()
+    workers, runs = await _run_workers(environment, activities)
+    task_id = f"task-{uuid.uuid4().hex[:8]}"
+    document = environment.client.get_workflow_handle(f"harborrag-document:{task_id}:0:0")
+    try:
+        with environment.auto_time_skipping_disabled():
+            batch = await environment.client.start_workflow(
+                SourceBatchWorkflow.run,
+                SourceBatchInput(
+                    task_id=task_id,
+                    tenant_id="tenant-1",
+                    connector_name="local-docs",
+                    plan_reference=_PLAN,
+                    start_index=0,
+                    end_index=1,
+                    batch_number=0,
+                    document_concurrency=1,
+                ),
+                id=f"harborrag-source-batch:{task_id}:0",
+                task_queue=TemporalWorkflowOptions().task_queues.transform,
+            )
+            await asyncio.wait_for(activities.entered.wait(), 10)
+            await batch.signal("request_graceful_cancel")
+            await _until_cancel_requested(document)
+            activities.released.set()
+            summary = await asyncio.wait_for(batch.result(), 10)
+            status = (await document.describe()).status
+            history = await document.fetch_history()
+    finally:
+        await _stop(activities, workers, runs)
+
+    assert summary == DocumentDispatchSummary(published=1)
+    assert status is WorkflowExecutionStatus.COMPLETED
+    assert activities.failures == []
+    assert _PROMPT_CANCEL_PATCH in _patch_ids(history)
+    assert await _replay_failure(history) is None
+
+
+async def _until_cancel_requested(handle: WorkflowHandle[Any, Any]) -> None:
+    for _ in range(200):
+        history = await handle.fetch_history()
+        if any(
+            event.event_type == EventType.EVENT_TYPE_WORKFLOW_EXECUTION_CANCEL_REQUESTED
+            for event in history.events
+        ):
+            return
+        await asyncio.sleep(0.05)
+    raise AssertionError("the document run was never asked to cancel")
 
 
 def _patch_ids(history: WorkflowHistory) -> set[str]:
