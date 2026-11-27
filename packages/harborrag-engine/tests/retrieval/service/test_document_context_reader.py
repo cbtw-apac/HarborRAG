@@ -26,10 +26,15 @@ ACCESS = AccessContext.system("tenant-1")
 CONTEXT = StorageOperationContext.for_access(
     ACCESS, operation_kind="document-context", idempotency_key="request-1"
 )
-SECTIONS = (("Overview",), ("Details",), ("Details",))
+SECTIONS = (("Overview",), ("Details",), ("Details",), ("Details",))
 
 
-def _chunk(index: int, content: str, tenant_id: str = "tenant-1") -> ChunkRecord:
+def _chunk(
+    index: int,
+    content: str,
+    tenant_id: str = "tenant-1",
+    record_kind: RecordKind = RecordKind.EVIDENCE,
+) -> ChunkRecord:
     return ChunkRecord(
         strategy_version="strategy-1",
         logical_chunk_id=f"logical-{index}",

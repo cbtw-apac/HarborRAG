@@ -193,6 +193,7 @@ class DocumentContextChunk:
     Attributes:
         chunk_id: Chunk identifier.
         ordinal: Position of the chunk within its document version.
+        record_kind: Always ``evidence``; route navigation records are not returned.
         text: Chunk text.
         chunk_kind: Kinds of content the chunk holds, its own kind first, such as
             text and table.
@@ -202,6 +203,7 @@ class DocumentContextChunk:
 
     chunk_id: str
     ordinal: int
+    record_kind: str
     text: str
     chunk_kind: tuple[str, ...]
     section_path: tuple[str, ...]

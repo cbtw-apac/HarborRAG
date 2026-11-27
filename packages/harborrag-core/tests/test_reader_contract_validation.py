@@ -274,6 +274,7 @@ def test_transport_field_lists_follow_the_dataclass_order() -> None:
     assert DOCUMENT_CONTEXT_CHUNK_FIELDS == (
         "chunk_id",
         "ordinal",
+        "record_kind",
         "text",
         "chunk_kind",
         "section_path",

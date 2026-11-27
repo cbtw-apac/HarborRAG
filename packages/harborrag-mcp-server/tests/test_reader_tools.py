@@ -157,6 +157,7 @@ def _context_chunk(chunk_id: str, ordinal: int):
     return DocumentContextChunk(
         chunk_id,
         ordinal,
+        "evidence",
         f"Context {ordinal}",
         ("text",),
         ("Overview",),

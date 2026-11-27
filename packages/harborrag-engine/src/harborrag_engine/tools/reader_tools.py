@@ -151,6 +151,7 @@ class GetDocumentContextTool(ReaderTool):
                         {
                             "chunk_id": item.chunk_id,
                             "ordinal": item.ordinal,
+                            "record_kind": item.record_kind,
                             "text": item.text,
                             "chunk_kind": list(item.chunk_kind),
                             "section_path": list(item.section_path),
