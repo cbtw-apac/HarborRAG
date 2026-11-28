@@ -15,6 +15,10 @@ from harborrag_mcp_server.preflight import describe_startup_failure
 pytestmark = pytest.mark.unit
 
 REPOSITORY = Path(__file__).resolve().parents[3]
+ROLE_MIGRATION = (
+    "packages/harborrag-adapters/src/harborrag_adapters/repositories/database/control_plane/"
+    "alembic/versions/0050_mcp_reader_grants.py"
+)
 OWNER_SECRETS = ("owner-secret", "object-root-secret")
 
 
@@ -89,9 +93,8 @@ def test_catalog_check_needs_no_read_only_accounts(tmp_path: Path) -> None:
 
 def test_compose_server_gets_the_same_read_only_accounts_as_the_checkout() -> None:
     compose = (REPOSITORY / "deploy/compose/docker-compose.mcp.yml").read_text(encoding="utf-8")
-    role_script = (REPOSITORY / "deploy/compose/postgres/mcp-reader-role.sql").read_text(
-        encoding="utf-8"
-    )
+    role_migration = (REPOSITORY / ROLE_MIGRATION).read_text(encoding="utf-8")
+    password_step = (REPOSITORY / "scripts/deployment/dev.sh").read_text(encoding="utf-8")
     minio_script = (REPOSITORY / "scripts/deployment/common/mcp-minio-user.sh").read_text(
         encoding="utf-8"
     )
@@ -106,7 +109,8 @@ def test_compose_server_gets_the_same_read_only_accounts_as_the_checkout() -> No
         "MINIO_ROOT_PASSWORD",
     ):
         assert owner_value not in compose
-    assert f"CREATE ROLE {READER_DATABASE_ROLE} NOLOGIN" in role_script
+    assert f"CREATE ROLE {READER_DATABASE_ROLE} NOLOGIN" in role_migration
+    assert f"ALTER ROLE {READER_DATABASE_ROLE} LOGIN PASSWORD" in password_step
     assert f"printf '%s\\n%s\\n' {READER_OBJECT_STORE_USER} " in minio_script
 
 

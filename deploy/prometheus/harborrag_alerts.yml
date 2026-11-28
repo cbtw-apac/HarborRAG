@@ -127,6 +127,23 @@ groups:
           dashboard: harborrag-stores-host
           runbook_url: https://github.com/cbtw-apac/HarborRAG/blob/main/docs/developers/deployment/observability-runbooks.md#host-resources
 
+      # The API refreshes the source gauges from the run history. A stalled refresh
+      # freezes them, so the source alerts and panels can no longer be trusted.
+      - alert: HarborRAGSourceFreshnessUnknown
+        expr: |
+          time() - max(harborrag_ingestion_source_state_refresh_timestamp_seconds) > 300
+          or
+          (absent(harborrag_ingestion_source_state_refresh_timestamp_seconds) and on () (up{job="harborrag-api"} == 1))
+        for: 10m
+        labels:
+          severity: warning
+          side: shared
+        annotations:
+          summary: The API no longer refreshes the ingestion source state
+          description: "No API replica has refreshed the source gauges for over 5 minutes, or none reports them while the API is up: the source panels and alerts show stale data."
+          dashboard: harborrag-ingestion
+          runbook_url: https://github.com/cbtw-apac/HarborRAG/blob/main/docs/developers/deployment/observability-runbooks.md#source-freshness-unknown
+
   - name: harborrag-offline
     rules:
       # Vector and graph writes fail independently: the document stays findable
@@ -160,6 +177,33 @@ groups:
           description: "Schedule {{ $labels.schedule_id }} is not paused but has completed no run in 26 hours."
           dashboard: harborrag-ingestion
           runbook_url: https://github.com/cbtw-apac/HarborRAG/blob/main/docs/developers/deployment/observability-runbooks.md#sync-missed-or-stale
+
+      # Every API replica reports the same source gauges, so each rule takes their max.
+      - alert: HarborRAGSourceRunFailed
+        expr: |
+          max by (tenant, source_scope_id, connector_type) (harborrag_ingestion_source_last_run_status{status="failed"}) == 1
+        for: 10m
+        labels:
+          severity: warning
+          side: offline
+        annotations:
+          summary: The latest ingestion run of a source failed
+          description: "The latest run of source {{ $labels.source_scope_id }} ({{ $labels.connector_type }}, tenant {{ $labels.tenant }}) failed."
+          dashboard: harborrag-ingestion
+          runbook_url: https://github.com/cbtw-apac/HarborRAG/blob/main/docs/developers/deployment/observability-runbooks.md#source-run-failed
+
+      - alert: HarborRAGSourceRunNotStarted
+        expr: |
+          max by (tenant, source_scope_id, connector_type) (harborrag_ingestion_source_last_run_status{status="pending"}) == 1
+        for: 30m
+        labels:
+          severity: warning
+          side: offline
+        annotations:
+          summary: The latest ingestion run of a source has not started
+          description: "The latest run of source {{ $labels.source_scope_id }} ({{ $labels.connector_type }}, tenant {{ $labels.tenant }}) has been pending for 30 minutes: no worker picked it up."
+          dashboard: harborrag-ingestion
+          runbook_url: https://github.com/cbtw-apac/HarborRAG/blob/main/docs/developers/deployment/observability-runbooks.md#source-run-not-started
 
       # The worker's SDK records how long each activity waited for a free slot. A
       # stopped worker records nothing, so this alert cannot see one; Sync stale does.

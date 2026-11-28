@@ -880,18 +880,17 @@ case " $* " in
   *" network inspect "*) [ -z "${NETWORK_ABSENT:-}" ] ;;
   *" exec "*" postgres "*)
     cat > "$DOCKER_STDIN"
-    printf '%s' "${HARBORRAG_OBSERVER_PASSWORD:-}" > "$DOCKER_STDIN.password" ;;
+    printf '%s' "${HARBORRAG_MONITOR_PASSWORD:-}" > "$DOCKER_STDIN.password" ;;
 esac
 """
 
 
 def _observability_project(tmp_path: Path) -> tuple[Path, dict[str, str]]:
-    """Copy the launcher, its helpers, template and role SQL; return it with a fake docker."""
+    """Copy the launcher, its helpers and template; return it with a fake docker."""
     for relative in (
         "scripts/deployment/observability.sh",
         "scripts/deployment/common/dev-checks.sh",
         "env-example/.env.monitoring.example",
-        "deploy/compose/postgres/observer-role.sql",
     ):
         target = tmp_path / relative
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -944,9 +943,10 @@ def test_observability_entrypoint_documents_its_commands() -> None:
         "  down [--volumes] ",
         "  status ",
         "  logs [SERVICE...] ",
-        "  db-access ",
     ):
         assert command in script
+    assert "db-access" not in script
+    assert "HARBORRAG_OBSERVER" not in script
     assert 'MONITORING_ENV_FILE="${MONITORING_ENV_FILE:-env/.env.monitoring}"' in script
 
 
@@ -963,7 +963,7 @@ def test_observability_bootstrap_writes_protected_generated_passwords_once(
         text = monitoring.read_text(encoding="utf-8")
         values = [
             re.findall(rf"^{name}=(.*)$", text, re.MULTILINE)
-            for name in ("GRAFANA_ADMIN_PASSWORD", "HARBORRAG_OBSERVER_PASSWORD")
+            for name in ("GRAFANA_ADMIN_PASSWORD", "HARBORRAG_MONITOR_PASSWORD")
         ]
         assert all(len(found) == 1 and re.fullmatch(r"[0-9a-f]{64}", found[0]) for found in values)
         return [found[0] for found in values]
@@ -983,7 +983,11 @@ def test_observability_up_passes_compose_only_the_database_name(tmp_path: Path) 
     result = _run_observability(script, env, "up")
 
     assert result.returncode == 0, result.stderr
-    compose_calls = [line for line in _docker_calls(tmp_path).splitlines() if "compose" in line]
+    compose_calls = [
+        line
+        for line in _docker_calls(tmp_path).splitlines()
+        if "docker-compose.monitoring.yml" in line
+    ]
     assert any("docker-compose.monitoring.yml up --detach --wait" in line for line in compose_calls)
     assert all(line.endswith("POSTGRES_DB=harborrag") for line in compose_calls)
     assert not any(".env.database" in line for line in compose_calls)
@@ -1007,22 +1011,54 @@ def test_observability_up_names_the_fix_when_the_data_network_is_missing(
 
 
 @pytest.mark.unit
-def test_observability_db_access_hands_the_password_over_outside_argv(tmp_path: Path) -> None:
+def test_observability_up_creates_the_monitor_login_with_the_password_outside_argv(
+    tmp_path: Path,
+) -> None:
     script, env = _observability_project(tmp_path)
     assert _run_observability(script, env, "bootstrap").returncode == 0
     password = re.findall(
-        r"^HARBORRAG_OBSERVER_PASSWORD=(.*)$",
+        r"^HARBORRAG_MONITOR_PASSWORD=(.*)$",
         (tmp_path / "env/.env.monitoring").read_text(encoding="utf-8"),
         re.MULTILINE,
     )[0]
 
-    result = _run_observability(script, env, "db-access")
+    result = _run_observability(script, env, "up")
 
     assert result.returncode == 0, result.stderr
     calls = _docker_calls(tmp_path)
-    assert "docker-compose.database.yml exec -T -e HARBORRAG_OBSERVER_PASSWORD postgres" in calls
+    grant = calls.index(
+        "docker-compose.database.yml exec -T -e HARBORRAG_MONITOR_PASSWORD postgres"
+    )
+    assert grant < calls.index("docker-compose.monitoring.yml up --detach")
     assert password not in calls
     assert (tmp_path / "stdin.password").read_text(encoding="utf-8") == password
-    assert (tmp_path / "stdin").read_bytes() == (
-        ROOT / "deploy/compose/postgres/observer-role.sql"
-    ).read_bytes()
+    role_sql = (tmp_path / "stdin").read_text(encoding="utf-8")
+    assert "\\getenv monitor_password HARBORRAG_MONITOR_PASSWORD" in role_sql
+    assert "PASSWORD :'monitor_password'" in role_sql
+    assert "GRANT pg_monitor TO harborrag_monitor;" in role_sql
+    assert "DROP ROLE IF EXISTS harborrag_observer;" in role_sql
+    assert "GRANT SELECT" not in role_sql
+
+
+@pytest.mark.unit
+def test_observability_up_refuses_a_blank_monitor_password(tmp_path: Path) -> None:
+    script, env = _observability_project(tmp_path)
+    monitoring = tmp_path / "env/.env.monitoring"
+    assert _run_observability(script, env, "bootstrap").returncode == 0
+    monitoring.write_text(
+        re.sub(
+            r"^HARBORRAG_MONITOR_PASSWORD=.*$",
+            "HARBORRAG_MONITOR_PASSWORD=",
+            monitoring.read_text(encoding="utf-8"),
+            flags=re.MULTILINE,
+        ),
+        encoding="utf-8",
+    )
+
+    result = _run_observability(script, env, "up")
+
+    assert result.returncode == 2
+    assert "HARBORRAG_MONITOR_PASSWORD is blank in env/.env.monitoring" in result.stderr
+    assert "bootstrap" in result.stderr
+    assert " exec " not in _docker_calls(tmp_path)
+    assert " up " not in _docker_calls(tmp_path)

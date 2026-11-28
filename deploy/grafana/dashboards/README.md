@@ -11,8 +11,7 @@ Compose file mounts this folder read-only at `/var/lib/grafana/dashboards`, and
 | `shared/` | `Shared` | `harborrag-shared` |
 
 A JSON file placed directly in this folder is not loaded. Panels refer to the data sources by
-their fixed uids: `harborrag-prometheus`, `harborrag-loki`, `harborrag-tempo` and
-`harborrag-postgres`.
+their fixed uids: `harborrag-prometheus`, `harborrag-loki` and `harborrag-tempo`.
 
 | File | Dashboard | Uid |
 | --- | --- | --- |
@@ -23,8 +22,18 @@ their fixed uids: `harborrag-prometheus`, `harborrag-loki`, `harborrag-tempo` an
 | `shared/stores-host.json` | Stores and host | `harborrag-stores-host` |
 
 The admin console links a run to `harborrag-ingestion` with `var-run=<task id>`, which narrows
-its run panels to that task. Any dashboard also takes `var-tenant`, and the ingestion one
-`var-connector` and `var-task_queue`, in its URL.
+*Documents by outcome per run* to that task and fills the *Temporal: this run* link. Any
+dashboard also takes `var-tenant`, and the ingestion one `var-connector` and `var-task_queue`,
+in its URL.
+
+The ingestion dashboard reads no SQL. Its source panels read the API's
+`harborrag_ingestion_source_last_success_timestamp_seconds` and
+`harborrag_ingestion_source_last_run_status` gauges, and *Documents by outcome per run* reads
+the worker's `ingestion.source_finalized` log lines from Loki. Every API replica reports the
+same source gauges, so each query aggregates them with `max by`. *Source runs* and the *Last
+status* column turn the status label into a number, 1 (completed) to 7 (pending), and map the
+number back to a named, coloured state; change both together. The dashboards' *Ingestion runs*
+annotation shades the time a source's latest run was running.
 
 The ingestion dashboard's Temporal panels compare the worker's activity slots with
 `worker.max_concurrent_activities` in `config/temporal.yaml`. Its *Temporal: this run* link
@@ -44,8 +53,7 @@ measures of different scale get two panels. Keep these rules when you edit a pan
 Every dashboard reads top-down in four bands: is it healthy now, how is it trending, where is
 it coming from, and what to open. Alerts, the admin console and the dashboards link to each
 other by these uids, so keep them when you change a dashboard. Edit it in Grafana, export the
-JSON without external data source references, and replace the file. The PostgreSQL panels name
-their columns, because the `harborrag_observer` role may read only the run columns.
+JSON without external data source references, and replace the file.
 
 To start the monitoring stack, see
 [Run the monitoring stack](../../../docs/developers/deployment/README.md#run-the-monitoring-stack).

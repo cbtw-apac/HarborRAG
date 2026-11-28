@@ -82,9 +82,10 @@ in the Temporal UI, at `http://localhost:8080` on the local stack. Other outcome
 
 - `scheduling.schedule_file_missing config_path=<path>`: the API found no file at
   `HARBORRAG_SCHEDULE_CONFIG_PATH`.
-- `Declared schedule sync failed; fix the deployment and restart`: the file is invalid,
-  for example an unknown key, a duplicate `id` or a bad cron expression. One invalid
-  entry stops the whole file, and no schedule changes.
+- `api.declared_schedule_sync_failed error_type=<type> retryable=false hint=…`: the file
+  is invalid, for example an unknown key, a duplicate `id` or a bad cron expression. One
+  invalid entry stops the whole file, and no schedule changes. The same event with
+  `retryable=true` means Temporal was unreachable and the API retries.
 - `scheduling.declared_schedule_rejected error_type=<type> schedule_id=<id> hint=…`: that
   schedule was skipped and the others were applied. The usual cause is a `connection_id`
   that does not exist in `source.tenant`; the line's hint lists the other checks.

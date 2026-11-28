@@ -15,6 +15,8 @@ from harborrag_runtime.composition import CompositionRoot
 from harborrag_runtime.composition.control_plane import secrets_encryption_key
 from harborrag_runtime.config.settings import DEFAULT_CONTROL_DB_URL, RuntimeSettings
 
+pytestmark = pytest.mark.unit
+
 
 def _production(tmp_path: Path) -> CompositionRoot:
     """Composition against a tmp SQLite control DB."""
@@ -42,13 +44,13 @@ def test_production_composition_migrates_and_reports_ready(
     assert runtime["ready"] is True
     control_db = runtime["control_db"]
     assert control_db["ping"] == "ok"
-    assert control_db["migrations"] == "0049"
+    assert control_db["migrations"] == "0050"
     assert control_db["scheme"] == "sqlite+aiosqlite"
     (completed,) = _events(caplog, "control_plane.composition_completed")
     assert completed.levelno == logging.INFO
     assert completed.__dict__["database_kind"] == "sqlite+aiosqlite"
     assert completed.__dict__["probe_status"] == "ok"
-    assert completed.__dict__["schema_revision_id"] == "0049"
+    assert completed.__dict__["schema_revision_id"] == "0050"
     assert "dropped_fields" not in completed.__dict__
 
 

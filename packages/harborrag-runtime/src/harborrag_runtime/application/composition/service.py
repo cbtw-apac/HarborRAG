@@ -11,6 +11,7 @@ from harborrag_adapters.connectors.policies.network import DestinationPolicy
 from harborrag_core.contracts.errors import HarborUnavailableError
 from harborrag_core.contracts.events import HarborEvent, event_prefix
 from harborrag_core.ports.events import EventBusPort
+from harborrag_core.ports.source_freshness import SourceFreshnessReport
 from harborrag_engine.chat.scope import ControlPlaneConnectionCatalog
 from harborrag_engine.control_plane.connection_views import IngestionLinks
 from harborrag_engine.ingestion.failure_inbox import FailureInboxService
@@ -319,6 +320,24 @@ class AppService(
     async def tenant_has_data(self, tenant_id: str) -> bool:
         """Whether the tenant holds a project, a connection or a saved settings revision."""
         return await tenant_has_data(self._control_plane(), tenant_id)
+
+    async def source_freshness(self, *, limit: int) -> SourceFreshnessReport:
+        """Read every tenant's source freshness, stalest first, for the operator metrics.
+
+        Args:
+            limit: The most sources to return.
+
+        Returns:
+            The sources read and how many exist in all.
+
+        Raises:
+            HarborUnavailableError: No control database or freshness reader is configured,
+                or the database cannot be read in time.
+        """
+        reader = self._control_plane().source_freshness
+        if reader is None:
+            raise HarborUnavailableError("source freshness reader is not configured")
+        return await reader.source_freshness(limit=limit)
 
     async def sync_declared_schedules(self) -> dict[str, int] | None:
         """Reconcile the declared schedules into the schedule engine; ``None`` when it has none."""

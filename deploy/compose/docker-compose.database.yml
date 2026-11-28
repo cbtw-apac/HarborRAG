@@ -68,8 +68,6 @@ services:
       - "${HARBORRAG_DATA_BIND_ADDRESS:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - pg_data:/var/lib/postgresql/data
-      # Runs on an empty volume only; 'scripts/deployment/dev.sh mcp-access' reruns it.
-      - ./postgres/mcp-reader-role.sql:/docker-entrypoint-initdb.d/10-mcp-reader-role.sql:ro
     healthcheck:
       test:
         - CMD-SHELL

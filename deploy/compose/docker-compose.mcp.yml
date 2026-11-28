@@ -27,9 +27,10 @@ services:
       HARBORRAG_MCP_CONFIG_PATH: /app/config/mcp/server.yaml
       HARBORRAG_MODEL_CONFIG_PATH: /app/config/models/models.yaml
       HARBORRAG_MCP_AUDIT_PATH: /var/lib/harborrag/.harborrag/mcp-audit.jsonl
-      # The server reads with its own accounts: the read-only harborrag_mcp role and
-      # the harborrag-mcp MinIO user, which 'scripts/deployment/dev.sh mcp-access'
-      # creates. It never gets the Postgres owner or the MinIO root credentials.
+      # The server reads with its own accounts: the read-only harborrag_mcp role, which
+      # the migrations create, and the harborrag-mcp MinIO user. 'scripts/deployment/dev.sh
+      # mcp-access' sets both passwords. It never gets the Postgres owner or the MinIO root
+      # credentials.
       HARBORRAG_CONTROL_DB_URL: postgresql+asyncpg://harborrag_mcp:${POSTGRES_MCP_PASSWORD:?run scripts/deployment/dev.sh mcp-access to set POSTGRES_MCP_PASSWORD}@postgres:5432/${POSTGRES_DB:?set POSTGRES_DB in the database environment file}
       # The backends are fixed names on the data network. The plaintext
       # acknowledgements apply to those names only, so the addresses are not

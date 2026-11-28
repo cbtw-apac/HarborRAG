@@ -121,12 +121,13 @@
         "enable": true,
         "iconColor": "purple",
         "datasource": {
-          "type": "grafana-postgresql-datasource",
-          "uid": "harborrag-postgres"
+          "type": "prometheus",
+          "uid": "harborrag-prometheus"
         },
-        "rawQuery": "SELECT started_at AS time, completed_at AS timeend, status AS text FROM ingestion_tasks WHERE started_at IS NOT NULL AND $__timeFilter(started_at) ORDER BY started_at",
-        "rawSql": "SELECT started_at AS time, completed_at AS timeend, status AS text FROM ingestion_tasks WHERE started_at IS NOT NULL AND $__timeFilter(started_at) ORDER BY started_at",
-        "format": "table"
+        "expr": "max by (tenant, source_scope_id) (harborrag_ingestion_source_last_run_status{status=\"running\"}) == 1",
+        "step": "1m",
+        "titleFormat": "Ingestion run",
+        "textFormat": "{{tenant}} {{source_scope_id}}"
       }
     ]
   },

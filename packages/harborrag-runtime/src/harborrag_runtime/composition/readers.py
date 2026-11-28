@@ -1,4 +1,8 @@
-"""Reader-only service composition and ownership."""
+"""Reader-only service composition and ownership.
+
+Everything built here only reads. Over Postgres the application refuses to start
+when the MCP login can read a table outside the MCP allow-list.
+"""
 
 from __future__ import annotations
 
@@ -6,6 +10,7 @@ import asyncio
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from harborrag_core.contracts.errors import HarborConfigurationError
 from harborrag_engine.tools.catalog import build_reader_tool_catalog
 from harborrag_engine.tools.dispatcher import ToolInvoker
 from harborrag_engine.tools.references import KnowledgeReferenceStore
@@ -64,13 +69,21 @@ class ReaderApplication:
             return self._service
 
     async def start(self) -> None:
-        """Start the settings provider, then connect the retrieval backends.
+        """Start the settings provider, check the login's grants, then connect retrieval.
+
+        Over Postgres, a connection as the MCP login that can read a table outside
+        the MCP allow-list stops the start before any retrieval backend connects.
 
         Raises:
-            HarborUnavailableError: The settings store is unreachable.
+            HarborUnavailableError: The settings store is unreachable, or the
+                login's grants cannot be read.
+            HarborConfigurationError: The MCP login can read a table outside its
+                allow-list; the message names the tables.
         """
         if self.config_provider is not None:
             await self.config_provider.start()
+        if self._config_engine is not None:
+            await _require_reader_grants(self._config_engine)
         await self._retrieval_service()
 
     def _build_control_database_readers(self) -> None:
@@ -106,6 +119,26 @@ class ReaderApplication:
             if self._service is not None:
                 service, self._service = self._service, None
                 await service.aclose()
+
+
+async def _require_reader_grants(engine: AsyncEngine) -> None:
+    """Refuse to serve while the MCP login can read a table outside its allow-list.
+
+    The fix comes before the table names, because a start-up report may cut a long
+    list short.
+    """
+    from harborrag_adapters.repositories.database.control_plane.reader_grants import (
+        MCP_READER_LOGIN,
+        tables_beyond_reader_grants,
+    )
+
+    tables = await tables_beyond_reader_grants(engine)
+    if tables:
+        raise HarborConfigurationError(
+            f"Postgres login {MCP_READER_LOGIN} can read {len(tables)} tables outside the MCP "
+            "allow-list; apply the control-plane migrations, which set its grants, or revoke "
+            f"its SELECT on: {', '.join(tables)}"
+        )
 
 
 def open_reader_application(settings: RuntimeSettings) -> ReaderApplication:

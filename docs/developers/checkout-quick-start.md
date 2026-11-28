@@ -254,8 +254,9 @@ That performs a real MCP handshake and prints the eleven advertised retrieval to
 opening provider connections.
 
 The MCP server reads Postgres and MinIO with read-only accounts of its own, not the owner
-credentials in `env/.env.database`. Create them once, before the first `mcp.sh` start other
-than `--check`, and again after each upgrade:
+credentials in `env/.env.database`. The migrations create the Postgres role and its grants; give
+both accounts their passwords once the stack is up, before the first `mcp.sh` start other than
+`--check`:
 
 ```bash
 scripts/deployment/dev.sh mcp-access

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -228,6 +229,11 @@ async def test_server_built_before_the_reader_starts_applies_the_tenant_override
     )
     monkeypatch.setattr(
         "harborrag_runtime.composition.config_store.build_config_provider", build_config_provider
+    )
+    monkeypatch.setattr(
+        "harborrag_adapters.repositories.database.control_plane.reader_grants."
+        "tables_beyond_reader_grants",
+        AsyncMock(return_value=()),
     )
     settings = RuntimeSettings(control_db_url="postgresql+asyncpg://reader@127.0.0.1:1/control")
     runtime = open_reader_application(settings)

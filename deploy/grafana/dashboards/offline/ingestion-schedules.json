@@ -56,10 +56,10 @@
           "uid": "harborrag-prometheus"
         },
         "query": {
-          "query": "label_values(harborrag_mcp_tool_calls_total, tenant)",
+          "query": "label_values(harborrag_ingestion_source_last_success_timestamp_seconds, tenant)",
           "refId": "tenant-values"
         },
-        "definition": "label_values(harborrag_mcp_tool_calls_total, tenant)",
+        "definition": "label_values(harborrag_ingestion_source_last_success_timestamp_seconds, tenant)",
         "includeAll": true,
         "allValue": ".*",
         "multi": true,
@@ -211,12 +211,13 @@
         "enable": true,
         "iconColor": "purple",
         "datasource": {
-          "type": "grafana-postgresql-datasource",
-          "uid": "harborrag-postgres"
+          "type": "prometheus",
+          "uid": "harborrag-prometheus"
         },
-        "rawQuery": "SELECT started_at AS time, completed_at AS timeend, status AS text FROM ingestion_tasks WHERE started_at IS NOT NULL AND $__timeFilter(started_at) ORDER BY started_at",
-        "rawSql": "SELECT started_at AS time, completed_at AS timeend, status AS text FROM ingestion_tasks WHERE started_at IS NOT NULL AND $__timeFilter(started_at) ORDER BY started_at",
-        "format": "table"
+        "expr": "max by (tenant, source_scope_id) (harborrag_ingestion_source_last_run_status{status=\"running\"}) == 1",
+        "step": "1m",
+        "titleFormat": "Ingestion run",
+        "textFormat": "{{tenant}} {{source_scope_id}}"
       }
     ]
   },
@@ -272,22 +273,35 @@
     {
       "type": "stat",
       "title": "Oldest source lag",
-      "description": "Time since the least recently synced source last completed. Red after a day: open its row below.",
+      "description": "Time since the least recently synced source last completed a run, fully or partly, and how many sources never have. Orange after a day, red after 26 hours: Last sync per source and tenant, below, names the source.",
       "datasource": {
-        "type": "grafana-postgresql-datasource",
-        "uid": "harborrag-postgres"
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
       },
       "targets": [
         {
           "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "harborrag-postgres"
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
           },
+          "expr": "time() - min(max by (tenant, source_scope_id) (harborrag_ingestion_source_last_success_timestamp_seconds{tenant=~\"$tenant\",connector_type=~\"$connector\"} > 0))",
           "refId": "A",
-          "format": "table",
-          "rawQuery": true,
-          "editorMode": "code",
-          "rawSql": "SELECT max(extract(epoch FROM now() - last_success)) AS oldest_lag FROM (SELECT max(completed_at) FILTER (WHERE status IN ('COMPLETED', 'PARTIAL')) AS last_success FROM ingestion_tasks WHERE tenant_id ~ '${tenant:regex}' GROUP BY source_scope_id) AS sources"
+          "legendFormat": "Oldest lag",
+          "exemplar": false,
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "count(max by (tenant, source_scope_id) (harborrag_ingestion_source_last_success_timestamp_seconds{tenant=~\"$tenant\",connector_type=~\"$connector\"}) == 0)\nor count(max by (tenant, source_scope_id) (harborrag_ingestion_source_last_success_timestamp_seconds{tenant=~\"$tenant\",connector_type=~\"$connector\"})) * 0",
+          "refId": "B",
+          "legendFormat": "Never succeeded",
+          "exemplar": false,
+          "instant": true,
+          "range": false
         }
       ],
       "fieldConfig": {
@@ -314,7 +328,40 @@
             ]
           }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 1
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
       },
       "options": {
         "reduceOptions": {
@@ -326,7 +373,9 @@
         },
         "colorMode": "value",
         "graphMode": "none",
-        "textMode": "auto"
+        "textMode": "value_and_name",
+        "justifyMode": "auto",
+        "orientation": "horizontal"
       },
       "id": 2,
       "gridPos": {
@@ -644,22 +693,23 @@
     {
       "type": "state-timeline",
       "title": "Source runs",
-      "description": "Each source's runs by status. Rows are source scopes; hover a bar for its task.",
+      "description": "The status of each source's latest run over time, one row per source scope. A run shorter than the query step can fall between two samples; Documents by outcome per run lists every finished run.",
       "datasource": {
-        "type": "grafana-postgresql-datasource",
-        "uid": "harborrag-postgres"
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
       },
       "targets": [
         {
           "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "harborrag-postgres"
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
           },
+          "expr": "max by (tenant, source_scope_id) (\n  harborrag_ingestion_source_last_run_status{tenant=~\"$tenant\",connector_type=~\"$connector\",status=\"completed\"} * 1\n  or harborrag_ingestion_source_last_run_status{tenant=~\"$tenant\",connector_type=~\"$connector\",status=\"partial\"} * 2\n  or harborrag_ingestion_source_last_run_status{tenant=~\"$tenant\",connector_type=~\"$connector\",status=\"failed\"} * 3\n  or harborrag_ingestion_source_last_run_status{tenant=~\"$tenant\",connector_type=~\"$connector\",status=\"cancelled\"} * 4\n  or harborrag_ingestion_source_last_run_status{tenant=~\"$tenant\",connector_type=~\"$connector\",status=\"running\"} * 5\n  or harborrag_ingestion_source_last_run_status{tenant=~\"$tenant\",connector_type=~\"$connector\",status=\"paused\"} * 6\n  or harborrag_ingestion_source_last_run_status{tenant=~\"$tenant\",connector_type=~\"$connector\",status=\"pending\"} * 7\n)",
           "refId": "A",
-          "format": "table",
-          "rawQuery": true,
-          "editorMode": "code",
-          "rawSql": "SELECT started_at AS time, source_scope_id AS source, status FROM ingestion_tasks WHERE started_at IS NOT NULL AND $__timeFilter(started_at) AND tenant_id ~ '${tenant:regex}' AND (${run:sqlstring} = '' OR task_id = ${run:sqlstring}) ORDER BY started_at"
+          "legendFormat": "{{source_scope_id}}",
+          "exemplar": false,
+          "instant": false,
+          "range": true
         }
       ],
       "fieldConfig": {
@@ -680,37 +730,37 @@
             {
               "type": "value",
               "options": {
-                "COMPLETED": {
+                "1": {
                   "color": "green",
                   "text": "Completed",
                   "index": 0
                 },
-                "PARTIAL": {
+                "2": {
                   "color": "orange",
                   "text": "Partial",
                   "index": 1
                 },
-                "FAILED": {
+                "3": {
                   "color": "red",
                   "text": "Failed",
                   "index": 2
                 },
-                "CANCELLED": {
+                "4": {
                   "color": "text",
                   "text": "Cancelled",
                   "index": 3
                 },
-                "RUNNING": {
+                "5": {
                   "color": "blue",
                   "text": "Running",
                   "index": 4
                 },
-                "PAUSED": {
+                "6": {
                   "color": "purple",
                   "text": "Paused",
                   "index": 5
                 },
-                "PENDING": {
+                "7": {
                   "color": "text",
                   "text": "Pending",
                   "index": 6
@@ -731,24 +781,7 @@
           "placement": "bottom"
         }
       },
-      "transformations": [
-        {
-          "id": "partitionByValues",
-          "options": {
-            "fields": [
-              "source"
-            ],
-            "keepFields": false
-          }
-        },
-        {
-          "id": "renameByRegex",
-          "options": {
-            "regex": "^status (.*)$",
-            "renamePattern": "$1"
-          }
-        }
-      ],
+      "interval": "1m",
       "id": 9,
       "gridPos": {
         "x": 0,
@@ -760,47 +793,201 @@
     {
       "type": "barchart",
       "title": "Documents by outcome per run",
-      "description": "Document results of the latest runs. A large unchanged share proves incremental sync works.",
+      "description": "Documents each of the 20 latest finished runs published, found unchanged and failed, newest first, from the worker's ingestion.source_finalized lines. A large unchanged share proves incremental sync works.",
       "datasource": {
-        "type": "grafana-postgresql-datasource",
-        "uid": "harborrag-postgres"
+        "type": "loki",
+        "uid": "harborrag-loki"
       },
       "targets": [
         {
           "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "harborrag-postgres"
+            "type": "loki",
+            "uid": "harborrag-loki"
           },
           "refId": "A",
-          "format": "table",
-          "rawQuery": true,
+          "queryType": "range",
           "editorMode": "code",
-          "rawSql": "SELECT to_char(t.started_at, 'MM-DD HH24:MI') || ' ' || left(t.task_id, 8) AS run, count(*) FILTER (WHERE r.status IN ('published', 'success')) AS indexed, count(*) FILTER (WHERE r.status IN ('unchanged', 'skipped')) AS skipped_unchanged, count(*) FILTER (WHERE r.status = 'failed') AS failed FROM ingestion_tasks t JOIN task_document_results r ON r.task_id = t.task_id WHERE $__timeFilter(t.started_at) AND t.tenant_id ~ '${tenant:regex}' AND (${run:sqlstring} = '' OR t.task_id = ${run:sqlstring}) GROUP BY t.task_id, t.started_at ORDER BY t.started_at DESC LIMIT 20"
+          "expr": "{service_name=\"harborrag-worker\"} | event=\"ingestion.source_finalized\" | tenant_id=~\"$tenant\" | connector_type=~\"$connector\" | task_id=~\"${run}.*\""
+        }
+      ],
+      "transformations": [
+        {
+          "id": "extractFields",
+          "options": {
+            "source": "labels",
+            "format": "auto",
+            "replace": false,
+            "keepTime": false
+          }
+        },
+        {
+          "id": "convertFieldType",
+          "options": {
+            "fields": {},
+            "conversions": [
+              {
+                "targetField": "published_count",
+                "destinationType": "number"
+              },
+              {
+                "targetField": "unchanged_count",
+                "destinationType": "number"
+              },
+              {
+                "targetField": "failed_count",
+                "destinationType": "number"
+              }
+            ]
+          }
+        },
+        {
+          "id": "groupBy",
+          "options": {
+            "fields": {
+              "task_id": {
+                "aggregations": [],
+                "operation": "groupby"
+              },
+              "Time": {
+                "aggregations": [
+                  "max"
+                ],
+                "operation": "aggregate"
+              },
+              "published_count": {
+                "aggregations": [
+                  "lastNotNull"
+                ],
+                "operation": "aggregate"
+              },
+              "unchanged_count": {
+                "aggregations": [
+                  "lastNotNull"
+                ],
+                "operation": "aggregate"
+              },
+              "failed_count": {
+                "aggregations": [
+                  "lastNotNull"
+                ],
+                "operation": "aggregate"
+              }
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "field": "Time (max)",
+                "desc": true
+              }
+            ]
+          }
+        },
+        {
+          "id": "limit",
+          "options": {
+            "limitField": 20
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time (max)": true
+            },
+            "indexByName": {
+              "task_id": 0,
+              "published_count (lastNotNull)": 1,
+              "unchanged_count (lastNotNull)": 2,
+              "failed_count (lastNotNull)": 3
+            },
+            "renameByName": {
+              "task_id": "Run",
+              "published_count (lastNotNull)": "Published",
+              "unchanged_count (lastNotNull)": "Unchanged",
+              "failed_count (lastNotNull)": "Failed"
+            }
+          }
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "short",
+          "decimals": 0,
           "color": {
             "mode": "palette-classic"
           },
           "custom": {
-            "stacking": {
-              "mode": "normal"
-            },
-            "fillOpacity": 80
-          }
+            "fillOpacity": 80,
+            "lineWidth": 1
+          },
+          "min": 0
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Published"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#0aac23"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Unchanged"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#8e8e8e"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Failed"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#dc3c3d"
+                }
+              }
+            ]
+          }
+        ]
       },
       "options": {
         "orientation": "horizontal",
         "stacking": "normal",
-        "xField": "run",
+        "xField": "Run",
+        "showValue": "never",
         "legend": {
           "showLegend": true,
           "displayMode": "list",
           "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
         }
       },
       "id": 10,
@@ -1941,36 +2128,168 @@
     {
       "type": "table",
       "title": "Last sync per source and tenant",
-      "description": "Sources by time since their last completed run, stalest first.",
+      "description": "Sources by time since their last completed or partial run, stalest first; a source that never completed one comes first.",
       "datasource": {
-        "type": "grafana-postgresql-datasource",
-        "uid": "harborrag-postgres"
+        "type": "prometheus",
+        "uid": "harborrag-prometheus"
       },
       "targets": [
         {
           "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "harborrag-postgres"
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
           },
+          "expr": "max by (tenant, source_scope_id, connector_type) (harborrag_ingestion_source_last_success_timestamp_seconds{tenant=~\"$tenant\",connector_type=~\"$connector\"}) * 1000",
           "refId": "A",
-          "format": "table",
-          "rawQuery": true,
-          "editorMode": "code",
-          "rawSql": "SELECT tenant_id AS tenant, source_scope_id AS source, max(completed_at) FILTER (WHERE status IN ('COMPLETED', 'PARTIAL')) AS last_success, extract(epoch FROM now() - max(completed_at) FILTER (WHERE status IN ('COMPLETED', 'PARTIAL'))) AS lag_seconds, (array_agg(status ORDER BY submitted_at DESC))[1] AS last_status FROM ingestion_tasks WHERE tenant_id ~ '${tenant:regex}' GROUP BY 1, 2 ORDER BY lag_seconds DESC NULLS FIRST"
+          "legendFormat": "__auto",
+          "exemplar": false,
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "time() - max by (tenant, source_scope_id, connector_type) (harborrag_ingestion_source_last_success_timestamp_seconds{tenant=~\"$tenant\",connector_type=~\"$connector\"})",
+          "refId": "B",
+          "legendFormat": "__auto",
+          "exemplar": false,
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "harborrag-prometheus"
+          },
+          "expr": "max by (tenant, source_scope_id, connector_type) (\n  harborrag_ingestion_source_last_run_status{tenant=~\"$tenant\",connector_type=~\"$connector\",status=\"completed\"} * 1\n  or harborrag_ingestion_source_last_run_status{tenant=~\"$tenant\",connector_type=~\"$connector\",status=\"partial\"} * 2\n  or harborrag_ingestion_source_last_run_status{tenant=~\"$tenant\",connector_type=~\"$connector\",status=\"failed\"} * 3\n  or harborrag_ingestion_source_last_run_status{tenant=~\"$tenant\",connector_type=~\"$connector\",status=\"cancelled\"} * 4\n  or harborrag_ingestion_source_last_run_status{tenant=~\"$tenant\",connector_type=~\"$connector\",status=\"running\"} * 5\n  or harborrag_ingestion_source_last_run_status{tenant=~\"$tenant\",connector_type=~\"$connector\",status=\"paused\"} * 6\n  or harborrag_ingestion_source_last_run_status{tenant=~\"$tenant\",connector_type=~\"$connector\",status=\"pending\"} * 7\n)",
+          "refId": "C",
+          "legendFormat": "__auto",
+          "exemplar": false,
+          "instant": true,
+          "range": false,
+          "format": "table"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "field": "Value #B",
+                "desc": true
+              }
+            ]
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "indexByName": {
+              "tenant": 0,
+              "source_scope_id": 1,
+              "connector_type": 2,
+              "Value #A": 3,
+              "Value #B": 4,
+              "Value #C": 5
+            },
+            "renameByName": {
+              "tenant": "Tenant",
+              "source_scope_id": "Source",
+              "connector_type": "Connector",
+              "Value #A": "Last success",
+              "Value #B": "Lag",
+              "Value #C": "Last status"
+            }
+          }
         }
       ],
       "fieldConfig": {
-        "defaults": {},
+        "defaults": {
+          "custom": {
+            "minWidth": 80
+          }
+        },
         "overrides": [
           {
             "matcher": {
               "id": "byName",
-              "options": "lag_seconds"
+              "options": "Tenant"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 90
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Connector"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 100
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Last success"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "time:MM-DD HH:mm"
+              },
+              {
+                "id": "custom.width",
+                "value": 110
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "0": {
+                        "text": "Never",
+                        "index": 0
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Lag"
             },
             "properties": [
               {
                 "id": "unit",
                 "value": "s"
+              },
+              {
+                "id": "custom.width",
+                "value": 120
               },
               {
                 "id": "custom.cellOptions",
@@ -1997,6 +2316,85 @@
                     }
                   ]
                 }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "range",
+                    "options": {
+                      "from": 1000000000,
+                      "to": null,
+                      "result": {
+                        "text": "Never",
+                        "index": 0
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Last status"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "1": {
+                        "color": "green",
+                        "text": "Completed",
+                        "index": 0
+                      },
+                      "2": {
+                        "color": "orange",
+                        "text": "Partial",
+                        "index": 1
+                      },
+                      "3": {
+                        "color": "red",
+                        "text": "Failed",
+                        "index": 2
+                      },
+                      "4": {
+                        "color": "text",
+                        "text": "Cancelled",
+                        "index": 3
+                      },
+                      "5": {
+                        "color": "blue",
+                        "text": "Running",
+                        "index": 4
+                      },
+                      "6": {
+                        "color": "purple",
+                        "text": "Paused",
+                        "index": 5
+                      },
+                      "7": {
+                        "color": "text",
+                        "text": "Pending",
+                        "index": 6
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "custom.width",
+                "value": 100
               }
             ]
           }

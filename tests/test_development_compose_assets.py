@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import re
 import tomllib
 from pathlib import Path
 from typing import Any
@@ -218,7 +217,6 @@ def test_grafana_data_sources_have_fixed_uids_and_link_to_each_other() -> None:
         "harborrag-prometheus",
         "harborrag-loki",
         "harborrag-tempo",
-        "harborrag-postgres",
     }
     assert [uid for uid, source in sources.items() if source.get("isDefault")] == [
         "harborrag-prometheus"
@@ -229,26 +227,17 @@ def test_grafana_data_sources_have_fixed_uids_and_link_to_each_other() -> None:
     assert sources["harborrag-loki"]["jsonData"]["derivedFields"][0]["datasourceUid"] == (
         "harborrag-tempo"
     )
-    postgres = sources["harborrag-postgres"]
-    assert postgres["user"] == "harborrag_observer"
-    assert postgres["secureJsonData"]["password"] == "$HARBORRAG_OBSERVER_PASSWORD"
 
 
 @pytest.mark.unit
-def test_observer_role_cannot_read_document_titles_or_source_paths() -> None:
-    role = (ROOT / "deploy/compose/postgres/observer-role.sql").read_text(encoding="utf-8")
-    values = role.split("FROM (VALUES", 1)[1].split(") AS grants", 1)[0]
-    granted = {
-        table: {column.strip() for column in "".join(re.findall(r"'([^']*)'", columns)).split(",")}
-        for table, columns in re.findall(r"\(\s*'(\w+)',\s*((?:'[^']*'\s*)+)\)", values)
-    }
+def test_grafana_deletes_the_retired_postgres_data_source_and_leaves_the_data_network() -> None:
+    provisioning = _yaml("deploy/grafana/provisioning/datasources/datasources.yml")
+    grafana = _yaml("deploy/compose/docker-compose.monitoring.yml")["services"]["grafana"]
 
-    assert "GRANT SELECT ON" not in role
-    assert "ALTER DEFAULT PRIVILEGES" not in role
-    assert set(granted) == {"ingestion_tasks", "task_document_results"}
-    assert granted["task_document_results"].isdisjoint({"result"})
-    assert granted["ingestion_tasks"].isdisjoint({"request", "idempotency_key"})
-    assert {"task_id", "status", "completed_at"} <= granted["task_document_results"]
+    assert provisioning["deleteDatasources"] == [{"name": "PostgreSQL", "orgId": 1}]
+    assert grafana["networks"] == ["monitoring-network", "grafana-ui-network"]
+    assert not [name for name in grafana["environment"] if "OBSERVER" in name]
+    assert not (ROOT / "deploy/compose/postgres/observer-role.sql").exists()
 
 
 @pytest.mark.unit

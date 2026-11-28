@@ -1,4 +1,4 @@
-"""The MCP server's read-only Postgres role and MinIO user, and the step that applies them."""
+"""The step that gives the MCP server's read-only Postgres role and MinIO user their passwords."""
 
 from __future__ import annotations
 
@@ -15,17 +15,15 @@ import yaml
 pytestmark = pytest.mark.unit
 
 ROOT = Path(__file__).resolve().parents[1]
-ROLE_SQL = "deploy/compose/postgres/mcp-reader-role.sql"
 POLICY = "deploy/compose/minio/mcp-reader-policy.json"
 MINIO_SCRIPT = "scripts/deployment/common/mcp-minio-user.sh"
-MCP_READS_CONTROL_PLANE = frozenset({"mcp_api_keys", "setting_overrides", "setting_revisions"})
 PROJECT_FILES = (
     "scripts/deployment/dev.sh",
     "scripts/deployment/common/dev-checks.sh",
     MINIO_SCRIPT,
-    ROLE_SQL,
     POLICY,
 )
+SET_PASSWORD = "ALTER ROLE harborrag_mcp LOGIN PASSWORD :'mcp_password';"
 FAKE_DOCKER = """#!/usr/bin/env sh
 printf '%s\\n' "$*" >> "$DOCKER_LOG"
 case " $* " in
@@ -95,7 +93,7 @@ def test_mcp_access_generates_passwords_and_hands_them_over_outside_argv(tmp_pat
     assert minio_password not in calls
     assert (tmp_path / "stdin.postgres-password").read_text() == postgres_password
     assert (tmp_path / "stdin.minio-password").read_text() == minio_password
-    assert (tmp_path / "stdin.postgres").read_bytes() == (ROOT / ROLE_SQL).read_bytes()
+    assert SET_PASSWORD in (tmp_path / "stdin.postgres").read_text(encoding="utf-8")
     assert (tmp_path / "stdin.minio").read_bytes() == (ROOT / POLICY).read_bytes()
 
 
@@ -143,29 +141,25 @@ def test_bootstrap_writes_the_passwords_the_mcp_compose_file_requires(tmp_path: 
     assert stat.S_IMODE(database.stat().st_mode) == 0o600
 
 
-def test_role_script_grants_reads_and_revokes_the_control_plane_tables() -> None:
-    script = (ROOT / ROLE_SQL).read_text(encoding="utf-8")
-    statements = script.upper()
+def test_mcp_access_sets_only_the_password_and_keeps_it_out_of_the_server_log(
+    tmp_path: Path,
+) -> None:
+    script, env = _project(tmp_path, "POSTGRES_DB=harborrag\nPOSTGRES_MCP_PASSWORD=pg-demo\n")
 
-    assert "GRANT SELECT ON ALL TABLES IN SCHEMA PUBLIC TO HARBORRAG_MCP" in statements
-    assert "ALTER DEFAULT PRIVILEGES IN SCHEMA PUBLIC GRANT SELECT ON TABLES" in statements
-    assert "SET DEFAULT_TRANSACTION_READ_ONLY = ON" in statements
-    assert "REVOKE CREATE ON SCHEMA PUBLIC FROM PUBLIC" in statements
-    for write in ("INSERT", "UPDATE", "DELETE", "TRUNCATE", "ALL PRIVILEGES"):
-        assert f"GRANT {write}" not in statements
-    revoked = set(re.findall(r"^\s+'([a-z_]+)',?$", script, re.MULTILINE))
-    assert {"secrets", "sources", "memories", "conversation_messages", "members"} <= revoked
-    assert revoked.isdisjoint(MCP_READS_CONTROL_PLANE)
+    result = _mcp_access(script, env)
 
-
-def test_role_script_revokes_every_control_plane_table_the_server_does_not_read() -> None:
-    from harborrag_adapters.repositories.database.control_plane.schemas import Base
-
-    script = (ROOT / ROLE_SQL).read_text(encoding="utf-8")
-    revoked = set(re.findall(r"^\s+'([a-z_]+)',?$", script, re.MULTILINE))
-
-    unread = set(Base.metadata.tables) - MCP_READS_CONTROL_PLANE
-    assert unread | {"alembic_version"} == revoked
+    assert result.returncode == 0, result.stderr
+    statements = (tmp_path / "stdin.postgres").read_text(encoding="utf-8").splitlines()
+    assert statements[0] == "\\getenv mcp_password POSTGRES_MCP_PASSWORD"
+    quiet = statements.index("SET LOCAL log_statement = 'none';")
+    assert statements.index("BEGIN;") < quiet < statements.index(SET_PASSWORD)
+    assert statements.index(SET_PASSWORD) < statements.index("COMMIT;")
+    assert "SET LOCAL log_min_error_statement = panic;" in statements
+    upper = "\n".join(statements).upper()
+    for change in ("GRANT ", "REVOKE ", "CREATE ROLE", "DEFAULT PRIVILEGES"):
+        assert change not in upper
+    assert "start the API once so the migrations create it" in "\n".join(statements)
+    assert all("pg-demo" not in statement for statement in statements)
 
 
 def test_minio_policy_reads_the_artifacts_bucket_only() -> None:
@@ -184,12 +178,11 @@ def test_minio_policy_reads_the_artifacts_bucket_only() -> None:
     }
 
 
-def test_fresh_database_volume_runs_the_role_script() -> None:
+def test_database_volume_runs_no_role_script() -> None:
     database = yaml.safe_load(
         (ROOT / "deploy/compose/docker-compose.database.yml").read_text(encoding="utf-8")
     )
 
-    assert (
-        "./postgres/mcp-reader-role.sql:/docker-entrypoint-initdb.d/10-mcp-reader-role.sql:ro"
-        in database["services"]["postgres"]["volumes"]
-    )
+    volumes = database["services"]["postgres"]["volumes"]
+    assert not any("docker-entrypoint-initdb.d" in volume for volume in volumes)
+    assert not (ROOT / "deploy/compose/postgres/mcp-reader-role.sql").exists()

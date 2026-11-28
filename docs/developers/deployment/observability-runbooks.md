@@ -116,6 +116,25 @@ rule.
 **Verify:** the gauges in *Is it healthy now* fall under the alert levels.
 **Escalate** when the host keeps running out: move the monitoring stack to a separate host.
 
+## Source freshness unknown
+
+**Severity:** warning, shared. For 10 minutes, no API replica has refreshed the source gauges
+in the last 5 minutes, or none reports them at all while the API is up. The API computes
+these gauges from the run history in PostgreSQL. While they are stale, Ingestion and
+schedules' source panels show old values and the *Source run failed* and *Source run not
+started* alerts cannot fire.
+
+1. In Prometheus, check that the `harborrag-api` target is up. A down target or a failed
+   scrape is covered in [If the API scrape fails](README.md#if-the-api-scrape-fails).
+2. Open Stores and host and check PostgreSQL: the refresh reads the control database.
+3. Find the failed refreshes in Grafana's Explore, on Loki, with
+   `{service_name="harborrag-api"} | event="observability.source_metrics_refresh_failed"`.
+   Each line names the error type; `error_code="timeout"` means the read of the run history
+   timed out.
+
+**Verify:** `time() - max(harborrag_ingestion_source_state_refresh_timestamp_seconds)` stays
+under 300 in Prometheus and the alert resolves.
+
 ## Index partial failures
 
 **Severity:** warning, offline. Failed vector or graph write attempts exceeded 1% of the
@@ -141,6 +160,36 @@ hours.
 3. Runs that fail point at the connector: check *Connector errors and 429s*.
 
 **Verify:** the schedule completes a run and the alert resolves.
+
+## Source run failed
+
+**Severity:** warning, offline. A source's latest run failed, and no newer run has replaced it
+for 10 minutes. The alert names the tenant, source scope and connector type. It covers every
+run, scheduled or started by hand, and stays until the source's next run.
+
+1. Open Ingestion and schedules. *Last sync per source and tenant* shows how long the source
+   has gone without a completed run, and *Source runs* shows whether its earlier runs failed
+   too.
+2. In the *Failed documents* logs, the run's `ingestion.source_failed` line names the error
+   type and the stage that failed. Open its trace from the line.
+3. A connector failure shows in *Connector errors and 429s*; a store failure in Stores and
+   host.
+
+**Verify:** the source's next run completes and the alert resolves.
+
+## Source run not started
+
+**Severity:** warning, offline. A source's latest run has been pending for 30 minutes: it was
+submitted, but no worker picked it up.
+
+1. Check that the worker runs: `docker ps --filter name=temporal-worker`.
+2. Open Ingestion and schedules. *Temporal pickup delay per task queue* and *Activity slots in
+   use per task queue* show whether the worker is busy with other runs; if so, follow
+   [Temporal backlog](#temporal-backlog).
+3. Open the *Temporal: workflows* link and find the source's workflow to see whether it was
+   scheduled at all.
+
+**Verify:** *Source runs* shows the source running, and the alert resolves.
 
 ## Temporal backlog
 

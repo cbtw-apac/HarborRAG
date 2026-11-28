@@ -1,12 +1,14 @@
 """Temporal activities for source-level ingestion steps.
 
 Each activity body runs inside ``ActivityObservability.boundary``, which logs its stage,
-workflow, activity and attempt, so the events here add only the run's own IDs and counts.
+workflow, activity and attempt. Discovery and finalization also bind the source's tenant,
+scope and connector type, so the events here add only the run's own IDs and counts.
 """
 
 from __future__ import annotations
 
 import logging
+from contextlib import AbstractContextManager
 from time import perf_counter
 
 from temporalio import activity
@@ -21,7 +23,7 @@ from temporalio.service import RPCError, RPCStatusCode
 from harborrag_adapters.connectors.base import BaseConnector
 from harborrag_adapters.connectors.harbor_connector import HarborConnector
 from harborrag_core.contracts.errors import HarborConflictError
-from harborrag_core.observability.log_events import log_event
+from harborrag_core.observability.log_events import log_context, log_event
 from harborrag_core.storage import StorageOperationContext
 from harborrag_engine.ingestion.source.models import (
     RelationRepairProgress,
@@ -141,7 +143,7 @@ class SourceActivitiesMixin:
         Raises:
             ApplicationError: Benign and non-retryable when the run was cancelled under the walk.
         """
-        with self._observability.boundary("DiscoverSourceItems"):
+        with _source_log_context(source), self._observability.boundary("DiscoverSourceItems"):
             try:
                 return await self._discover_source_items(source)
             except HarborConflictError:
@@ -166,9 +168,7 @@ class SourceActivitiesMixin:
             logger,
             "ingestion.discovery_started",
             task_id=source.task_id,
-            tenant_id=source.tenant_id,
             connection_id=source.connector_name,
-            connector_type=source.connector_type,
         )
         request = to_source_request(source)
         context = StorageOperationContext.system(source.tenant_id)
@@ -442,7 +442,10 @@ class SourceActivitiesMixin:
         past any single fixed budget. The heartbeat is what tells a slow finalization from a dead
         worker. It carries repair progress, so a retry resumes where this one stopped.
         """
-        with self._observability.boundary("FinalizeSourceIngestion"):
+        with (
+            _source_log_context(request.source),
+            self._observability.boundary("FinalizeSourceIngestion"),
+        ):
             source = to_source_request(request.source)
             planned = await self._runtime.source_plans.documents(
                 to_artifact_reference(request.plan_reference),
@@ -488,3 +491,12 @@ class SourceActivitiesMixin:
                 skipped=outcome.skipped,
                 skipped_by_reason=outcome.skipped_by_reason,
             )
+
+
+def _source_log_context(source: SourceIngestionInput) -> AbstractContextManager[None]:
+    """Bind the source's tenant, scope and connector type to every event of the activity."""
+    return log_context(
+        tenant_id=source.tenant_id,
+        source_scope_id=source.source_scope_id,
+        connector_type=source.connector_type,
+    )

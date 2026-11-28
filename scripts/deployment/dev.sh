@@ -32,8 +32,8 @@ Commands:
   worker [--build] [--device cpu|gpu]
                      Start only the ingestion worker; reuse its image by default
   api [--build]      Start only the API; reuse its image and never start a worker
-  mcp-access         Create or refresh the MCP server's read-only PostgreSQL role
-                     and MinIO user; run it after 'up' and after every upgrade
+  mcp-access         Set the password of the MCP server's read-only PostgreSQL role
+                     and create or refresh its MinIO user; run it after 'up'
   sharepoint-login [--logout] [--device cpu|gpu]
                      Sign the worker in to SharePoint (auth_mode: device_code);
                      the token stays in the harborrag-sharepoint-tokens volume
@@ -108,20 +108,35 @@ ensure_mcp_store_passwords() {
     ensure_generated_value "${DATABASE_ENV_FILE}" MINIO_MCP_PASSWORD
 }
 
-# Create or refresh the MCP server's read-only PostgreSQL role and MinIO user with the
-# passwords in the database env file, generating blank ones first. The role is granted
-# the tables that exist now, so this runs after the migrations, as the Postgres owner.
+# Give the MCP server's read-only PostgreSQL role its login password and create or refresh
+# its MinIO user, with the passwords in the database env file, generating blank ones first.
+# The control-plane migrations create the role and its table grants, so this runs after
+# the API has started once. The password reaches psql through the environment and the
+# statement is kept out of the server log.
 grant_mcp_store_access() {
     require_file "${DATABASE_ENV_FILE}" "database environment"
     ensure_mcp_store_passwords
     require_data_network
 
-    echo "Granting the MCP server read-only access to PostgreSQL and MinIO..."
+    echo "Setting the MCP server's PostgreSQL password and MinIO user..."
     # shellcheck disable=SC2016  # expanded by the shell inside the container
     POSTGRES_MCP_PASSWORD="$(env_file_value "${DATABASE_ENV_FILE}" POSTGRES_MCP_PASSWORD)" \
         data_compose exec -T -e POSTGRES_MCP_PASSWORD postgres \
-        sh -c 'psql -q -v ON_ERROR_STOP=1 -U "${POSTGRES_USER}" -d "${POSTGRES_DB}"' \
-        <"${ROOT_DIR}/deploy/compose/postgres/mcp-reader-role.sql"
+        sh -c 'psql -q -v ON_ERROR_STOP=1 -U "${POSTGRES_USER}" -d "${POSTGRES_DB}"' <<'SQL'
+\getenv mcp_password POSTGRES_MCP_PASSWORD
+BEGIN;
+SET LOCAL log_statement = 'none';
+SET LOCAL log_min_error_statement = panic;
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'harborrag_mcp') THEN
+        RAISE EXCEPTION 'harborrag_mcp does not exist yet: start the API once so the migrations create it, then run mcp-access again';
+    END IF;
+END
+$$;
+ALTER ROLE harborrag_mcp LOGIN PASSWORD :'mcp_password';
+COMMIT;
+SQL
     MINIO_MCP_PASSWORD="$(env_file_value "${DATABASE_ENV_FILE}" MINIO_MCP_PASSWORD)" \
         data_compose exec -T -e MINIO_MCP_PASSWORD minio \
         bash -c "$(<"${ROOT_DIR}/scripts/deployment/common/mcp-minio-user.sh")" \

@@ -48,16 +48,16 @@ at `/v1/chat/completions`.
    the Postgres owner or the MinIO root account of `env/.env.database`; it has
    read-only accounts of its own, whose random passwords bootstrap writes there
    as `POSTGRES_MCP_PASSWORD` and `MINIO_MCP_PASSWORD`.
-3. Create those read-only accounts once `scripts/deployment/dev.sh up` has
-   started the stack, whose API applies the database migrations, and again
-   after every upgrade:
+3. Give those read-only accounts their passwords once `scripts/deployment/dev.sh up`
+   has started the stack, whose API applies the database migrations:
 
    ```bash
    scripts/deployment/dev.sh mcp-access
    ```
 
-   It creates or refreshes the `harborrag_mcp` Postgres role and the
-   `harborrag-mcp` MinIO user with those passwords. The details are in
+   The migrations create the `harborrag_mcp` Postgres role and its table
+   grants. `mcp-access` sets the role's password and creates or refreshes the
+   `harborrag-mcp` MinIO user. The details are in
    [Read-only database and object-store accounts](#read-only-database-and-object-store-accounts).
 4. Decide what the server may read. The shipped `env/.env.mcp` sets these two
    lines, so every principal in the `DEFAULT` tenant, where your checkout's
@@ -290,6 +290,19 @@ mean the same step: run `scripts/deployment/dev.sh mcp-access`, then start the
 server again. Compose stops earlier, with
 `run scripts/deployment/dev.sh mcp-access to set POSTGRES_MCP_PASSWORD`, when
 `env/.env.database` has no such value.
+
+When the role can read a table the server does not need, the preflight refuses
+to start and names those tables after the fix, for example on a database that
+the API of this release has not migrated yet:
+
+```text
+HarborRAG MCP preflight failed: HarborConfigurationError: Postgres login harborrag_mcp can read 19 tables outside the MCP allow-list; apply the control-plane migrations, which set its grants, or revoke its SELECT on: document_failures, ingestion_tasks, ...
+```
+
+Start the API of the same release, for example with
+`scripts/deployment/dev.sh api --build`, so that it applies the migrations, then
+start the server again. The server makes the same check every time it starts,
+not only in the preflight.
 
 The wrapper also prints a `Note:` line in these cases, in stdio mode too. A
 setting that has a default is never reported; left out of `env/.env.mcp`, it
@@ -1026,17 +1039,23 @@ its own and never gets the Postgres owner or the MinIO root credentials.
 
 | Account | Store | What it may do | Password in `env/.env.database` |
 | --- | --- | --- | --- |
-| `harborrag_mcp` role | Postgres control database | `SELECT` on the corpus tables, `mcp_api_keys`, `setting_overrides` and `setting_revisions`, and on the tables later migrations add. No `INSERT`, `UPDATE`, `DELETE`, DDL or row locks, and every session is read-only | `POSTGRES_MCP_PASSWORD` |
+| `harborrag_mcp` role | Postgres control database | `SELECT` on the 20 tables the server reads, through the `harborrag_mcp_read` role: the published documents and their versions, source scopes and scans, the topology and summary tables behind the reader tools, `mcp_api_keys`, `setting_overrides` and `setting_revisions`. No other table, no `INSERT`, `UPDATE`, `DELETE`, DDL or row locks, and every session is read-only | `POSTGRES_MCP_PASSWORD` |
 | `harborrag-mcp` user | MinIO | Read objects in `harborrag-artifacts` (`s3:GetObject`, `s3:ListBucket`); nothing in `harborrag-raw`, no writes or deletes | `MINIO_MCP_PASSWORD` |
 
-The role cannot read the control-plane tables that hold secrets, connections,
-people, conversations or jobs; the server never reads them.
-`deploy/compose/postgres/mcp-reader-role.sql` lists them, and
+The role cannot read any other table: not the control-plane tables that hold
+secrets, connections, people, conversations or jobs, and not the ingestion
+task records, which hold source paths and document titles. The server never
+reads them. The control-plane migrations create both roles without a password
+and grant `harborrag_mcp_read` exactly the tables in `MCP_READER_TABLES`, in
+`packages/harborrag-adapters/src/harborrag_adapters/repositories/database/control_plane/reader_grants.py`.
+A table that a later migration adds stays closed to the role until a migration
+grants it. At start-up the server lists the tables its login can read and
+refuses to start when one is outside that list.
 `deploy/compose/minio/mcp-reader-policy.json` is the MinIO policy.
 
-### Create or refresh the accounts
+### Set the passwords
 
-Run this after the stack has started, and again after every upgrade:
+Run this after the stack has started, so the API has applied the migrations:
 
 ```bash
 scripts/deployment/dev.sh mcp-access
@@ -1045,7 +1064,7 @@ scripts/deployment/dev.sh mcp-access
 It prints:
 
 ```text
-Granting the MCP server read-only access to PostgreSQL and MinIO...
+Setting the MCP server's PostgreSQL password and MinIO user...
 The MCP server reads as harborrag_mcp in PostgreSQL and harborrag-mcp in MinIO.
 Start or restart it to use them: scripts/deployment/mcp.sh --http
 ```
@@ -1053,26 +1072,34 @@ Start or restart it to use them: scripts/deployment/mcp.sh --http
 A password that is still blank, as in an `env/.env.database` older than these
 accounts, is generated first, with a line such as
 `Generated POSTGRES_MCP_PASSWORD in env/.env.database.` The command runs
-the role script as the Postgres owner inside the `postgres` container and
-`mc` inside the `minio` container, with the passwords passed through the
+`ALTER ROLE harborrag_mcp LOGIN PASSWORD` with `psql` as the Postgres owner
+inside the `postgres` container, with that statement kept out of the server
+log, and `mc` inside the `minio` container. The passwords pass through the
 environment and pipes, never on a command line. Every step is safe to repeat.
 
-- **Why after every upgrade.** Tables that later migrations create are
-  readable by default, and a rerun applies the new release's list of tables
-  the role must not read.
-- **A fresh database volume** runs the role script on its first start, without
-  a password, so the role exists but cannot log in until `mcp-access` runs.
+- **Before the migrations.** On a new database volume the role exists only
+  once the API has started, and `mcp-access` stops with
+  `ERROR:  harborrag_mcp does not exist yet: start the API once so the migrations create it, then run mcp-access again`.
+- **After an upgrade** nothing needs to run again: the migrations keep the
+  role's grants in step with the release.
 - **To change a password,** edit its value in `env/.env.database`, run
   `scripts/deployment/dev.sh mcp-access`, then restart the server with
   `scripts/deployment/mcp.sh down` and `scripts/deployment/mcp.sh --http`.
 
-Outside a checkout, create the same accounts yourself:
+Outside a checkout, apply the control-plane migrations first, then:
 
-1. Run the role script with `psql` 15 or later, as the role that runs the
-   migrations, with `POSTGRES_MCP_PASSWORD` set in its environment.
+1. As a role that may alter `harborrag_mcp`, run
+   `ALTER ROLE harborrag_mcp LOGIN PASSWORD '<password>'`, with logging of the
+   statement turned off.
 2. Create a MinIO user and attach a policy made from the policy file.
 3. Give the server a `HARBORRAG_CONTROL_DB_URL` for `harborrag_mcp` and that
    user's object-store keys.
+
+The role that runs the migrations needs `CREATEROLE` while either role is
+missing or its setting or membership has to change, as on the first upgrade.
+A default privilege that grants future tables to either role, and that this
+role may not remove, stops the migration with the `ALTER DEFAULT PRIVILEGES`
+clause to run as a superuser.
 
 ## Security boundaries
 

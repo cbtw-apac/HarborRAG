@@ -56,17 +56,10 @@ datasources:
         enabled: true
       lokiSearch:
         datasourceUid: harborrag-loki
-  # Reads the ingestion run tables as the read-only harborrag_observer role, which
-  # 'scripts/deployment/observability.sh db-access' creates in the data PostgreSQL.
+
+# Earlier releases provisioned a PostgreSQL data source that logged in as the retired
+# harborrag_observer role. Grafana keeps a provisioned data source in its database after
+# it leaves this file, so delete it by name.
+deleteDatasources:
   - name: PostgreSQL
-    uid: harborrag-postgres
-    type: grafana-postgresql-datasource
-    access: proxy
-    url: postgres:5432
-    user: harborrag_observer
-    jsonData:
-      database: $HARBORRAG_OBSERVER_DATABASE
-      sslmode: disable
-      postgresVersion: 1500
-    secureJsonData:
-      password: $HARBORRAG_OBSERVER_PASSWORD
+    orgId: 1

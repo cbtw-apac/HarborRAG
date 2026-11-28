@@ -3,7 +3,8 @@
 `uvicorn harborrag_app.api.app:create_fastapi_app --factory` is the deploy
 entrypoint (Dockerfile.api CMD). The factory wires settings, observability,
 trace middleware, CORS, the error envelope, auth verifier, and versioned public
-routers; the lifespan builds the app service through runtime composition.
+routers. The lifespan builds the app service through runtime composition and runs
+the background loops, which stop at shutdown and never block startup.
 """
 
 from __future__ import annotations
@@ -11,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, cast
@@ -32,13 +34,15 @@ from harborrag_app.api.rate_limit import build_rate_limiter
 from harborrag_app.api.router import register_routes
 from harborrag_app.api.settings import ApiSettings
 from harborrag_app.operations.local import LocalOperations
-from harborrag_core.contracts.errors import HarborConfigurationError
+from harborrag_core.contracts.errors import HarborConfigurationError, HarborUnavailableError
 from harborrag_core.domain.identity import DEFAULT_TENANT_ID
+from harborrag_core.observability.log_events import FailureKind, log_event, log_failure
 from harborrag_core.observability.process_logging import configure_logging
 from harborrag_runtime.application.composition.selection import select_app_service
 from harborrag_runtime.observability.export import TelemetryService, configure_telemetry_export
 
 if TYPE_CHECKING:
+    from harborrag_core.ports.source_freshness import SourceFreshnessReader
     from harborrag_runtime.application.composition.service import AppService
 
 logger = logging.getLogger("harborrag.app.api.app")
@@ -47,6 +51,10 @@ _INGESTION_PROGRESS_INTERVAL_SECONDS = 2.0
 _CONTROL_PLANE_EFFECT_RECOVERY_INTERVAL_SECONDS = 30.0
 _CONNECTION_REMOVAL_RECOVERY_INTERVAL_SECONDS = 60.0
 _SCHEDULE_SYNC_RETRY_INTERVAL_SECONDS = 30.0
+_SOURCE_FRESHNESS_REFRESH_INTERVAL_SECONDS = 60.0
+_SOURCE_FRESHNESS_REFRESH_TIMEOUT_SECONDS = 15.0
+_SOURCE_METRICS_LIMIT = 1000
+"""The most sources the freshness gauges export, which bounds their series."""
 
 
 def _redirect_root(request: Request) -> RedirectResponse:
@@ -61,11 +69,9 @@ async def _recover_pending_submissions(app: FastAPI) -> None:
         try:
             recovered = await app.state.app_service.recover_pending_submissions()
             if recovered:
-                logger.info("Recovered %d pending ingestion submissions", recovered)
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            logger.exception("Pending ingestion submission recovery pass failed")
+                log_event(logger, "api.submissions_recovered", recovered_count=recovered)
+        except Exception as exc:  # noqa: BLE001 - background loop boundary; the next pass retries
+            log_failure(logger, "api.submission_recovery_failed", exc)
         await asyncio.sleep(_SUBMISSION_RECOVERY_INTERVAL_SECONDS)
 
 
@@ -74,10 +80,8 @@ async def _sync_ingestion_progress(app: FastAPI) -> None:
     while True:
         try:
             await app.state.app_service.sync_ingestion_progress()
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            logger.exception("Ingestion progress sync tick failed")
+        except Exception as exc:  # noqa: BLE001 - background loop boundary; the next tick retries
+            log_failure(logger, "api.ingestion_progress_sync_failed", exc)
         await asyncio.sleep(_INGESTION_PROGRESS_INTERVAL_SECONDS)
 
 
@@ -87,11 +91,9 @@ async def _recover_pending_control_plane_effects(app: FastAPI) -> None:
         try:
             recovered = await app.state.app_service.recover_pending_control_plane_effects()
             if recovered:
-                logger.info("Recovered %d pending control-plane effects", recovered)
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            logger.exception("Pending control-plane effect recovery pass failed")
+                log_event(logger, "api.control_plane_effects_recovered", recovered_count=recovered)
+        except Exception as exc:  # noqa: BLE001 - background loop boundary; the next pass retries
+            log_failure(logger, "api.control_plane_effect_recovery_failed", exc)
         await asyncio.sleep(_CONTROL_PLANE_EFFECT_RECOVERY_INTERVAL_SECONDS)
 
 
@@ -102,13 +104,17 @@ async def _import_connectors_once(service: object) -> None:
         return
     try:
         imported = await importer()
-    except Exception:
-        logger.exception(
-            "Importing config/sources/connectors.yaml failed; add connections through the API"
+    except Exception as exc:  # noqa: BLE001 - startup continues; connections can be added later
+        log_failure(logger, "api.connectors_import_failed", exc)
+        log_event(
+            logger,
+            "api.connectors_import_skipped",
+            level=logging.WARNING,
+            hint="Add the connections in config/sources/connectors.yaml through the API.",
         )
         return
     if imported:
-        logger.info("Imported %d connections from config/sources/connectors.yaml", imported)
+        log_event(logger, "api.connectors_imported", imported_count=imported)
 
 
 async def _seed_settings_once(service: object) -> None:
@@ -118,8 +124,14 @@ async def _seed_settings_once(service: object) -> None:
         return
     try:
         await seeder()
-    except Exception:
-        logger.exception("Seeding settings from the settings file failed; use the settings API")
+    except Exception as exc:  # noqa: BLE001 - startup continues; settings can be set later
+        log_failure(logger, "api.settings_seed_failed", exc)
+        log_event(
+            logger,
+            "api.settings_seed_skipped",
+            level=logging.WARNING,
+            hint="Set the settings from the settings file through the settings API.",
+        )
 
 
 async def _resume_connection_removals(app: FastAPI) -> None:
@@ -128,11 +140,9 @@ async def _resume_connection_removals(app: FastAPI) -> None:
         try:
             resumed = await app.state.app_service.resume_connection_removals()
             if resumed:
-                logger.info("Resumed %d connection removals", resumed)
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            logger.exception("Connection removal recovery pass failed")
+                log_event(logger, "api.connection_removals_resumed", resumed_count=resumed)
+        except Exception as exc:  # noqa: BLE001 - background loop boundary; the next pass retries
+            log_failure(logger, "api.connection_removal_recovery_failed", exc)
         await asyncio.sleep(_CONNECTION_REMOVAL_RECOVERY_INTERVAL_SECONDS)
 
 
@@ -147,17 +157,71 @@ async def _sync_declared_schedules(app: FastAPI) -> None:
         try:
             await app.state.app_service.sync_declared_schedules()
             return
-        except asyncio.CancelledError:
-            raise
-        except (ValueError, ImportError):
-            logger.exception("Declared schedule sync failed; fix the deployment and restart")
+        except (ValueError, ImportError) as exc:
+            log_event(
+                logger,
+                "api.declared_schedule_sync_failed",
+                level=logging.ERROR,
+                hint="Fix the schedule configuration or install the Temporal SDK, then restart.",
+                error=exc,
+                retryable=False,
+            )
             return
-        except Exception:
-            logger.exception(
-                "Declared schedule sync failed; retrying in %.0fs",
-                _SCHEDULE_SYNC_RETRY_INTERVAL_SECONDS,
+        except Exception as exc:  # noqa: BLE001 - background loop boundary; the loop retries
+            log_failure(
+                logger,
+                "api.declared_schedule_sync_failed",
+                exc,
+                retryable=True,
+                retry_in_seconds=_SCHEDULE_SYNC_RETRY_INTERVAL_SECONDS,
             )
         await asyncio.sleep(_SCHEDULE_SYNC_RETRY_INTERVAL_SECONDS)
+
+
+async def _refresh_source_freshness(app: FastAPI) -> None:
+    """Refresh the source freshness gauges at once, then every minute until cancelled."""
+    while True:
+        await _refresh_source_freshness_once(app.state.app_service, app.state.api_metrics)
+        await asyncio.sleep(_SOURCE_FRESHNESS_REFRESH_INTERVAL_SECONDS)
+
+
+async def _refresh_source_freshness_once(
+    reader: SourceFreshnessReader, metrics: ApiMetrics
+) -> None:
+    """Swap in a fresh snapshot of every source's freshness, or keep the last one.
+
+    A failed or timed-out read is logged and leaves the last snapshot in place, so the
+    refresh time stops advancing until a read succeeds.
+    """
+    try:
+        async with asyncio.timeout(_SOURCE_FRESHNESS_REFRESH_TIMEOUT_SECONDS):
+            report = await reader.source_freshness(limit=_SOURCE_METRICS_LIMIT)
+    except HarborUnavailableError as exc:
+        log_failure(
+            logger, "observability.source_metrics_refresh_failed", exc, FailureKind.EXPECTED
+        )
+        return
+    except TimeoutError as exc:
+        log_failure(
+            logger,
+            "observability.source_metrics_refresh_failed",
+            exc,
+            FailureKind.EXPECTED,
+            error_code="timeout",
+        )
+        return
+    except Exception as exc:  # noqa: BLE001 - background loop boundary; the next refresh retries
+        log_failure(logger, "observability.source_metrics_refresh_failed", exc)
+        return
+    if report.truncated:
+        log_event(
+            logger,
+            "observability.source_metrics_truncated",
+            level=logging.WARNING,
+            source_count=report.source_count,
+            exported_source_count=len(report.sources),
+        )
+    metrics.record_source_freshness(report.sources, refreshed_at=time.time())
 
 
 @asynccontextmanager
@@ -174,7 +238,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.operations = LocalOperations(cast("AppService", service))
     app.state.composition_mode = mode
     app.state.default_tenant_id = getattr(service, "default_tenant_id", DEFAULT_TENANT_ID)
-    logger.info("Application service composed in %s mode", mode)
+    log_event(logger, "api.app_service_composed", mode=mode)
     if hasattr(service, "start_config_provider"):
         await service.start_config_provider()
     await _import_connectors_once(service)
@@ -189,13 +253,15 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         background_tasks.append(asyncio.create_task(_sync_declared_schedules(app)))
     if hasattr(service, "resume_connection_removals"):
         background_tasks.append(asyncio.create_task(_resume_connection_removals(app)))
+    if hasattr(service, "source_freshness"):
+        background_tasks.append(asyncio.create_task(_refresh_source_freshness(app)))
     try:
         yield
     finally:
         for task in background_tasks:
             task.cancel()
         await asyncio.gather(*background_tasks, return_exceptions=True)
-        logger.info("Closing the application service")
+        log_event(logger, "api.app_service_closing")
         try:
             close = getattr(service, "aclose", None)
             if close is not None:

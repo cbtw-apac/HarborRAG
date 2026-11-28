@@ -21,21 +21,20 @@ and PostgreSQL exporters. No other script starts it.
 Commands:
   bootstrap          Create the protected monitoring env file with generated
                      passwords, then stop for review
-  up                 Start the stack in the background; the data services must
-                     be running ('scripts/deployment/dev.sh data')
+  up                 Create or refresh postgres-exporter's harborrag_monitor
+                     PostgreSQL login, then start the stack in the background;
+                     the data services must be running ('scripts/deployment/dev.sh data')
   down [--volumes]   Stop the stack; --volumes also deletes the stored metrics,
                      logs, traces and Grafana state
   status             List the stack's containers
   logs [SERVICE...]  Show the logs of the stack, or of the named services
-  db-access          Create or refresh the read-only harborrag_observer
-                     PostgreSQL role that Grafana and postgres-exporter use; run
-                     it after 'dev.sh up' and after every upgrade
 
 The API, worker and MCP server export telemetry only when their env file sets
 OTEL_EXPORTER_OTLP_ENDPOINT; 'up' prints the line to add.
 
 Environment file paths can be overridden with MONITORING_ENV_FILE and
-DATABASE_ENV_FILE. Only POSTGRES_DB is read from the database file.
+DATABASE_ENV_FILE. The monitoring stack receives only POSTGRES_DB from the
+database file.
 EOF
 }
 
@@ -52,9 +51,11 @@ monitoring_compose() {
     POSTGRES_DB="$(env_file_value "${DATABASE_ENV_FILE}" POSTGRES_DB)"
     export POSTGRES_DB
     # Compose refuses a secret whose variable is unset, and env files written before
-    # alerting have no webhook lines: a missing line counts as a blank URL.
+    # alerting or the monitor login lack those lines: a missing line counts as blank.
+    # 'up' refuses a blank monitor password before it gets here.
     local name
-    for name in HARBORRAG_ALERT_ONCALL_WEBHOOK_URL HARBORRAG_ALERT_TEAM_WEBHOOK_URL; do
+    for name in HARBORRAG_ALERT_ONCALL_WEBHOOK_URL HARBORRAG_ALERT_TEAM_WEBHOOK_URL \
+        HARBORRAG_MONITOR_PASSWORD; do
         export "${name}=$(env_file_value "${MONITORING_ENV_FILE}" "${name}")"
     done
     docker compose \
@@ -75,7 +76,7 @@ bootstrap_environment() {
     created_environment=0
     ensure_environment_file "${MONITORING_ENV_FILE}" "${MONITORING_TEMPLATE}"
     ensure_generated_value "${MONITORING_ENV_FILE}" GRAFANA_ADMIN_PASSWORD
-    ensure_generated_value "${MONITORING_ENV_FILE}" HARBORRAG_OBSERVER_PASSWORD
+    ensure_generated_value "${MONITORING_ENV_FILE}" HARBORRAG_MONITOR_PASSWORD
 }
 
 print_export_steps() {
@@ -91,17 +92,49 @@ print_export_steps() {
     echo "  scripts/deployment/dev.sh worker"
     echo "  scripts/deployment/mcp.sh --http"
     echo "A process run from the checkout exports to http://127.0.0.1:${collector_port:-4318} instead."
-    echo
-    echo "Grafana's PostgreSQL data source and postgres-exporter log in as harborrag_observer; create it with '$0 db-access'."
+}
+
+# Create harborrag_monitor, postgres-exporter's login, or set its password again, as the
+# Postgres owner. It gets pg_monitor's statistics and CONNECT, never a table. The password
+# reaches psql through the environment and \getenv, never a command line, and the
+# transaction keeps the ALTER ROLE statement that carries it out of the server log. The
+# harborrag_observer role of earlier builds is dropped with its grants when present.
+grant_monitor_access() {
+    echo "Creating or refreshing postgres-exporter's harborrag_monitor login in PostgreSQL..."
+    # shellcheck disable=SC2016  # expanded by the shell inside the container
+    HARBORRAG_MONITOR_PASSWORD="$(env_file_value "${MONITORING_ENV_FILE}" HARBORRAG_MONITOR_PASSWORD)" \
+        data_compose exec -T -e HARBORRAG_MONITOR_PASSWORD postgres \
+        sh -c 'psql -q -v ON_ERROR_STOP=1 -U "${POSTGRES_USER}" -d "${POSTGRES_DB}"' <<'SQL'
+\set ON_ERROR_STOP on
+\getenv monitor_password HARBORRAG_MONITOR_PASSWORD
+BEGIN;
+SET LOCAL log_statement = 'none';
+SET LOCAL log_min_error_statement = panic;
+SET LOCAL client_min_messages = warning;
+SELECT 'CREATE ROLE harborrag_monitor'
+WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'harborrag_monitor')
+\gexec
+ALTER ROLE harborrag_monitor
+    LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS
+    PASSWORD :'monitor_password';
+GRANT pg_monitor TO harborrag_monitor;
+SELECT format('GRANT CONNECT ON DATABASE %I TO harborrag_monitor', current_database())
+\gexec
+SELECT 'DROP OWNED BY harborrag_observer'
+WHERE EXISTS (SELECT FROM pg_roles WHERE rolname = 'harborrag_observer')
+\gexec
+DROP ROLE IF EXISTS harborrag_observer;
+COMMIT;
+SQL
 }
 
 start_stack() {
     require_data_network
-    # An env file from before the observer role has no password for it; Grafana and
-    # postgres-exporter refuse to start without one.
     require_file "${MONITORING_ENV_FILE}" "monitoring environment"
-    ensure_generated_value "${MONITORING_ENV_FILE}" HARBORRAG_OBSERVER_PASSWORD
+    [[ -n "$(env_file_value "${MONITORING_ENV_FILE}" HARBORRAG_MONITOR_PASSWORD)" ]] ||
+        fail "HARBORRAG_MONITOR_PASSWORD is blank in ${MONITORING_ENV_FILE}; run '$0 bootstrap' to generate it."
     monitoring_compose config --quiet
+    grant_monitor_access
     echo "Starting the HarborRAG monitoring stack..."
     monitoring_compose up --detach --wait --wait-timeout "${MONITORING_STARTUP_TIMEOUT}"
     print_export_steps
@@ -116,25 +149,6 @@ stop_stack() {
     [[ "$#" -eq 0 ]] || fail "Unknown down option: $1"
     echo "Stopping the HarborRAG monitoring stack..."
     monitoring_compose "${down_args[@]}"
-}
-
-# Create or refresh harborrag_observer with the password in the monitoring env file,
-# generating a blank one first. The password reaches psql through the environment,
-# never the command line. Grants apply to the tables that exist now, so this runs
-# after the migrations, as the Postgres owner.
-grant_observer_access() {
-    require_file "${MONITORING_ENV_FILE}" "monitoring environment"
-    ensure_generated_value "${MONITORING_ENV_FILE}" HARBORRAG_OBSERVER_PASSWORD
-    require_data_network
-
-    echo "Granting the monitoring stack read-only access to PostgreSQL..."
-    # shellcheck disable=SC2016  # expanded by the shell inside the container
-    HARBORRAG_OBSERVER_PASSWORD="$(env_file_value "${MONITORING_ENV_FILE}" HARBORRAG_OBSERVER_PASSWORD)" \
-        data_compose exec -T -e HARBORRAG_OBSERVER_PASSWORD postgres \
-        sh -c 'psql -q -v ON_ERROR_STOP=1 -U "${POSTGRES_USER}" -d "${POSTGRES_DB}"' \
-        <"${ROOT_DIR}/deploy/compose/postgres/observer-role.sql"
-    echo "Grafana and postgres-exporter read PostgreSQL as harborrag_observer."
-    echo "After a password change, run '$0 up' so they use the new one."
 }
 
 command="${1:-}"
@@ -167,10 +181,6 @@ case "${command}" in
         ;;
     logs)
         monitoring_compose logs "$@"
-        ;;
-    db-access)
-        [[ "$#" -eq 0 ]] || fail "db-access accepts no options."
-        grant_observer_access
         ;;
     -h|--help|help)
         usage

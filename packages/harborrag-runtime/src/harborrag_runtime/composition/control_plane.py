@@ -11,7 +11,7 @@ import re
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, LiteralString
+from typing import TYPE_CHECKING, LiteralString
 
 from harborrag_core.observability.log_events import (
     FailureKind,
@@ -36,6 +36,7 @@ from harborrag_core.ports.conversation import ConversationHistoryRepository
 from harborrag_core.ports.memory import MemoryRepository
 from harborrag_core.ports.model_catalog import TenantModelCatalogPort
 from harborrag_core.ports.secrets import SecretsPort
+from harborrag_core.ports.source_freshness import SourceFreshnessReader
 from harborrag_core.ports.usage import ModelUsageRepository
 from harborrag_engine.config import EngineConfig
 from harborrag_engine.policy import EnginePolicy
@@ -96,6 +97,8 @@ class ControlPlaneRepositories:
         connection_revisions: Immutable connection snapshots; None when not wired.
         config_store: Durable tenant settings and their revision log; None when not wired.
         config: Cached tenant settings; None when not wired.
+        source_freshness: Every tenant's source freshness, for operator metrics only;
+            None when not wired.
     """
 
     projects: ProjectRepositoryPort
@@ -116,16 +119,25 @@ class ControlPlaneRepositories:
     connection_revisions: ConnectionRevisionRepositoryPort | None = None
     config_store: SettingsStore | None = None
     config: ConfigProvider | None = None
+    source_freshness: SourceFreshnessReader | None = None
 
 
 @dataclass(slots=True)
 class CompositionRoot:
-    """Resources assembled for one production runtime process."""
+    """Resources assembled for one production runtime process.
+
+    Attributes:
+        engine_config: Tenant and environment the engine runs for.
+        engine_policy: Engine limits such as its concurrency.
+        control_plane: The control-plane repositories; None without a control database.
+        control_db: The control database probe: its status, schema revision and scheme.
+        mode: Composition mode name, such as ``production``.
+    """
 
     engine_config: EngineConfig = field(default_factory=EngineConfig)
     engine_policy: EnginePolicy = field(default_factory=EnginePolicy)
     control_plane: ControlPlaneRepositories | None = None
-    control_db: dict[str, Any] = field(default_factory=dict)
+    control_db: dict[str, object] = field(default_factory=dict)
     mode: str = "production"
     _control_db_engine: AsyncEngine | None = field(default=None, repr=False)
     _config_provider: CachedConfigProvider | None = field(default=None, repr=False)
@@ -209,6 +221,9 @@ class CompositionRoot:
             SqlProviderRepository,
             SqlSettingsRepository,
         )
+        from harborrag_adapters.repositories.database.ingestion_control.source_freshness import (
+            SqlSourceFreshnessReader,
+        )
         from harborrag_core.contracts.errors import HarborConfigurationError
         from harborrag_runtime.composition.config_store import (
             build_config_provider,
@@ -277,6 +292,7 @@ class CompositionRoot:
             model_catalog=SqlTenantModelCatalog(sessions),
             config_store=config_store,
             config=config_provider,
+            source_freshness=SqlSourceFreshnessReader(engine),
         )
         composition = cls(
             control_plane=repositories,
@@ -388,7 +404,8 @@ def _read_key_file(path: Path) -> str:
     return key
 
 
-def _failed_database_status(dsn: str, error: str) -> dict[str, Any]:
+def _failed_database_status(dsn: str, error: str) -> dict[str, object]:
+    """Return the probe result of a database that could not be read."""
     return {"ping": "failed", "error": error, "scheme": dsn.split(":", 1)[0]}
 
 
@@ -456,12 +473,12 @@ def _migration_failure_hint(exc: Exception) -> LiteralString | None:
     return _UNSTAMPED_SCHEMA_HINT if "already exists" in str(exc) else None
 
 
-def _probe_control_db(dsn: str) -> dict[str, Any]:
+def _probe_control_db(dsn: str) -> dict[str, object]:
     """Probe connectivity and the migration stamp using a short-lived engine."""
     import sqlalchemy as sa
     from sqlalchemy.ext.asyncio import create_async_engine
 
-    async def _probe() -> dict[str, Any]:
+    async def _probe() -> dict[str, object]:
         engine = create_async_engine(dsn, hide_parameters=True)
         try:
             async with engine.connect() as connection:
@@ -476,7 +493,7 @@ def _probe_control_db(dsn: str) -> dict[str, Any]:
         finally:
             await engine.dispose()
 
-    def _run() -> dict[str, Any]:
+    def _run() -> dict[str, object]:
         try:
             return asyncio.run(_probe())
         except Exception as exc:  # noqa: BLE001 - diagnostics must remain available

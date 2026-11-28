@@ -418,17 +418,20 @@ Upgrade in this order:
    document retry workflow gives its release a 2-minute heartbeat timeout, and an older
    `harborrag-io` worker never heartbeats, so every attempt times out. The shipped
    Compose worker serves every queue.
-5. Create the MCP server's read-only accounts, now that the database is migrated. With
-   the Compose stack, run:
+5. Give the MCP server's read-only accounts their passwords, now that the database is
+   migrated. The migrations created the `harborrag_mcp` role and granted it only the
+   tables the MCP server reads. With the Compose stack, run:
 
     ```bash
     scripts/deployment/dev.sh mcp-access
     ```
 
     It writes `POSTGRES_MCP_PASSWORD` and `MINIO_MCP_PASSWORD` to `env/.env.database`
-    when they are blank, then creates or refreshes the `harborrag_mcp` role and the
-    `harborrag-mcp` MinIO user with them. Run it again after every later upgrade and
-    after `dev.sh down --volumes`. Elsewhere, create the accounts as
+    when they are blank, sets the `harborrag_mcp` role's password, and creates or
+    refreshes the `harborrag-mcp` MinIO user. Later upgrades keep the role's grants up to
+    date through the migrations, so run it again only after `dev.sh down --volumes` or to
+    change a password. The role that runs the migrations needs `CREATEROLE` for this
+    upgrade; the Compose Postgres owner has it. Elsewhere, set the password as
     [Read-only database and object-store accounts](detailed-guides/mcp-server/setup-and-integration.md#read-only-database-and-object-store-accounts)
     shows.
 6. Start the MCP servers, rebuilt, and the other API replicas. In a checkout, run
@@ -1176,7 +1179,10 @@ environment variables and their effect do not change.
   UI server connect to Postgres as `harborrag_mcp`, which may only `SELECT` the corpus
   tables, `mcp_api_keys` and the settings tables, in read-only sessions, and to MinIO as
   `harborrag-mcp`, which may only read `harborrag-artifacts`. Neither gets the Postgres
-  owner or the MinIO root credentials any more. A preflight failure now ends with the
+  owner or the MinIO root credentials any more. The control-plane migrations grant those
+  tables by name, and the MCP server refuses to start when its login can read any other
+  table, so start the upgraded API, which runs the migrations, before the MCP server.
+  A preflight failure now ends with the
   class of the error behind it, such as
   `settings store is unreachable (cause: InvalidPasswordError)`: run
   `scripts/deployment/dev.sh mcp-access`, then start the server again. See

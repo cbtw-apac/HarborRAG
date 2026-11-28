@@ -54,8 +54,9 @@ When upgrading an existing checkout:
   existing protected `env/.env.database` before the next start.
 - After `scripts/deployment/dev.sh up`, run `scripts/deployment/dev.sh mcp-access` before you
   start the MCP server. It writes `POSTGRES_MCP_PASSWORD` and `MINIO_MCP_PASSWORD` to
-  `env/.env.database` when they are blank, and creates or refreshes the read-only accounts the
-  server connects with. Run it after every upgrade and after `dev.sh down --volumes`; see
+  `env/.env.database` when they are blank, sets the password of the `harborrag_mcp` role that
+  the migrations create, and creates or refreshes the `harborrag-mcp` MinIO user. Run it again
+  after `dev.sh down --volumes`; see
   [Read-only database and object-store accounts](../../users/detailed-guides/mcp-server/setup-and-integration.md#read-only-database-and-object-store-accounts).
 - Monitoring uses a separate `env/.env.monitoring`. Create it with
   `scripts/deployment/observability.sh bootstrap`, as in
@@ -65,7 +66,8 @@ When upgrading an existing checkout:
   `env-example/.env.monitoring.example`, then copy the token into it as in
   [Run the monitoring stack](#run-the-monitoring-stack). Run
   `scripts/deployment/observability.sh bootstrap` too: it adds a generated
-  `HARBORRAG_OBSERVER_PASSWORD`, which the stack now requires.
+  `HARBORRAG_MONITOR_PASSWORD`, which `observability.sh up` requires. The
+  `HARBORRAG_OBSERVER_PASSWORD` line of earlier builds is no longer read; delete it.
 
 Compose refuses to start an affected service when one of these required values is absent.
 [Upgrading](../../users/upgrading.md) lists the other steps each release needs.
@@ -175,10 +177,10 @@ telemetry until you [turn export on](#turn-telemetry-export-on).
 | `loki` | Stores logs for 14 days. |
 | `prometheus` | Keeps metrics and their trace exemplars for 30 days. Scrapes the worker on `9464`, the API's ops port `9465`, the collector and the three exporters, and evaluates the alert rules. |
 | `alertmanager` | Sends critical alerts to the on-call webhook and warnings to the team webhook. |
-| `grafana` | Serves the Prometheus, Loki, Tempo and PostgreSQL data sources, linked so a trace opens its logs and metrics and a log or exemplar opens its trace. Dashboards load into the `Online`, `Offline` and `Shared` folders from [`deploy/grafana/dashboards`](../../../deploy/grafana/dashboards/README.md). |
+| `grafana` | Serves the Prometheus, Loki and Tempo data sources, linked so a trace opens its logs and metrics and a log or exemplar opens its trace. Dashboards load into the `Online`, `Offline` and `Shared` folders from [`deploy/grafana/dashboards`](../../../deploy/grafana/dashboards/README.md). |
 | `node-exporter` | Host CPU, memory, disk and network. |
 | `cadvisor` | CPU, memory and network of each container. |
-| `postgres-exporter` | PostgreSQL server and database statistics. |
+| `postgres-exporter` | PostgreSQL server and database statistics, read as `harborrag_monitor`: a login with `pg_monitor` and `CONNECT` on the database, and no table privileges. |
 
 Only the collector, Prometheus and Grafana publish ports, on
 `HARBORRAG_MONITORING_BIND_ADDRESS` (`127.0.0.1` by default); the rest are reachable only inside
@@ -202,7 +204,7 @@ token. `dev.sh` never writes `env/.env.monitoring`, so you copy the token by han
 
 1. Create the protected monitoring environment file. `bootstrap` copies the template to
    `env/.env.monitoring` with mode `0600` and generates `GRAFANA_ADMIN_PASSWORD` and
-   `HARBORRAG_OBSERVER_PASSWORD`; on an existing file it only fills blank passwords:
+   `HARBORRAG_MONITOR_PASSWORD`; on an existing file it only fills blank passwords:
 
    ```bash
    scripts/deployment/observability.sh bootstrap
@@ -215,29 +217,28 @@ token. `dev.sh` never writes `env/.env.monitoring`, so you copy the token by han
    sed -i "s/^HARBORRAG_METRICS_SCRAPE_TOKEN=.*/$(grep '^HARBORRAG_METRICS_SCRAPE_TOKEN=' env/.env.api)/" env/.env.monitoring
    ```
 
-3. Start the stack. `up` prints the Grafana address, port `3030` by default (`GRAFANA_PORT`),
-   and the steps to turn export on:
+3. Start the stack. `up` first creates or refreshes `harborrag_monitor`, postgres-exporter's
+   PostgreSQL login, with `HARBORRAG_MONITOR_PASSWORD`, and drops the `harborrag_observer`
+   role of earlier releases when it exists. It runs `psql` as the PostgreSQL owner inside the
+   data stack's `postgres` container, which must be running, and hands the password over
+   through the environment, never a command line. It then prints the Grafana address, port
+   `3030` by default (`GRAFANA_PORT`), and the steps to turn export on:
 
    ```bash
    scripts/deployment/observability.sh up
    ```
 
-4. Let Grafana and postgres-exporter read PostgreSQL. `db-access` creates or refreshes the
-   read-only `harborrag_observer` role with `HARBORRAG_OBSERVER_PASSWORD`. The role gets the
-   statistics of `pg_monitor` and the run columns of `ingestion_tasks` and
-   `task_document_results`, never the request paths, document titles or file names those tables
-   also hold. Run it after `dev.sh up` has applied the migrations, and again after every
-   upgrade:
-
-   ```bash
-   scripts/deployment/observability.sh db-access
-   ```
+   `up` stops with `HARBORRAG_MONITOR_PASSWORD is blank in env/.env.monitoring` when the
+   password is missing; run `bootstrap` to generate it. postgres-exporter keeps the password
+   it was created with, so after changing `HARBORRAG_MONITOR_PASSWORD`, run
+   `observability.sh down` and then `up`.
 
 In Prometheus, on port `9090` by default (`PROMETHEUS_PORT`), the `harborrag-api` target is
 `up` when the token matches. `observability.sh status` lists the containers,
 `logs [SERVICE...]` shows their logs, and `down [--volumes]` stops the stack, with
 `--volumes` also deleting its stored data. `MONITORING_ENV_FILE` and `DATABASE_ENV_FILE`
-override the env file paths; the launcher reads only `POSTGRES_DB` from the database file.
+override the env file paths; the monitoring stack receives only `POSTGRES_DB` from the
+database file.
 
 ### Turn telemetry export on
 
@@ -275,7 +276,10 @@ each with fixed UIDs and the `env` and `tenant` variables:
 | Offline | Ingestion and schedules | Did each sync run, what did it change, and which stage or connector failed? |
 | Shared | Stores and host | Is a store or the host the bottleneck? |
 
-The ingestion dashboard reads run history from PostgreSQL, so it needs `db-access`.
+No dashboard queries PostgreSQL. The ingestion dashboard's source panels read gauges that the
+API computes from the run history and Prometheus scrapes from its ops port, and its per-run
+panel reads the worker's `ingestion.source_finalized` log lines. It needs the API scrape token
+in place and telemetry export turned on for the worker.
 
 [`deploy/prometheus/harborrag_alerts.yml`](../../../deploy/prometheus/harborrag_alerts.yml)
 holds the alert rules and the thresholds they share with the dashboards. Each alert has a

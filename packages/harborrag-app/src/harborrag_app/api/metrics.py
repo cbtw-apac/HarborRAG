@@ -1,16 +1,20 @@
 """Prometheus metrics and request spans owned by one API application instance.
 
 Metrics and spans name a request by its route template, never its raw path, so
-resource IDs stay out of label values and span names.
+resource IDs stay out of label values and span names. Source gauges carry IDs only,
+never a connection or source name.
 """
 
 from __future__ import annotations
 
+from collections.abc import Iterator, Sequence
 from contextlib import nullcontext
+from dataclasses import dataclass
 from time import perf_counter
 
 from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram, generate_latest
 from prometheus_client.gc_collector import GCCollector
+from prometheus_client.metrics_core import GaugeMetricFamily, Metric
 from prometheus_client.platform_collector import PlatformCollector
 from prometheus_client.process_collector import ProcessCollector
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
@@ -18,14 +22,20 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import ASGIApp
 
+from harborrag_core.ports.source_freshness import SourceFreshness
 from harborrag_runtime.observability.http_tracing import ServerSpan, server_span
 
 UNMATCHED_ROUTE = "unmatched"
 UNTRACED_ROUTES = frozenset({"/healthz", "/readyz", UNMATCHED_ROUTE})
+SOURCE_LAST_SUCCESS_METRIC = "harborrag_ingestion_source_last_success_timestamp_seconds"
+SOURCE_LAST_RUN_STATUS_METRIC = "harborrag_ingestion_source_last_run_status"
+SOURCE_STATE_REFRESH_METRIC = "harborrag_ingestion_source_state_refresh_timestamp_seconds"
+_REPLICA_AGGREGATION = "Every API replica reports the same value; aggregate with max."
+_SOURCE_LABELS = ("tenant", "source_scope_id", "connector_type")
 
 
 class ApiMetrics:
-    """API and process metrics isolated from the module-global registry.
+    """API, process and source freshness metrics isolated from the module-global registry.
 
     Args:
         version: The API release, exported as ``harborrag_api_info``.
@@ -36,6 +46,8 @@ class ApiMetrics:
         GCCollector(registry=self.registry)
         PlatformCollector(registry=self.registry)
         ProcessCollector(registry=self.registry)
+        self._source_freshness = _SourceFreshnessCollector()
+        self.registry.register(self._source_freshness)
 
         self._info = Gauge(
             "harborrag_api_info",
@@ -92,9 +104,83 @@ class ApiMetrics:
         ).inc()
         self._duration.labels(method=method, route=route).observe(duration_seconds)
 
+    def record_source_freshness(
+        self, sources: Sequence[SourceFreshness], *, refreshed_at: float
+    ) -> None:
+        """Replace every source gauge with one refresh's sources, all at once.
+
+        A source missing from ``sources`` stops being exported. Until the first call no
+        source gauge, refresh time included, has a sample.
+
+        Args:
+            sources: Every source the refresh read.
+            refreshed_at: Unix time the refresh finished.
+        """
+        self._source_freshness.snapshot = _SourceFreshnessSnapshot(
+            sources=tuple(sources), refreshed_at=refreshed_at
+        )
+
     def render(self) -> bytes:
         """Return the registry in the Prometheus text exposition format."""
         return generate_latest(self.registry)
+
+
+@dataclass(frozen=True, slots=True)
+class _SourceFreshnessSnapshot:
+    """The sources one successful refresh read.
+
+    Attributes:
+        sources: Every source the refresh read.
+        refreshed_at: Unix time the refresh finished.
+    """
+
+    sources: tuple[SourceFreshness, ...]
+    refreshed_at: float
+
+
+class _SourceFreshnessCollector:
+    """Yield the source gauges from the latest snapshot, which a refresh swaps whole.
+
+    Attributes:
+        snapshot: The latest successful refresh, or None before the first one.
+    """
+
+    snapshot: _SourceFreshnessSnapshot | None
+
+    def __init__(self) -> None:
+        self.snapshot = None
+
+    def collect(self) -> Iterator[Metric]:
+        """Yield the three source gauge families; without a snapshot they have no samples."""
+        snapshot = self.snapshot
+        last_success = GaugeMetricFamily(
+            SOURCE_LAST_SUCCESS_METRIC,
+            "Unix time the source's latest completed or partial ingestion run ended, "
+            f"0 when none has. {_REPLICA_AGGREGATION}",
+            labels=_SOURCE_LABELS,
+        )
+        last_run_status = GaugeMetricFamily(
+            SOURCE_LAST_RUN_STATUS_METRIC,
+            "State of the source's most recently submitted ingestion run in the status "
+            f"label, always 1. {_REPLICA_AGGREGATION}",
+            labels=(*_SOURCE_LABELS, "status"),
+        )
+        refresh = GaugeMetricFamily(
+            SOURCE_STATE_REFRESH_METRIC,
+            "Unix time this API replica last refreshed the source state gauges.",
+        )
+        if snapshot is not None:
+            for source in snapshot.sources:
+                labels = [source.tenant_id, source.source_scope_id, source.connector_type]
+                last_success.add_metric(labels, _unix_time(source))
+                last_run_status.add_metric([*labels, source.last_run_status.value.lower()], 1)
+            refresh.add_metric([], snapshot.refreshed_at)
+        yield from (last_success, last_run_status, refresh)
+
+
+def _unix_time(source: SourceFreshness) -> float:
+    """Return when the source last succeeded as Unix time, or 0 when it never has."""
+    return source.last_success_at.timestamp() if source.last_success_at is not None else 0.0
 
 
 class ApiMetricsMiddleware(BaseHTTPMiddleware):
