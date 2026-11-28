@@ -136,6 +136,17 @@ def list_ingestions(  # noqa: PLR0913 - the list filters plus the global options
     status: Annotated[
         str | None, typer.Option("--status", help=f"Only runs that are {_STATUSES}.")
     ] = None,
+    trigger: Annotated[
+        str | None,
+        typer.Option(
+            "--trigger",
+            help="Only runs a user, an api_key or a schedule started. "
+            "Runs from schedules.yaml count as user.",
+        ),
+    ] = None,
+    schedule_id: Annotated[
+        str | None, typer.Option("--schedule-id", help="Only runs this schedule started.")
+    ] = None,
     created_after: Annotated[
         str | None,
         typer.Option(
@@ -162,6 +173,8 @@ def list_ingestions(  # noqa: PLR0913 - the list filters plus the global options
             "project_id": project_id,
             "connection_ref": connection_ref,
             "status": status,
+            "trigger": trigger,
+            "schedule_id": schedule_id,
             "created_after": created_after,
             "limit": limit,
         },

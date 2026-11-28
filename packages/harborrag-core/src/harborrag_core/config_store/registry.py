@@ -21,6 +21,8 @@ from harborrag_core.contracts.errors import HarborValidationError
 
 MIN_ACTIVITY_TIMEOUT_SECONDS = 30
 MAX_ACTIVITY_TIMEOUT_SECONDS = 3_600
+MIN_SCHEDULE_INTERVAL_SECONDS = 60
+MAX_SCHEDULE_INTERVAL_SECONDS = 86_400
 
 Applies = Literal["live", "next_ingestion", "reindex"]
 
@@ -44,6 +46,7 @@ GROUP_TITLES: Mapping[str, str] = {
     "embedding": "Embedding",
     "ingestion": "Ingestion",
     "models": "Models",
+    "schedules": "Schedules",
 }
 
 _SCHEMA_KEYS = ("type", "minimum", "maximum", "enum", "pattern")
@@ -255,6 +258,43 @@ class ModelsGroup(StrictModel):
     )
 
 
+class SchedulesGroup(StrictModel):
+    """Schedule settings."""
+
+    enabled: bool = Field(
+        True,
+        description="Run schedule slots; false skips every slot, for maintenance",
+        json_schema_extra=_extra(["tenant"], "live"),
+    )
+    min_interval: str = Field(
+        "PT15M",
+        description=(
+            "ISO 8601 duration from PT1M to P1D; the shortest interval, or gap between "
+            "cron runs, a schedule may have"
+        ),
+        json_schema_extra=_extra(["tenant"], "live"),
+    )
+    max_per_connection: int = Field(
+        5,
+        ge=1,
+        le=50,
+        description="Most schedules one connection may have",
+        json_schema_extra=_extra(["tenant"], "live"),
+    )
+
+    @field_validator("min_interval")
+    @classmethod
+    def _validate_min_interval(cls, value: str) -> str:
+        """Refuse a duration that is malformed or outside PT1M to P1D."""
+        seconds = parse_iso8601_duration_seconds(value)
+        if not MIN_SCHEDULE_INTERVAL_SECONDS <= seconds <= MAX_SCHEDULE_INTERVAL_SECONDS:
+            raise ValueError(
+                "min_interval must be between PT1M and P1D "
+                f"({MIN_SCHEDULE_INTERVAL_SECONDS}-{MAX_SCHEDULE_INTERVAL_SECONDS} seconds)"
+            )
+        return value
+
+
 SETTINGS_GROUPS: Mapping[str, type[StrictModel]] = {
     "retrieval": RetrievalGroup,
     "capture": CaptureGroup,
@@ -263,6 +303,7 @@ SETTINGS_GROUPS: Mapping[str, type[StrictModel]] = {
     "embedding": EmbeddingGroup,
     "ingestion": IngestionGroup,
     "models": ModelsGroup,
+    "schedules": SchedulesGroup,
 }
 
 

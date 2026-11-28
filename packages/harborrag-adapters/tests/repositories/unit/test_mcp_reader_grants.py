@@ -27,7 +27,7 @@ from harborrag_core.contracts.errors import HarborUnavailableError
 pytestmark = pytest.mark.unit
 
 _MIGRATION = (
-    Path(control_plane.__file__).parent / "alembic" / "versions" / "0050_mcp_reader_grants.py"
+    Path(control_plane.__file__).parent / "alembic" / "versions" / "0051_mcp_reader_grants.py"
 )
 
 

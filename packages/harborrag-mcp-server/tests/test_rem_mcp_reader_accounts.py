@@ -17,7 +17,7 @@ pytestmark = pytest.mark.unit
 REPOSITORY = Path(__file__).resolve().parents[3]
 ROLE_MIGRATION = (
     "packages/harborrag-adapters/src/harborrag_adapters/repositories/database/control_plane/"
-    "alembic/versions/0050_mcp_reader_grants.py"
+    "alembic/versions/0051_mcp_reader_grants.py"
 )
 OWNER_SECRETS = ("owner-secret", "object-root-secret")
 

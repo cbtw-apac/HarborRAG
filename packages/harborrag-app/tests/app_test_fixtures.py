@@ -6,6 +6,7 @@ from collections.abc import Mapping
 
 from app_test_ingestion import IngestionServiceFixture
 from app_test_retrieval_records import retrieval_payload
+from app_test_schedules import FakeScheduleService
 
 from harborrag_core.domain.identity import DEFAULT_USER
 from harborrag_core.testing.control_plane_fakes import FakePendingEffectRepository
@@ -47,6 +48,7 @@ class MockAppService(
         self.memory_index = FakeMemoryIndex()
         self.conversations = InMemoryConversationMemory()
         self.pending_effects = FakePendingEffectRepository()
+        self.schedule_service = FakeScheduleService()
         self._memory_admin = MemoryAdministrationService(
             conversations=self.conversations,
             memories=self.memory_store,  # type: ignore[arg-type]

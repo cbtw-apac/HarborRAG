@@ -57,13 +57,20 @@ These operations have no command.
 | Operation | HTTP route | Why it has no command |
 | --- | --- | --- |
 | `create_chat_session` | `POST /v1/chat/sessions` | Chat sessions belong to the web chat; `chat --session-id` continues one |
+| `delete_schedule` | `DELETE /v1/admin/schedules/{schedule_id}` | Schedules are managed over HTTP; no `schedules` command yet |
+| `get_schedule` | `GET /v1/admin/schedules/{schedule_id}` | Schedules are managed over HTTP; no `schedules` command yet |
 | `healthz` | `GET /healthz` | Liveness probe for the orchestrator |
 | `list_chat_sessions` | `GET /v1/chat/sessions` | Browsing chat history is a web console view |
 | `list_conversation_messages` | `GET /v1/chat/sessions/{session_id}/messages` | Reading back a session's messages is a web console view |
 | `list_ingestion_documents` | `GET /v1/admin/ingestions/{ingestion_id}/documents` | Per-document drill-down of a run is a web console view |
+| `list_schedules` | `GET /v1/admin/schedules` | Schedules are managed over HTTP; no `schedules` command yet |
 | `list_searchable_connections` | `GET /v1/projects/{project_id}/connections` | Feeds the chat's connection picker for readers |
+| `pause_schedule` | `POST /v1/admin/schedules/{schedule_id}/pause` | Schedules are managed over HTTP; no `schedules` command yet |
+| `put_schedule` | `PUT /v1/admin/schedules/{schedule_id}` | Schedules are managed over HTTP; no `schedules` command yet |
 | `readyz` | `GET /readyz` | Readiness probe for the orchestrator; `doctor` runs the same checks locally |
+| `resume_schedule` | `POST /v1/admin/schedules/{schedule_id}/resume` | Schedules are managed over HTTP; no `schedules` command yet |
 | `stream_ingestion` | `GET /v1/admin/ingestions/{ingestion_id}/events` | Server-sent events for the web console; `ingestions get --watch` polls |
+| `trigger_schedule` | `POST /v1/admin/schedules/{schedule_id}/trigger` | Schedules are managed over HTTP; no `schedules` command yet |
 
 ## harborrag auth keys create
 
@@ -212,7 +219,8 @@ harborrag connections list [OPTIONS]
 | --- | --- | --- | --- |
 | `--project-id` | text |  | Only this project's connections. |
 | `--source-type` | text |  | Only connections of this type. |
-| `--status` | `active`, `needs_reauth`, `error` |  | Only connections in this status. |
+| `--status` | `active`, `needs_reauth`, `error`, `deleting` |  | Only connections in this status. |
+| `--scheduled, --no-scheduled` | boolean |  | Only connections with an active schedule, or only those without one. |
 | `--limit` | integer range | `20` | Page size, 1 to 100. |
 | `--cursor` | text |  | next_cursor of the previous page. |
 | `--all` | boolean | `false` | Follow next_cursor and print every page as one. |
@@ -372,6 +380,8 @@ harborrag ingestions list [OPTIONS]
 | `--project-id` | text |  | Only this project's runs. |
 | `--connection-ref` | text |  | Only this connection, e.g. engineering/jira-main. |
 | `--status` | text |  | Only runs that are queued, running, paused, succeeded, failed or cancelled. |
+| `--trigger` | text |  | Only runs a user, an api_key or a schedule started. Runs from schedules.yaml count as user. |
+| `--schedule-id` | text |  | Only runs this schedule started. |
 | `--created-after DATE_TIME` | text |  | Only runs started after this time. |
 | `--limit` | integer range | `20` | Page size, 1 to 100. |
 | `--cursor` | text |  | next_cursor of the previous page. |

@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import replace
+from datetime import datetime
 from typing import TYPE_CHECKING, Any, Final
 from uuid import uuid4
 
@@ -80,6 +81,7 @@ from .connection_writes import (
     validate_write,
 )
 from .effect_recovery import defer_retirement, log_activity, retire_refs
+from .schedule_settings import read_schedule_settings
 
 if TYPE_CHECKING:
     from harborrag_runtime.composition.connection_removal import ConnectionRemoval
@@ -104,6 +106,8 @@ class ConnectionService:
         destination_policy: Hosts a connection test may reach beyond public addresses.
         instance_id: ID of this process, which names the holder of a connection sync lease.
         settings: Settings that choose each tenant's corpus mode.
+        schedule_removal: Removes a connection's schedules before its data; ``None``
+            when nothing schedules connections.
     """
 
     def __init__(  # noqa: PLR0913 - the stores and settings the service composes
@@ -116,6 +120,7 @@ class ConnectionService:
         destination_policy: DestinationPolicy,
         instance_id: str,
         settings: RuntimeSettings,
+        schedule_removal: Callable[[ConnectionKey], Awaitable[None]] | None = None,
     ) -> None:
         self._control_plane = control_plane
         self._runs = runs
@@ -124,6 +129,7 @@ class ConnectionService:
         self._destination_policy = destination_policy
         self._instance_id = instance_id
         self._settings = settings
+        self._schedule_removal = schedule_removal
         self._background: set[asyncio.Task[None]] = set()
         self._removing: set[tuple[str, str]] = set()
 
@@ -157,8 +163,13 @@ class ConnectionService:
         status: ConnectionStatus | None = None,
         limit: int = 20,
         cursor: str | None = None,
+        scheduled: bool | None = None,
     ) -> tuple[list[dict[str, Any]], str | None]:
-        """Return one page of the tenant's connections, needing attention first."""
+        """Return one page of the tenant's connections, needing attention first.
+
+        ``scheduled`` keeps the connections with a schedule that is not paused when
+        ``True``, and the others when ``False``.
+        """
         canonical = source_types.canonical(source_type) if source_type else None
         connections, next_cursor = await self._control_plane().connections.list(
             tenant_ids=frozenset({tenant_id}),
@@ -167,8 +178,14 @@ class ConnectionService:
             status=status,
             limit=limit,
             cursor=cursor,
+            scheduled=scheduled,
         )
-        views = await read_connection_views(await self._runs(), connections, batch=True)
+        views = await read_connection_views(
+            await self._runs(),
+            connections,
+            batch=True,
+            next_runs=await self._next_runs(tenant_id, connections),
+        )
         return views, next_cursor
 
     async def searchable(
@@ -544,24 +561,27 @@ class ConnectionService:
             raise HarborAlreadyRunningError(
                 "an ingestion is starting for this connection", details={"ingestion_id": None}
             )
-        await self.refuse_if_running(key.tenant_id, connection.source_key)
-        accepted = await self._ingestions.submit(
-            IngestionCreateCommand(
-                tenant_id=key.tenant_id,
-                connection_id=connection.source_key,
-                force_reprocess=mode == "force",
-                public_request={
-                    "connection": connection.ref,
-                    "mode": mode,
-                    "updated_after": updated_after,
-                    "actor": actor,
-                },
-                updated_after=updated_after,
-                actor=actor,
-                actor_type=actor_type,
-            ),
-            idempotency_key=None,
-        )
+        try:
+            await self.refuse_if_running(key.tenant_id, connection.source_key)
+            accepted = await self._ingestions.submit(
+                IngestionCreateCommand(
+                    tenant_id=key.tenant_id,
+                    connection_id=connection.source_key,
+                    force_reprocess=mode == "force",
+                    public_request={
+                        "connection": connection.ref,
+                        "mode": mode,
+                        "updated_after": updated_after,
+                        "actor": actor,
+                    },
+                    updated_after=updated_after,
+                    actor=actor,
+                    actor_type=actor_type,
+                ),
+                idempotency_key=None,
+            )
+        finally:
+            await self._control_plane().leases.release(lease, holder)
         task = await runs.get(str(accepted["task_id"]))
         if task is None:
             raise HarborUnavailableError("the ingestion was accepted but cannot be read back")
@@ -607,7 +627,7 @@ class ConnectionService:
         return job.id
 
     async def finish_deletion(self, connection: Connection, *, job_id: str, purge: bool) -> None:
-        """Remove the documents, then the secrets, then the row; idempotent and resumable."""
+        """Remove the schedules, documents, secrets, then the row; idempotent and resumable."""
         marker = (connection.tenant_id, connection.source_key)
         if marker in self._removing:
             return
@@ -626,6 +646,7 @@ class ConnectionService:
         control_plane = self._control_plane()
         job = await control_plane.jobs.get(job_id, tenant_ids=frozenset({connection.tenant_id}))
         try:
+            await self._remove_schedules(connection)
             await self._removal().remove(
                 tenant_id=connection.tenant_id, source_key=connection.source_key, purge=purge
             )
@@ -660,6 +681,13 @@ class ConnectionService:
             return
         if job is not None and job.job_type == _DELETE_CONNECTION_JOB:
             await control_plane.jobs.save(_finished(job, "succeeded"))
+
+    async def _remove_schedules(self, connection: Connection) -> None:
+        """Remove the connection's schedules first, so no slot starts a run during removal."""
+        if self._schedule_removal is not None:
+            await self._schedule_removal(
+                ConnectionKey(connection.tenant_id, connection.project_id, connection.connection_id)
+            )
 
     async def resume_deletions(self) -> int:
         """Finish every removal a previous process left in ``deleting``."""
@@ -734,9 +762,32 @@ class ConnectionService:
         raise HarborNotFoundError(f"project {key.project_id!r} not found{hint}")
 
     async def _view(self, connection: Connection) -> dict[str, Any]:
-        """Return the API view with the latest run and document count."""
-        views = await read_connection_views(await self._runs(), [connection], batch=False)
+        """Return the API view with the latest run, document count and next scheduled run."""
+        views = await read_connection_views(
+            await self._runs(),
+            [connection],
+            batch=False,
+            next_runs=await self._next_runs(connection.tenant_id, [connection]),
+        )
         return views[0]
+
+    async def _next_runs(
+        self, tenant_id: str, connections: Sequence[Connection]
+    ) -> dict[tuple[str, str], datetime]:
+        """Read each connection's next scheduled run in one query.
+
+        Empty without a schedule store, or while ``schedules.enabled`` is false.
+        """
+        control_plane = self._control_plane()
+        schedules = control_plane.schedules
+        if schedules is None or not connections:
+            return {}
+        if not (await read_schedule_settings(control_plane.config, tenant_id)).enabled:
+            return {}
+        return await schedules.next_runs(
+            tenant_id=tenant_id,
+            connections=[(c.project_id, c.connection_id) for c in connections],
+        )
 
     async def _retire_replaced(self, connection: Connection, refs: list[str]) -> None:
         """Delete replaced stored secrets now, or once the running ingestion finishes."""

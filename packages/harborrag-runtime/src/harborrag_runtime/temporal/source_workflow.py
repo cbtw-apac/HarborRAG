@@ -22,10 +22,11 @@ from temporalio.exceptions import (
     FailureError,
     is_cancelled_exception,
 )
-from temporalio.workflow import ParentClosePolicy
+from temporalio.workflow import ActivityCancellationType, ParentClosePolicy
 
 from harborrag_core.ingestion.run_contracts import RunKind
 from harborrag_core.observability.log_events import FailureKind, log_event, log_failure
+from harborrag_engine.ingestion.source.tasks import source_scan_id
 from harborrag_runtime.temporal.failure_handling import durable_failure
 
 from .maintenance_schemas import ProjectionCleanupResult
@@ -62,6 +63,7 @@ _SIGNAL_ONLY_BATCH_PAUSE_PATCH = "harborrag-source-signal-only-batch-pause"
 _RECORDS_CANCELLATION_PATCH = "harborrag-source-records-cancellation"
 _GUARDED_DISCOVERY_STOP_PATCH = "harborrag-source-guarded-discovery-stop"
 _CANCEL_CLOSED_BATCH_PATCH = "harborrag-source-cancel-closed-batch"
+_PROMPT_DISCOVERY_CANCEL_PATCH = "harborrag-source-prompt-discovery-cancel"
 
 
 @workflow.defn(name="harborrag.scheduled_source_ingestion")
@@ -228,6 +230,28 @@ def _scheduled_task_id(schedule_id: str, workflow_id: str, run_id: str) -> str:
     return f"scheduled-{digest}"
 
 
+def _prompt_discovery_cancel() -> bool:
+    """Whether a graceful cancel stops discovery instead of waiting for it to end.
+
+    Runs recorded before the patch wait for it. Outside a workflow they wait too, since
+    cancelling the activity needs the workflow event loop.
+    """
+    return workflow.in_workflow() and workflow.patched(_PROMPT_DISCOVERY_CANCEL_PATCH)
+
+
+def _current_details(status: str, task_id: str) -> str:
+    """Describe a paused or cancelling run for the Temporal UI, with IDs and states only."""
+    since = workflow.now().strftime("%Y-%m-%dT%H:%M:%SZ")
+    if status == "PAUSED":
+        return (
+            f"Paused by HarborRAG at {since}; "
+            f"resume with POST /v1/admin/ingestions/{task_id}/resume"
+        )
+    if status == "CANCELLING":
+        return f"Cancelling at HarborRAG's request since {since}"
+    return ""
+
+
 @workflow.defn(name="harborrag.source_ingestion")
 class SourceIngestionWorkflow:
     """Workflow that discovers a source's documents and ingests them in batches."""
@@ -253,20 +277,21 @@ class SourceIngestionWorkflow:
     ) -> SourceIngestionResult:
         """Run the source ingestion.
 
-        A pause or cancel that arrives during discovery is handled once discovery
-        ends, inside the run's failure and cancellation recording.
+        A pause that arrives during discovery is handled once discovery ends. A graceful
+        cancel stops discovery and ends the run cancelled. In runs recorded before that
+        patch, the cancel also waits for discovery to end. Either is handled inside the
+        run's failure and cancellation recording.
         """
         self._task_id = request.task_id
-        self._status = "RUNNING"
+        self._set_status("RUNNING")
         discovery, start_index = await self._initial_state(request)
-        self._discovered = discovery.document_count
-        self._skipped_by_reason = dict(discovery.skipped_by_reason)
+        self._count_discovery(discovery)
         guarded_stop = not workflow.in_workflow() or workflow.patched(_GUARDED_DISCOVERY_STOP_PATCH)
         if not guarded_stop and await self._stop_requested(request):
             return await self._cancelled_result(request, discovery)
         completed_in_run = 0
         try:
-            if guarded_stop and await self._stop_requested(request):
+            if discovery is None or (guarded_stop and await self._stop_requested(request)):
                 return await self._cancelled_result(request, discovery)
             for start in range(
                 start_index,
@@ -314,9 +339,27 @@ class SourceIngestionWorkflow:
         except (ActivityError, ChildWorkflowError) as error:
             await self._record_failed_step(request, error)
             raise
-        self._status = result.status
+        self._set_status(result.status)
         await self._cleanup_source(request)
         return cast(SourceIngestionResult, result)
+
+    def _set_status(self, status: str) -> None:
+        """Set the run's status and the details the Temporal UI shows for it.
+
+        A paused run is paused by signal, so Temporal shows it as running. The details say it
+        is paused, since when, and how to resume it. A status set again keeps its details.
+        """
+        if status == self._status:
+            return
+        self._status = status
+        if workflow.in_workflow():
+            workflow.set_current_details(_current_details(status, self._task_id))
+
+    def _count_discovery(self, discovery: SourceDiscoveryResult | None) -> None:
+        """Report the documents and skips of a discovery that finished."""
+        if discovery is not None:
+            self._discovered = discovery.document_count
+            self._skipped_by_reason = dict(discovery.skipped_by_reason)
 
     async def _record_failed_step(
         self,
@@ -373,7 +416,7 @@ class SourceIngestionWorkflow:
         workflow's ``get_status`` says FAILED, as after a failed discovery.
         """
         if workflow.patched(_RUN_FAILURE_STATUS_PATCH):
-            self._status = "FAILED"
+            self._set_status("FAILED")
         error_code, _ = durable_failure(error)
         await workflow.execute_activity(
             "harborrag.record_source_failure",
@@ -388,8 +431,8 @@ class SourceIngestionWorkflow:
 
     async def _initial_state(
         self, request: SourceIngestionInput
-    ) -> tuple[SourceDiscoveryResult, int]:
-        """Return the discovery and the first document index, continued or discovered anew."""
+    ) -> tuple[SourceDiscoveryResult | None, int]:
+        """Return the run's discovery, or None when a graceful cancel stopped it, and its start."""
         continuation = request.continuation
         if continuation is not None:
             self._summary = continuation.summary
@@ -606,13 +649,18 @@ class SourceIngestionWorkflow:
     async def _discover(
         self,
         request: SourceIngestionInput,
-    ) -> SourceDiscoveryResult:
+    ) -> SourceDiscoveryResult | None:
         """Run source discovery as an activity.
 
         Each retry resumes from the last persisted page, so the retry bound covers one attempt, not
         the discovery.
+
+        Returns:
+            The discovery, or None when a graceful cancel stopped it.
         """
         try:
+            if _prompt_discovery_cancel():
+                return await self._discover_until_cancelled(request)
             return cast(
                 SourceDiscoveryResult,
                 await workflow.execute_activity(
@@ -632,7 +680,7 @@ class SourceIngestionWorkflow:
                 await self._record_hard_cancellation(request)
                 raise
             if workflow.patched(_DISCOVER_FAILURE_STATUS_PATCH):
-                self._status = "FAILED"
+                self._set_status("FAILED")
             error_code, _ = durable_failure(error)
             await workflow.execute_activity(
                 "harborrag.record_source_failure",
@@ -645,6 +693,57 @@ class SourceIngestionWorkflow:
                 retry_policy=temporal_retry_policy(request.workflow_options.retries.discovery),
             )
             raise
+
+    async def _discover_until_cancelled(
+        self,
+        request: SourceIngestionInput,
+    ) -> SourceDiscoveryResult | None:
+        """Run discovery, and cancel it when a graceful cancel is requested first.
+
+        The cancel reaches the discovery attempt at its next heartbeat. The workflow waits for
+        the attempt to stop, so no walk of the source outlives the run.
+
+        Returns:
+            The discovery, or None when the cancel stopped it.
+        """
+        discovery = workflow.start_activity(
+            "harborrag.discover_source_items",
+            request,
+            task_queue=request.workflow_options.task_queues.discovery,
+            start_to_close_timeout=timedelta(
+                seconds=request.workflow_options.timeouts.discovery_seconds
+            ),
+            heartbeat_timeout=timedelta(minutes=2),
+            retry_policy=temporal_retry_policy(request.workflow_options.retries.discovery),
+            result_type=SourceDiscoveryResult,
+            cancellation_type=ActivityCancellationType.WAIT_CANCELLATION_COMPLETED,
+        )
+        await self._cancel_on_request(discovery)
+        try:
+            return cast(SourceDiscoveryResult, discovery.result())
+        except ActivityError as error:
+            if not (self._cancel_requested and is_cancelled_exception(error)):
+                raise
+        return None
+
+    async def _cancel_on_request(self, discovery: workflow.ActivityHandle[Any]) -> None:
+        """Wait for discovery to end, cancelling it once a graceful cancel is requested.
+
+        A Temporal cancel of the run also cancels discovery, without waiting for it.
+        """
+        cancel = asyncio.ensure_future(workflow.wait_condition(lambda: self._cancel_requested))
+        waiting: list[asyncio.Future[Any]] = [discovery, cancel]
+        try:
+            await workflow.wait(waiting, return_when=asyncio.FIRST_COMPLETED)
+        except asyncio.CancelledError:
+            discovery.cancel()
+            raise
+        finally:
+            if not cancel.done():
+                cancel.cancel()
+        if not discovery.done():
+            discovery.cancel()
+            await workflow.wait([discovery])
 
     @staticmethod
     async def _cleanup_source(request: SourceIngestionInput) -> None:
@@ -670,7 +769,7 @@ class SourceIngestionWorkflow:
     async def _stop_requested(self, request: SourceIngestionInput) -> bool:
         """Wait out a pause, persisting it, and return whether a cancel was requested."""
         if self._paused and not self._cancel_requested:
-            self._status = "PAUSED"
+            self._set_status("PAUSED")
             persist_pause = workflow.patched(_PAUSE_PERSISTENCE_PATCH)
             if persist_pause and not self._pause_persisted:
                 await workflow.execute_activity(
@@ -693,18 +792,19 @@ class SourceIngestionWorkflow:
                     retry_policy=temporal_retry_policy(request.workflow_options.retries.discovery),
                 )
                 self._pause_persisted = False
-            self._status = "CANCELLING" if self._cancel_requested else "RUNNING"
+            self._set_status("CANCELLING" if self._cancel_requested else "RUNNING")
         return self._cancel_requested
 
     async def _cancelled_result(
         self,
         request: SourceIngestionInput,
-        discovery: SourceDiscoveryResult,
+        discovery: SourceDiscoveryResult | None,
     ) -> SourceIngestionResult:
         """Record the graceful cancel and return the run's counts, with every skip so far.
 
         A cancel activity from before it returned skips, or its result in an older
-        history, leaves the discovery skips in place.
+        history, leaves the discovery skips in place. A run cancelled during discovery
+        has no plan, so it reports no documents, under the scan its discovery opened.
         """
         cancelled: SourceCancellationResult | None = await workflow.execute_activity(
             "harborrag.cancel_source_ingestion",
@@ -717,11 +817,11 @@ class SourceIngestionWorkflow:
         if cancelled is not None:
             self._skipped_by_reason = dict(cancelled.skipped_by_reason)
         await self._cleanup_source(request)
-        self._status = "CANCELLED"
+        self._set_status("CANCELLED")
         return SourceIngestionResult(
             task_id=request.task_id,
-            scan_id=discovery.scan_id,
-            discovered=discovery.document_count,
+            scan_id=source_scan_id(request.task_id) if discovery is None else discovery.scan_id,
+            discovered=self._discovered,
             published=self._summary.published,
             unchanged=self._summary.unchanged,
             failed=self._summary.failed,
@@ -739,7 +839,7 @@ class SourceIngestionWorkflow:
             self._paused = True
             self._pause_persisted = False
             self._pause_relay_applied = False
-            self._status = "PAUSED"
+            self._set_status("PAUSED")
 
     @workflow.signal
     def resume(self) -> None:
@@ -749,14 +849,14 @@ class SourceIngestionWorkflow:
         if was_paused and not self._cancel_requested:
             self._pause_persisted = False
             self._pause_relay_applied = False
-            self._status = "RUNNING"
+            self._set_status("RUNNING")
 
     @workflow.signal
     def request_graceful_cancel(self) -> None:
-        """Stop dispatching and finish the documents in flight."""
+        """Stop dispatching, and stop a discovery in progress."""
         self._cancel_requested = True
         self._paused = False
-        self._status = "CANCELLING"
+        self._set_status("CANCELLING")
 
     @workflow.query
     def get_status(self) -> SourceIngestionStatus:

@@ -15,7 +15,13 @@ from harborrag_app.api import app as api_app
 from harborrag_app.api.app import create_fastapi_app
 from harborrag_app.api.settings import ApiSettings
 from harborrag_core.domain.project import Project
-from harborrag_core.ingestion import IngestionTask, IngestionTaskState, TaskPage
+from harborrag_core.ingestion import (
+    DEFAULT_ACTOR_TYPE,
+    IngestionTask,
+    IngestionTaskState,
+    TaskPage,
+    TaskTrigger,
+)
 from harborrag_engine.control_plane.connection_views import IngestionLinks
 from harborrag_engine.ingestion.operations import IngestionOperations
 from harborrag_runtime.testing.connection_fakes import ConnectionWorld, connection_world
@@ -64,6 +70,24 @@ class _Runs:
             )
         )
 
+    def started_by(self, task_id: str, *, actor_type: str, actor: str) -> None:
+        """Record who started ``task_id`` the way the task registry does."""
+        self.tasks = [
+            task.model_copy(
+                update={"request": {**task.request, "actor_type": actor_type, "actor": actor}}
+            )
+            if task.task_id == task_id
+            else task
+            for task in self.tasks
+        ]
+
+    async def source_keys(self, *, tenant_id: str) -> frozenset[str]:
+        return frozenset(
+            str(task.request["connection_id"])
+            for task in self.tasks
+            if task.request["tenant_id"] == tenant_id
+        )
+
     async def get(self, task_id: str) -> IngestionTask | None:
         return next((task for task in self.tasks if task.task_id == task_id), None)
 
@@ -82,6 +106,7 @@ class _Runs:
         before_task_id: str | None = None,
         scope_connection_ids: frozenset[str] | None = None,
         created_after: datetime | None = None,
+        trigger: TaskTrigger | None = None,
         limit: int = 50,
     ) -> TaskPage:
         found = sorted(
@@ -96,11 +121,18 @@ class _Runs:
                 )
                 and (created_after is None or task.submitted_at >= created_after)
                 and (before_submitted_at is None or task.submitted_at < before_submitted_at)
+                and (trigger is None or _started(task, trigger))
             ),
             key=lambda task: task.submitted_at,
             reverse=True,
         )
         return TaskPage(tuple(found[:limit]), has_more=len(found) > limit)
+
+
+def _started(task: IngestionTask, trigger: TaskTrigger) -> bool:
+    """Whether ``trigger`` started ``task``; a run that records no actor type is a user's."""
+    actor_type = task.request.get("actor_type") or DEFAULT_ACTOR_TYPE
+    return actor_type == trigger.actor_type and trigger.actor in (None, task.request.get("actor"))
 
 
 class _App(MockAppService):
@@ -129,8 +161,14 @@ def runs() -> _Runs:
 
 
 @pytest.fixture
-def client(monkeypatch: pytest.MonkeyPatch, runs: _Runs) -> Iterator[TestClient]:
-    world = connection_world([Project(id="demo", name="DEMO", collection="demo", tenant_id="acme")])
+def world() -> ConnectionWorld:
+    return connection_world([Project(id="demo", name="DEMO", collection="demo", tenant_id="acme")])
+
+
+@pytest.fixture
+def client(
+    monkeypatch: pytest.MonkeyPatch, runs: _Runs, world: ConnectionWorld
+) -> Iterator[TestClient]:
     app_service = _App(world, runs)
     monkeypatch.setattr(api_app, "select_app_service", lambda: (app_service, "test"))
     app = create_fastapi_app(ApiSettings(auth_mode="hmac", auth_secret=_SECRET))
@@ -189,6 +227,85 @@ def test_connection_ref_and_project_filters(client: TestClient) -> None:
     ]
     assert _ids(client.get(_LIST, params={"connection_ref": "demo/missing"})) == []
     assert _ids(client.get(_LIST, params={"project_id": "nope"})) == []
+
+
+def test_a_deleted_connections_runs_stay_listed_under_its_ref_and_project(
+    client: TestClient, world: ConnectionWorld
+) -> None:
+    stored = world.control_plane.connections.connections
+    for pk in [pk for pk, row in stored.items() if row.connection_id == "demo-tickets"]:
+        del stored[pk]
+
+    by_ref = client.get(_LIST, params={"connection_ref": "demo/demo-tickets"})
+
+    assert _ids(by_ref) == ["ing_bad", "ing_old"]
+    assert {(item["project_id"], item["connection_id"]) for item in by_ref.json()["items"]} == {
+        ("demo", "demo-tickets")
+    }
+    assert _ids(client.get(_LIST, params={"project_id": "demo"})) == [
+        "ing_wiki",
+        "ing_bad",
+        "ing_old",
+    ]
+    assert _ids(client.get(_LIST, params={"project_id": "nope"})) == []
+
+
+@pytest.fixture
+def started(runs: _Runs) -> _Runs:
+    """The runs, with ``ing_wiki`` started by an API key and ``ing_bad`` by a schedule."""
+    runs.started_by("ing_wiki", actor_type="api_key", actor="key_1")
+    runs.started_by("ing_bad", actor_type="schedule", actor="tickets-hourly")
+    return runs
+
+
+@pytest.mark.parametrize(
+    ("params", "expected"),
+    [
+        ({"trigger": "user"}, ["ing_old"]),
+        ({"trigger": "api_key"}, ["ing_wiki"]),
+        ({"trigger": "schedule"}, ["ing_bad"]),
+        ({"schedule_id": "tickets-hourly"}, ["ing_bad"]),
+        ({"trigger": "schedule", "schedule_id": "tickets-hourly"}, ["ing_bad"]),
+        ({"schedule_id": "wiki-nightly"}, []),
+        ({"trigger": "user", "schedule_id": "tickets-hourly"}, []),
+    ],
+)
+def test_trigger_and_schedule_filters_keep_the_runs_that_starter_began(
+    client: TestClient, started: _Runs, params: dict[str, str], expected: list[str]
+) -> None:
+    response = client.get(_LIST, params=params)
+
+    assert response.status_code == 200
+    assert _ids(response) == expected
+
+
+def test_a_run_a_schedule_started_names_the_schedule(client: TestClient, started: _Runs) -> None:
+    (item,) = client.get(_LIST, params={"schedule_id": "tickets-hourly"}).json()["items"]
+
+    assert item["triggered_by"] == {"principal_type": "schedule", "principal_id": "tickets-hourly"}
+
+
+def test_trigger_outside_the_spec_enum_is_a_422_on_trigger(client: TestClient) -> None:
+    response = client.get(_LIST, params={"trigger": "robot"})
+
+    assert response.status_code == 422
+    assert response.json()["error"]["details"][0]["field"] == "trigger"
+
+
+@pytest.mark.parametrize("other", [{"trigger": "api_key"}, {"schedule_id": "tickets-hourly"}])
+def test_cursor_is_bound_to_its_trigger_and_schedule_filters(
+    client: TestClient, other: dict[str, str]
+) -> None:
+    first = client.get(_LIST, params={"limit": 2, "trigger": "user"})
+    cursor = first.json()["next_cursor"]
+
+    second = client.get(_LIST, params={"limit": 2, "trigger": "user", "cursor": cursor})
+    moved = client.get(_LIST, params={"limit": 2, "cursor": cursor, **other})
+
+    assert _ids(first) == ["ing_wiki", "ing_bad"]
+    assert _ids(second) == ["ing_old"]
+    assert moved.status_code == 422
+    assert moved.json()["error"]["details"][0]["field"] == "cursor"
 
 
 def test_created_after_cuts_older_runs(client: TestClient) -> None:

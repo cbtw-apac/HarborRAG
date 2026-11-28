@@ -53,18 +53,26 @@ strategy itself is covered in the
 
 ## Scheduled ingestion
 
-Recurring ingestion lives in `harborrag_runtime.scheduling`. `ScheduleService` validates
+Declared schedules live in `harborrag_runtime.scheduling`. `ScheduleService` validates
 definitions and manages creation, updates, pause and unpause, manual triggers, deletion,
 inspection and backfill through `temporal.schedules.TemporalScheduleBackend`. Each firing
 starts the source-ingestion workflow with a fresh task ID.
 
 At startup the application syncs `config/sources/schedules.yaml` into the config-owned
 schedules. Updating an existing schedule keeps an operator's pause state and note; a
-changed `paused` value in the file is applied. Schedules created through `ScheduleService` with owner `api` are left alone,
-and `ScheduleService` refuses API changes to a config-owned schedule. The control plane's
-`Connection.schedule` field plays no part in this reconciliation.
+changed `paused` value in the file is applied. Schedules created through
+`ScheduleService` with owner `api` are left alone, and `ScheduleService` refuses API
+changes to a config-owned schedule. The control plane's `Connection.schedule` field
+plays no part in this reconciliation.
 
-What operators declare and see (overlap policies, pause handling, skipped firings) is in
+The schedules of `/v1/admin/schedules` are separate. `ConnectionScheduleService` in
+`harborrag_runtime.application.control_plane.schedules` stores them in the control
+database; `temporal.schedule_timers` gives each one a Temporal Schedule, and
+`temporal.schedule_slots` holds the `harborrag.schedule_slot` workflow and the worker
+that runs it in the API process.
+
+What operators create, declare and see (timetables, overlap and pause handling, skipped
+slots and firings) is in
 [Scheduled ingestion](../../../../../docs/users/scheduled-ingestion.md).
 
 ## Tests

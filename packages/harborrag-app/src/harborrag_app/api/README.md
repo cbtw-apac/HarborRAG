@@ -61,6 +61,15 @@ into the status code and headers: `ETag`, `Location`, `Idempotency-Replayed`, an
 `text/event-stream` body of an ingestion's events or a streamed chat completion. The
 probes and the lifespan's background loops call the `AppService` directly.
 
+One of those loops runs the worker for the slots of `/v1/admin/schedules`. It polls the
+Temporal task queue that `HARBORRAG_SCHEDULE_TASK_QUEUE` names (`harborrag-schedules`)
+in the API process, because a slot starts its run through the code path of
+`POST /v1/admin/ingestions`, which only the API composes; every API replica polls it.
+When the worker fails, for example while Temporal is unreachable, the loop logs
+`Schedule slot worker failed; restarting in 30s` and starts it again after 30 seconds. A
+missing Temporal SDK stops the loop with
+`Schedule slot worker cannot start; fix the deployment and restart`.
+
 ## Routes
 
 The live schema at `/openapi.json` is authoritative; `x-min-role` on each operation gives
@@ -72,10 +81,10 @@ its lowest role.
 | `GET` | `/readyz` | none | `200` when Postgres, Redis, Temporal, Qdrant and the graph store answer, else `503`; same body both ways |
 | `GET` | `/v1/me` | `reader` | The credential's principal, tenants and role |
 | `GET` | `/v1/admin/source-types` | `editor` | Source types with their credential and config schemas |
-| `GET` | `/v1/admin/connections` | `editor` | Connections in the tenant, cursor-paged |
+| `GET` | `/v1/admin/connections` | `editor` | Connections in the tenant, cursor-paged (`project_id`, `source_type`, `status` including `deleting`, `scheduled`); each carries its `next_run_at` |
 | `GET` `PUT` `DELETE` | `/v1/admin/projects/{project_id}/connections/{connection_id}` | `editor` | Read, create or update, delete a connection |
 | `POST` | `/v1/admin/projects/{project_id}/connections/{connection_id}/test` | `editor` | Test a connection |
-| `POST` `GET` | `/v1/admin/ingestions` | `editor` | Start an ingestion of the connection named in the body; list runs (`project_id`, `connection_ref`, `status`, `created_after`, `limit`, `cursor`) |
+| `POST` `GET` | `/v1/admin/ingestions` | `editor` | Start an ingestion of the connection named in the body; list runs (`project_id`, `connection_ref`, `status`, `trigger`, `schedule_id`, `created_after`, `limit`, `cursor`) |
 | `GET` | `/v1/admin/ingestions/{ingestion_id}` | `editor` | One run in the explorer `Ingestion` shape |
 | `GET` | `/v1/admin/ingestions/{ingestion_id}/documents` | `editor` | Per-document results, `?status=all\|succeeded\|skipped\|failed` |
 | `GET` | `/v1/admin/ingestions/{ingestion_id}/events` | `editor` | Server-Sent Events of one run: `run.status`, `stage.progress`, `document.failed`, `run.completed` |
@@ -83,6 +92,10 @@ its lowest role.
 | `POST` | `/v1/admin/ingestions/{ingestion_id}/retry-failures` | `editor` | `202` with the new run and `Location` |
 | `GET` | `/v1/admin/failures` | `editor` | Failure inbox with `counts` and optional `total` |
 | `POST` | `/v1/admin/failures/retry` | `editor` | Retry failures by `ids` or `filter`; one run per original run; `409` when none match |
+| `GET` | `/v1/admin/schedules` | `editor` | Schedules in the tenant, newest first, each with its latest slot (`project_id`, `connection_ref`, `operation`, `state`, `due_before`, `limit`, `cursor`) |
+| `GET` `PUT` `DELETE` | `/v1/admin/schedules/{schedule_id}` | `editor` | Read a schedule with its last 20 slots, create (`201`) or overwrite (`200`) one, delete one (`204`) |
+| `POST` | `/v1/admin/schedules/{schedule_id}/pause`, `/resume` | `editor` | `200` with the schedule and its `ETag`; pausing a paused or resuming an active schedule changes nothing, `ETag` included |
+| `POST` | `/v1/admin/schedules/{schedule_id}/trigger` | `editor` | `202` with the new run and `Location`; the run acts as the schedule, even while it is paused |
 | `GET` | `/v1/admin/settings` | `editor` for `connection:` levels, else `admin` | Read the overrides or the effective values at a `level` |
 | `PATCH` | `/v1/admin/settings` | `admin` | Change settings at a `level`, with `If-Match` |
 | `GET` | `/v1/admin/settings/schema` | `editor` | The runtime settings by group: type, range, levels, when a change applies, description |
@@ -99,7 +112,9 @@ event stream's frames, resume and deadline, are in
 and [Review and retry failures](../../../../../docs/users/connections.md#review-and-retry-failures).
 The settings calls are in
 [Runtime settings](../../../../../docs/users/configuration/runtime-settings.md#read-and-change-settings-over-http),
-and the chat routes in the [Chat guide](../../../../../docs/users/chat/README.md).
+the schedule routes in
+[Scheduled ingestion](../../../../../docs/users/scheduled-ingestion.md), and the chat
+routes in the [Chat guide](../../../../../docs/users/chat/README.md).
 
 A run in another tenant is `404 not_found`, and these routes take no `?tenant_id`
 parameter. A failure's `stage` is one of `capture`, `interpret`, `commit`, `derive` and
@@ -193,9 +208,9 @@ per principal: `HARBORRAG_HTTP_RATE_DEFAULT` (10) calls per second, or
 when it is configured; when Redis is unreachable, calls go through. The probes and
 `/metrics` are never limited.
 
-Chat completions and the ingestion and failure routes also pass a per-minute and
-in-flight capacity limiter at the user, principal and tenant scopes. Its variables and
-rules are in
+Chat completions and the ingestion, failure and schedule routes also pass a per-minute
+and in-flight capacity limiter at the user, principal and tenant scopes. Its variables
+and rules are in
 [Request rates and concurrency](../../../../../docs/users/chat/limits.md#request-rates-and-concurrency).
 
 A handler that runs past `HARBORRAG_API_REQUEST_TIMEOUT_SECONDS` (120) is
@@ -207,10 +222,10 @@ before its stream opens. A streamed ingestion event body has its own
 
 | Mechanism | Rule |
 | --- | --- |
-| `ETag` | `W/"rev-<n>"` on reads and successful writes of projects, connections and settings |
+| `ETag` | `W/"rev-<n>"` on reads and successful writes of projects, connections, schedules and settings |
 | `If-Match: <etag>` | The write fails with `412 precondition_failed` unless it matches; settings `PATCH` without it is `422` on field `If-Match` |
-| `If-Match: *` | Connection `PUT` updates only; settings `PATCH` applies to the current revision |
-| `If-None-Match: *` | Project and connection `PUT` create only |
+| `If-Match: *` | Connection and schedule `PUT` update only; settings `PATCH` applies to the current revision |
+| `If-None-Match: *` | Project, connection and schedule `PUT` create only |
 | `Idempotency-Key` | `POST /v1/chat/completions` only: the same key and body within 24 h replay the stored answer without a model call; see [Retry without duplicates](../../../../../docs/users/chat/limits.md#retry-without-duplicates) |
 | Paging | `?limit=` 1-100 (20 by default) and `?cursor=`; the body is `{"items": [...], "next_cursor": null}`. A cursor the server did not issue is `422` on field `cursor` |
 
@@ -221,8 +236,10 @@ before its stream opens. A streamed ingestion event body has its own
 token included, is `401`; any other path on the ops port is `404`, and the public port has
 no `/metrics`. The body is the API registry in the Prometheus
 `text/plain; version=0.0.4` format: HTTP request counters and durations by route
-template, build information and process metrics. Ingestion counters come from the
-worker's own metrics port.
+template, build information, process metrics, and `harborrag_schedule_slots_total`, the
+`/v1/admin/schedules` slots this replica's slot worker and `trigger` calls recorded, by
+`outcome` and `reason`. Each replica counts only its own slots, so alerts `sum()` across
+replicas. Ingestion counters come from the worker's own metrics port.
 
 The monitoring stack's Prometheus must send the same token; how it reads it, and what a
 mismatch looks like, is in
@@ -262,6 +279,8 @@ API process settings use the `HARBORRAG_` prefix. The model is `ApiSettings` in
 | `HARBORRAG_TEMPORAL_CONFIG_PATH` | `config/temporal.yaml` | Temporal connection, queues, retries, worker and workflow configuration |
 | `HARBORRAG_TEMPORAL_TARGET` | value from YAML | Optional Temporal frontend override |
 | `HARBORRAG_TEMPORAL_API_KEY` | unset | Secret API credential; keep it outside tracked YAML |
+| `HARBORRAG_TEMPORAL_NAMESPACE` | value from YAML | Optional Temporal namespace override; each deployment needs its own, because Temporal Schedule IDs are unique only within a namespace |
+| `HARBORRAG_SCHEDULE_TASK_QUEUE` | `harborrag-schedules` | Temporal task queue the API's schedule slot worker polls; it does not keep two deployments in one namespace apart |
 | `HARBORRAG_TEMPORAL_UI_URL` | unset | Base URL of the Temporal UI, used for `links.temporal` of a run |
 | `HARBORRAG_GRAFANA_URL` | unset | Base URL of Grafana, used for `links.grafana` of a run |
 | `HARBORRAG_LOG_LEVEL` | `INFO` | HarborRAG namespace log level |
@@ -294,7 +313,7 @@ api/
 ├── pagination.py, openapi.py, export_openapi.py
 ├── sse.py                # stream deadline and heartbeat
 └── v1/                   # the public /v1 routes
-    ├── admin/            # source types, connections, projects and settings
+    ├── admin/            # source types, connections, projects, schedules and settings
     ├── chat/             # chat sessions and completions
     ├── ingestion/        # ingestion runs and the failure inbox
     └── me.py

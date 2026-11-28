@@ -33,6 +33,9 @@ authentication) stays in the files and environment variables described in
 | `ingestion.max_attempts` | integer 1-10 | tenant, connection | `next_ingestion` | `null` |
 | `ingestion.batch_size` | integer 1-500 | tenant, connection | `next_ingestion` | `200` |
 | `models.embedding` | `provider:model` | tenant, project | `reindex` | the first deployment of `embed.default_model` in `config/models/models.yaml` |
+| `schedules.enabled` | boolean | tenant | `live` | `true` |
+| `schedules.min_interval` | ISO 8601 duration `PT1M`-`P1D` | tenant | `live` | `PT15M` |
+| `schedules.max_per_connection` | integer 1-50 | tenant | `live` | `5` |
 
 A `null` default means no single value in the key's range matches what runs use today.
 [Levels and precedence](#levels-and-precedence) says what applies until you override it.
@@ -90,16 +93,27 @@ What each key does:
 - `ingestion.max_attempts` is the number of attempts of each document step, the first
   one included.
 - `ingestion.batch_size` is the number of documents in one batch of a run.
+- `schedules.enabled: false` stops every schedule of `/v1/admin/schedules` in the
+  tenant, for maintenance: each slot is recorded as skipped with the reason
+  `disabled_by_setting`, and `next_run_at` reads `null`.
+  `POST /v1/admin/schedules/{schedule_id}/trigger` still starts a run. Declared
+  schedules in `config/sources/schedules.yaml` ignore the key. See
+  [Scheduled ingestion](../scheduled-ingestion.md#stop-every-schedule-for-maintenance).
+- `schedules.min_interval` is the shortest `interval`, or gap between `cron` runs, that
+  a schedule may have, and `schedules.max_per_connection` the number of schedules one
+  connection may have. Both are checked when
+  `PUT /v1/admin/schedules/{schedule_id}` creates or changes a schedule; changing them
+  leaves existing schedules as they are.
 - Keys that start with `database.`, `redis.`, `temporal.`, `qdrant.`, `graph.`,
   `listeners.`, `auth.`, `telemetry.` or `secrets.` are boot-only and are refused at
   every entry point.
 
 `GET /v1/admin/settings/schema` returns the same table as JSON, grouped as
 `{"groups": [{"name", "title", "settings"}]}` in the order `retrieval`, `capture`,
-`parsing`, `chunking`, `embedding`, `ingestion`, `models`. Each setting has `key`,
-`type` (`integer`, `boolean`, `string`, `array`, `enum` or `model_ref`), `default`,
-`levels`, `applies` and `description`. A bounded key also has `min` and `max`, and an
-enumerated key has `enum`; a key without them leaves those fields out.
+`parsing`, `chunking`, `embedding`, `ingestion`, `models`, `schedules`. Each setting has
+`key`, `type` (`integer`, `boolean`, `string`, `array`, `enum` or `model_ref`),
+`default`, `levels`, `applies` and `description`. A bounded key also has `min` and
+`max`, and an enumerated key has `enum`; a key without them leaves those fields out.
 
 ## Levels and precedence
 
@@ -131,7 +145,8 @@ the boot setting.
 
 `retrieval.rerank` has no boot setting: chat does not rerank until the key is
 overridden. `embedding.batch_size` has none either: the encoder sends 32 chunks per
-request until the key is overridden.
+request until the key is overridden. Nor do the `schedules.*` keys, which apply only to
+the schedules of `/v1/admin/schedules`: their defaults hold until overridden.
 
 Because a key at its default reports the registry default, `GET` shows `5` for
 `retrieval.top_k` even if you changed `HARBORRAG_CHAT_RETRIEVAL_TOP_K` to `8`. To
@@ -172,8 +187,8 @@ what already applies changes nothing: for example `parsing.ocr.enabled: true` wh
 engines already run OCR, or a `chunking.max_tokens` at or above every profile's
 `maximum_tokens`.
 
-The `capture.*`, `embedding.*`, `ingestion.*` and `retrieval.*` keys do not change the
-identity. A `capture.*` change applies to what the next run reads; see what each key
+The `capture.*`, `embedding.*`, `ingestion.*`, `retrieval.*` and `schedules.*` keys do
+not change the identity. A `capture.*` change applies to what the next run reads; see what each key
 does in [Settings and their levels](#settings-and-their-levels).
 
 `parsing.pdf_parser: docling` also needs a `parser: pdf` definition with a single

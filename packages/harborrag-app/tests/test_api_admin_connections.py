@@ -17,6 +17,7 @@ from harborrag_app.api import app as api_app
 from harborrag_app.api.app import create_fastapi_app
 from harborrag_app.api.settings import ApiSettings
 from harborrag_core.domain.project import Project
+from harborrag_core.testing.control_plane_fakes import FakeConnectionRepository
 from harborrag_runtime.application.control_plane.projects import ProjectService
 from harborrag_runtime.config.connectors.models import to_connector_config, validate
 from harborrag_runtime.testing.connection_fakes import ConnectionWorld, connection_world
@@ -222,6 +223,39 @@ def test_list_test_sync_and_delete(
         "already_running",
     )
     assert deleted.status_code == 202 and deleted.json()["job_id"].startswith("job_")
+
+
+def test_the_list_filters_by_the_deleting_status_and_by_an_active_schedule(
+    client: TestClient, app_service: _ConnectionApp
+) -> None:
+    client.put(_PATH, json=_BODY)
+    client.put("/v1/admin/projects/demo/connections/demo-wiki", json=_BODY)
+    connections = app_service.world.control_plane.connections
+    assert isinstance(connections, FakeConnectionRepository)
+    connections.active_schedules = {("acme", "demo", "demo-wiki")}
+    leaving = next(c for c in connections.connections.values() if c.connection_id == "demo-tickets")
+    leaving.status = "deleting"
+
+    def refs(**params: str) -> list[str]:
+        response = client.get("/v1/admin/connections", params=params)
+        assert response.status_code == 200
+        return [item["connection_ref"] for item in response.json()["items"]]
+
+    assert refs(status="deleting") == ["demo/demo-tickets"]
+    assert refs(status="active") == ["demo/demo-wiki"]
+    assert refs(scheduled="true") == ["demo/demo-wiki"]
+    assert refs(scheduled="false") == ["demo/demo-tickets"]
+    assert refs() == ["demo/demo-tickets", "demo/demo-wiki"]
+
+
+def test_a_connection_without_schedules_has_no_next_run(client: TestClient) -> None:
+    created = client.put(_PATH, json=_BODY)
+
+    listed = client.get("/v1/admin/connections").json()["items"]
+
+    assert created.json()["next_run_at"] is None
+    assert client.get(_PATH).json()["next_run_at"] is None
+    assert [item["next_run_at"] for item in listed] == [None]
 
 
 def test_projects_and_reader_chips(

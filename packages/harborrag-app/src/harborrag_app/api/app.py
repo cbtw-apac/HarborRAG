@@ -39,6 +39,7 @@ from harborrag_core.domain.identity import DEFAULT_TENANT_ID
 from harborrag_core.observability.log_events import FailureKind, log_event, log_failure
 from harborrag_core.observability.process_logging import configure_logging
 from harborrag_runtime.application.composition.selection import select_app_service
+from harborrag_runtime.errors import MissingOptionalDependencyError
 from harborrag_runtime.observability.export import TelemetryService, configure_telemetry_export
 
 if TYPE_CHECKING:
@@ -55,6 +56,7 @@ _SOURCE_FRESHNESS_REFRESH_INTERVAL_SECONDS = 60.0
 _SOURCE_FRESHNESS_REFRESH_TIMEOUT_SECONDS = 15.0
 _SOURCE_METRICS_LIMIT = 1000
 """The most sources the freshness gauges export, which bounds their series."""
+_SCHEDULE_SLOT_RESTART_INTERVAL_SECONDS = 30.0
 
 
 def _redirect_root(request: Request) -> RedirectResponse:
@@ -224,6 +226,40 @@ async def _refresh_source_freshness_once(
     metrics.record_source_freshness(report.sources, refreshed_at=time.time())
 
 
+async def _run_schedule_slots(app: FastAPI) -> None:
+    """Serve the slots of ``/v1/admin/schedules``, restarting the worker after a failure.
+
+    The worker runs until the lifespan cancels it; a normal return ends the loop. A
+    missing Temporal SDK or extra cannot heal without a redeploy, so it stops the
+    loop too.
+    """
+    while True:
+        try:
+            await app.state.app_service.run_schedule_slots()
+            return
+        except asyncio.CancelledError:
+            raise
+        except (ImportError, MissingOptionalDependencyError) as exc:
+            log_event(
+                logger,
+                "api.schedule_slot_worker_unavailable",
+                level=logging.ERROR,
+                hint="Install the Temporal extra in the API image, then restart the API.",
+                error=exc,
+                retryable=False,
+            )
+            return
+        except Exception as exc:  # noqa: BLE001 - background loop boundary; the loop restarts it
+            log_failure(
+                logger,
+                "api.schedule_slot_worker_failed",
+                exc,
+                retryable=True,
+                retry_in_seconds=_SCHEDULE_SLOT_RESTART_INTERVAL_SECONDS,
+            )
+        await asyncio.sleep(_SCHEDULE_SLOT_RESTART_INTERVAL_SECONDS)
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Compose the app service on startup (ST8 selection rule).
@@ -251,6 +287,8 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     background_tasks = [recovery_task, progress_task, control_plane_effect_recovery_task]
     if hasattr(service, "sync_declared_schedules"):
         background_tasks.append(asyncio.create_task(_sync_declared_schedules(app)))
+    if hasattr(service, "run_schedule_slots"):
+        background_tasks.append(asyncio.create_task(_run_schedule_slots(app)))
     if hasattr(service, "resume_connection_removals"):
         background_tasks.append(asyncio.create_task(_resume_connection_removals(app)))
     if hasattr(service, "source_freshness"):

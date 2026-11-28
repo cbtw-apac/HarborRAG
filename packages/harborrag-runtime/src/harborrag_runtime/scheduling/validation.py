@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import itertools
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -23,9 +24,17 @@ MAX_NOTE_LENGTH = 1000
 MAX_DURATION_SECONDS = 366 * 24 * 60 * 60
 MAX_BACKFILL_RANGE = timedelta(days=31)
 
-_CRON_MACROS = frozenset(
-    {"@yearly", "@annually", "@monthly", "@weekly", "@daily", "@midnight", "@hourly"}
-)
+_CRON_MACRO_FIELDS: Mapping[str, str] = {
+    "@yearly": "0 0 1 1 *",
+    "@annually": "0 0 1 1 *",
+    "@monthly": "0 0 1 * *",
+    "@weekly": "0 0 * * 0",
+    "@daily": "0 0 * * *",
+    "@midnight": "0 0 * * *",
+    "@hourly": "0 * * * *",
+}
+_CRON_MACROS = frozenset(_CRON_MACRO_FIELDS)
+_MINUTES_PER_DAY = 1_440
 _MONTHS = {
     name: index
     for index, name in enumerate(
@@ -143,6 +152,41 @@ def _cron_value(token: str, spec: _CronField, expression: str) -> int:
             f"{spec.label} must be {spec.minimum}-{spec.maximum} in cron {expression!r}"
         )
     return int(token)
+
+
+def min_cron_gap_seconds(expression: str) -> int:
+    """Return a lower bound of the time between two runs of a cron expression.
+
+    Reads only the minute and hour fields. The day fields can only remove runs, so
+    the gap between one day's run times never overstates the real gap. A shift to
+    or from daylight saving time is not counted.
+
+    Raises:
+        InvalidCronError: ``expression`` is not a valid cron expression.
+    """
+    validate_cron(expression)
+    fields = _CRON_MACRO_FIELDS.get(expression, expression).split()
+    minutes = _cron_field_values(fields[0], _CRON_FIELDS[0], expression)
+    hours = _cron_field_values(fields[1], _CRON_FIELDS[1], expression)
+    times = sorted(hour * 60 + minute for hour in hours for minute in minutes)
+    gaps = [later - earlier for earlier, later in itertools.pairwise(times)]
+    gaps.append(times[0] + _MINUTES_PER_DAY - times[-1])
+    return min(gaps) * 60
+
+
+def _cron_field_values(field: str, spec: _CronField, expression: str) -> set[int]:
+    """Expand one validated cron field into the values it matches."""
+    values: set[int] = set()
+    for item in field.split(","):
+        base, _, step = item.partition("/")
+        if base == "*":
+            low, high = spec.minimum, spec.maximum
+        else:
+            start, _, end = base.partition("-")
+            low = _cron_value(start, spec, expression)
+            high = _cron_value(end, spec, expression) if end else low
+        values.update(range(low, high + 1, int(step) if step else 1))
+    return values
 
 
 def validate_timezone(name: str) -> None:

@@ -145,6 +145,7 @@ class RuntimeSettings(MemorySettingsMixin, BaseSettings):
             "every schedule. 0 disables it; with several replicas keep it on one of them."
         ),
     )
+    schedule_task_queue: str = Field(default="harborrag-schedules", min_length=1)
     metrics_port: int | None = Field(default=None, ge=1, le=65_535)
     metrics_bind_address: str = Field(default="0.0.0.0", min_length=1)
     langfuse_enabled: bool = False

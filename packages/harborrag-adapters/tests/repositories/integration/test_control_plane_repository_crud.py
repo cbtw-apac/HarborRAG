@@ -221,6 +221,24 @@ async def test_lease_repository_creates_an_unseeded_lease_on_first_acquire(
 
 @pytest.mark.asyncio
 @pytest.mark.whitebox
+async def test_lease_repository_release_frees_only_its_own_lease(
+    sessions: SessionFactory,
+) -> None:
+    """A holder's release lets a rival in at once; a rival's release changes nothing."""
+
+    repo = SqlLeaseRepository(sessions)
+    name = "connection-sync:acme:demo/demo-tickets"
+
+    assert await repo.try_acquire(name, "holder-a", ttl_seconds=1000) is True
+    await repo.release(name, "holder-b")
+    assert await repo.try_acquire(name, "holder-b", ttl_seconds=1000) is False
+    await repo.release(name, "holder-a")
+    assert await repo.try_acquire(name, "holder-b", ttl_seconds=1000) is True
+    await repo.release("never-acquired", "holder-a")
+
+
+@pytest.mark.asyncio
+@pytest.mark.whitebox
 async def test_lease_repository_ignores_a_skewed_local_clock(
     sessions: SessionFactory,
     monkeypatch: pytest.MonkeyPatch,

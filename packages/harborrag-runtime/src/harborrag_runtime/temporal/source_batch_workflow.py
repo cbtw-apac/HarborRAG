@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from typing import Any
 
 from temporalio import workflow
 from temporalio.exceptions import ChildWorkflowError
@@ -20,6 +21,7 @@ from .schemas import (
 
 _SLIDING_WINDOW_PATCH = "harborrag-batch-sliding-window"
 _CIRCUIT_BREAKER_PATCH = "harborrag-batch-circuit-breaker"
+_PROMPT_CANCEL_PATCH = "harborrag-batch-prompt-cancel"
 # Consecutive failed documents that pause the whole source. A healthy run fails
 # documents sporadically; an unbroken run of failures means a shared dependency
 # (object store, database, OCR) is down, and dispatching on only turns the rest
@@ -48,6 +50,16 @@ def _circuit_breaker() -> bool:
     """Whether a run of failures may pause this batch (same replay rule as above)."""
 
     return not workflow.in_workflow() or workflow.patched(_CIRCUIT_BREAKER_PATCH)
+
+
+def _prompt_cancel() -> bool:
+    """Whether a graceful cancel also cancels the documents in flight.
+
+    Batches recorded before the patch keep waiting for them. Outside a workflow the
+    batch keeps waiting too, since cancelling a child needs the workflow event loop.
+    """
+
+    return workflow.in_workflow() and workflow.patched(_PROMPT_CANCEL_PATCH)
 
 
 @workflow.defn(name="harborrag.source_batch")
@@ -98,12 +110,40 @@ class SourceBatchWorkflow:
                 await workflow.wait_condition(lambda: not self._paused or self._cancel_requested)
                 self._status = "CANCELLING" if self._cancel_requested else "RUNNING"
                 continue
-            await workflow.wait(in_flight, return_when=asyncio.FIRST_COMPLETED)
+            await self._wait_for_documents(in_flight)
             for future in [future for future in in_flight if future.done()]:
+                if future.cancelled():
+                    continue
                 outcome = future.result()
                 summary = summary.add(outcome)
                 await self._watch_failures(outcome)
             in_flight = [future for future in in_flight if not future.done()]
+
+    async def _wait_for_documents(
+        self, in_flight: list[asyncio.Future[DocumentIngestionOutcome]]
+    ) -> None:
+        """Wait until a document in flight finishes, or a graceful cancel cancels them all.
+
+        A cancelled document records itself as cancelled and counts as failed, so its
+        run ends within seconds instead of after its slowest document.
+        """
+
+        if not _prompt_cancel():
+            await workflow.wait(in_flight, return_when=asyncio.FIRST_COMPLETED)
+            return
+        if not self._cancel_requested:
+            cancel = asyncio.ensure_future(workflow.wait_condition(lambda: self._cancel_requested))
+            waiting: list[asyncio.Future[Any]] = [*in_flight, cancel]
+            try:
+                await workflow.wait(waiting, return_when=asyncio.FIRST_COMPLETED)
+            finally:
+                if not cancel.done():
+                    cancel.cancel()
+            if not self._cancel_requested:
+                return
+        for future in in_flight:
+            future.cancel()
+        await workflow.wait(in_flight)
 
     async def _watch_failures(self, outcome: DocumentIngestionOutcome) -> None:
         """Pause the source after an unbroken run of failed documents.
@@ -166,8 +206,7 @@ class SourceBatchWorkflow:
             self._status = "COMPLETED"
         return summary
 
-    @staticmethod
-    async def _document(request: SourceBatchInput, index: int) -> DocumentIngestionOutcome:
+    async def _document(self, request: SourceBatchInput, index: int) -> DocumentIngestionOutcome:
         try:
             outcome: DocumentIngestionOutcome = await workflow.execute_child_workflow(
                 "harborrag.document_ingestion",
@@ -190,12 +229,20 @@ class SourceBatchWorkflow:
             # failure ran out of retries (a database outage, say). That is one
             # failed document, not a reason to fail the batch -- which used to
             # cancel every sibling in flight and fail the whole source task.
-            _warn("Document workflow failed index=%d", index)
+            if not self._cancel_requested:
+                _warn("Document workflow failed index=%d", index)
+            return DocumentIngestionOutcome.FAILED
+        except asyncio.CancelledError:
+            if not self._cancel_requested:
+                raise
             return DocumentIngestionOutcome.FAILED
 
     @workflow.signal
     def request_graceful_cancel(self) -> None:
-        """Start no further documents; the ones already in flight finish."""
+        """Start no further documents and cancel the ones in flight.
+
+        Batches recorded before the prompt-cancel patch let the ones in flight finish.
+        """
 
         self._cancel_requested = True
         self._paused = False

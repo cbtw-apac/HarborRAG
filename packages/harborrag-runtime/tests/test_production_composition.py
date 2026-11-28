@@ -44,13 +44,13 @@ def test_production_composition_migrates_and_reports_ready(
     assert runtime["ready"] is True
     control_db = runtime["control_db"]
     assert control_db["ping"] == "ok"
-    assert control_db["migrations"] == "0050"
+    assert control_db["migrations"] == "0051"
     assert control_db["scheme"] == "sqlite+aiosqlite"
     (completed,) = _events(caplog, "control_plane.composition_completed")
     assert completed.levelno == logging.INFO
     assert completed.__dict__["database_kind"] == "sqlite+aiosqlite"
     assert completed.__dict__["probe_status"] == "ok"
-    assert completed.__dict__["schema_revision_id"] == "0050"
+    assert completed.__dict__["schema_revision_id"] == "0051"
     assert "dropped_fields" not in completed.__dict__
 
 

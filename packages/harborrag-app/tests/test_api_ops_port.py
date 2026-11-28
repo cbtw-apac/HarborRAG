@@ -16,6 +16,8 @@ from harborrag_app.api import app as api_app
 from harborrag_app.api.app import create_fastapi_app
 from harborrag_app.api.serve import bind_sockets
 from harborrag_app.api.settings import ApiSettings
+from harborrag_core.domain.schedule import ScheduleSlot
+from harborrag_runtime.observability.schedule_metrics import SCHEDULE_SLOT_METRICS
 
 _SECRET = "test-secret-at-least-32-bytes-long-for-hs256"
 _SCRAPE = "scrape-token-0123456789abcdef"
@@ -83,6 +85,20 @@ def test_the_scrape_token_reads_the_metrics(client: TestClient) -> None:
     assert 'route="/v1/admin/ingestions/{ingestion_id}"' in response.text
     assert "harborrag_api_info" in response.text
     assert "process_resident_memory_bytes" in response.text
+
+
+def test_the_metrics_count_schedule_slots_by_outcome_and_reason(client: TestClient) -> None:
+    SCHEDULE_SLOT_METRICS.record(
+        ScheduleSlot(due_at=datetime.now(UTC), outcome="skipped", reason="already_running")
+    )
+
+    response = client.get(f"{_OPS}/metrics", headers={"Authorization": f"Bearer {_SCRAPE}"})
+
+    assert "# TYPE harborrag_schedule_slots_total counter" in response.text
+    assert (
+        'harborrag_schedule_slots_total{outcome="skipped",reason="already_running"}'
+        in response.text
+    )
 
 
 def test_the_public_port_has_no_metrics(client: TestClient) -> None:

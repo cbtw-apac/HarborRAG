@@ -24,6 +24,7 @@ from starlette.types import ASGIApp
 
 from harborrag_core.ports.source_freshness import SourceFreshness
 from harborrag_runtime.observability.http_tracing import ServerSpan, server_span
+from harborrag_runtime.observability.schedule_metrics import SCHEDULE_SLOT_METRICS
 
 UNMATCHED_ROUTE = "unmatched"
 UNTRACED_ROUTES = frozenset({"/healthz", "/readyz", UNMATCHED_ROUTE})
@@ -37,6 +38,9 @@ _SOURCE_LABELS = ("tenant", "source_scope_id", "connector_type")
 class ApiMetrics:
     """API, process and source freshness metrics isolated from the module-global registry.
 
+    The schedule slot counter is the process's own, because the slot worker runs in
+    this process and counts into it.
+
     Args:
         version: The API release, exported as ``harborrag_api_info``.
     """
@@ -48,6 +52,7 @@ class ApiMetrics:
         ProcessCollector(registry=self.registry)
         self._source_freshness = _SourceFreshnessCollector()
         self.registry.register(self._source_freshness)
+        self.registry.register(SCHEDULE_SLOT_METRICS)
 
         self._info = Gauge(
             "harborrag_api_info",

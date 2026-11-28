@@ -30,7 +30,7 @@ CAPTURE_FILE_TYPES = [
     ".html",
 ]
 
-SIXTEEN_KEYS = (
+NINETEEN_KEYS = (
     "capture.file_types",
     "capture.max_document_mb",
     "capture.max_pdf_pages",
@@ -47,11 +47,14 @@ SIXTEEN_KEYS = (
     "parsing.pdf_parser",
     "retrieval.rerank",
     "retrieval.top_k",
+    "schedules.enabled",
+    "schedules.max_per_connection",
+    "schedules.min_interval",
 )
 
 
-def test_registry_holds_exactly_the_sixteen_keys() -> None:
-    assert SettingsRegistry.default().keys() == SIXTEEN_KEYS
+def test_registry_holds_exactly_the_nineteen_keys() -> None:
+    assert SettingsRegistry.default().keys() == NINETEEN_KEYS
 
 
 def test_defaults_match_todays_knobs() -> None:
@@ -76,6 +79,9 @@ def test_defaults_match_todays_knobs() -> None:
         "liteparse",
         False,
         5,
+        True,
+        5,
+        "PT15M",
     ]
 
 
@@ -97,10 +103,11 @@ def test_json_schema_groups_hold_every_key_once() -> None:
         ("embedding", "Embedding"),
         ("ingestion", "Ingestion"),
         ("models", "Models"),
+        ("schedules", "Schedules"),
     ]
     entries = {entry["key"]: entry for group in groups for entry in group["settings"]}
     assert sorted(entry["key"] for group in groups for entry in group["settings"]) == sorted(
-        SIXTEEN_KEYS
+        NINETEEN_KEYS
     )
     assert entries["capture.max_document_mb"] == {
         "key": "capture.max_document_mb",
