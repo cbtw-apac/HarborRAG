@@ -7,6 +7,8 @@ never on the adapter classes.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+from datetime import datetime
 from typing import Any, Protocol, TypeVar
 
 from harborrag_core.contracts.events import HarborEvent
@@ -19,6 +21,7 @@ from harborrag_core.domain.member import Member
 from harborrag_core.domain.pending_effect import PendingControlPlaneEffect
 from harborrag_core.domain.project import Project
 from harborrag_core.domain.provider import Provider
+from harborrag_core.domain.schedule import Schedule, ScheduleFilter, SchedulePause, ScheduleSlot
 from harborrag_core.domain.settings import WorkspaceSettings
 from harborrag_core.security.context import AccessContext
 
@@ -83,6 +86,7 @@ class ConnectionRepositoryPort(Protocol):
         status: ConnectionStatus | None = None,
         limit: int | None = None,
         cursor: str | None = None,
+        scheduled: bool | None = None,
     ) -> tuple[list[Connection], str | None]:
         """Connections needing attention first, then by project and ``connection_id``.
 
@@ -93,6 +97,8 @@ class ConnectionRepositoryPort(Protocol):
             status: Keep one status only.
             limit: Page size; ``None`` returns every match on one page.
             cursor: ``next_cursor`` from the previous page.
+            scheduled: ``True`` keeps connections with a schedule that is not paused,
+                ``False`` keeps the others; ``None`` keeps both.
 
         Returns:
             The page and the cursor of the next page, or ``None`` on the last one.
@@ -302,6 +308,9 @@ class LeaseRepositoryPort(Protocol):
         lease expire after ``ttl_seconds``, letting another holder take over.
         """
 
+    async def release(self, name: str, holder: str) -> None:
+        """Let ``name`` lapse now if ``holder`` still owns it; another holder's lease stays."""
+
 
 class GraphConflictRepositoryPort(Protocol):
     """Durable queue of graph disagreements awaiting human resolution (plan §5.5).
@@ -351,6 +360,123 @@ class GraphConflictRepositoryPort(Protocol):
 
 
 TRepository_co = TypeVar("TRepository_co", covariant=True)
+
+
+class ScheduleRepositoryPort(Protocol):
+    """Schedules and their recent slots, addressed by ``(tenant_id, schedule_id)``.
+
+    Only ``put``, ``set_paused`` and a resume through ``set_paused`` advance
+    ``version``. Slot records, failure counts, the next slot time and the queue
+    marker change without it, so they never invalidate an operator's ETag.
+    """
+
+    async def get(self, *, tenant_id: str, schedule_id: str) -> Schedule | None:
+        """One schedule, or None."""
+
+    async def page(
+        self, *, tenant_id: str, filters: ScheduleFilter, limit: int, cursor: str | None
+    ) -> tuple[list[Schedule], str | None]:
+        """A page of the tenant's schedules, newest first.
+
+        Args:
+            tenant_id: Tenant to list.
+            filters: Fields to match; ``None`` fields are not filtered.
+            limit: Page size.
+            cursor: ``next_cursor`` from the previous page.
+
+        Returns:
+            The page and the cursor of the next page, or ``None`` on the last one.
+
+        Raises:
+            HarborValidationError: ``cursor`` is malformed.
+        """
+
+    async def list_for_connection(
+        self, *, tenant_id: str, project_id: str, connection_id: str
+    ) -> list[Schedule]:
+        """Every schedule that acts on one connection, unpaginated."""
+
+    async def next_runs(
+        self, *, tenant_id: str, connections: Sequence[tuple[str, str]]
+    ) -> dict[tuple[str, str], datetime]:
+        """The earliest ``next_run_at`` among each connection's schedules that are not paused.
+
+        Args:
+            tenant_id: Tenant of the connections.
+            connections: ``(project_id, connection_id)`` of each connection to look up.
+
+        Returns:
+            The earliest next slot time by ``(project_id, connection_id)``; a connection
+            with no such schedule, or none with a stored next slot time, is absent.
+        """
+
+    async def put(
+        self, schedule: Schedule, *, expected_version: int | None, create_only: bool
+    ) -> tuple[Schedule, bool]:
+        """Create or overwrite a schedule's configuration.
+
+        An overwrite keeps the stored pause, failure count, next slot time, queue
+        marker, slots and creation stamps, and advances ``version``.
+
+        Args:
+            schedule: The configuration to store.
+            expected_version: Fail unless the stored version equals this value.
+            create_only: Fail when the schedule already exists.
+
+        Returns:
+            The stored schedule and whether this call created it.
+
+        Raises:
+            ScheduleIdTakenError: ``create_only`` and the schedule exists.
+            HarborPreconditionFailedError: ``expected_version`` does not hold, or the
+                schedule does not exist while ``expected_version`` is set.
+        """
+
+    async def set_paused(
+        self, *, tenant_id: str, schedule_id: str, paused: SchedulePause | None, actor: str
+    ) -> Schedule | None:
+        """Pause or resume a schedule; a call that changes nothing returns it unchanged.
+
+        Resuming also clears ``consecutive_failures``, and pausing clears
+        ``next_run_at``. A change advances ``version`` and records ``actor`` as
+        ``updated_by``.
+
+        Returns:
+            The stored schedule, or None when it does not exist.
+        """
+
+    async def set_next_run_at(
+        self, *, tenant_id: str, schedule_id: str, next_run_at: datetime | None
+    ) -> None:
+        """Store the next slot time read from the timer; a missing schedule is a no-op."""
+
+    async def record_run_outcome(self, *, tenant_id: str, schedule_id: str, failed: bool) -> int:
+        """Count a failed run, or reset the count after a successful one.
+
+        Returns:
+            ``consecutive_failures`` after the change; 0 for a missing schedule.
+        """
+
+    async def claim_queue(self, *, tenant_id: str, schedule_id: str) -> bool:
+        """Mark that one slot waits for the connection's run; False when one already waits.
+
+        A mark older than ``QUEUE_WAIT_LIMIT`` plus an hour no longer holds the place,
+        so a slot whose release was lost cannot block queueing for good.
+        """
+
+    async def release_queue(self, *, tenant_id: str, schedule_id: str) -> None:
+        """Clear the waiting-slot mark; a missing schedule is a no-op."""
+
+    async def record_slot(self, *, tenant_id: str, schedule_id: str, slot: ScheduleSlot) -> None:
+        """Append a slot and keep only the newest ``RECENT_SLOT_LIMIT``; a missing schedule is a no-op."""
+
+    async def recent_slots(
+        self, *, tenant_id: str, schedule_ids: Sequence[str], limit: int
+    ) -> dict[str, list[ScheduleSlot]]:
+        """The newest ``limit`` slots of each schedule, newest first; absent ids map to nothing."""
+
+    async def delete(self, *, tenant_id: str, schedule_id: str) -> bool:
+        """Remove the schedule and its slots; return whether a row existed."""
 
 
 class TenantScopedRepositoryProvider(Protocol[TRepository_co]):

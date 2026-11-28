@@ -14,7 +14,8 @@ The repository ships two versions of the file in `config/sources/`:
 - [`connectors.example.yaml`](../../../config/sources/connectors.example.yaml) holds
   only the local-files entry, as a starting point.
 
-Schedules for these sources live beside them in `config/sources/schedules.yaml`; see
+Schedules for these sources are created over HTTP with `/v1/admin/schedules`, or
+declared beside this file in `config/sources/schedules.yaml`; see
 [Scheduled Ingestion](../scheduled-ingestion.md).
 
 ## When HarborRAG reads this file

@@ -119,6 +119,7 @@ _CONNECTION = ConnectionOut(
     advanced={"page_size": 50},
     status="active",
     last_ingestion=LastIngestionOut(ingestion_id="ing_1", status="succeeded", finished_at=_STAMP),
+    next_run_at=_STAMP,
     stats=ConnectionStatsOut(documents=42, chunks=310, entities=None, errors=0),
     created_by="cli:alex",
     updated_by="cli:alex",

@@ -41,7 +41,7 @@ def test_the_table_names_exactly_the_v1_routes() -> None:
     names = {_route(route).name for route in _v1_routes()}
 
     assert set(OPERATIONS) == names
-    assert len(names) == 30
+    assert len(names) == 37
 
 
 def test_every_route_matches_its_table_entry() -> None:

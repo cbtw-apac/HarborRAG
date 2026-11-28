@@ -21,8 +21,10 @@ These terms are related but not interchangeable:
 - A **project** is a named group of connections and their documents inside a tenant,
   such as `default`. It does not replace the tenant boundary.
 - A **connection** is one configured data source in a project, such as a Jira project or
-  a local folder. Its `source_key` is the name the ingestion commands, the SDK and
-  schedules use for it. See [Connections](../connections.md#terms-used-on-this-page).
+  a local folder. The HTTP API and the `harborrag` commands name it by its connection
+  ref, `PROJECT_ID/CONNECTION_ID`; its `source_key` is the name the Python SDK and the
+  schedules declared in `config/sources/schedules.yaml` use for it. See
+  [Connections](../connections.md#terms-used-on-this-page).
 - A **workspace** is control-plane wording for a tenant's settings, members, providers
   and projects. Those records do not create a local configuration profile or switch
   processes, credentials or backends.
@@ -37,7 +39,7 @@ These terms are related but not interchangeable:
 | Tenant-specific MCP tool policy | Implemented | `config/mcp/server.yaml` can override tool enablement, defaults and limits per tenant. |
 | Tenant-isolated vector and graph retrieval | Implemented | Each tenant has its own Qdrant collections and its own FalkorDB graph. |
 | Tenant-isolated object storage and ingestion records | Implemented | Object keys, and the documents, versions, sources and runs of the ingestion control plane, carry the tenant. |
-| Tenant-owned control-plane records | Implemented | Projects, connections, members, activity, jobs and settings carry the tenant. |
+| Tenant-owned control-plane records | Implemented | Projects, connections, schedules, members, activity, jobs and settings carry the tenant. |
 | Tenant-owned connections | Implemented | Each connection belongs to one tenant and one project in the control database; ingestion finds it only in that tenant. |
 | Read access inside a tenant | Implemented | By default, serving needs current permission snapshots for both the source and the document; one configured tenant can instead share its whole corpus. See [Read access inside a tenant](#read-access-inside-a-tenant). |
 | CLI checkout discovery | Implemented | The CLI walks up from the current directory to the repository checkout and runs from there. That selects configuration files, not a tenant by name. |
@@ -245,7 +247,8 @@ storage_context = StorageOperationContext.for_access(
 
 SDK ingestion and retrieval requests require the access context, and reusing one object
 makes spelling drift less likely. `connector_name` is the connection's `source_key`,
-looked up in the context's tenant, as with the CLI:
+looked up in the context's tenant; for a connection created through the API or the CLI
+it has the same `PROJECT_ID/CONNECTION_ID` form as the CLI's connection ref:
 
 ```python
 from harborrag_runtime.sdk import (
@@ -687,14 +690,15 @@ migration.
 There is no one-call cascade across all persistence families. A retirement plan must
 cover:
 
-- control-plane projects, connections, providers, members, activity, jobs, settings,
-  ingestion runs and conversation memory;
+- control-plane projects, connections, schedules, providers, members, activity, jobs,
+  settings, ingestion runs and conversation memory;
 - ingestion records: documents, document versions, source scopes and run events;
 - each of the tenant's Qdrant collections;
 - the tenant's FalkorDB graph;
 - filesystem or S3 objects below the tenant's namespace prefix;
 - model-cache, budget, rate-limit and singleflight state, where configured;
-- Temporal workflow histories and external backups, under their own retention policies;
+- Temporal Schedules, workflow histories and external backups, under their own
+  retention policies;
 - identity-provider grants, API tokens, MCP keys and MCP tenant overrides.
 
 Revoke access first, stop new work, back up according to policy, and confirm the exact

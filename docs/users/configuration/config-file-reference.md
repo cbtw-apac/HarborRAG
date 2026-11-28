@@ -26,12 +26,14 @@ service reads in a repository checkout.
 | `HARBORRAG_MODEL_CONFIG_PATH` | `config/models/models.yaml` | Model catalog ([Model Configuration](model-config.md)) |
 | `HARBORRAG_GRAPH_BUILD_CONFIG_PATH` | `config/graph/build.yaml` | Graph build file ([Graph Build Configuration](graph-build-config.md)) |
 | `HARBORRAG_SETTINGS_SEED_PATH` | `config/settings.yaml` | Runtime settings seed file ([Runtime Settings](runtime-settings.md#seed-file-and-drift)) |
-| `HARBORRAG_SCHEDULE_CONFIG_PATH` | `config/sources/schedules.yaml` | Declarative schedules the API syncs at startup; the API image sets `/app/config/sources/schedules.yaml` ([Scheduled Ingestion](../scheduled-ingestion.md)) |
+| `HARBORRAG_SCHEDULE_CONFIG_PATH` | `config/sources/schedules.yaml` | Declarative schedules the API syncs at startup; the API image sets `/app/config/sources/schedules.yaml` ([Scheduled Ingestion](../scheduled-ingestion.md#declare-schedules-in-a-file)) |
+| `HARBORRAG_SCHEDULE_TASK_QUEUE` | `harborrag-schedules` | Temporal task queue that every API replica polls to run the slots of `/v1/admin/schedules`. It does not keep two deployments in one Temporal namespace apart; give each its own `HARBORRAG_TEMPORAL_NAMESPACE`. Existing schedules keep their queue until each is written again with `PUT` ([Scheduled Ingestion](../scheduled-ingestion.md#how-a-schedule-runs)) |
 | `HARBORRAG_CONTROL_DB_URL` | `sqlite+aiosqlite:///./harborrag_control.db` | Control database, where connections, runs and settings live; must not be SQLite unless `HARBORRAG_ENV=dev` |
 | `HARBORRAG_CONTROL_DB_POOL_SIZE` | `40` | Connections each Postgres control-database pool keeps, 1 to 100 |
 | `HARBORRAG_CONTROL_DB_MAX_OVERFLOW` | `32` | Extra connections each pool opens under load, 0 to 200 |
 | `HARBORRAG_SECRETS_ENCRYPTION_KEY` | None | Encrypts stored connector credentials; with a control database that is not SQLite, every process that opens them (API, worker, checkout CLI) needs it, with the same value |
 | `HARBORRAG_TEMPORAL_TARGET` | `localhost:7233` | Temporal frontend |
+| `HARBORRAG_TEMPORAL_NAMESPACE` | `connection.namespace` in `config/temporal.yaml`, `harborrag` as shipped | Temporal namespace; give each deployment its own, because Temporal Schedule and workflow IDs are unique only within a namespace |
 | `HARBORRAG_TEMPORAL_ALLOW_INSECURE_REMOTE` | `false` | Development-only acknowledgement for Temporal without TLS that is not on loopback; ignored outside `dev`, like `connection.allow_insecure_remote` in `config/temporal.yaml` |
 | `HARBORRAG_OBJECT_STORE_ENDPOINT_URL` | `http://localhost:9000` | S3-compatible object store |
 | `HARBORRAG_OBJECT_STORE_ALLOW_INSECURE_REMOTE` | `false` | Development-only acknowledgement for plaintext object storage that is not on loopback; ignored outside `dev` |

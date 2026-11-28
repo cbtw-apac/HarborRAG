@@ -12,6 +12,7 @@ from harborrag_adapters.repositories.database import IngestionControlPlaneDataba
 from harborrag_core.contracts.errors import HarborConflictError
 from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.ingestion import (
+    DEFAULT_ACTOR_TYPE,
     TASK_PROVENANCE_KEYS,
     ActiveDocumentVersion,
     FailurePage,
@@ -22,6 +23,7 @@ from harborrag_core.ingestion import (
     TaskDocumentResult,
     TaskPage,
     TaskRegistration,
+    TaskTrigger,
 )
 from harborrag_core.ingestion.run_contracts import PreparedSourceSubmission
 from harborrag_core.invariants import HarborInvariantError
@@ -153,6 +155,10 @@ class IngestionTaskRegistry:
             tenant_id=tenant_id, connection_ids=connection_ids
         )
 
+    async def source_keys(self, *, tenant_id: str) -> frozenset[str]:
+        """Every connection the tenant's runs were registered under, deleted ones included."""
+        return await self._control.connection_records.source_keys(tenant_id=tenant_id)
+
     async def allowed_source_scope_ids(
         self, tenant_id: str, *, access: AccessContext, limit: int = 10000
     ) -> tuple[str, ...]:
@@ -198,6 +204,7 @@ class IngestionTaskRegistry:
         before_task_id: str | None = None,
         scope_connection_ids: frozenset[str] | None = None,
         created_after: datetime | None = None,
+        trigger: TaskTrigger | None = None,
         limit: int = 50,
     ) -> TaskPage:
         """List tasks by filter, newest first."""
@@ -208,6 +215,7 @@ class IngestionTaskRegistry:
             before_task_id=before_task_id,
             scope_connection_ids=scope_connection_ids,
             created_after=created_after,
+            trigger=trigger,
             limit=limit,
         )
 
@@ -390,4 +398,4 @@ def _with_actor(
     if actor is None:
         return request
     actor_key, actor_type_key = TASK_PROVENANCE_KEYS
-    return {**request, actor_key: actor, actor_type_key: actor_type or "user"}
+    return {**request, actor_key: actor, actor_type_key: actor_type or DEFAULT_ACTOR_TYPE}

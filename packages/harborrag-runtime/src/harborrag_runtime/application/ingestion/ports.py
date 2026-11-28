@@ -16,6 +16,7 @@ from harborrag_core.ingestion import (
     TaskDocumentPage,
     TaskPage,
     TaskRegistration,
+    TaskTrigger,
 )
 from harborrag_core.ingestion.run_contracts import PreparedSourceSubmission, SourceSubmission
 from harborrag_runtime.config.settings import RuntimeSettings
@@ -83,6 +84,7 @@ class PublicTaskStore(Protocol):
         before_task_id: str | None = None,
         scope_connection_ids: frozenset[str] | None = None,
         created_after: datetime | None = None,
+        trigger: TaskTrigger | None = None,
         limit: int = 50,
     ) -> TaskPage:
         """Return one keyset page of tasks, newest submission first, narrowed by the filters."""

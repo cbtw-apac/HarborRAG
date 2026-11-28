@@ -30,6 +30,7 @@ from harborrag_runtime.errors import (
     WorkflowNotFoundError,
     WorkflowNotRunningError,
     WorkflowOperationError,
+    WorkflowSubmissionError,
 )
 from harborrag_runtime.execution.task_registry import IngestionTaskRegistry
 from harborrag_runtime.ingestion_contracts import IngestionExecutionStatus
@@ -289,20 +290,73 @@ async def test_cancelling_a_started_run_whose_workflow_is_gone_records_the_cance
 
 
 @pytest.mark.asyncio
-async def test_cancelling_a_queued_run_without_a_workflow_leaves_it_queued(
+async def test_cancelling_a_queued_run_whose_started_workflow_is_gone_records_the_cancellation(
     service_resources: _Resources,
 ) -> None:
-    _, control, temporal = service_resources
     task_id = await _start(service_resources, IngestionTaskState.PENDING)
-    temporal.statuses[task_id] = WorkflowNotFoundError("task not found")
+    service_resources[2].statuses[task_id] = WorkflowNotFoundError("task not found")
 
+    view = await _operations(service_resources, _Clock()).act(
+        tenant_id=_TENANT, ingestion_id=task_id, action="cancel", actor="u_alex"
+    )
+
+    assert view["status"] == "cancelled"
+    assert view["error_category"] == "workflow_not_found"
+
+
+async def _queue_unstarted(resources: _Resources) -> str:
+    """Register a run whose workflow start failed, leaving it queued for recovery."""
+    service, control, temporal = resources
+    temporal.start_ingestion = AsyncMock(  # type: ignore[method-assign]
+        side_effect=WorkflowSubmissionError("temporal unreachable")
+    )
     with pytest.raises(HarborConnectionError):
-        await _operations(service_resources, _Clock()).act(
-            tenant_id=_TENANT, ingestion_id=task_id, action="cancel", actor="u_alex"
-        )
+        await service.submit(public_ingestion_command(), idempotency_key=None)
+    del temporal.start_ingestion
+    (task,) = await control.tasks.pending_submissions()
+    temporal.statuses[task.task_id] = WorkflowNotFoundError("task not found")
+    return task.task_id
 
+
+@pytest.mark.asyncio
+async def test_cancelling_a_queued_run_that_was_never_started_records_the_cancellation(
+    service_resources: _Resources,
+) -> None:
+    service, control, temporal = service_resources
+    task_id = await _queue_unstarted(service_resources)
+    clock = _Clock()
+
+    view = await _operations(service_resources, clock).act(
+        tenant_id=_TENANT, ingestion_id=task_id, action="cancel", actor="u_alex"
+    )
+
+    assert view["status"] == "cancelled"
+    assert view["finished_at"] is not None
+    assert clock.waits == []
     stored = await control.tasks.get(task_id)
-    assert stored is not None and stored.status is IngestionTaskState.PENDING
+    assert stored is not None and "submission_state" not in stored.summary
+    assert await service.recover_pending_submissions() == 0
+    assert temporal.started == []
+
+
+@pytest.mark.asyncio
+async def test_cancelling_a_queued_run_whose_claim_recovery_still_holds_records_the_cancellation(
+    service_resources: _Resources,
+) -> None:
+    service, control, temporal = service_resources
+    task_id = await _queue_unstarted(service_resources)
+    claim = await control.tasks.claim_submission(task_id)
+    assert claim is not None
+
+    view = await _operations(service_resources, _Clock()).act(
+        tenant_id=_TENANT, ingestion_id=task_id, action="cancel", actor="u_alex"
+    )
+
+    assert view["status"] == "cancelled"
+    stored = await control.tasks.get(task_id)
+    assert stored is not None and stored.status is IngestionTaskState.CANCELLED
+    assert await service.recover_pending_submissions() == 0
+    assert temporal.started == []
 
 
 @pytest.mark.asyncio

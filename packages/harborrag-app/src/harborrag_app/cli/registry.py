@@ -49,6 +49,13 @@ HTTP_ONLY: Mapping[str, str] = {
     "list_searchable_connections": "Feeds the chat's connection picker for readers",
     "list_ingestion_documents": "Per-document drill-down of a run is a web console view",
     "stream_ingestion": "Server-sent events for the web console; `ingestions get --watch` polls",
+    "list_schedules": "Schedules are managed over HTTP; no `schedules` command yet",
+    "get_schedule": "Schedules are managed over HTTP; no `schedules` command yet",
+    "put_schedule": "Schedules are managed over HTTP; no `schedules` command yet",
+    "delete_schedule": "Schedules are managed over HTTP; no `schedules` command yet",
+    "pause_schedule": "Schedules are managed over HTTP; no `schedules` command yet",
+    "resume_schedule": "Schedules are managed over HTTP; no `schedules` command yet",
+    "trigger_schedule": "Schedules are managed over HTTP; no `schedules` command yet",
     "healthz": "Liveness probe for the orchestrator",
     "readyz": "Readiness probe for the orchestrator; `doctor` runs the same checks locally",
 }

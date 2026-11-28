@@ -89,6 +89,8 @@ class IngestionOps:
             project_id=query.project_id,
             connection_ref=query.connection_ref,
             status=query.status,
+            trigger=query.trigger,
+            schedule_id=query.schedule_id,
             created_after=query.created_after,
             cursor=query.cursor,
             limit=query.limit,

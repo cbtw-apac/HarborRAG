@@ -70,3 +70,18 @@ class TaskPage:
 
     items: tuple[IngestionTask, ...]
     has_more: bool
+
+
+@dataclass(frozen=True, slots=True)
+class TaskTrigger:
+    """Who or what started the tasks a listing keeps, read from each task's request.
+
+    Args:
+        actor_type: ``user``, ``api_key`` or ``schedule``. A task whose request records
+            no actor type counts as ``DEFAULT_ACTOR_TYPE``.
+        actor: Keep only tasks this principal started, such as a schedule ID;
+            ``None`` keeps any.
+    """
+
+    actor_type: str
+    actor: str | None = None

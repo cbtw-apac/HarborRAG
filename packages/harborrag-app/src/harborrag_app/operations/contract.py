@@ -41,6 +41,7 @@ from harborrag_app.operations.schemas.ingestions import (
     IngestionPage,
 )
 from harborrag_app.operations.schemas.me import MeOut
+from harborrag_app.operations.schemas.schedules import ScheduleOut, SchedulePage
 from harborrag_app.operations.schemas.settings import SettingsOut, SettingsPatchOut
 from harborrag_core.domain.member import Role
 
@@ -93,6 +94,13 @@ OPERATIONS: Mapping[str, OperationSpec] = {
     "retry_ingestion_failures": _spec("editor", IngestionOut, status_code=202),
     "list_failures": _spec("editor", FailurePage, exclude_unset=True),
     "retry_failures": _spec("editor", FailureRetryAccepted, status_code=202),
+    "list_schedules": _spec("editor", SchedulePage),
+    "get_schedule": _spec("editor", ScheduleOut),
+    "put_schedule": _spec("editor", ScheduleOut),
+    "delete_schedule": _spec("editor", status_code=204),
+    "pause_schedule": _spec("editor", ScheduleOut),
+    "resume_schedule": _spec("editor", ScheduleOut),
+    "trigger_schedule": _spec("editor", IngestionOut, status_code=202),
     "read_settings": _spec("editor", SettingsOut),
     "patch_settings": _spec("admin", SettingsPatchOut),
     "settings_schema": _spec("editor", dict[str, Any]),

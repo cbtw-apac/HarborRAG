@@ -385,8 +385,8 @@ class IngestionApplicationService:
 
         A run whose workflow is gone or closed, such as one whose history passed the
         namespace retention, is recorded as cancelled here, since no workflow is left
-        to record it. A queued source run is left queued: its workflow may not be
-        submitted yet.
+        to record it. So is a queued source run whose workflow start was never
+        confirmed; a start that races the cancel is refused by the run's first activity.
 
         Raises:
             HarborConnectionError: Temporal could not take the request.
@@ -396,13 +396,35 @@ class IngestionApplicationService:
             await (await self._client_provider()).cancel(task.task_id, kind)
         except WorkflowOperationError as error:
             reason = _GONE_WORKFLOW_REASONS.get(type(error))
-            if reason is None or _may_await_submission(task, kind):
+            if reason is None:
                 raise HarborConnectionError(
                     "Ingestion cancellation is temporarily unavailable."
                 ) from error
-            await store.close_abandoned(task.task_id, IngestionTaskState.CANCELLED, reason=reason)
+            if _may_await_submission(task, kind):
+                await self._cancel_unsubmitted(store, task.task_id, reason=reason)
+            else:
+                await store.close_abandoned(
+                    task.task_id, IngestionTaskState.CANCELLED, reason=reason
+                )
             return await self._required_task(store, task.task_id)
         return task
+
+    async def _cancel_unsubmitted(
+        self, store: PublicTaskStore, task_id: str, *, reason: str
+    ) -> None:
+        """Record a queued run with no workflow as cancelled, holding its submission claim if free.
+
+        The claim keeps recovery from starting the run meanwhile. A claim another
+        pass holds does not stop the cancel: a recovery whose start failed keeps it
+        until it goes stale, minutes later, and any start that does go through gets
+        no further than the run's first activity, which refuses a cancelled run.
+        """
+        claim = await store.claim_submission(task_id)
+        try:
+            await store.close_abandoned(task_id, IngestionTaskState.CANCELLED, reason=reason)
+        finally:
+            if claim is not None:
+                await self._release_claim(store, task_id, claim)
 
     async def settle_if_ended(self, task_id: str) -> bool:
         """Record the end of a run whose workflow ended without recording it.
@@ -560,5 +582,9 @@ def _refuse_retry_run(task: IngestionTask, past: str) -> None:
 
 
 def _may_await_submission(task: IngestionTask, kind: RunKind) -> bool:
-    """Whether ``task`` is a queued source run, whose workflow may not be submitted yet."""
-    return kind is RunKind.SOURCE and task.status is IngestionTaskState.PENDING
+    """Whether ``task`` is a queued source run whose workflow start was never confirmed."""
+    return (
+        kind is RunKind.SOURCE
+        and task.status is IngestionTaskState.PENDING
+        and task.summary.get(_SUBMISSION_STATE_KEY) != _SUBMITTED
+    )

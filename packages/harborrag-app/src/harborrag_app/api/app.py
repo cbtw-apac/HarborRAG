@@ -36,6 +36,7 @@ from harborrag_core.contracts.errors import HarborConfigurationError
 from harborrag_core.domain.identity import DEFAULT_TENANT_ID
 from harborrag_core.observability.process_logging import configure_logging
 from harborrag_runtime.application.composition.selection import select_app_service
+from harborrag_runtime.errors import MissingOptionalDependencyError
 
 if TYPE_CHECKING:
     from harborrag_runtime.application.composition.service import AppService
@@ -46,6 +47,7 @@ _INGESTION_PROGRESS_INTERVAL_SECONDS = 2.0
 _CONTROL_PLANE_EFFECT_RECOVERY_INTERVAL_SECONDS = 30.0
 _CONNECTION_REMOVAL_RECOVERY_INTERVAL_SECONDS = 60.0
 _SCHEDULE_SYNC_RETRY_INTERVAL_SECONDS = 30.0
+_SCHEDULE_SLOT_RESTART_INTERVAL_SECONDS = 30.0
 
 
 def _redirect_root(request: Request) -> RedirectResponse:
@@ -159,6 +161,30 @@ async def _sync_declared_schedules(app: FastAPI) -> None:
         await asyncio.sleep(_SCHEDULE_SYNC_RETRY_INTERVAL_SECONDS)
 
 
+async def _run_schedule_slots(app: FastAPI) -> None:
+    """Serve the slots of ``/v1/admin/schedules``, restarting the worker after a failure.
+
+    The worker runs until the lifespan cancels it; a normal return ends the loop. A
+    missing Temporal SDK or extra cannot heal without a redeploy, so it stops the
+    loop too.
+    """
+    while True:
+        try:
+            await app.state.app_service.run_schedule_slots()
+            return
+        except asyncio.CancelledError:
+            raise
+        except (ImportError, MissingOptionalDependencyError):
+            logger.exception("Schedule slot worker cannot start; fix the deployment and restart")
+            return
+        except Exception:
+            logger.exception(
+                "Schedule slot worker failed; restarting in %.0fs",
+                _SCHEDULE_SLOT_RESTART_INTERVAL_SECONDS,
+            )
+        await asyncio.sleep(_SCHEDULE_SLOT_RESTART_INTERVAL_SECONDS)
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Compose the app service on startup (ST8 selection rule).
@@ -186,6 +212,8 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     background_tasks = [recovery_task, progress_task, control_plane_effect_recovery_task]
     if hasattr(service, "sync_declared_schedules"):
         background_tasks.append(asyncio.create_task(_sync_declared_schedules(app)))
+    if hasattr(service, "run_schedule_slots"):
+        background_tasks.append(asyncio.create_task(_run_schedule_slots(app)))
     if hasattr(service, "resume_connection_removals"):
         background_tasks.append(asyncio.create_task(_resume_connection_removals(app)))
     try:

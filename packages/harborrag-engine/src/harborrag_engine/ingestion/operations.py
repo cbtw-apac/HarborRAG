@@ -20,6 +20,7 @@ from harborrag_core.ingestion import (
     StoredTaskDocumentResult,
     TaskDocumentPage,
     TaskPage,
+    TaskTrigger,
 )
 from harborrag_core.ingestion.stages import spec_stage
 from harborrag_core.invariants import require
@@ -50,6 +51,7 @@ _DOCUMENT_RESULT_STATUSES: dict[str, tuple[str, ...]] = {
     "all": _SUCCEEDED_RESULTS + _SKIPPED_RESULTS + _FAILED_RESULTS,
 }
 _PUBLISH_STAGE = "publish"
+_SCHEDULE_TRIGGER = "schedule"
 ACTION_WAIT_SECONDS: dict[str, int] = {"pause": 10, "resume": 10, "cancel": 30}
 ACTION_POLL_SECONDS = 0.5
 _ALLOWED_FROM: dict[str, frozenset[str]] = {
@@ -97,9 +99,13 @@ class IngestionRuns(Protocol):
         before_task_id: str | None = None,
         scope_connection_ids: frozenset[str] | None = None,
         created_after: datetime | None = None,
+        trigger: TaskTrigger | None = None,
         limit: int = 50,
     ) -> TaskPage:
         """Return one keyset page of runs, newest submission first, narrowed by the filters."""
+
+    async def source_keys(self, *, tenant_id: str) -> frozenset[str]:
+        """Return every source key the tenant's runs were registered under."""
 
 
 async def connection_index(
@@ -211,6 +217,8 @@ class IngestionOperations:
         project_id: str | None,
         connection_ref: str | None,
         status: str | None,
+        trigger: str | None,
+        schedule_id: str | None,
         created_after: datetime | None,
         cursor: str | None,
         limit: int,
@@ -219,9 +227,13 @@ class IngestionOperations:
 
         Args:
             tenant_id: Tenant to read.
-            project_id: Keep the runs of one project.
-            connection_ref: Keep the runs of one connection.
+            project_id: Keep the runs of one project, including those of its deleted connections.
+            connection_ref: Keep the runs of one connection, even after it was deleted.
             status: Keep one spec status.
+            trigger: Keep the runs a ``user``, an ``api_key`` or a ``schedule`` started. A run
+                that records no starter counts as a user's.
+            schedule_id: Keep the runs this schedule started. With another ``trigger``,
+                nothing matches.
             created_after: Keep runs created at or after this time.
             cursor: ``next_cursor`` of the previous page, for the same filters.
             limit: Page size.
@@ -232,8 +244,12 @@ class IngestionOperations:
         Raises:
             IngestionCursorError: ``cursor`` is malformed or belongs to other filters.
         """
-        fingerprint = _fingerprint(project_id, connection_ref, status, created_after)
+        fingerprint = _fingerprint(
+            project_id, connection_ref, status, created_after, trigger, schedule_id
+        )
         position = _decode_cursor(cursor, fingerprint) if cursor else None
+        if _contradicts(trigger, schedule_id):
+            return {"items": [], "next_cursor": None}
         index = await connection_index(self._connections(), tenant_id=tenant_id)
         runs = await self._runs()
         page = await runs.list_tasks(
@@ -243,8 +259,15 @@ class IngestionOperations:
                 datetime.fromisoformat(position.submitted_at) if position else None
             ),
             before_task_id=position.task_id if position else None,
-            scope_connection_ids=_keys(index, project_id=project_id, connection_ref=connection_ref),
+            scope_connection_ids=await _run_source_keys(
+                runs,
+                index,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                connection_ref=connection_ref,
+            ),
             created_after=created_after,
+            trigger=_task_trigger(trigger, schedule_id),
             limit=limit,
         )
         counts = await runs.progress_for_tasks([task.task_id for task in page.items])
@@ -442,19 +465,66 @@ def _require_allowed(action: str, ingestion: Mapping[str, Any]) -> None:
         )
 
 
-def _fingerprint(
+def _fingerprint(*filters: str | datetime | None) -> str:
+    """Return the short hash a list cursor carries, so it only pages under the same filters."""
+    parts = (part.isoformat() if isinstance(part, datetime) else part for part in filters)
+    return sha256("|".join(part or "" for part in parts).encode()).hexdigest()[:16]
+
+
+def _contradicts(trigger: str | None, schedule_id: str | None) -> bool:
+    """Whether ``trigger`` names another starter than the schedule ``schedule_id`` asks for."""
+    return schedule_id is not None and trigger not in (None, _SCHEDULE_TRIGGER)
+
+
+def _task_trigger(trigger: str | None, schedule_id: str | None) -> TaskTrigger | None:
+    """Return who started the runs the filters keep; ``None`` when neither filter is set."""
+    if schedule_id is not None:
+        return TaskTrigger(_SCHEDULE_TRIGGER, actor=schedule_id)
+    return TaskTrigger(trigger) if trigger is not None else None
+
+
+async def _run_source_keys(
+    runs: IngestionRuns,
+    index: Mapping[str, Connection],
+    *,
+    tenant_id: str,
     project_id: str | None,
     connection_ref: str | None,
-    status: str | None,
-    created_after: datetime | None,
-) -> str:
-    parts = (
-        project_id,
-        connection_ref,
-        status,
-        created_after.isoformat() if created_after else None,
+) -> frozenset[str] | None:
+    """Return the source keys of the runs a project and connection filter keeps.
+
+    A run is kept when its ``Ingestion`` view shows that project and connection: its
+    connection's, or the ones its stored source key names once the connection is deleted.
+
+    Returns:
+        ``None`` when neither filter is set; otherwise the matching keys, empty when
+        nothing matches.
+    """
+    if project_id is None and connection_ref is None:
+        return None
+    return frozenset(
+        key
+        for key in await runs.source_keys(tenant_id=tenant_id)
+        if _shown_under(key, index.get(key), project_id=project_id, connection_ref=connection_ref)
     )
-    return sha256("|".join(part or "" for part in parts).encode()).hexdigest()[:16]
+
+
+def _shown_under(
+    source_key: str,
+    connection: Connection | None,
+    *,
+    project_id: str | None,
+    connection_ref: str | None,
+) -> bool:
+    """Whether a run of ``source_key`` shows that project and connection ref."""
+    if connection is not None:
+        shown_project, shown_ref = connection.project_id, connection.ref
+    else:
+        shown_project, _, shown_connection = source_key.rpartition("/")
+        shown_ref = f"{shown_project}/{shown_connection}"
+    return (project_id is None or shown_project == project_id) and (
+        connection_ref is None or shown_ref == connection_ref
+    )
 
 
 def _encode_cursor(position: TaskPageCursor, fingerprint: str) -> str:

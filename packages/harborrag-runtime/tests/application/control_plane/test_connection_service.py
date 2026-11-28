@@ -295,6 +295,16 @@ async def test_sync_starts_a_valid_connection_whatever_its_status(world: Connect
 
 
 @pytest.mark.asyncio
+async def test_a_sync_right_after_the_last_run_ended_starts(world: ConnectionWorld) -> None:
+    await world.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u")
+
+    first = await world.service.sync(CONNECTION_KEY, actor="u")
+    second = await world.service.sync(CONNECTION_KEY, actor="u")
+
+    assert (first["ingestion_id"], second["ingestion_id"]) == ("ing_1", "ing_2")
+
+
+@pytest.mark.asyncio
 async def test_put_with_sync_now_returns_the_ingestion(world: ConnectionWorld) -> None:
     result = await world.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u", sync_now=True)
 
