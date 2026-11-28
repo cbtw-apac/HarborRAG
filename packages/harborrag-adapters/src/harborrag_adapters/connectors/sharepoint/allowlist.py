@@ -2,17 +2,22 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
+from urllib.parse import unquote, urlparse
 
 from .config import SharePointSiteConfig
-from .config_validation import normalize_identifier
+from .config_validation import normalize_identifier, path_match_key
 
 
 class SharePointAllowlist:
-    """Evaluate the configured allowlists; an unset allowlist allows everything."""
+    """Evaluate the configured allowlists; an unset allowlist allows everything.
+
+    Args:
+        config: Validated connector config that holds the allowlists.
+    """
 
     def __init__(self, config: SharePointSiteConfig) -> None:
-        """Bind the allowlists from a validated config."""
         self.config = config
 
     def rejected_tenant(self) -> str | None:
@@ -47,21 +52,75 @@ class SharePointAllowlist:
             return None
         return str(site.get("webUrl") or site_id or "<unknown site>")
 
-    def path_allowed(self, path: str) -> bool:
-        """Return whether a drive-relative file path sits under an allowed prefix."""
-        prefixes = self.config.allowed_path_prefixes
-        if prefixes is None:
-            return True
-        normalized = path.strip("/").casefold()
-        return any(_under(normalized, prefix) for prefix in prefixes)
+    def path_allowed(self, path: str, *, library_names: Sequence[str] = ()) -> bool:
+        """Return whether a drive-relative file path sits under an allowed prefix.
 
-    def folder_may_contain_allowed(self, folder_path: str) -> bool:
-        """Return whether a folder is allowed or is an ancestor of an allowed prefix."""
-        prefixes = self.config.allowed_path_prefixes
+        Args:
+            path: Drive-relative path of the file.
+            library_names: Names of the library that holds the file. A prefix
+                that starts with one of them also matches the rest of its path.
+
+        Returns:
+            True when no path allowlist is set or the file is under a prefix.
+        """
+        prefixes = self._prefixes(library_names)
         if prefixes is None:
             return True
-        normalized = folder_path.strip("/").casefold()
-        return any(_under(normalized, prefix) or _under(prefix, normalized) for prefix in prefixes)
+        key = path_match_key(path)
+        return any(_under(key, prefix) for prefix in prefixes)
+
+    def folder_may_contain_allowed(
+        self, folder_path: str, *, library_names: Sequence[str] = ()
+    ) -> bool:
+        """Return whether a folder is allowed or is an ancestor of an allowed prefix.
+
+        Args:
+            folder_path: Drive-relative path of the folder.
+            library_names: Names of the library that holds the folder, as for
+                ``path_allowed``.
+
+        Returns:
+            True when no path allowlist is set or the folder may hold allowed files.
+        """
+        prefixes = self._prefixes(library_names)
+        if prefixes is None:
+            return True
+        key = path_match_key(folder_path)
+        return any(_under(key, prefix) or _under(prefix, key) for prefix in prefixes)
+
+    def _prefixes(self, library_names: Sequence[str]) -> list[str] | None:
+        """Return the configured prefixes, plus each one written from the library down.
+
+        Prefixes are relative to the library, so ``Shared Documents/Q3 Plans`` in
+        the library named ``Shared Documents`` also allows ``Q3 Plans``. A prefix
+        that is only the library's name still names a folder of that name. The
+        whole library is allowed only by the root prefix ``/``.
+        """
+        prefixes = self.config.allowed_path_prefixes
+        if prefixes is None:
+            return None
+        names = {path_match_key(name) for name in library_names}
+        inside_library = [
+            folder_path
+            for library, _, folder_path in (prefix.partition("/") for prefix in prefixes)
+            if folder_path and library in names
+        ]
+        return [*prefixes, *inside_library]
+
+    def may_name_a_library(self) -> bool:
+        """Return whether a configured prefix has a folder after its first name."""
+        return any("/" in prefix for prefix in self.config.allowed_path_prefixes or ())
+
+
+def library_names(drive: dict[str, Any]) -> tuple[str, ...]:
+    """Return a document library's display name and the name in its web URL.
+
+    A library shown as ``Documents`` usually lives at ``.../Shared%20Documents``,
+    and operators write either name. Names the drive payload lacks are left out.
+    """
+    url_path = urlparse(str(drive.get("webUrl") or "")).path.rstrip("/")
+    names = (str(drive.get("name") or ""), unquote(url_path.rpartition("/")[2]))
+    return tuple(name for name in names if name.strip())
 
 
 def _under(path: str, prefix: str) -> bool:

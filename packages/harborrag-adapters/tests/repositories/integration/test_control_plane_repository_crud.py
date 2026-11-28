@@ -211,7 +211,7 @@ async def test_lease_repository_creates_an_unseeded_lease_on_first_acquire(
     """A lease name with no migration row, such as a per-connection sync lease, still works."""
 
     repo = SqlLeaseRepository(sessions)
-    name = "connection-sync:acme:cpm/cpm-tickets"
+    name = "connection-sync:acme:demo/demo-tickets"
 
     assert await repo.try_acquire(name, "holder-a", ttl_seconds=1000) is True
     assert await repo.try_acquire(name, "holder-b", ttl_seconds=1000) is False

@@ -1,0 +1,120 @@
+"""Rebuild safe workflow inputs from durable ingestion task requests."""
+
+from __future__ import annotations
+
+import json
+from collections.abc import Mapping
+
+from harborrag_core.contracts.errors import HarborValidationError
+from harborrag_core.ingestion import IngestionTask
+from harborrag_core.ingestion.run_contracts import (
+    IngestionRetryRequest,
+    PreparedSourceSubmission,
+    RunSettings,
+)
+from harborrag_core.ingestion.source_query import ProcessingProfileInput, SourceQuery
+
+
+def source_from_task(task: IngestionTask) -> PreparedSourceSubmission:
+    """Rebuild the safe workflow input for a retried durable submission.
+
+    The pinned ``ingestion.concurrency`` and ``ingestion.batch_size`` are restored
+    from the run's settings; without one the workflow default applies.
+    """
+    request = task.request
+    processing = _mapping(request.get("processing"), "processing")
+    query = _mapping(request.get("query"), "query")
+    filters = query.get("filters")
+    limit = query.get("limit")
+    run_settings = RunSettings.from_json(request.get("run_settings"))
+    # TODO: store each run's resolved document_concurrency so recovery stops falling back to 8.
+    concurrency = run_settings.document_concurrency if run_settings else None
+    batch_size = run_settings.batch_size if run_settings else None
+    return PreparedSourceSubmission(
+        task_id=task.task_id,
+        tenant_id=_required_text(request, "tenant_id"),
+        connector_name=str(request["connector_name"]),
+        connector_type=str(request["connector_type"]),
+        connection_id=str(request["connection_id"]),
+        source_scope_id=str(request["source_scope_id"]),
+        configuration_fingerprint=str(request["configuration_fingerprint"]),
+        processing=_processing_profile(processing),
+        query=SourceQuery(
+            path=_optional_text(query.get("path")),
+            pattern=_optional_text(query.get("pattern")),
+            recursive=query.get("recursive") is not False,
+            updated_after=_optional_text(query.get("updated_after")),
+            limit=limit if isinstance(limit, int) else None,
+            include_attachments=query.get("include_attachments") is not False,
+            filters_json=json.dumps(
+                filters if isinstance(filters, Mapping) else {},
+                separators=(",", ":"),
+                sort_keys=True,
+            ),
+        ),
+        force_reprocess=request.get("force_reprocess") is True,
+        **({"document_concurrency": concurrency} if concurrency is not None else {}),
+        **({"batch_size": batch_size} if batch_size is not None else {}),
+        run_settings=run_settings,
+    )
+
+
+def retry_from_task(task: IngestionTask) -> IngestionRetryRequest:
+    """Rebuild a safe retry workflow input from its durable task request."""
+    request = task.request
+    original_task_id = request.get("retry_of")
+    document_ids = request.get("document_ids")
+    if not isinstance(original_task_id, str) or not original_task_id.strip():
+        raise HarborValidationError("stored retry original task is invalid")
+    if not isinstance(document_ids, list) or not all(
+        isinstance(item, str) and item.strip() for item in document_ids
+    ):
+        raise HarborValidationError("stored retry document identifiers are invalid")
+    return IngestionRetryRequest(
+        retry_task_id=task.task_id,
+        original_task_id=original_task_id,
+        tenant_id=_required_text(request, "tenant_id"),
+        document_ids=tuple(document_ids),
+    )
+
+
+def _mapping(value: object, label: str) -> dict[str, object]:
+    if not isinstance(value, Mapping):
+        raise HarborValidationError(f"stored ingestion {label} is invalid")
+    return dict(value)
+
+
+def _required_text(values: Mapping[str, object], name: str) -> str:
+    value = values.get(name)
+    if not isinstance(value, str) or not value.strip():
+        raise HarborValidationError(f"stored ingestion {name!r} is invalid")
+    return value
+
+
+def _processing_profile(stored: Mapping[str, object]) -> ProcessingProfileInput:
+    """Rebuild the processing profile, naming each field the durable record must supply.
+
+    Splatting the stored mapping would let a schema drift reach the constructor as a
+    runtime TypeError; listing the fields turns that into a validation error here.
+    """
+
+    def field(name: str) -> str:
+        value = stored.get(name)
+        if not isinstance(value, str) or not value.strip():
+            raise HarborValidationError(f"stored processing profile {name!r} is invalid")
+        return value
+
+    schema = stored.get("vector_projection_schema")
+    return ProcessingProfileInput(
+        parser_profile=field("parser_profile"),
+        normalizer_version=field("normalizer_version"),
+        chunk_strategy=field("chunk_strategy"),
+        dense_encoder_profile=field("dense_encoder_profile"),
+        sparse_encoder_profile=field("sparse_encoder_profile"),
+        graph_projection_version=field("graph_projection_version"),
+        **({"vector_projection_schema": schema} if isinstance(schema, str) else {}),
+    )
+
+
+def _optional_text(value: object) -> str | None:
+    return str(value) if value is not None else None

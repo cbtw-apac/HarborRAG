@@ -1674,10 +1674,14 @@
 <span class="hr-c"># 3. the operator CLI is live</span>
 <span class="hr-p">$ </span>uv run --package harborrag-app harborrag --help
 <span class="hr-o">Usage: harborrag [OPTIONS] COMMAND [ARGS]...</span>
-<span class="hr-o">  doctor    Check Temporal runtime readiness.</span>
+<span class="hr-o">  doctor    Check project, configuration, environment, and local services.</span>
+<span class="hr-o">  auth      Manage MCP reader keys (auth keys create|list|revoke).</span>
+<span class="hr-o">  config    Import and export runtime settings (config import|export).</span>
 <span class="hr-o">  chat      Generate a response with the configured chat model.</span>
-<span class="hr-o">  retrieve  Search active vectors with graph context expansion.</span>
-<span class="hr-o">  ingest    Submit, observe, and control ingestion runs.</span></pre>
+<span class="hr-o">  retrieve  Search active Qdrant vectors with FalkorDB context expansion.</span>
+<span class="hr-o">  ingest    Submit, observe, and control ingestion runs.</span>
+<span class="hr-o">  topology  Configure and operate semantic topology enrichment.</span>
+<span class="hr-o">  source    Manage connections (source list|show|add|update|test|sync|remove).</span></pre>
         </div>
 
         <aside class="runit-notes">
@@ -1685,13 +1689,13 @@
                 <p class="runit-note-title">What you need</p>
                 <p class="runit-note-text">Python 3.12 or newer and
                     <a href="https://docs.astral.sh/uv/" target="_blank" rel="noopener noreferrer">uv</a>.
-                    The sync resolves the full development dependency set and needs roughly 520&nbsp;MB of disk.</p>
+                    The sync resolves the full development dependency set and needs roughly 710&nbsp;MB of disk.</p>
             </div>
             <div>
                 <p class="runit-note-title">Parse a document next</p>
                 <p class="runit-note-text">A short Python snippet runs the real parser registry against a
                     local file, still with nothing else running.
-                    <a href="docs/README.html#run-it-without-any-services">See the snippet</a>.</p>
+                    <a href="docs/developers/checkout-quick-start.html#3-parse-a-document">See the snippet</a>.</p>
             </div>
             <div>
                 <p class="runit-note-title">Then the full stack</p>

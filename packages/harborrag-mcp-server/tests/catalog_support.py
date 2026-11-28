@@ -13,5 +13,3 @@ EXPECTED_READER_TOOLS = [
     "list_documents",
     "find_entities",
 ]
-
-__all__ = ["EXPECTED_READER_TOOLS"]

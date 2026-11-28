@@ -1,5 +1,8 @@
+"""Temporal activities that run the per-document ingestion stages."""
+
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import replace
 
 from temporalio import activity
@@ -8,6 +11,10 @@ from temporalio.exceptions import ApplicationError
 
 from harborrag_core.contracts.errors import HarborConflictError, HarborValidationError
 from harborrag_core.ingestion import DocumentIngestionOutcome
+from harborrag_core.ingestion.run_contracts import SourceSubmission
+from harborrag_engine.ingestion.release.models import DocumentReleaseRequest
+from harborrag_engine.ingestion.release.stage_models import RawCaptureStageResult
+from harborrag_engine.ingestion.source.models import PlannedDocumentRelease
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.config.temporal import TemporalRuntimeConfig
 from harborrag_runtime.execution.gateway import prepare_configured_source_submission
@@ -15,7 +22,6 @@ from harborrag_runtime.ingestion.composition import IngestionRuntime
 from harborrag_runtime.ingestion.connections import require_fingerprint
 from harborrag_runtime.ingestion.document.run_tools import ParserUnavailableError
 from harborrag_runtime.ingestion.observability import IngestionTelemetry
-from harborrag_runtime.ingestion_contracts import SourceSubmission
 
 from .activity_observability import ActivityObservability
 from .conversion import (
@@ -41,7 +47,16 @@ from .source_activities import SourceActivitiesMixin
 
 
 class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
-    """Thin Temporal boundaries around durable ingestion application services."""
+    """Thin Temporal boundaries around durable ingestion application services.
+
+    Args:
+        runtime: Ingestion services, stores and connectors the activities call.
+        temporal_client: Client for native workflow pauses; ``None`` skips them.
+        telemetry: Ingestion metrics sink; a default one when ``None``.
+        settings: Runtime settings that scheduled firings are prepared from.
+        temporal_config: The config this worker polls with, so children go to
+            queues it serves.
+    """
 
     def __init__(
         self,
@@ -54,7 +69,6 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
     ) -> None:
         self._runtime = runtime
         self._settings = settings
-        # The config this worker polls with, so children go to queues it serves.
         self._temporal_config = temporal_config
         self._temporal_client = temporal_client
         self._observability = ActivityObservability(telemetry or IngestionTelemetry())
@@ -67,12 +81,22 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
     ) -> ScheduledSourcePreparation:
         """Prepare a scheduled firing from this worker's current configuration.
 
+        The firing is skipped while the connection has a pending, running or paused
+        run, or its scope a running scan. A run keeps dispatching and finalizing for
+        hours after its scan ends. The connection's pinned run settings also set the
+        run's document activity timeout and attempts.
+
+        Args:
+            request: The schedule's tenant, connection and source scope.
+
+        Returns:
+            The source workflow input, or no source when the firing is skipped.
+
         Raises:
             ApplicationError: Non-retryable when the worker lacks settings or a
                 connection store, or the connection is removed, being deleted or
                 invalid, since none of these heal on retry.
         """
-
         settings = self._settings
         temporal_config = self._temporal_config
         if settings is None or temporal_config is None:
@@ -102,16 +126,23 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
             raise ApplicationError(
                 str(error), type=type(error).__name__, non_retryable=True
             ) from error
-        if await self._runtime.control.source_scans.has_running_scan(prepared.source_scope_id):
+        control = self._runtime.control
+        if await control.source_scans.has_running_scan(prepared.source_scope_id) or (
+            await control.connection_records.active_task(
+                tenant_id=prepared.tenant_id, connection_id=prepared.connection_id
+            )
+            is not None
+        ):
             return ScheduledSourcePreparation(source=None, source_scope_id=prepared.source_scope_id)
         source = replace(
             to_temporal_source(prepared),
-            workflow_options=temporal_config.workflow_options(),
+            workflow_options=temporal_config.workflow_options().for_run(prepared.run_settings),
         )
         return ScheduledSourcePreparation(source=source, source_scope_id=prepared.source_scope_id)
 
     @activity.defn(name="harborrag.record_scheduled_run_metrics")
     async def record_scheduled_run_metrics(self, request: ScheduledRunMetricInput) -> None:
+        """Record a scheduled run's outcome in telemetry."""
         self._runtime.telemetry.record_scheduled_run(
             request.schedule_id,
             request.outcome,
@@ -123,21 +154,14 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
         self,
         request: DocumentIngestionInput,
     ) -> RawCaptureResult:
+        """Fetch the document from its connector and capture the raw bytes.
+
+        The heartbeat starts before the plan lookup, so a stalled store fails with its own
+        timeout error instead of a heartbeat timeout.
+        """
         with self._observability.boundary("FetchAndCaptureRaw"):
-            planned = await self._documents.get(request)
-            connector = await self._runtime.connector(
-                tenant_id=request.tenant_id,
-                task_id=request.task_id,
-                configuration_fingerprint=require_fingerprint(
-                    planned.request.configuration_fingerprint
-                ),
-            )
-            result = await heartbeat_while(
-                self._runtime.stages.preparation.fetch_and_capture(
-                    planned.request,
-                    connector,
-                ),
-                detail="fetch-and-capture",
+            planned, result = await heartbeat_while(
+                self._fetch_and_capture(request), detail="fetch-and-capture"
             )
             self._observability.record_capture(
                 result,
@@ -145,14 +169,58 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
             )
             return to_raw_capture_result(request, result)
 
+    async def _fetch_and_capture(
+        self, request: DocumentIngestionInput
+    ) -> tuple[PlannedDocumentRelease, RawCaptureStageResult]:
+        """Resolve the planned release, build its connector, then fetch and capture it."""
+        planned = await self._documents.get(request)
+        connector = await self._runtime.connector(
+            tenant_id=request.tenant_id,
+            task_id=request.task_id,
+            configuration_fingerprint=require_fingerprint(
+                planned.request.configuration_fingerprint
+            ),
+            run_settings=planned.request.run_settings,
+        )
+        result = await self._runtime.stages.preparation.fetch_and_capture(
+            planned.request,
+            connector,
+        )
+        return planned, result
+
+    async def _run_stage[StageInputT, ResultT](
+        self,
+        document: DocumentIngestionInput,
+        stage: Callable[[DocumentReleaseRequest, StageInputT], Awaitable[ResultT]],
+        stage_input: StageInputT,
+        *,
+        detail: object,
+    ) -> ResultT:
+        """Resolve the planned release and run ``stage`` on it under one heartbeat.
+
+        The heartbeat starts before the plan lookup, so a stalled store fails with its own
+        timeout error instead of a heartbeat timeout.
+        """
+
+        async def lookup_and_run() -> ResultT:
+            planned = await self._documents.get(document)
+            return await stage(planned.request, stage_input)
+
+        return await heartbeat_while(lookup_and_run(), detail=detail)
+
     @activity.defn(name="harborrag.parse_and_normalize")
     async def parse_and_normalize(
         self,
         request: RawCaptureResult,
     ) -> PreparedDocument:
+        """Parse the raw document and normalize it.
+
+        Parsing runs in-process. The isolated-subprocess attempt that used to precede this could
+        never succeed -- the preparation stages hold the parser registry's local closures, the
+        database engine and the S3 client, none of which pickle -- so every parse paid for a failed
+        spawn attempt and then ran here anyway.
+        """
         with self._observability.boundary("ParseAndNormalize"):
-            planned = await self._documents.get(request.document)
-            capture_stage = to_capture_stage(request)
             prior = last_heartbeat_detail()
             prior_attempt_count = 0
             if prior is not None:
@@ -170,17 +238,11 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
                 "resumed": prior is not None,
                 "prior_attempt_count": prior_attempt_count,
             }
-            # Parsing runs in-process. The isolated-subprocess attempt that used to
-            # precede this could never succeed -- the preparation stages hold the
-            # parser registry's local closures, the database engine and the S3
-            # client, none of which pickle -- so every parse paid for a failed spawn
-            # attempt and then ran here anyway.
             try:
-                prepared_stage = await heartbeat_while(
-                    self._runtime.stages.preparation.parse_and_normalize(
-                        planned.request,
-                        capture_stage,
-                    ),
+                prepared_stage = await self._run_stage(
+                    request.document,
+                    self._runtime.stages.preparation.parse_and_normalize,
+                    to_capture_stage(request),
                     detail=heartbeat_detail,
                 )
             except ParserUnavailableError as error:
@@ -195,13 +257,12 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
         self,
         request: PreparedDocument,
     ) -> PreparedDocument:
+        """Sync the document's content units."""
         with self._observability.boundary("SyncContentUnits"):
-            planned = await self._documents.get(request.document)
-            await heartbeat_while(
-                self._runtime.stages.preparation.sync_content_units(
-                    planned.request,
-                    to_prepared_stage(request),
-                ),
+            await self._run_stage(
+                request.document,
+                self._runtime.stages.preparation.sync_content_units,
+                to_prepared_stage(request),
                 detail="sync-content-units",
             )
             return request
@@ -211,13 +272,12 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
         self,
         request: PreparedDocument,
     ) -> PreparedDocument:
+        """Persist the canonical document."""
         with self._observability.boundary("PersistCanonical"):
-            planned = await self._documents.get(request.document)
-            await heartbeat_while(
-                self._runtime.stages.preparation.persist_canonical(
-                    planned.request,
-                    to_prepared_stage(request),
-                ),
+            await self._run_stage(
+                request.document,
+                self._runtime.stages.preparation.persist_canonical,
+                to_prepared_stage(request),
                 detail="persist-canonical",
             )
             return request
@@ -227,13 +287,12 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
         self,
         request: PreparedDocument,
     ) -> PreparedDocument:
+        """Chunk the document and validate the chunks."""
         with self._observability.boundary("ChunkAndValidate"):
-            planned = await self._documents.get(request.document)
-            statistics = await heartbeat_while(
-                self._runtime.stages.preparation.chunk_and_validate(
-                    planned.request,
-                    to_prepared_stage(request),
-                ),
+            statistics = await self._run_stage(
+                request.document,
+                self._runtime.stages.preparation.chunk_and_validate,
+                to_prepared_stage(request),
                 detail="chunk-and-validate",
             )
             self._observability.record_chunking(statistics)
@@ -244,13 +303,12 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
         self,
         request: PreparedDocument,
     ) -> PreparedDocument:
+        """Encode the document's chunks."""
         with self._observability.boundary("EncodeChunks"):
-            planned = await self._documents.get(request.document)
-            await heartbeat_while(
-                self._runtime.stages.preparation.encode_chunks(
-                    planned.request,
-                    to_prepared_stage(request),
-                ),
+            await self._run_stage(
+                request.document,
+                self._runtime.stages.preparation.encode_chunks,
+                to_prepared_stage(request),
                 detail="encode-chunks",
             )
             return request
@@ -260,13 +318,12 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
         self,
         request: PreparedDocument,
     ) -> PreparedDocument:
+        """Build the document's relations."""
         with self._observability.boundary("BuildRelations"):
-            planned = await self._documents.get(request.document)
-            await heartbeat_while(
-                self._runtime.stages.projections.build_relations(
-                    planned.request,
-                    to_prepared_stage(request),
-                ),
+            await self._run_stage(
+                request.document,
+                self._runtime.stages.projections.build_relations,
+                to_prepared_stage(request),
                 detail="build-relations",
             )
             return request
@@ -276,13 +333,12 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
         self,
         request: PreparedDocument,
     ) -> PreparedDocument:
+        """Build the document's projections."""
         with self._observability.boundary("BuildProjections"):
-            planned = await self._documents.get(request.document)
-            await heartbeat_while(
-                self._runtime.stages.projections.build_projections(
-                    planned.request,
-                    to_prepared_stage(request),
-                ),
+            await self._run_stage(
+                request.document,
+                self._runtime.stages.projections.build_projections,
+                to_prepared_stage(request),
                 detail="build-projections",
             )
             return request
@@ -292,13 +348,12 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
         self,
         request: PreparedDocument,
     ) -> PreparedDocument:
+        """Write the document's vector projection."""
         with self._observability.boundary("WriteVectorProjection"):
-            planned = await self._documents.get(request.document)
-            await heartbeat_while(
-                self._runtime.stages.projections.write_vector_projection(
-                    planned.request,
-                    to_prepared_stage(request),
-                ),
+            await self._run_stage(
+                request.document,
+                self._runtime.stages.projections.write_vector_projection,
+                to_prepared_stage(request),
                 detail="write-vector-projection",
             )
             return request
@@ -308,13 +363,12 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
         self,
         request: PreparedDocument,
     ) -> PreparedDocument:
+        """Write the document's graph projection."""
         with self._observability.boundary("WriteGraphProjection"):
-            planned = await self._documents.get(request.document)
-            await heartbeat_while(
-                self._runtime.stages.projections.write_graph_projection(
-                    planned.request,
-                    to_prepared_stage(request),
-                ),
+            await self._run_stage(
+                request.document,
+                self._runtime.stages.projections.write_graph_projection,
+                to_prepared_stage(request),
                 detail="write-graph-projection",
             )
             return request
@@ -324,13 +378,12 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
         self,
         request: PreparedDocument,
     ) -> PreparedDocument:
+        """Verify the document's projections."""
         with self._observability.boundary("VerifyProjections"):
-            planned = await self._documents.get(request.document)
-            await heartbeat_while(
-                self._runtime.stages.projections.verify_projections(
-                    planned.request,
-                    to_prepared_stage(request),
-                ),
+            await self._run_stage(
+                request.document,
+                self._runtime.stages.projections.verify_projections,
+                to_prepared_stage(request),
                 detail="verify-projections",
             )
             return request
@@ -340,6 +393,7 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
         self,
         request: PreparedDocument,
     ) -> DocumentIngestionOutcome:
+        """Publish the document version."""
         with self._observability.boundary("PublishVersion"):
             planned = await self._documents.get(request.document)
             outcome = await self._runtime.stages.projections.publish_version(
@@ -360,6 +414,7 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
         self,
         request: DocumentFailureInput,
     ) -> None:
+        """Record the document's failure."""
         with self._observability.boundary("RecordDocumentFailure"):
             planned = await self._documents.get(request.document)
             if request.prepared is not None:

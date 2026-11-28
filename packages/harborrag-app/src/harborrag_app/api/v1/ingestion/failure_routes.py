@@ -1,28 +1,27 @@
-"""Failure inbox under ``/v1/admin/failures``.
-
-Handles:
-- ``GET`` (editor): page the failed documents with per-category counts
-- ``POST /retry`` (editor): retry failures by ID or by filter, one run per root run
-"""
+"""Failure inbox under ``/v1/admin/failures``."""
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 
-from harborrag_app.api.auth.tenancy import TenantDependency
+from harborrag_app.api.auth.access import require_role
 from harborrag_app.api.capacity_dependency import require_api_capacity
+from harborrag_app.api.dependencies import OperationsDependency, ScopeDependency
 from harborrag_app.api.errors import documented_error_responses
-from harborrag_app.api.v1.admin.dependencies import Editor
-
-from .dependencies import IngestionServiceDependency
-from .schemas import FailurePage, FailureQuery, FailureRetryAccepted, FailureRetryRequest
+from harborrag_app.operations.contract import OPERATIONS, route_kwargs
+from harborrag_app.operations.schemas.ingestions import (
+    FailurePage,
+    FailureQuery,
+    FailureRetryAccepted,
+    FailureRetryRequest,
+)
 
 router = APIRouter(
     prefix="/admin/failures",
     tags=["Failures"],
-    dependencies=[Depends(require_api_capacity)],
+    dependencies=[Depends(require_api_capacity, scope="function")],
 )
 
 _ERROR_RESPONSES = documented_error_responses(
@@ -35,46 +34,28 @@ _ERROR_RESPONSES = documented_error_responses(
 
 
 @router.get(
-    "", response_model=FailurePage, response_model_exclude_unset=True, responses=_ERROR_RESPONSES
+    "",
+    responses=_ERROR_RESPONSES,
+    **route_kwargs("list_failures"),
+    dependencies=[Depends(require_role(OPERATIONS["list_failures"].role))],
 )
 async def list_failures(
-    service: IngestionServiceDependency,
-    tenant: TenantDependency,
-    _principal: Editor,
+    operations: OperationsDependency,
+    scope: ScopeDependency,
     query: Annotated[FailureQuery, Query()],
-) -> dict[str, Any]:
+) -> FailurePage:
     """Newest-first page of the tenant's failed documents."""
-    return await service.failure_inbox.page(
-        tenant_id=tenant,
-        project_id=query.project_id,
-        connection_ref=query.connection_ref,
-        stage=query.stage,
-        error_category=query.error_category,
-        resolved=query.resolved,
-        q=query.q,
-        cursor=query.cursor,
-        limit=query.limit,
-        include_total=query.include_total,
-    )
+    return await operations.list_failures(scope, query)
 
 
 @router.post(
     "/retry",
-    response_model=FailureRetryAccepted,
-    status_code=202,
     responses=_ERROR_RESPONSES,
+    **route_kwargs("retry_failures"),
+    dependencies=[Depends(require_role(OPERATIONS["retry_failures"].role))],
 )
 async def retry_failures(
-    service: IngestionServiceDependency,
-    tenant: TenantDependency,
-    principal: Editor,
-    body: FailureRetryRequest,
-) -> dict[str, Any]:
+    operations: OperationsDependency, scope: ScopeDependency, body: FailureRetryRequest
+) -> FailureRetryAccepted:
     """Retry unresolved, retryable failures; answers the new runs, 409 when nothing matches."""
-    return await service.failure_inbox.retry(
-        tenant_id=tenant,
-        ids=body.ids,
-        filter=body.filter.model_dump(exclude_none=True) if body.filter is not None else None,
-        actor=principal.subject,
-        actor_type=principal.kind,
-    )
+    return await operations.retry_failures(scope, body)

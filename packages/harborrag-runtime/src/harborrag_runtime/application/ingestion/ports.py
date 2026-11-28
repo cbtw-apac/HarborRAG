@@ -1,0 +1,174 @@
+"""Ports required by the ingestion application service."""
+
+from __future__ import annotations
+
+from collections.abc import Awaitable, Callable, Mapping, Sequence
+from datetime import datetime
+from typing import Protocol
+
+from harborrag_core.contracts.events import HarborEvent
+from harborrag_core.ingestion import (
+    ActiveDocumentVersion,
+    FailurePage,
+    IngestionTask,
+    IngestionTaskState,
+    StoredFailure,
+    TaskDocumentPage,
+    TaskPage,
+    TaskRegistration,
+)
+from harborrag_core.ingestion.run_contracts import PreparedSourceSubmission, SourceSubmission
+from harborrag_runtime.config.settings import RuntimeSettings
+from harborrag_runtime.ingestion_contracts import IngestionGateway
+
+type ClientProvider = Callable[[], Awaitable[IngestionGateway]]
+type TaskStoreProvider = Callable[[], Awaitable["PublicTaskStore"]]
+type SourceInputBuilder = Callable[
+    [RuntimeSettings, SourceSubmission], Awaitable[PreparedSourceSubmission]
+]
+type TaskIdFactory = Callable[[], str]
+
+
+class PublicTaskStore(Protocol):
+    """Durable ingestion task persistence that the public ingestion service reads and writes.
+
+    Implemented by runtime's task registry over the control-plane repositories.
+    """
+
+    async def register(
+        self,
+        source: PreparedSourceSubmission,
+        *,
+        idempotency_key: str | None = None,
+        request_hash: str | None = None,
+        actor: str | None = None,
+        actor_type: str | None = None,
+    ) -> TaskRegistration:
+        """Persist a prepared submission as a pending task; a repeated key replays its task."""
+
+    async def register_retry(
+        self,
+        *,
+        retry_task_id: str,
+        original: IngestionTask,
+        document_ids: Sequence[str],
+        actor: str | None = None,
+        actor_type: str | None = None,
+    ) -> TaskRegistration:
+        """Persist a retry task for the failed ``document_ids`` of ``original``."""
+
+    async def get(self, task_id: str) -> IngestionTask | None:
+        """Return the task ``task_id``, or ``None`` when it does not exist."""
+
+    async def close_abandoned(
+        self, task_id: str, state: IngestionTaskState, *, reason: str
+    ) -> None:
+        """End a run whose workflow closed without recording it, moving it to ``state``."""
+
+    async def pending_submissions(self, *, limit: int = 100) -> tuple[IngestionTask, ...]:
+        """Return up to ``limit`` tasks whose workflow start was never confirmed."""
+
+    async def claim_submission(self, task_id: str) -> str | None:
+        """Claim a pending task for a start attempt; ``None`` when owned or already started."""
+
+    async def release_submission_claim(self, task_id: str, token: str) -> bool:
+        """Release a claim taken by ``claim_submission``; whether the token still held it."""
+
+    async def list_tasks(  # noqa: PLR0913 - the listing's filters plus keyset position
+        self,
+        *,
+        tenant_ids: frozenset[str] | None = None,
+        statuses: Sequence[str] | None = None,
+        before_submitted_at: datetime | None = None,
+        before_task_id: str | None = None,
+        scope_connection_ids: frozenset[str] | None = None,
+        created_after: datetime | None = None,
+        limit: int = 50,
+    ) -> TaskPage:
+        """Return one keyset page of tasks, newest submission first, narrowed by the filters."""
+
+    async def list_active(
+        self,
+        *,
+        after_submitted_at: datetime | None = None,
+        after_task_id: str | None = None,
+        limit: int = 500,
+    ) -> tuple[IngestionTask, ...]:
+        """Return one keyset page of tasks that have not reached a terminal state."""
+
+    async def append_task_event(self, task_id: str, event: HarborEvent) -> HarborEvent:
+        """Append ``event`` to the task's event log and return it with its sequence number."""
+
+    async def append_task_event_once(self, task_id: str, event: HarborEvent) -> HarborEvent | None:
+        """Append ``event`` unless the task already stored one of that name; ``None`` if it had."""
+
+    async def list_task_events(
+        self,
+        task_id: str,
+        *,
+        after_seq: int | None = None,
+        limit: int = 500,
+    ) -> list[HarborEvent]:
+        """Return the task's events after ``after_seq``, oldest first, at most ``limit``."""
+
+    async def update_summary(
+        self,
+        task_id: str,
+        values: Mapping[str, object],
+    ) -> None:
+        """Merge ``values`` into the task's summary."""
+
+    async def progress(self, task_id: str) -> dict[str, int]:
+        """Return the task's document counts by result status."""
+
+    async def progress_for_tasks(
+        self,
+        task_ids: Sequence[str],
+    ) -> dict[str, dict[str, int]]:
+        """Return the document counts by result status for each of ``task_ids``."""
+
+    async def document_results_page(
+        self,
+        task_id: str,
+        *,
+        statuses: Sequence[str] | None = None,
+        after_updated_at: datetime | None = None,
+        after_document_id: str | None = None,
+        limit: int = 50,
+    ) -> TaskDocumentPage:
+        """Return one keyset page of the task's document results, optionally by status."""
+
+    async def failure_page(  # noqa: PLR0913 - query filters are keyword-only
+        self,
+        *,
+        tenant_id: str,
+        source_keys: frozenset[str] | None,
+        error_category: str | None,
+        internal_stages: frozenset[str] | None,
+        resolved: bool,
+        q: str | None,
+        before: tuple[datetime, str, str] | None,
+        limit: int,
+        include_total: bool,
+        known_stages: frozenset[str] | None = None,
+    ) -> FailurePage:
+        """Return one keyset page of a tenant's failed documents with counts per error category."""
+
+    async def failures_for_retry(  # noqa: PLR0913 - query filters are keyword-only
+        self,
+        *,
+        tenant_id: str,
+        keys: Sequence[tuple[str, str]] | None,
+        source_keys: frozenset[str] | None,
+        error_category: str | None,
+        internal_stages: frozenset[str] | None,
+        limit: int = 1000,
+        known_stages: frozenset[str] | None = None,
+    ) -> tuple[StoredFailure, ...]:
+        """Return the tenant's unresolved failures selected by ``keys`` or by the filters."""
+
+    async def active_versions(
+        self,
+        document_ids: Sequence[str],
+    ) -> dict[str, ActiveDocumentVersion]:
+        """Return the active document version of each of ``document_ids`` that has one."""

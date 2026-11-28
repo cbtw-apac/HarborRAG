@@ -1,14 +1,13 @@
 """SQLAlchemy ``ConnectionRepositoryPort`` over the ``sources`` table.
 
-Handles:
-- lookups by public identity, ``source_key`` and internal id
-- the attention-first keyset listing shared with the in-memory fake
-- compare-and-swap writes that advance ``version`` exactly once per overwrite
-- immutable connection revisions keyed by content fingerprint
+Writes are compare-and-swap, advancing ``version`` exactly once per overwrite. The
+attention-first listing is shared with the in-memory fake. A listing skips a row that
+fails connection validation and logs its ID, so one bad row cannot hide the others.
 """
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -25,7 +24,7 @@ from harborrag_core.domain.connection import (
     ConnectionStatus,
 )
 from harborrag_core.domain.connection_paging import (
-    connection_sort_key,
+    attention_rank,
     decode_connection_cursor,
     encode_connection_cursor,
 )
@@ -34,6 +33,8 @@ from harborrag_core.domain.connection_snapshot import ConnectionSnapshot
 from .mapping import connection_to_domain, utc_now
 from .schemas import ConnectionRevisionRow, SourceRow
 from .session import SessionFactory
+
+logger = logging.getLogger("harborrag.adapters.control_plane.connections")
 
 _ATTENTION_RANK = sa.case((SourceRow.status.in_(sorted(ATTENTION_STATUSES)), 0), else_=1)
 
@@ -98,10 +99,14 @@ class SqlConnectionRepository:
             statement = statement.limit(limit + 1)
         async with self.sessions() as session:
             rows = list(await session.scalars(statement))
+        page_rows = rows if limit is None else rows[:limit]
+        page = [connection for row in page_rows if (connection := _listed(row)) is not None]
         if limit is None or len(rows) <= limit:
-            return [connection_to_domain(row) for row in rows], None
-        page = [connection_to_domain(row) for row in rows[:limit]]
-        return page, encode_connection_cursor(connection_sort_key(page[-1]))
+            return page, None
+        last = page_rows[-1]
+        return page, encode_connection_cursor(
+            (attention_rank(last.status), last.project_id, last.connection_id)
+        )
 
     async def put(
         self,
@@ -218,6 +223,21 @@ class SqlConnectionRevisionRepository:
         async with self.sessions() as session:
             rows = await session.scalars(statement)
             return [ConnectionSnapshot.from_json(row.snapshot_json) for row in rows]
+
+
+def _listed(row: SourceRow) -> Connection | None:
+    """Map a listed row; log and skip one that fails connection validation."""
+    try:
+        return connection_to_domain(row)
+    except (TypeError, ValueError) as error:
+        logger.warning(
+            "Skipping a connection row that fails validation "
+            "connection_pk=%s tenant_id=%s error_type=%s",
+            row.id,
+            row.tenant_id,
+            type(error).__name__,
+        )
+        return None
 
 
 def _after(rank: int, project_id: str, connection_id: str) -> sa.ColumnElement[bool]:

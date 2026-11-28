@@ -1,3 +1,9 @@
+"""Evidence points built from canonical chunks for the vector index.
+
+Building a projection never writes anywhere. The same chunks always give the
+same points and payloads.
+"""
+
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -18,24 +24,48 @@ from harborrag_core.ingestion import (
 from ..graph.graph_models import GraphProjectionBatch
 
 EVIDENCE_INDEX = "evidence"
+_TIME_FIELDS: tuple[tuple[str, str, str], ...] = (
+    ("created_at", "created_at", "source_created_at"),
+    ("last_modified", "updated_at", "source_updated_at"),
+)
+"""Payload key, chunk metadata key and document fallback key of each time field."""
 
 
 @dataclass(frozen=True, slots=True)
 class VectorProjectionInput:
+    """One document version's chunks and vectors, ready for projection.
+
+    Attributes:
+        chunks: The version's canonical chunks, in order.
+        representations: Dense and sparse vectors for those chunks.
+        chunk_artifacts: Where the chunks are stored.
+        graph: The same version's graph batch, when built. It supplies each
+            point's graph keys.
+    """
+
     chunks: tuple[ChunkRecord, ...]
     representations: RepresentationSet
     chunk_artifacts: ChunkSetArtifacts
-    # The same version's graph batch, when built: supplies each point's graph keys.
     graph: GraphProjectionBatch | None = None
 
 
 class VectorProjectionBuilder:
-    """Build the single evidence projection without external writes."""
+    """Builder of evidence points from canonical chunks, with no external writes."""
 
     def __init__(self) -> None:
         self._identity = DocumentIdentityBuilder()
 
     def build(self, request: VectorProjectionInput) -> VectorProjectionBatch:
+        """Build the evidence points of one document version.
+
+        Route records are skipped.
+
+        Args:
+            request: The version's chunks, their vectors and chunk artifacts.
+
+        Returns:
+            One evidence point per evidence chunk, with the batch manifest.
+        """
         if not request.chunks:
             raise ValueError("vector projection requires canonical chunks")
         representations = {record.chunk_id: record for record in request.representations.records}
@@ -75,6 +105,16 @@ class VectorProjectionBuilder:
         graph_chunk_node_key: str | None = None,
         graph_source_node_key: str | None = None,
     ) -> VectorPayload:
+        """Build one evidence chunk's payload.
+
+        A chunk's own ``created_at`` and ``updated_at`` win, because a comment or
+        an attachment is written and edited on its own clock. The document's
+        times fill in otherwise, so every point can be narrowed or sorted by
+        time. The update time is stored as ``last_modified``. ``item_type``
+        holds Jira's ``issue_type`` or another source's ``item_type``, one name
+        so a filter by kind need not branch per connector. Blank text is left
+        out.
+        """
         metadata = chunk.metadata
         payload: dict[str, object] = {
             "chunk_id": str(chunk.chunk_id),
@@ -82,7 +122,7 @@ class VectorProjectionBuilder:
             "document_id": str(chunk.document_id),
             "document_version_id": str(chunk.document_version_id),
             "record_kind": chunk.record_kind.value,
-            "chunk_kind": chunk.chunk_kind.value,
+            "chunk_kind": chunk.chunk_kinds,
             "connector_type": chunk.connector_type.value,
             "document_kind": chunk.document_kind.value,
             "source_scope_id": chunk.source_scope_id,
@@ -103,6 +143,10 @@ class VectorProjectionBuilder:
             "project_id",
             "issue_key",
             "attachment_id",
+            "site_id",
+            "drive_id",
+            "item_id",
+            "web_url",
             "status",
             "status_category",
             "priority",
@@ -115,27 +159,23 @@ class VectorProjectionBuilder:
             "resolved_at",
             "due_date",
         ):
-            value = metadata.get(field)
-            if isinstance(value, (str, int)):
-                payload[field] = str(value)
-        # A chunk's own timestamps where the source has them -- a comment or an
-        # attachment is written and edited on its own clock -- and the document's
-        # otherwise, so every point can be narrowed or sorted by time.
-        for field, fallback in (
-            ("created_at", "source_created_at"),
-            ("updated_at", "source_updated_at"),
-        ):
-            value = metadata.get(field) or metadata.get(fallback)
-            if isinstance(value, (str, int)):
-                payload[field] = str(value)
-        # ``issue_type`` for Jira, ``content_type`` elsewhere: one connector-neutral
-        # name, because a caller filtering by kind should not branch per connector.
+            text = _payload_text(metadata.get(field))
+            if text is not None:
+                payload[field] = text
+        for payload_field, metadata_field, fallback in _TIME_FIELDS:
+            time = _payload_text(metadata.get(metadata_field)) or _payload_text(
+                metadata.get(fallback)
+            )
+            if time is not None:
+                payload[payload_field] = time
         parent = metadata.get("parent_source_item_id")
         if isinstance(parent, str) and parent.strip():
             payload["parent_source_item_id"] = parent
-        item_type = metadata.get("issue_type") or metadata.get("item_type")
-        if isinstance(item_type, (str, int)):
-            payload["item_type"] = str(item_type)
+        item_type = _payload_text(metadata.get("issue_type")) or _payload_text(
+            metadata.get("item_type")
+        )
+        if item_type is not None:
+            payload["item_type"] = item_type
         for field in ("labels", "components"):
             payload[field] = self._text_sequence(metadata.get(field))
         fields = metadata.get("fields")
@@ -154,14 +194,30 @@ class VectorProjectionBuilder:
 
     @staticmethod
     def _text_sequence(value: object) -> tuple[str, ...]:
+        """Return the non-blank entries of a list or tuple as stripped text.
+
+        Any other value, a string included, gives an empty tuple.
+        """
         if isinstance(value, str) or not isinstance(value, (list, tuple)):
             return ()
         return tuple(text for item in value if item is not None and (text := str(item).strip()))
 
 
-def _graph_keys(graph: GraphProjectionBatch | None) -> tuple[dict[str, str], str | None]:
-    """Chunk id -> Chunk node key, and the version's source entity node key."""
+def _payload_text(value: object) -> str | None:
+    """Return a string or integer as payload text, unstripped.
 
+    Any other type, and blank text, gives ``None``. The payload model rejects
+    blank optional text, so a blank value is left out instead of failing the
+    whole projection batch.
+    """
+    if not isinstance(value, (str, int)):
+        return None
+    text = str(value)
+    return text if text.strip() else None
+
+
+def _graph_keys(graph: GraphProjectionBatch | None) -> tuple[dict[str, str], str | None]:
+    """Return each chunk's Chunk node key and the version's source entity node key."""
     if graph is None:
         return {}, None
     chunk_nodes = {

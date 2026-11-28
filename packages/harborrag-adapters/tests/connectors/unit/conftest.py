@@ -42,12 +42,12 @@ def _pins(
     # Imported here so connector unit tests that never pin do not load engine and runtime.
     from harborrag_adapters.parsers.factory import HarborParserFactory
     from harborrag_engine.ingestion.admission import CanonicalVersionPlanner
+    from harborrag_engine.ingestion.source.models import SourceIngestionRequest
     from harborrag_engine.ingestion.title_content import with_title_as_content
     from harborrag_runtime.ingestion.document.normalization import (
         build_source_document_normalizer,
     )
     from harborrag_runtime.ingestion.source.descriptor_mapping import SourceDescriptorMapper
-    from harborrag_runtime.ingestion.source.models import SourceIngestionRequest
 
     request = SourceIngestionRequest(
         tenant_id="tenant-pin",

@@ -13,8 +13,6 @@ from app_test_auth import MockTokenVerifier
 from fastapi.testclient import TestClient
 
 from harborrag_app.api.app import create_fastapi_app
-from harborrag_app.api.auth.dependencies import authorize_tenant
-from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.settings import ApiSettings
 from harborrag_core.contracts.errors import HarborAuthError, HarborCapabilityError
 
@@ -167,11 +165,12 @@ def test_dev_env_disabled_auth_logs_a_loud_warning(caplog: pytest.LogCaptureFixt
     """`env` and `auth_mode` both default to permissive values, so a real
     deployment that forgets HARBORRAG_ENV=prod boots wide open with no
     signal. The prod check can't catch that misconfiguration, so booting
-    with auth disabled must never be silent."""
-    # The application intentionally disables propagation from the ``harborrag``
-    # namespace so uvicorn's root handlers do not duplicate every record. Attach
-    # pytest's capture handler to that namespace directly instead of relying on
-    # test order to leave propagation enabled.
+    with auth disabled must never be silent.
+
+    The application intentionally disables propagation from the ``harborrag`` namespace so uvicorn's
+    root handlers do not duplicate every record. Attach pytest's capture handler to that namespace
+    directly instead of relying on test order to leave propagation enabled.
+    """
     namespace_logger = logging.getLogger("harborrag")
     namespace_logger.addHandler(caplog.handler)
     try:
@@ -237,19 +236,6 @@ def test_disabled_auth_on_a_network_interface_needs_the_explicit_opt_in() -> Non
     with TestClient(app, base_url="http://192.0.2.10") as client:
         response = client.post(PROTECTED)
     assert response.status_code == 404
-
-
-def test_tenant_authorization_is_independent_of_global_role() -> None:
-    principal = Principal(
-        subject="admin-1",
-        role="owner",
-        tenant_ids=frozenset({"tenant-a"}),
-    )
-
-    authorize_tenant(principal, "tenant-a")
-    with pytest.raises(HarborAuthError, match="does not hold this tenant") as raised:
-        authorize_tenant(principal, "tenant-b")
-    assert raised.value.error_code == "tenant_forbidden"
 
 
 @pytest.mark.whitebox

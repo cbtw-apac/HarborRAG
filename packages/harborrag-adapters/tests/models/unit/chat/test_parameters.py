@@ -1,13 +1,24 @@
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from harborrag_adapters.models.chat import HarborChatClientConfig
+from harborrag_adapters.models.chat.configs import HarborChatProviderConfig
 from harborrag_adapters.models.chat.parameters import build_litellm_parameters
+from harborrag_adapters.models.chat.registry import ProviderRegistry
 from harborrag_core.models.chat import HarborChatMessage, HarborChatRequest
 from harborrag_core.models.errors import HarborChatInvalidRequestError
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
+
+
+def _litellm_parameters(
+    deployment: HarborChatProviderConfig, request: HarborChatRequest, **options: Any
+) -> dict[str, Any]:
+    metadata = ProviderRegistry.default().get(deployment.provider)
+    return build_litellm_parameters(deployment, request, metadata=metadata, **options)
 
 
 def test_azure_parameters_include_provider_transport_fields() -> None:
@@ -28,9 +39,7 @@ def test_azure_parameters_include_provider_transport_fields() -> None:
     )
     request = HarborChatRequest(messages=(HarborChatMessage.user("hello"),), temperature=0.2)
 
-    parameters = build_litellm_parameters(
-        config.models["azure"].deployments[0], request, timeout=30
-    )
+    parameters = _litellm_parameters(config.models["azure"].deployments[0], request, timeout=30)
 
     assert parameters["model"] == "azure/gpt-4.1-prod"
     assert parameters["api_base"] == "https://example.openai.azure.com"
@@ -60,9 +69,7 @@ def test_request_headers_override_deployment_headers() -> None:
         custom_headers={"X-Tenant": "tenant-a", "X-Source": "request"},
     )
 
-    parameters = build_litellm_parameters(
-        config.models["gateway"].deployments[0], request, timeout=30
-    )
+    parameters = _litellm_parameters(config.models["gateway"].deployments[0], request, timeout=30)
 
     assert parameters["extra_headers"] == {
         "X-Region": "east",
@@ -78,4 +85,4 @@ def test_extra_params_cannot_replace_normalized_fields(base_config) -> None:
     )
 
     with pytest.raises(HarborChatInvalidRequestError, match="timeout"):
-        build_litellm_parameters(base_config.models["primary"].deployments[0], request, timeout=30)
+        _litellm_parameters(base_config.models["primary"].deployments[0], request, timeout=30)

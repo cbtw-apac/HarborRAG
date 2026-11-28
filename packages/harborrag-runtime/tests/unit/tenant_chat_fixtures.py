@@ -146,14 +146,3 @@ def tenant_catalog(
         ),
         fingerprint=fingerprint,
     )
-
-
-__all__ = [
-    "FakeCatalog",
-    "FakeSecrets",
-    "FakeTenantChatClient",
-    "SHARED_MODEL_CONFIG",
-    "empty_catalog",
-    "tenant_catalog",
-    "tenant_deployment",
-]

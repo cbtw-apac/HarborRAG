@@ -1,3 +1,8 @@
+"""Ingestion contracts shared by connectors, the engine and the runtime.
+
+Core imports no other HarborRAG package.
+"""
+
 from .artifact_contracts import (
     ArtifactReference,
     ChunkIndexEntry,
@@ -49,6 +54,13 @@ from .lifecycle_contracts import (
     ReindexJob,
     ReindexProgress,
     TaskDocumentResult,
+)
+from .policies import (
+    CleanupPolicy,
+    DocumentVersionTransitionPolicy,
+    IngestionFailureClassifier,
+    PublicationPolicy,
+    SafeFailure,
 )
 from .projection_contracts import (
     GRAPH_SCHEMA_VERSION,
@@ -112,6 +124,11 @@ from .task_query_contracts import (
 )
 
 __all__ = [
+    "CleanupPolicy",
+    "DocumentVersionTransitionPolicy",
+    "IngestionFailureClassifier",
+    "PublicationPolicy",
+    "SafeFailure",
     "ActiveDocumentVersion",
     "ActiveSourceDocument",
     "AdmissionSnapshot",

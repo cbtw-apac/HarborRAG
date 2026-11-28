@@ -6,31 +6,44 @@ import copy
 import logging
 import os
 import sys
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as distribution_version
 from pathlib import Path
 from typing import Annotated, Any
+from uuid import uuid4
 
+import click
 import typer
+from typer.core import TyperGroup
 
+from harborrag_app import __version__ as app_version
 from harborrag_app.cli.banner import print_banner
 from harborrag_app.cli.commands import (
     auth,
     chat,
-    config,
+    connections,
     doctor,
-    ingest,
-    init,
-    retrieve,
-    source,
-    topology,
+    failures,
+    ingestions,
+    legacy,
+    me,
+    projects,
+    settings,
+    source_types,
 )
 from harborrag_app.cli.environment import load_project_environment
+from harborrag_app.cli.globals import requested_output
+from harborrag_app.cli.output import OutputFormat, print_error
 from harborrag_app.cli.project import ProjectError, activate_from_argv, activate_legacy_checkout
-from harborrag_app.cli.runner import CliState
+from harborrag_app.cli.typer_app import new_typer
+from harborrag_app.operations.errors import ErrorBody
 from harborrag_core.observability.process_logging import (
     LEVEL_ENV_VAR,
     _ManagedStreamHandler,
     configure_logging,
 )
+
+logger = logging.getLogger("harborrag.app.cli.main")
 
 _HELP_FLAGS = ("-h", "--help")
 # Global options declared by `configure()` that consume the following argv item. main()
@@ -38,22 +51,47 @@ _HELP_FLAGS = ("-h", "--help")
 # a value-taking option missing from this set would be read as the sub-command name.
 # `test_global_value_options_are_all_declared` asserts this matches `configure()`.
 _VALUE_TAKING_GLOBAL_OPTIONS = frozenset({"--project"})
-# Commands that work without a project: `init` creates one, `doctor` reports its absence.
-_PROJECT_OPTIONAL_COMMANDS = frozenset({"init", "doctor"})
+# Commands that work without a project: `doctor` reports its absence; the removed `source` and
+# `ingest` names only print their replacement.
+_PROJECT_OPTIONAL_COMMANDS = frozenset({"doctor", "source", "ingest"})
 _NO_PROJECT_MESSAGE = (
-    "harborrag: no project found. Run `harborrag init DIR` to create one, cd into a "
-    "directory containing harborrag.yaml, or pass --project DIR."
+    "no project found. Run it inside a HarborRAG repository checkout, or pass "
+    "--project DIR for a directory containing harborrag.yaml."
 )
 
 # One-shot commands render their own result envelope, so diagnostic logs stay
 # off unless an operator asks for them. Logs go to stderr either way, which
-# keeps `--json` output on stdout parseable at any level.
+# keeps `-o json` output on stdout parseable at any level.
 _DEFAULT_CLI_LOG_LEVEL = "WARNING"
 
-app = typer.Typer(
+SETUP_PANEL = "Setup and diagnostics"
+ACCESS_PANEL = "Access"
+CHAT_PANEL = "Chat"
+RESOURCES_PANEL = "Resources"
+_PANEL_ORDER = (SETUP_PANEL, ACCESS_PANEL, CHAT_PANEL, RESOURCES_PANEL)
+
+
+class _PanelOrderedGroup(TyperGroup):
+    """A command group whose help lists the panels in ``_PANEL_ORDER``.
+
+    Typer lists commands before sub-groups, which would put a panel of groups after every
+    panel of commands; this keeps each panel's commands in registration order.
+    """
+
+    def list_commands(self, ctx: click.Context) -> list[str]:
+        """Command names ordered by panel, then by registration."""
+        return sorted(super().list_commands(ctx), key=self._panel_rank)
+
+    def _panel_rank(self, name: str) -> int:
+        panel = getattr(self.commands[name], "rich_help_panel", None)
+        return _PANEL_ORDER.index(panel) if panel in _PANEL_ORDER else len(_PANEL_ORDER)
+
+
+app = new_typer(
     name="harborrag",
+    cls=_PanelOrderedGroup,
     help="[bold cyan]Operate HarborRAG ingestion workflows.[/bold cyan]",
-    epilog="[dim]Use 'harborrag ingest ACTION --help' for action-specific options.[/dim]",
+    epilog="[dim]Use 'harborrag COMMAND --help' for command-specific options.[/dim]",
     no_args_is_help=True,
     rich_markup_mode="rich",
     pretty_exceptions_enable=False,
@@ -61,9 +99,34 @@ app = typer.Typer(
 )
 
 
+def _print_version(requested: bool) -> None:
+    """Print ``harborrag VERSION`` and exit 0 when ``--version`` was given.
+
+    The version is that of the ``harborrag`` distribution, else of ``harborrag-app``, which
+    owns the console script.
+    """
+    if not requested:
+        return
+    try:
+        installed = distribution_version("harborrag")
+    except PackageNotFoundError:
+        installed = app_version
+    typer.echo(f"harborrag {installed}")
+    raise typer.Exit
+
+
 @app.callback()
 def configure(
     context: typer.Context,
+    version: Annotated[
+        bool,
+        typer.Option(
+            "--version",
+            callback=_print_version,
+            is_eager=True,
+            help="Print the version and exit.",
+        ),
+    ] = False,
     no_color: Annotated[
         bool,
         typer.Option(
@@ -82,55 +145,64 @@ def configure(
 ) -> None:
     """Configure presentation shared by all HarborRAG commands."""
 
-    del project  # consumed before Click ran; see main()
-    context.obj = CliState(no_color=no_color)
+    del context, version, project  # project is consumed before Click ran; see main()
+    if no_color:
+        os.environ["NO_COLOR"] = "1"
 
 
 app.command(
-    "init",
-    help="Scaffold a project directory: harborrag.yaml, .env, config/, docker-compose.yml.",
-    rich_help_panel="Setup",
-)(init.command)
+    "me",
+    help="Show the principal, role and tenants the CLI acts with.",
+    rich_help_panel=SETUP_PANEL,
+)(me.command)
 app.command(
     "doctor",
     help="Check project, configuration, environment, and local services.",
-    rich_help_panel="Operations",
+    rich_help_panel=SETUP_PANEL,
 )(doctor.command)
 app.add_typer(
-    ingest.app,
-    name="ingest",
-    help="Submit, observe, and control ingestion runs.",
-    rich_help_panel="Ingestion",
+    projects.app, name="projects", help="Manage projects.", rich_help_panel=RESOURCES_PANEL
 )
-app.add_typer(topology.app, name="topology", rich_help_panel="Ingestion")
 app.add_typer(
-    source.app,
-    name="source",
-    help="Manage connections (source list|show|add|update|test|sync|remove).",
-    rich_help_panel="Ingestion",
+    source_types.app,
+    name="source-types",
+    help="List source types.",
+    rich_help_panel=RESOURCES_PANEL,
+)
+app.add_typer(
+    connections.app, name="connections", help="Manage connections.", rich_help_panel=RESOURCES_PANEL
+)
+app.add_typer(
+    ingestions.app,
+    name="ingestions",
+    help="Start, follow and control ingestion runs.",
+    rich_help_panel=RESOURCES_PANEL,
+)
+app.add_typer(
+    failures.app,
+    name="failures",
+    help="List and retry failed items.",
+    rich_help_panel=RESOURCES_PANEL,
+)
+app.add_typer(legacy.SOURCE_APP, name="source", hidden=True)
+app.add_typer(legacy.INGEST_APP, name="ingest", hidden=True)
+app.add_typer(
+    settings.app,
+    name="settings",
+    help="Read, change, import and export settings.",
+    rich_help_panel=RESOURCES_PANEL,
 )
 app.add_typer(
     auth.app,
     name="auth",
     help="Manage MCP reader keys (auth keys create|list|revoke).",
-    rich_help_panel="Operations",
-)
-app.add_typer(
-    config.app,
-    name="config",
-    help="Import and export runtime settings (config import|export).",
-    rich_help_panel="Operations",
+    rich_help_panel=ACCESS_PANEL,
 )
 app.command(
     "chat",
     help="Generate a response with the configured chat model.",
-    rich_help_panel="Chat",
+    rich_help_panel=CHAT_PANEL,
 )(chat.command)
-app.command(
-    "retrieve",
-    help="Search active Qdrant vectors with FalkorDB context expansion.",
-    rich_help_panel="Retrieval",
-)(retrieve.command)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -139,35 +211,32 @@ def main(argv: list[str] | None = None) -> int:
     args = list(argv) if argv is not None else sys.argv[1:]
     # Before logging is configured and before any command builds a service: a project's
     # harborrag.yaml and .env, then the checkout's env files, must be in os.environ.
-    # `init` creates a project and resolves its DIR argument from the caller's CWD, so it
-    # is the one command that never activates an enclosing project.
+    notice: str | None = None
     if _activates_project(args):
         origin = Path.cwd()
         try:
             project = activate_from_argv(args)
-            # A checkout supplies catalogs without a marker file, so it is only consulted
-            # once marker discovery has come up empty -- and only for a command that needs
-            # catalogs, so `doctor` keeps reporting on the directory the user is in.
             checkout = (
-                activate_legacy_checkout() if project is None and _requires_project(args) else None
+                activate_legacy_checkout() if project is None and _needs_catalogs(args) else None
             )
         except ProjectError as exc:
-            print(f"harborrag: {exc}", file=sys.stderr)
+            _report_project_failure(str(exc), args)
             return 1
         # Never configure a run from a directory the user cannot see they are in.
         if project is not None:
             if project.root != origin.resolve():
-                print(f"harborrag: using project {project.root}", file=sys.stderr)
+                notice = f"harborrag: using project {project.root}"
         elif checkout is not None:
             if checkout != origin.resolve():
-                print(f"harborrag: using repository checkout {checkout}", file=sys.stderr)
+                notice = f"harborrag: using repository checkout {checkout}"
         elif _requires_project(args):
             # Fail here with guidance instead of letting a catalog loader explain a missing
             # file in Docker-image terms to someone who just ran `pip install harborrag`.
-            print(_NO_PROJECT_MESSAGE, file=sys.stderr)
+            _report_project_failure(_NO_PROJECT_MESSAGE, args)
             return 1
-    load_project_environment()
+    _load_environment(args)
     _configure_cli_logging(os.environ.get(LEVEL_ENV_VAR, _DEFAULT_CLI_LOG_LEVEL))
+    _announce(notice)
     if not args or args[0] in _HELP_FLAGS:
         # Click resolves --help and no_args_is_help before the group callback
         # runs, so the banner can't live in configure(); print it here instead.
@@ -177,6 +246,34 @@ def main(argv: list[str] | None = None) -> int:
     except SystemExit as exc:
         return _exit_code(exc.code)
     return 0
+
+
+def _report_project_failure(message: str, args: list[str]) -> None:
+    """Print why there is no usable project: plain text in table mode, else the error envelope.
+
+    The envelope carries ``500 internal_error``, the status of exit code 1, as a failed local
+    setup does.
+    """
+    output = requested_output(args, os.environ, stdout_is_tty=sys.stdout.isatty())
+    if output is OutputFormat.TABLE:
+        print(f"harborrag: {message}", file=sys.stderr)
+        return
+    print_error(ErrorBody(500, "internal_error", message), output=output, trace_id=uuid4().hex)
+
+
+def _announce(notice: str | None) -> None:
+    """Tell a person at a terminal which directory the command runs from; else log it.
+
+    Off stderr away from a terminal: a script reads stderr as the command's error report, so
+    a notice there would break parsing it. The INFO record leaves a trace in the CLI's logs.
+    ``None`` means the command runs from where the user stands, so there is nothing to say.
+    """
+    if notice is None:
+        return
+    if sys.stderr.isatty():
+        print(notice, file=sys.stderr)
+    else:
+        logger.info(notice)
 
 
 def _command_name(args: list[str]) -> str | None:
@@ -190,16 +287,38 @@ def _command_name(args: list[str]) -> str | None:
     return rest[0] if rest else None
 
 
-def _activates_project(args: list[str]) -> bool:
-    """Everything except `init` and pure help output runs inside the enclosing project."""
+def _requests_version(args: list[str]) -> bool:
+    """True when ``--version`` is among the global options before the command name."""
 
-    if any(arg in _HELP_FLAGS for arg in args):
-        return False
-    return _command_name(args) != "init"
+    rest = list(args)
+    while rest and rest[0].startswith("-"):
+        option = rest.pop(0)
+        if option == "--version":
+            return True
+        if option in _VALUE_TAKING_GLOBAL_OPTIONS and rest:
+            rest.pop(0)
+    return False
+
+
+def _activates_project(args: list[str]) -> bool:
+    """Everything except pure help and version output runs inside the enclosing project."""
+    return not any(arg in _HELP_FLAGS for arg in args) and not _requests_version(args)
+
+
+def _load_environment(args: list[str]) -> None:
+    """Load the project's env files, except for ``--version``, which needs none."""
+    if not _requests_version(args):
+        load_project_environment()
+
+
+def _needs_catalogs(args: list[str]) -> bool:
+    """True when the command reads catalogs: every project command, and ``doctor``."""
+
+    return _command_name(args) == "doctor" or _requires_project(args)
 
 
 def _requires_project(args: list[str]) -> bool:
-    """True for a real command invocation that needs catalogs (not help, init, or doctor)."""
+    """True for a real command invocation that needs catalogs (not help or doctor)."""
 
     command = _command_name(args)
     return (

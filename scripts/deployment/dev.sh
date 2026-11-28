@@ -32,6 +32,8 @@ Commands:
   worker [--build] [--device cpu|gpu]
                      Start only the ingestion worker; reuse its image by default
   api [--build]      Start only the API; reuse its image and never start a worker
+  mcp-access         Create or refresh the MCP server's read-only PostgreSQL role
+                     and MinIO user; run it after 'up' and after every upgrade
   sharepoint-login [--logout] [--device cpu|gpu]
                      Sign the worker in to SharePoint (auth_mode: device_code);
                      the token stays in the harborrag-sharepoint-tokens volume
@@ -55,7 +57,7 @@ EOF
 require_control_plane_encryption_key() {
     require_file "${DATABASE_ENV_FILE}" "database environment"
     local configured
-    if [[ -v HARBORRAG_SECRETS_ENCRYPTION_KEY ]]; then
+    if [[ -n "${HARBORRAG_SECRETS_ENCRYPTION_KEY+set}" ]]; then
         configured="${HARBORRAG_SECRETS_ENCRYPTION_KEY}"
     else
         configured="$(
@@ -66,10 +68,16 @@ require_control_plane_encryption_key() {
     configured="${configured#"${configured%%[![:space:]]*}"}"
     configured="${configured%"${configured##*[![:space:]]}"}"
     if [[ -z "${configured}" || "${configured}" == '""' || "${configured}" == "''" ]]; then
-        [[ -v HARBORRAG_SECRETS_ENCRYPTION_KEY ]] &&
+        [[ -n "${HARBORRAG_SECRETS_ENCRYPTION_KEY+set}" ]] &&
             fail "HARBORRAG_SECRETS_ENCRYPTION_KEY is set but blank in this shell; unset it or give it a value."
         generate_encryption_key
     fi
+}
+
+# GNU, BSD and BusyBox sed all accept an attached backup suffix; plain `sed -i` is GNU-only.
+replace_env_line() {
+    sed -i.bak "$1" "$2"
+    rm -f "$2.bak"
 }
 
 # A blank key with no database volume means nothing was stored with one, so generating loses nothing.
@@ -85,7 +93,7 @@ generate_encryption_key() {
         fail "OpenSSL is required to generate HARBORRAG_SECRETS_ENCRYPTION_KEY."
     key="$(openssl rand -hex 32)"
     if grep -Eq '^HARBORRAG_SECRETS_ENCRYPTION_KEY=' "${target_path}"; then
-        sed -i "s/^HARBORRAG_SECRETS_ENCRYPTION_KEY=.*/HARBORRAG_SECRETS_ENCRYPTION_KEY=${key}/" "${target_path}"
+        replace_env_line "s/^HARBORRAG_SECRETS_ENCRYPTION_KEY=.*/HARBORRAG_SECRETS_ENCRYPTION_KEY=${key}/" "${target_path}"
     else
         printf '\nHARBORRAG_SECRETS_ENCRYPTION_KEY=%s\n' "${key}" >>"${target_path}"
     fi
@@ -93,26 +101,69 @@ generate_encryption_key() {
     echo "Generated HARBORRAG_SECRETS_ENCRYPTION_KEY in ${DATABASE_ENV_FILE}; back it up: stored connection secrets cannot be read without it."
 }
 
+# The last NAME=value of an env file, read the way Compose reads it: without a carriage
+# return, a trailing comment or surrounding quotes. Empty when unset.
+env_file_value() {
+    local value
+    value="$(sed -n "s/^$2=//p" "${ROOT_DIR}/$1" | tail -n 1)"
+    value="${value%$'\r'}"
+    value="${value%%[[:space:]]#*}"
+    value="${value#[\"\']}"
+    value="${value%[\"\']}"
+    printf '%s\n' "${value}"
+}
+
+# Write a random value for NAME into an env file when it has none.
+ensure_generated_value() {
+    local file="$1" name="$2"
+    local target_path="${ROOT_DIR}/${file}"
+    local value
+
+    [[ -z "$(env_file_value "${file}" "${name}")" ]] || return 0
+    command -v openssl >/dev/null || fail "OpenSSL is required to generate ${name}."
+    value="$(openssl rand -hex 32)"
+    if grep -Eq "^${name}=" "${target_path}"; then
+        replace_env_line "s/^${name}=.*/${name}=${value}/" "${target_path}"
+    else
+        printf '\n%s=%s\n' "${name}" "${value}" >>"${target_path}"
+    fi
+    chmod 600 "${target_path}"
+    echo "Generated ${name} in ${file}."
+}
+
 # The monitoring stack reads the same value from env/.env.monitoring.
 ensure_metrics_scrape_token() {
-    local target_path="${ROOT_DIR}/${API_ENV_FILE}"
-    local token
-
     require_file "${API_ENV_FILE}" "API environment"
-    token="$(sed -n 's/^HARBORRAG_METRICS_SCRAPE_TOKEN=//p' "${target_path}" | tail -n 1)"
-    token="${token%$'\r'}"
-    if [[ -z "${token}" ]]; then
-        command -v openssl >/dev/null ||
-            fail "OpenSSL is required to generate HARBORRAG_METRICS_SCRAPE_TOKEN."
-        token="$(openssl rand -hex 32)"
-        if grep -Eq '^HARBORRAG_METRICS_SCRAPE_TOKEN=' "${target_path}"; then
-            sed -i "s/^HARBORRAG_METRICS_SCRAPE_TOKEN=.*/HARBORRAG_METRICS_SCRAPE_TOKEN=${token}/" "${target_path}"
-        else
-            printf '\nHARBORRAG_METRICS_SCRAPE_TOKEN=%s\n' "${token}" >>"${target_path}"
-        fi
-        chmod 600 "${target_path}"
-        echo "Generated HARBORRAG_METRICS_SCRAPE_TOKEN in ${API_ENV_FILE}."
-    fi
+    ensure_generated_value "${API_ENV_FILE}" HARBORRAG_METRICS_SCRAPE_TOKEN
+}
+
+# The MCP server's Compose file needs both passwords for every command, even one that
+# opens no database, so bootstrap writes them before any account exists.
+ensure_mcp_store_passwords() {
+    ensure_generated_value "${DATABASE_ENV_FILE}" POSTGRES_MCP_PASSWORD
+    ensure_generated_value "${DATABASE_ENV_FILE}" MINIO_MCP_PASSWORD
+}
+
+# Create or refresh the MCP server's read-only PostgreSQL role and MinIO user with the
+# passwords in the database env file, generating blank ones first. The role is granted
+# the tables that exist now, so this runs after the migrations, as the Postgres owner.
+grant_mcp_store_access() {
+    require_file "${DATABASE_ENV_FILE}" "database environment"
+    ensure_mcp_store_passwords
+    require_data_network
+
+    echo "Granting the MCP server read-only access to PostgreSQL and MinIO..."
+    # shellcheck disable=SC2016  # expanded by the shell inside the container
+    POSTGRES_MCP_PASSWORD="$(env_file_value "${DATABASE_ENV_FILE}" POSTGRES_MCP_PASSWORD)" \
+        data_compose exec -T -e POSTGRES_MCP_PASSWORD postgres \
+        sh -c 'psql -q -v ON_ERROR_STOP=1 -U "${POSTGRES_USER}" -d "${POSTGRES_DB}"' \
+        <"${ROOT_DIR}/deploy/compose/postgres/mcp-reader-role.sql"
+    MINIO_MCP_PASSWORD="$(env_file_value "${DATABASE_ENV_FILE}" MINIO_MCP_PASSWORD)" \
+        data_compose exec -T -e MINIO_MCP_PASSWORD minio \
+        bash -c "$(<"${ROOT_DIR}/scripts/deployment/common/mcp-minio-user.sh")" \
+        <"${ROOT_DIR}/deploy/compose/minio/mcp-reader-policy.json"
+    echo "The MCP server reads as harborrag_mcp in PostgreSQL and harborrag-mcp in MinIO."
+    echo "Start or restart it to use them: scripts/deployment/mcp.sh --http"
 }
 
 ensure_environment_file() {
@@ -144,7 +195,7 @@ ensure_mcp_environment_file() {
     command -v openssl >/dev/null ||
         fail "OpenSSL is required to generate the local MCP bearer token."
     bearer_token="$(openssl rand -hex 32)"
-    sed -i "s/^HARBORRAG_MCP_BEARER_TOKEN=.*/HARBORRAG_MCP_BEARER_TOKEN=${bearer_token}/" "${target_path}"
+    replace_env_line "s/^HARBORRAG_MCP_BEARER_TOKEN=.*/HARBORRAG_MCP_BEARER_TOKEN=${bearer_token}/" "${target_path}"
     chmod 600 "${target_path}"
     echo "Generated a protected MCP bearer token in ${target}."
 }
@@ -153,6 +204,7 @@ bootstrap_environment() {
     created_environment=0
     ensure_environment_file "${DATABASE_ENV_FILE}" "env-example/.env.database.example"
     require_control_plane_encryption_key
+    ensure_mcp_store_passwords
     ensure_environment_file "${TEMPORAL_ENV_FILE}" "env-example/.env.temporal.example"
     ensure_environment_file "${CONNECTOR_ENV_FILE}" "env-example/.env.connector.example"
     ensure_environment_file "${PARSER_ENV_FILE}" "env-example/.env.parser.example"
@@ -241,7 +293,7 @@ prepare_worker_mount() {
 
 worker_replicas() {
     local replicas
-    if [[ -v HARBORRAG_TEMPORAL_WORKER_REPLICAS ]]; then
+    if [[ -n "${HARBORRAG_TEMPORAL_WORKER_REPLICAS+set}" ]]; then
         replicas="${HARBORRAG_TEMPORAL_WORKER_REPLICAS}"
     else
         replicas="$(
@@ -309,7 +361,11 @@ start_api() {
     resolve_local_source_dir
 
     api_compose config --quiet
-    mapfile -t compose_services < <(api_compose config --services)
+    local -a compose_services=()
+    local service
+    while IFS= read -r service; do
+        compose_services+=("${service}")
+    done < <(api_compose config --services)
     if [[ "${#compose_services[@]}" -ne 1 || "${compose_services[0]:-}" != "api" ]]; then
         fail "API Compose configuration must contain only the api service."
     fi
@@ -479,6 +535,10 @@ case "${command}" in
         [[ "$#" -eq 0 ]] || fail "Unknown api option: $1"
         start_api "${rebuild_image}"
         ;;
+    mcp-access)
+        [[ "$#" -eq 0 ]] || fail "mcp-access accepts no options."
+        grant_mcp_store_access
+        ;;
     sharepoint-login)
         login_args=()
         while [[ "$#" -gt 0 ]]; do
@@ -494,7 +554,7 @@ case "${command}" in
             esac
             shift
         done
-        sharepoint_login "${login_args[@]}"
+        sharepoint_login ${login_args[@]+"${login_args[@]}"}
         ;;
     -h|--help|help)
         usage

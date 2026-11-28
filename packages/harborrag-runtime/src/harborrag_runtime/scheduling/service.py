@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from typing import Protocol
 
 from harborrag_core.contracts.errors import HarborConflictError, HarborValidationError
-from harborrag_runtime.ingestion_contracts import PreparedSourceSubmission, SourceSubmission
+from harborrag_core.ingestion.run_contracts import PreparedSourceSubmission, SourceSubmission
 
 from .config import ScheduleCatalog
 from .errors import (
@@ -40,23 +40,41 @@ type SourcePreparer = Callable[[SourceSubmission], Awaitable[PreparedSourceSubmi
 class ScheduleBackend(Protocol):
     """Engine that runs schedules; the Temporal implementation uses the Schedules API."""
 
-    async def create(self, definition: ScheduleDefinition) -> None: ...
+    async def create(self, definition: ScheduleDefinition) -> None:
+        """Create the schedule."""
+        ...
 
-    async def update(self, definition: ScheduleDefinition, *, desired_paused: bool) -> None: ...
+    async def update(self, definition: ScheduleDefinition, *, desired_paused: bool) -> None:
+        """Update the schedule and its paused state."""
+        ...
 
-    async def describe(self, schedule_id: str) -> ScheduleView: ...
+    async def describe(self, schedule_id: str) -> ScheduleView:
+        """Return the schedule."""
+        ...
 
-    async def list_all(self) -> list[ScheduleView]: ...
+    async def list_all(self) -> list[ScheduleView]:
+        """Return every schedule."""
+        ...
 
-    async def pause(self, schedule_id: str, *, note: str | None) -> None: ...
+    async def pause(self, schedule_id: str, *, note: str | None) -> None:
+        """Pause the schedule."""
+        ...
 
-    async def unpause(self, schedule_id: str, *, note: str | None) -> None: ...
+    async def unpause(self, schedule_id: str, *, note: str | None) -> None:
+        """Resume the schedule."""
+        ...
 
-    async def trigger(self, schedule_id: str) -> None: ...
+    async def trigger(self, schedule_id: str) -> None:
+        """Run the schedule once now."""
+        ...
 
-    async def delete(self, schedule_id: str) -> None: ...
+    async def delete(self, schedule_id: str) -> None:
+        """Delete the schedule."""
+        ...
 
-    async def backfill(self, schedule_id: str, *, start_at: datetime, end_at: datetime) -> None: ...
+    async def backfill(self, schedule_id: str, *, start_at: datetime, end_at: datetime) -> None:
+        """Run the schedule for the missed window."""
+        ...
 
 
 class ScheduleService:
@@ -74,6 +92,7 @@ class ScheduleService:
         self._clock = clock
 
     async def create_schedule(self, definition: ScheduleDefinition) -> ScheduleView:
+        """Validate and create a schedule."""
         validate_definition(definition)
         await self._validate_source(definition)
         await self._backend.create(definition)
@@ -91,7 +110,6 @@ class ScheduleService:
         ``definition.paused`` (recording ``definition.note``); without it the
         live pause state and note are kept, e.g. an operator's incident pause.
         """
-
         validate_definition(definition)
         current = await self._backend.describe(definition.schedule_id)
         existing = current.definition
@@ -117,16 +135,19 @@ class ScheduleService:
         return await self._backend.describe(schedule_id)
 
     async def pause_schedule(self, schedule_id: str, *, note: str | None = None) -> None:
+        """Pause an existing schedule."""
         validate_note(note)
         await self.describe_schedule(schedule_id)
         await self._backend.pause(schedule_id, note=note)
 
     async def unpause_schedule(self, schedule_id: str, *, note: str | None = None) -> None:
+        """Resume an existing schedule."""
         validate_note(note)
         await self.describe_schedule(schedule_id)
         await self._backend.unpause(schedule_id, note=note)
 
     async def trigger_now(self, schedule_id: str) -> None:
+        """Run an existing schedule once now."""
         await self.describe_schedule(schedule_id)
         await self._backend.trigger(schedule_id)
 
@@ -136,11 +157,13 @@ class ScheduleService:
         *,
         owner: ScheduleOwner = ScheduleOwner.API,
     ) -> None:
+        """Delete an existing schedule."""
         existing = await self.describe_schedule(schedule_id)
         self._require_owner(existing.definition, owner)
         await self._backend.delete(schedule_id)
 
     async def describe_schedule(self, schedule_id: str) -> ScheduleView:
+        """Return a schedule after validating its ID."""
         validate_schedule_id(schedule_id)
         return await self._backend.describe(schedule_id)
 
@@ -149,6 +172,7 @@ class ScheduleService:
         *,
         tenant_ids: frozenset[str] | None = None,
     ) -> list[ScheduleView]:
+        """List schedules, limited to the tenants given."""
         views = await self._backend.list_all()
         if tenant_ids is not None:
             views = [view for view in views if view.definition.target.tenant_id in tenant_ids]
@@ -161,6 +185,7 @@ class ScheduleService:
         start_at: datetime,
         end_at: datetime,
     ) -> None:
+        """Run an existing schedule for the missed window."""
         validate_backfill(start_at, end_at, now=self._clock())
         await self.describe_schedule(schedule_id)
         await self._backend.backfill(schedule_id, start_at=start_at, end_at=end_at)
@@ -174,7 +199,6 @@ class ScheduleService:
         ownership conflicts are reported and skipped; backend outages propagate
         so the caller can retry the whole pass.
         """
-
         created: list[str] = []
         updated: list[str] = []
         deleted: list[str] = []
@@ -218,8 +242,10 @@ class ScheduleService:
         return report
 
     async def _sync_one(self, definition: ScheduleDefinition) -> bool:
-        """Create or update one declared schedule; return whether it was created."""
+        """Create or update one declared schedule; return whether it was created.
 
+        Exists in Temporal but is not a HarborRAG schedule.
+        """
         validate_definition(definition)
         await self._validate_source(definition)
         try:
@@ -230,7 +256,6 @@ class ScheduleService:
         try:
             current = await self._backend.describe(definition.schedule_id)
         except ScheduleNotFoundError:
-            # Exists in Temporal but is not a HarborRAG schedule.
             current = None
         if current is None or current.definition.owner is not ScheduleOwner.CONFIG:
             raise ScheduleOwnershipError(
@@ -244,13 +269,14 @@ class ScheduleService:
         return False
 
     async def _validate_source(self, definition: ScheduleDefinition) -> None:
-        """Check the target resolves now; each firing prepares its own input."""
+        """Check the target resolves now; each firing prepares its own input.
 
+        Placeholder; each scheduled run derives its own task ID.
+        """
         target: SourceScheduleTarget = definition.target
         try:
             await self._prepare_source(
                 SourceSubmission(
-                    # Placeholder; each scheduled run derives its own task ID.
                     task_id=definition.schedule_id,
                     tenant_id=target.tenant_id,
                     connector_name=target.connection_id,

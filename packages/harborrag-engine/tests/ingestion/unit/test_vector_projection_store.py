@@ -12,36 +12,45 @@ from harborrag_engine.ingestion import (
     VectorProjectionStore,
 )
 
+pytestmark = pytest.mark.unit
+
 
 class InMemoryVectorRepository:
+    """Vector repository that keeps each collection's points in a dictionary."""
+
     def __init__(self) -> None:
         self.specs = []
         self.points: dict[str, dict[str, VectorIndexRecord]] = {}
         self.upsert_calls = 0
 
     async def ensure_index(self, spec, *, context) -> None:
+        """Record the requested index and create its empty collection."""
         del context
         self.specs.append(spec)
         self.points.setdefault(spec.index_name, {})
 
     async def upsert_records(self, collection, points, *, context) -> None:
+        """Store points by ID, replacing any with the same ID."""
         del context
         self.upsert_calls += 1
         target = self.points.setdefault(collection, {})
         target.update((item.id, item) for item in points)
 
     async def get_records(self, collection, ids, *, context):
+        """Return the stored points among ``ids``."""
         del context
         stored = self.points.get(collection, {})
         return [stored[point_id] for point_id in ids if point_id in stored]
 
     async def delete_records(self, collection, ids, *, context) -> None:
+        """Remove the points among ``ids``."""
         del context
         stored = self.points.get(collection, {})
         for point_id in ids:
             stored.pop(point_id, None)
 
     async def scan_records(self, collection, *, limit, cursor, filters=None, context):
+        """Page through stored points, narrowed to the filtered versions."""
         del context
         records = list(self.points.get(collection, {}).values())
         if filters is not None:
@@ -73,7 +82,7 @@ def point(
             document_id="document-1",
             document_version_id="version-1",
             record_kind=RecordKind.EVIDENCE,
-            chunk_kind=ChunkKind.TEXT,
+            chunk_kind=(ChunkKind.TEXT,),
             connector_type=ConnectorType.LOCAL,
             source_scope_id="scope-1",
             content="The timeout is 30 seconds.",

@@ -24,12 +24,33 @@ class GraphNodeSelectorKind(StrEnum):
     EXACT_TITLE = "exact_title"
 
 
+class GraphDocumentAccess(StrEnum):
+    """How a graph access scope admits records owned by a document version.
+
+    ``LISTED`` admits only the documents in ``document_ids``. ``BY_SOURCE_SCOPE``
+    stands in when the readable documents are too many to list: it admits every
+    document of the readable source scopes, a superset the caller must narrow to
+    the readable documents after the read.
+    """
+
+    LISTED = "listed"
+    BY_SOURCE_SCOPE = "by_source_scope"
+
+
 class GraphAccessScope(StrictModel):
-    """Canonical resource allowlists applied by the graph store before selection."""
+    """Canonical resource allowlists applied by the graph store before selection.
+
+    Attributes:
+        document_ids: Readable documents; empty under ``BY_SOURCE_SCOPE``.
+        source_scope_ids: Readable source scopes.
+        tenant_shared: The whole tenant is readable and no allowlist applies.
+        document_access: How records owned by a document version are admitted.
+    """
 
     document_ids: tuple[str, ...] = Field(default=(), max_length=10_000)
     source_scope_ids: tuple[str, ...] = Field(default=(), max_length=10_000)
     tenant_shared: bool = False
+    document_access: GraphDocumentAccess = GraphDocumentAccess.LISTED
 
     @model_validator(mode="after")
     def validate_unique_ids(self) -> Self:
@@ -37,6 +58,8 @@ class GraphAccessScope(StrictModel):
             raise ValueError("graph access document_ids must be unique")
         if len(set(self.source_scope_ids)) != len(self.source_scope_ids):
             raise ValueError("graph access source_scope_ids must be unique")
+        if self.document_access == GraphDocumentAccess.BY_SOURCE_SCOPE and self.document_ids:
+            raise ValueError("graph access by source scope must not list document_ids")
         return self
 
     @property

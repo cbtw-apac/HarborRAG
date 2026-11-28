@@ -1,9 +1,10 @@
 """Storage contracts for MCP reader keys.
 
 ``ApiKeyReader`` is all the MCP server ever receives: one indexed lookup per
-request, no caching, so a key created or revoked by the CLI takes effect on the
-next call. ``ApiKeyManager`` is the CLI's write side; each method is one
-transaction that also records its own audit entry.
+request. Only a key ID with no stored row is remembered, for up to 5 seconds, so
+a revoked key is refused on the next call and a new key works within 5 seconds.
+``ApiKeyManager`` is the CLI's write side; each method is one transaction that
+also records its own audit entry.
 """
 
 from __future__ import annotations
@@ -51,6 +52,3 @@ class ApiKeyManager(Protocol):
         ...
 
     async def list_for_tenant(self, tenant_id: str) -> list[ApiKeyRecord]: ...
-
-
-__all__ = ["ApiKeyManager", "ApiKeyReader", "ApiKeyRecord", "AuthStoreUnavailable"]

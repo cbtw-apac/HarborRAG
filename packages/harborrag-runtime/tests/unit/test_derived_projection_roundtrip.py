@@ -24,8 +24,8 @@ from harborrag_core.topology.permissions import (
     DerivedArtifactRecord,
     PermissionDependency,
 )
+from harborrag_engine.topology.derived_cleanup import RetiredDerivedProjectionCleaner
 from harborrag_engine.topology.vector_values import canonical_dense_vector
-from harborrag_runtime.topology.derived_cleanup import RetiredDerivedProjectionCleaner
 from harborrag_runtime.topology.derived_coverage import validate_derived_coverage
 from harborrag_runtime.topology.derived_projection import (
     DerivedVectorProjection,

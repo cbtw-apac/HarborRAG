@@ -1,10 +1,7 @@
 """Immutable, secret-free snapshot of a connection as one ingestion run uses it.
 
-Handles:
-- the content a connector is built from: type, source key, credentials with
-  secrets as references, config and merged tuning
-- the content fingerprint every activity of the run checks against
-- the stored secret references the snapshot depends on
+Credentials hold secret references, never values. Every activity of the run checks the
+snapshot's content fingerprint.
 """
 
 from __future__ import annotations

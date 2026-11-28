@@ -167,6 +167,11 @@ class SqlConversationMemoryRepository:
             tenant_id=tenant_id, user_id=user_id, key=key, request_hash=request_hash
         )
 
+    async def erase_completions(self, *, tenant_id: str, user_id: str) -> int:
+        return await SqlCompletionRequestStore(self.sessions).erase_completions(
+            tenant_id=tenant_id, user_id=user_id
+        )
+
     async def create(
         self,
         identity: ConversationIdentity,
@@ -455,6 +460,3 @@ class SqlConversationMemoryRepository:
 
     async def clear(self, identity: ConversationIdentity) -> None:
         await self.clear_messages(identity)
-
-
-__all__ = ["SqlConversationMemoryRepository"]

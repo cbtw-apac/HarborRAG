@@ -13,7 +13,7 @@ from harborrag_adapters.connectors.github import filters as github_filters
 from harborrag_adapters.connectors.jira import JiraProjectConfig
 from harborrag_adapters.connectors.limits import DEFAULT_MAX_DOCUMENT_BYTES
 from harborrag_adapters.connectors.local import LocalFileConfig
-from harborrag_adapters.connectors.schemas import ConnectorQuery
+from harborrag_core.ingestion.connector_contracts import ConnectorQuery
 
 pytestmark = [pytest.mark.unit, pytest.mark.graybox]
 

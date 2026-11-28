@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Any, TypeGuard
+from typing import TYPE_CHECKING, TypeGuard
 
 from harborrag_adapters._shared.text.markdown_tables import (
     TableCell,
@@ -48,6 +48,7 @@ _BLOCK_TAGS = frozenset(
     }
 )
 _SKIP_TAGS = frozenset({"button", "head", "noscript", "script", "style"})
+_DATA_URI_SCHEME = "data:"
 
 
 def html_to_markdown(
@@ -83,7 +84,7 @@ def html_to_markdown_with_engine(
     return _compact_markdown(_render_fragment(soup)), MARKDOWN_ENGINE
 
 
-def _is_tag(node: Any) -> TypeGuard[Tag]:
+def _is_tag(node: object) -> TypeGuard[Tag]:
     """Report whether a parsed node is an element rather than a string.
 
     Beautiful Soup's `NavigableString` subclasses `str` and carries no tag
@@ -103,7 +104,11 @@ def _render_fragment(root: BeautifulSoup | Tag) -> str:
     """
     if _is_tag(root) and root.name in _BLOCK_TAGS:
         return _render_block(root)
+    return _render_children(root)
 
+
+def _render_children(root: BeautifulSoup | Tag) -> str:
+    """Render the children of one element as blocks separated by a blank line."""
     blocks: list[str] = []
     inline_run: list[str] = []
 
@@ -146,8 +151,8 @@ def _render_block(node: Tag) -> str:
         code = node.get_text("\n", strip=False).strip("\n")
         return f"```text\n{code}\n```" if code else ""
     if name == "blockquote":
-        text = _normalize_inline(_render_inline(node))
-        return "\n".join(f"> {line}" for line in text.splitlines())
+        quoted = _render_children(node)
+        return "\n".join(f"> {line}".rstrip() for line in quoted.splitlines())
     if name == "hr":
         return "---"
     return _normalize_inline(_render_inline(node))
@@ -190,7 +195,7 @@ def _render_list_item(node: Tag, *, depth: int) -> tuple[str, list[str]]:
             rendered = _render_list(child, depth=depth + 1)
             if rendered:
                 nested.extend(rendered.splitlines())
-        elif child.name in {"div", "table"} and child.find(_BLOCK_TAGS):
+        elif child.name == "table" or (child.name == "div" and child.find(_BLOCK_TAGS)):
             rendered = _render_fragment(child)
             if rendered:
                 nested.extend(("  " * (depth + 1)) + line for line in rendered.splitlines())
@@ -256,7 +261,7 @@ def _render_table_cell(cell: Tag) -> str:
     return "\n".join(parts)
 
 
-def _render_inline(node: Any) -> str:
+def _render_inline(node: object) -> str:
     if isinstance(node, str):
         return re.sub(r"\s+", " ", str(node).replace("\xa0", " "))
     if not _is_tag(node):
@@ -269,6 +274,11 @@ def _render_inline(node: Any) -> str:
 
 
 def _render_inline_tag(node: Tag, content: str, children: str) -> str:
+    """Render one inline element as Markdown around its rendered children.
+
+    An image embedded as a ``data:`` URI keeps only its alt text, so its encoded
+    bytes never reach chunk text or embeddings.
+    """
     if node.name in {"strong", "b"} and content:
         return f"**{content}**"
     if node.name in {"em", "i"} and content:
@@ -281,7 +291,9 @@ def _render_inline_tag(node: Tag, content: str, children: str) -> str:
     if node.name == "img":
         alt = str(node.get("alt") or "image").strip()
         src = str(node.get("src") or "").strip()
-        return f"![{alt}]({src})" if src else alt
+        if not src or src[: len(_DATA_URI_SCHEME)].casefold() == _DATA_URI_SCHEME:
+            return alt
+        return f"![{alt}]({src})"
     if node.name == "br":
         return "\n"
     if node.name in {"div", "li", "p"}:

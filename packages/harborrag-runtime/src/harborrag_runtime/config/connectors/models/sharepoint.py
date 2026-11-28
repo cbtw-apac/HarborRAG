@@ -9,14 +9,15 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from functools import cache
-from typing import Any, Self
+from typing import Annotated, Any, Self
 
-from pydantic import ConfigDict, Field, model_validator
+from pydantic import AfterValidator, ConfigDict, Field, model_validator
 
 from harborrag_adapters.connectors.file_filters import normalize_extension
+from harborrag_adapters.connectors.sharepoint.delegated import require_plain_id
 
 from .common import PagedHttpTuning
-from .fields import HttpsUrl, Secret, StrictModel, widget
+from .fields import HttpsUrl, PathText, Secret, StrictModel, widget
 from .spec import AuthMethodSpec, Capabilities, Setup, SourceTypeSpec
 
 _GRAPH_HELP = (
@@ -29,10 +30,19 @@ _TENANT_EXAMPLE = "11111111-2222-3333-4444-555555555555"
 _CLIENT_EXAMPLE = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
 
 
+def _plain_tenant_id(value: str) -> str:
+    """Return ``value`` when it is a GUID or a domain-like name, so it cannot change a URL path."""
+    require_plain_id("tenant_id", value)
+    return value
+
+
+_TenantId = Annotated[str, AfterValidator(_plain_tenant_id)]
+
+
 class SharePointAppCredentials(StrictModel):
     """App-only access with a client secret."""
 
-    tenant_id: str = Field(min_length=1, description=_TENANT_HELP, examples=[_TENANT_EXAMPLE])
+    tenant_id: _TenantId = Field(min_length=1, description=_TENANT_HELP, examples=[_TENANT_EXAMPLE])
     client_id: str = Field(min_length=1, description=_CLIENT_HELP, examples=[_CLIENT_EXAMPLE])
     client_secret: Secret = Field(
         description="Client secret of the app registration", examples=["Q~8xr…"]
@@ -43,7 +53,7 @@ class SharePointAppCredentials(StrictModel):
 class SharePointDelegatedCredentials(StrictModel):
     """Delegated access as the user who signed in with the device-code flow."""
 
-    tenant_id: str = Field(min_length=1, description=_TENANT_HELP, examples=[_TENANT_EXAMPLE])
+    tenant_id: _TenantId = Field(min_length=1, description=_TENANT_HELP, examples=[_TENANT_EXAMPLE])
     client_id: str = Field(min_length=1, description=_CLIENT_HELP, examples=[_CLIENT_EXAMPLE])
     token_cache_path: str | None = Field(
         default=None,
@@ -94,7 +104,7 @@ class SharePointConfig(StrictModel):
     drive_name: str | None = Field(
         default=None, description="Document library name, instead of drive_id"
     )
-    root_path: str | None = Field(
+    root_path: PathText | None = Field(
         default=None, description="Folder inside the library; not with item_ids"
     )
     item_ids: list[str] | None = Field(
@@ -154,7 +164,7 @@ def _parseable_extensions() -> frozenset[str]:
 _IDENTITY_ENVIRONMENT = {
     "tenant_id": ("MICROSOFT_TENANT_ID",),
     "client_id": ("MICROSOFT_CLIENT_ID",),
-    "harborrag_tenant_id": ("HARBORRAG_INGESTION_TENANT_ID",),
+    "harborrag_tenant_id": ("HARBORRAG_TENANT_ID",),
 }
 _APP_ENVIRONMENT = {
     "access_token": ("MICROSOFT_GRAPH_TOKEN",),

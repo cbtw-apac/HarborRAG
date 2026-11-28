@@ -66,6 +66,21 @@ async def test_reader_invocation_uses_shared_execution_audit(
     assert application._service is None
 
 
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_reader_application_offers_a_tenant_directory_only_over_postgres() -> None:
+    over_postgres = open_reader_application(
+        RuntimeSettings(control_db_url="postgresql+asyncpg://reader:example@127.0.0.1:5432/harbor")
+    )
+    over_sqlite = open_reader_application(RuntimeSettings())
+    try:
+        assert over_postgres.tenant_directory is not None
+        assert over_sqlite.tenant_directory is None
+    finally:
+        await over_postgres.aclose()
+        await over_sqlite.aclose()
+
+
 def test_mcp_factory_uses_reader_application_catalog(monkeypatch: pytest.MonkeyPatch) -> None:
     application = open_reader_application(RuntimeSettings())
 

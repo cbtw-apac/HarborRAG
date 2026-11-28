@@ -1,11 +1,18 @@
+"""HTML and XHTML engine that renders documents as Markdown.
+
+Tables stay Markdown tables, so a page's rows and columns reach chunk context
+instead of one cell per line. Without Beautiful Soup the engine falls back to
+plain visible text and reports that engine.
+"""
+
 from __future__ import annotations
 
 from typing import ClassVar
 
+from harborrag_adapters._shared.text.html_markdown import html_to_markdown_with_engine
 from harborrag_adapters._shared.text.normalization import (
     _FallbackHTMLTextParser,
     compact_text,
-    html_to_text_with_engine,
 )
 from harborrag_adapters.parsers.common.resources import (
     read_parse_input_bytes,
@@ -102,16 +109,31 @@ def _extract_links(html: str) -> list[dict[str, str | None]]:
 
 
 class HtmlMarkupEngine(HarborMarkupEngine):
-    """Extract visible text from HTML and XHTML documents."""
+    """Render HTML and XHTML documents as Markdown, keeping tables as tables.
+
+    Attributes:
+        parser_name: Parser family name used for routing.
+        parser_engine: Engine name recorded in parse metadata.
+        parser_version: Version recorded with each parse result.
+        suffixes: File suffixes this engine accepts.
+        content_types: Media types this engine accepts.
+    """
 
     parser_name: ClassVar[str] = "html"
     parser_engine: ClassVar[str] = "beautifulsoup4/html.parser"
+    parser_version: ClassVar[str | None] = "1.1.0"
     suffixes: ClassVar[frozenset[str]] = frozenset({"html", "htm", "xhtml"})
     content_types: ClassVar[frozenset[str]] = frozenset({"text/html", "application/xhtml+xml"})
 
     def parse(self, input: ParseInput) -> ParsedDocument:
-        """Strip markup and return a single paragraph element with visible content."""
+        """Render the page as Markdown in one paragraph element, with its links.
 
+        Args:
+            input: The HTML bytes, text or path to parse.
+
+        Returns:
+            The Markdown as one paragraph element, with anchor metadata.
+        """
         parse_input = self.coerce_input(input)
         parser_logger.debug(
             "Extracting HTML text from %s",
@@ -124,7 +146,7 @@ class HtmlMarkupEngine(HarborMarkupEngine):
         )
         data = guard_input_size(read_parse_input_bytes(parse_input))
         html = read_parse_input_text(ParseInput(content=data))
-        content, text_engine = html_to_text_with_engine(html)
+        content, text_engine = html_to_markdown_with_engine(html)
         links = _extract_links(html)
         elements = (
             [

@@ -1,18 +1,15 @@
-"""Classify source attachments by file name and media type."""
+"""Classify source attachments by file name and media type.
+
+A file name is trimmed of surrounding whitespace and zero-width characters
+before its extension is read, so a trailing space cannot hide or change it.
+"""
 
 from __future__ import annotations
 
 from enum import StrEnum
-from pathlib import Path
 
+from harborrag_adapters.connectors.file_filters import file_name_extension
 from harborrag_adapters.connectors.limits import DEFAULT_MAX_DOCUMENT_BYTES
-
-__all__ = [
-    "DEFAULT_MAX_ATTACHMENT_SIZE_BYTES",
-    "FileType",
-    "attachment_extension",
-    "classify_attachment",
-]
 
 DEFAULT_MAX_ATTACHMENT_SIZE_BYTES = DEFAULT_MAX_DOCUMENT_BYTES
 
@@ -104,7 +101,7 @@ def classify_attachment(media_type: str, title: str) -> tuple[FileType, str] | N
     uploads, so filename suffixes intentionally take precedence where they are
     more specific.
     """
-    suffix = Path(title).suffix.lower().lstrip(".")
+    suffix = file_name_extension(title).lstrip(".")
     if suffix in _SUFFIX_TYPE_MAP:
         return _SUFFIX_TYPE_MAP[suffix]
     return MEDIA_TYPE_MAP.get(media_type)
@@ -112,7 +109,7 @@ def classify_attachment(media_type: str, title: str) -> tuple[FileType, str] | N
 
 def attachment_extension(media_type: str, title: str) -> str:
     """Return the dot-prefixed extension of an attachment, from its title or its media type."""
-    suffix = Path(title).suffix.lower()
+    suffix = file_name_extension(title)
     if suffix:
         return suffix
     classified = classify_attachment(media_type, title)

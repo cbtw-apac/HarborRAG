@@ -53,10 +53,24 @@ _ALLOWED_VECTOR_PAYLOAD_FIELDS = _REQUIRED_VECTOR_PAYLOAD_FIELDS | frozenset(
 
 @dataclass(frozen=True, slots=True)
 class ChunkObservation:
+    """One evidence point as the smoke run read it back from Qdrant.
+
+    Attributes:
+        collection: Qdrant collection the point is in.
+        chunk_id: Chunk the point projects.
+        document_id: Document the chunk belongs to.
+        chunk_kind: Kinds of content the chunk holds, its own kind first.
+        dense_dimensions: Length of the dense vector.
+        sparse_terms: Number of terms in the sparse vector.
+        content: Chunk text stored in the payload.
+        payload_fields: Payload keys, sorted.
+        citation_fields: Citation locator keys, sorted.
+    """
+
     collection: str
     chunk_id: str
     document_id: str
-    chunk_kind: str
+    chunk_kind: tuple[str, ...]
     dense_dimensions: int
     sparse_terms: int
     content: str
@@ -66,6 +80,22 @@ class ChunkObservation:
 
 @dataclass(frozen=True, slots=True)
 class GraphObservation:
+    """One document's graph projection as the smoke run read it back.
+
+    Attributes:
+        document_id: Document the graph belongs to.
+        nodes: Nodes found.
+        relations: Relations found.
+        duplicate_relations: Relations found more than once.
+        relation_types: Relation types found, sorted.
+        entity_types: Entity types found, sorted.
+        outgoing_relations: Relations leaving the document's nodes.
+        incoming_relations: Relations reaching the document's nodes.
+        reviewable_nodes: Nodes a reviewer can inspect.
+        sourced_nodes: Nodes that cite a source.
+        truncated: The read hit its bounds.
+    """
+
     document_id: str
     nodes: int
     relations: int
@@ -81,6 +111,14 @@ class GraphObservation:
 
 @dataclass(frozen=True, slots=True)
 class ProjectionStores:
+    """The stores the smoke run reads projections back from.
+
+    Attributes:
+        vectors: Qdrant evidence repository.
+        graph: FalkorDB knowledge graph repository.
+        objects: Object store holding canonical artifacts.
+    """
+
     vectors: HarborVectorRepository
     graph: FalkorKnowledgeGraphRepository
     objects: S3ObjectStore
@@ -152,7 +190,7 @@ def _chunk_observations(
                 collection=collection,
                 chunk_id=str(point.payload["chunk_id"]),
                 document_id=str(point.payload["document_id"]),
-                chunk_kind=str(point.payload["chunk_kind"]),
+                chunk_kind=_chunk_kinds(point.payload.get("chunk_kind")),
                 dense_dimensions=len(point.vector),
                 sparse_terms=len(sparse.indices),
                 content=str(point.payload["content"]),
@@ -228,12 +266,21 @@ async def _graph_observations(
     return tuple(observations)
 
 
+def _chunk_kinds(value: object) -> tuple[str, ...]:
+    """Read the payload's ``chunk_kind``, which must be a non-empty list of kind names."""
+    if not isinstance(value, list) or not value:
+        raise AssertionError("Qdrant payload chunk_kind is not a non-empty list")
+    kinds = tuple(kind for kind in value if isinstance(kind, str) and kind.strip())
+    if len(kinds) != len(value):
+        raise AssertionError("Qdrant payload chunk_kind holds a blank or non-string kind")
+    return kinds
+
+
 def validate_vector_payload(
     collection: str,
     point: VectorIndexRecord,
 ) -> None:
     """Assert the retrieval payload is complete, bounded, and runtime-free."""
-
     reject_runtime_fields(point.payload)
     _assert_payload_shape(collection, point)
     _assert_vector_shape(point)
@@ -267,7 +314,7 @@ def _assert_projection_content(
 ) -> None:
     if not any(chunk.collection == EVIDENCE_INDEX for chunk in chunks):
         raise AssertionError("Qdrant evidence collection has no smoke chunk")
-    if not any(chunk.chunk_kind == "table" for chunk in chunks):
+    if not any("table" in chunk.chunk_kind for chunk in chunks):
         raise AssertionError("Qdrant evidence collection has no table chunk")
     content = "\n".join(chunk.content for chunk in chunks)
     for expected in (

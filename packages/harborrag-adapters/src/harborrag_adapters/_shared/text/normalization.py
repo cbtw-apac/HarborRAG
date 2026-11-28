@@ -13,7 +13,7 @@ def strip_code_fences(text: str) -> str:
     """Drop Markdown code-fence delimiters while keeping the fenced text.
 
     Layout-based PDF extractors fence any block they read as preformatted,
-    which on a CV or a scanned page is ordinary prose, sometimes tagged with
+    which on a design doc or a scanned page is ordinary prose, sometimes tagged with
     a guessed language (```python). The delimiters carry no retrieval value
     even when the guess is right, and a wrong language label is embedded as
     if it were meaningful, so only the fence lines are removed.

@@ -46,8 +46,6 @@ from harborrag_core.models.chat import (
 from harborrag_core.models.errors import HarborChatError
 from harborrag_core.ports.model_clients import HarborChatClientProtocol
 
-__all__ = ["LlmPDFEngine"]
-
 _PROMPT = (
     "Transcribe this PDF page into Markdown. Keep the reading order, headings, "
     "lists and tables, writing tables as Markdown tables. Describe each chart or "

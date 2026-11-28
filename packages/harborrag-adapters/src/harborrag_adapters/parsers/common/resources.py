@@ -83,7 +83,7 @@ def parse_input_suffix(value: ParseInput) -> str:
 def filename_suffix(candidate: str | Path | None) -> str:
     """Return a name's routing suffix, tolerating surrounding whitespace.
 
-    Interior spaces are ordinary in real upload names -- `Anh Nguyen - Data.pdf`
+    Interior spaces are ordinary in real upload names -- `Q3 design review.pdf`
     -- and never affect the suffix. Surrounding whitespace does: `Path` keeps it,
     so `"Resume.pdf "` yields `".pdf "`, which matches no registered extension and
     silently downgrades routing to the media type. Both ends are trimmed, on the
@@ -142,11 +142,14 @@ def read_parse_input_bytes(
 
 
 def _read_guarded_path(path: Path, *, max_bytes: int) -> bytes:
+    """Read a regular file through one descriptor; errors leave the path out, cause included."""
     flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
     try:
         descriptor = os.open(path, flags)
     except OSError as error:
-        raise ParseError("Parser path input could not be opened safely") from error
+        raise ParseError(
+            f"Parser path input could not be opened safely: {type(error).__name__}"
+        ) from None
     try:
         details = os.fstat(descriptor)
         if not stat.S_ISREG(details.st_mode):
@@ -307,9 +310,9 @@ _FILENAME_METADATA_KEYS = ("filename", "file_name")
 def _name_from_metadata(metadata: Any) -> str | None:
     """Recover the source's own file name, which routes better than its URI.
 
-    A connector records the real upload name here -- `Anh Nguyen - Data.pdf` --
+    A connector records the real upload name here -- `Q3 design review.pdf` --
     while `source` is a permalink whose last segment carries no suffix at all
-    (`.../browse/CPM-1#attachment-397115`). The extension router covers roughly
+    (`.../browse/DEMO-1#attachment-397115`). The extension router covers roughly
     twice as many formats as the media-type router, and providers routinely
     report a generic type for user uploads, so dropping the name leaves only the
     weaker key and fails every format that just the suffix could have resolved.

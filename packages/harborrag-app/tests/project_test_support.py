@@ -17,6 +17,3 @@ def scaffold(root: Path) -> Path:
     )
     (root / ".env").write_text("OPENAI_API_KEY=from-dotenv\nHARBORRAG_ENV=prod\n")
     return root
-
-
-__all__ = ["scaffold"]

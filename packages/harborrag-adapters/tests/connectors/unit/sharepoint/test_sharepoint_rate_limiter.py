@@ -26,7 +26,10 @@ class _RecordingLimiter:
 def test_the_sharepoint_provider_receives_the_runtime_rate_limiter():
     definition = connector_registry.get_definition("sharepoint")
 
-    assert dict(definition.constructor_dependencies) == {"rate_limiter": "rate_limiter"}
+    assert dict(definition.constructor_dependencies) == {
+        "rate_limiter": "rate_limiter",
+        "destination_policy": "destination_policy",
+    }
 
 
 def test_graph_requests_acquire_the_shared_limiters_graph_lane():

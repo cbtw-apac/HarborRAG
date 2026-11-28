@@ -23,8 +23,6 @@ from harborrag_engine.ingestion import (
 
 from .chunking_helpers import make_document, make_profile, make_request, make_service
 
-__all__ = ["keys", "project"]
-
 
 def project(  # noqa: PLR0913
     connector: str,

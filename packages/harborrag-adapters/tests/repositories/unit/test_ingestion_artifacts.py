@@ -99,7 +99,7 @@ async def test_chunk_jsonl_has_exact_index_and_supports_range_loading() -> None:
             chunk("chunk-1", 0, "The activity timeout is 30 seconds."),
             chunk("chunk-2", 1, "Retries use exponential backoff."),
         )
-        writer = ChunkArtifactWriter(ImmutableArtifactWriter(store))
+        writer = ChunkArtifactWriter(ImmutableArtifactWriter(store), ImmutableArtifactReader(store))
         reader = ChunkArtifactReader(ImmutableArtifactReader(store))
 
         artifacts = await writer.put(
@@ -148,6 +148,53 @@ async def test_chunk_jsonl_has_exact_index_and_supports_range_loading() -> None:
 
 
 @pytest.mark.asyncio
+async def test_chunk_retry_after_metadata_change_adopts_stored_chunk_set() -> None:
+    store = MemoryObjectStore()
+    async with store:
+        writer = ChunkArtifactWriter(
+            ImmutableArtifactWriter(store),
+            ImmutableArtifactReader(store),
+        )
+        reader = ChunkArtifactReader(ImmutableArtifactReader(store))
+        before = (
+            chunk("chunk-1", 0, "The activity timeout is 30 seconds."),
+            chunk("chunk-2", 1, "Retries use exponential backoff."),
+        )
+        # A retry that re-chunks after the metadata change produces different bytes.
+        after = tuple(
+            item.model_copy(update={"metadata": {"created_at": "2026-01-01T00:00:00"}})
+            for item in before
+        )
+        first = await writer.put(
+            document_id="document-1",
+            document_version_id="version-1",
+            chunks=before,
+            context=context(),
+        )
+
+        with pytest.raises(HarborConflictError):
+            await writer.put(
+                document_id="document-1",
+                document_version_id="version-1",
+                chunks=after,
+                context=context(),
+            )
+
+        adopted = await writer.put(
+            document_id="document-1",
+            document_version_id="version-1",
+            chunks=after,
+            context=context(),
+            adopt_existing=True,
+        )
+
+        assert adopted.chunks.sha256 == first.chunks.sha256
+        assert adopted.entries == first.entries
+        assert await reader.get_all(adopted.chunks, context=context()) == before
+        assert await reader.get_chunk(adopted, "chunk-2", context=context()) == before[1]
+
+
+@pytest.mark.asyncio
 async def test_raw_capture_preserves_original_bytes_and_replay_metadata() -> None:
     store = MemoryObjectStore()
     async with store:
@@ -187,7 +234,10 @@ async def test_raw_capture_preserves_original_bytes_and_replay_metadata() -> Non
 async def test_chunk_artifact_rejects_empty_required_set() -> None:
     store = MemoryObjectStore()
     async with store:
-        writer = ChunkArtifactWriter(ImmutableArtifactWriter(store))
+        writer = ChunkArtifactWriter(
+            ImmutableArtifactWriter(store),
+            ImmutableArtifactReader(store),
+        )
         with pytest.raises(ValueError, match="at least one"):
             await writer.put(
                 document_id="document-1",

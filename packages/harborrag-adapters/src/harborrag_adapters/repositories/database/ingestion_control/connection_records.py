@@ -1,10 +1,5 @@
 """Per-connection reads and purges over the ingestion control tables.
 
-Handles:
-- the documents, source scopes and runs that belong to one connection
-- cheap stats for connection listings
-- dropping a connection's Postgres history once its projections are gone
-
 A connection is identified here by ``(tenant_id, connection_id)``, where
 ``connection_id`` is the connection's ``source_key``.
 """

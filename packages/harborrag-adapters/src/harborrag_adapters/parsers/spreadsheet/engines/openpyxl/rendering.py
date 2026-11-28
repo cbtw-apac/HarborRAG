@@ -94,15 +94,13 @@ def legacy_cell_to_text(cell: Any, datemode: int, xlrd: Any) -> str:
     return str(cell.value)
 
 
-__all__ = ["guard_declared_table_size", "legacy_cell_to_text", "openxml_cell_to_text"]
-
-
 @contextmanager
 def xlrd_errors_as_parse_errors(xlrd: Any) -> Generator[None, None, None]:
     """Convert xlrd's own exception type, which derives only from Exception.
 
     `xlrd.XLRDError` is what corrupt, truncated, non-BIFF and encrypted
-    (FILEPASS) workbooks raise, so it must not escape the parser contract.
+    (FILEPASS) workbooks raise, so it must not escape the parser contract. Its text
+    can quote the file's first bytes, so the message names the class only.
     """
 
     try:
@@ -110,4 +108,4 @@ def xlrd_errors_as_parse_errors(xlrd: Any) -> Generator[None, None, None]:
     except xlrd.XLRDError as exc:
         if "encrypted" in str(exc).lower():
             raise PasswordProtectedError("XLS is password-protected") from exc
-        raise ParseError(f"xlrd failed to parse input: {exc}") from exc
+        raise ParseError(f"xlrd failed to parse input: {type(exc).__name__}") from exc

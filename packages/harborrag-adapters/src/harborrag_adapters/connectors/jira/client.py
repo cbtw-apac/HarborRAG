@@ -10,6 +10,7 @@ from harborrag_adapters.connectors.atlassian.client import (
     AtlassianClientContext,
     AtlassianRestClient,
 )
+from harborrag_adapters.connectors.policies.network import DestinationPolicy
 from harborrag_adapters.connectors.rate_limiting import (
     ConnectorRateLimiter,
     RateLimitIdentity,
@@ -58,6 +59,7 @@ class _RequestsJiraClient(AtlassianRestClient[JiraProjectConfig]):
         config: JiraProjectConfig,
         *,
         rate_limiter: ConnectorRateLimiter | None = None,
+        destination_policy: DestinationPolicy | None = None,
     ) -> None:
         super().__init__(
             config,
@@ -73,6 +75,7 @@ class _RequestsJiraClient(AtlassianRestClient[JiraProjectConfig]):
                 ),
             ),
             rate_limiter=rate_limiter,
+            destination_policy=destination_policy,
         )
         self.api_version = "3" if config.deployment_type == JiraDeploymentType.CLOUD else "2"
         if config.deployment_type == JiraDeploymentType.CLOUD:

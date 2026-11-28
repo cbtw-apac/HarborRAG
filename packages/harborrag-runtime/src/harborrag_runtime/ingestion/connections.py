@@ -1,16 +1,7 @@
 """Build connectors from stored connections, per ingestion run.
 
-Handles:
-- ``ConnectionResolver``: load a connection by ``source_key``, validate it and
-  save the immutable snapshot the run will use
-- ``build_connector``: the one place a connector is constructed, shared by the
-  workers and the connection test
-- ``ConnectorPool``: per-run connectors in a worker, built on first use from the
-  run's snapshot with secrets resolved inside the activity
-- ``ConnectionHealth``: ``needs_reauth`` on credential failures, ``active`` again
-  after a run authenticates
-
-Does NOT read ``connectors.yaml``.
+``build_connector`` is the one place a connector is constructed, shared by the workers and
+the connection test. Secrets are resolved inside the activity, from the run's snapshot.
 """
 
 from __future__ import annotations
@@ -19,12 +10,13 @@ import asyncio
 import logging
 from collections import OrderedDict
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, is_dataclass, replace
 from inspect import Parameter, signature
 from typing import Any
 
 from harborrag_adapters.connectors.file_filters import normalize_extension
 from harborrag_adapters.connectors.harbor_connector import HarborConnector
+from harborrag_adapters.connectors.policies.network import DestinationPolicy
 from harborrag_adapters.connectors.rate_limiting import ConnectorRateLimiter
 from harborrag_adapters.connectors.registry import connector_registry
 from harborrag_adapters.parsers import HarborParserRegistry
@@ -32,6 +24,7 @@ from harborrag_core.contracts.errors import HarborConflictError, HarborValidatio
 from harborrag_core.domain.connection import Connection
 from harborrag_core.domain.connection_snapshot import ConnectionSnapshot
 from harborrag_core.ingestion.errors import SourceAuthenticationError, SourceAuthorizationError
+from harborrag_core.ingestion.run_contracts import RunSettings
 from harborrag_core.ports.control_plane import (
     ConnectionRepositoryPort,
     ConnectionRevisionRepositoryPort,
@@ -44,7 +37,6 @@ from harborrag_runtime.config.connectors.models import (
 from harborrag_runtime.config.errors import ConnectorConfigurationError
 from harborrag_runtime.config_store.run_settings import RunSettingsResolver
 from harborrag_runtime.connections import SecretResolver
-from harborrag_runtime.ingestion_contracts import RunSettings
 
 logger = logging.getLogger("harborrag.runtime.ingestion.connections")
 
@@ -161,12 +153,14 @@ class ConnectionResolver:
         return ResolvedConnection(snapshot, spec, run_settings)
 
 
-def build_connector(
+def build_connector(  # noqa: PLR0913 - the parts of one connection, plus the run's pinned settings
     snapshot: ConnectionSnapshot,
     secret_values: Mapping[str, str],
     *,
     parser: HarborParserRegistry | None = None,
     rate_limiter: ConnectorRateLimiter | None = None,
+    destination_policy: DestinationPolicy | None = None,
+    run_settings: RunSettings | None = None,
 ) -> HarborConnector:
     """Construct the connector a snapshot describes.
 
@@ -175,12 +169,17 @@ def build_connector(
         secret_values: Plaintext for each credential field held as a reference.
         parser: Parser registry that ``allowed_extensions`` are checked against.
         rate_limiter: Shared limiter for connectors that use one.
+        destination_policy: Hosts connectors may reach beyond public addresses; without
+            one, connectors reach public addresses only.
+        run_settings: The run's pinned settings; its ``capture.*`` overrides narrow the
+            connection's own size/extension ceiling.
 
     Returns:
         A ready-to-connect connector facade.
 
     Raises:
-        ConnectorConfigurationError: The values are rejected or allow unparseable files.
+        ConnectorConfigurationError: The values are rejected or allow unparseable files,
+            or ``capture.file_types`` shares no extension with them.
         ConnectionValidationError: A secret reference has no resolved value.
     """
     return build_connector_from_parts(
@@ -192,6 +191,8 @@ def build_connector(
         secret_values=secret_values,
         parser=parser,
         rate_limiter=rate_limiter,
+        destination_policy=destination_policy,
+        run_settings=run_settings,
     )
 
 
@@ -205,10 +206,13 @@ def build_connector_from_parts(  # noqa: PLR0913 - the parts of one connection
     secret_values: Mapping[str, str],
     parser: HarborParserRegistry | None = None,
     rate_limiter: ConnectorRateLimiter | None = None,
+    destination_policy: DestinationPolicy | None = None,
+    run_settings: RunSettings | None = None,
 ) -> HarborConnector:
     """Construct a connector from validated parts; credentials may hold raw values.
 
-    The connection test uses this for form values that were never saved.
+    The connection test uses this for form values that were never saved. Without a
+    ``destination_policy`` the connector reaches public addresses only.
     """
     spec = source_types.get(source_type)
     config = spec.without_removed_fields(config)
@@ -226,9 +230,13 @@ def build_connector_from_parts(  # noqa: PLR0913 - the parts of one connection
         .tenant(tenant_id)
         .build()
     )
+    config_object = _narrow_capture_limits(config_object, run_settings)
     if parser is not None:
         _require_parseable_extensions(spec.source_type, config, parser)
-    available: dict[str, object | None] = {"rate_limiter": rate_limiter}
+    available: dict[str, object | None] = {
+        "rate_limiter": rate_limiter,
+        "destination_policy": destination_policy,
+    }
     definition = connector_registry.get_definition(spec.provider)
     kwargs = {
         argument: available[dependency]
@@ -236,6 +244,68 @@ def build_connector_from_parts(  # noqa: PLR0913 - the parts of one connection
         if available.get(dependency) is not None
     }
     return HarborConnector(spec.provider, config=config_object, **kwargs)
+
+
+_CAPTURE_SIZE_FIELDS = ("max_file_size_bytes", "max_attachment_size_bytes")
+
+
+def _narrow_capture_limits(config_object: object, run_settings: RunSettings | None) -> object:
+    """Narrow a connector's own size/extension ceiling with the run's pinned capture settings.
+
+    The connection's stored config is a ceiling a run can only narrow, the same
+    rule ``_effective_query`` applies to query filters: ``capture.max_document_mb``/
+    ``capture.file_types`` can lower it further, never raise it past what the
+    connection itself configures. Connector configs are immutable, so a narrowed
+    config is a validated copy.
+
+    Args:
+        config_object: The connector config dataclass.
+        run_settings: The run's pinned settings; ``None`` leaves the config as is.
+
+    Returns:
+        A copy of ``config_object`` with the narrowed limits, or ``config_object``
+        itself when nothing narrows it.
+
+    Raises:
+        ConnectorConfigurationError: ``capture.file_types`` shares no extension with
+            the connection's own list, or the narrowed config fails validation. An
+            empty list would keep every extension, so the run fails instead.
+    """
+    if run_settings is None:
+        return config_object
+    changes: dict[str, object] = {}
+    if run_settings.max_document_mb is not None:
+        override_bytes = run_settings.max_document_mb * 1024 * 1024
+        for field_name in _CAPTURE_SIZE_FIELDS:
+            if hasattr(config_object, field_name):
+                current = getattr(config_object, field_name)
+                changes[field_name] = (
+                    override_bytes if current is None else min(current, override_bytes)
+                )
+    if run_settings.file_types is not None and hasattr(config_object, "allowed_extensions"):
+        allowed = {normalize_extension(extension) for extension in run_settings.file_types}
+        current_extensions = config_object.allowed_extensions
+        narrowed = set(current_extensions) & allowed if current_extensions else allowed
+        if not narrowed:
+            raise ConnectorConfigurationError(
+                "capture.file_types shares no extension with the connection's allowed_extensions"
+            )
+        changes["allowed_extensions"] = (
+            type(current_extensions)(narrowed) if current_extensions is not None else narrowed
+        )
+    if not changes:
+        return config_object
+    if not is_dataclass(config_object) or isinstance(config_object, type):
+        raise ConnectorConfigurationError(
+            f"capture settings cannot narrow {type(config_object).__name__}, which is not a "
+            "dataclass"
+        )
+    try:
+        return replace(config_object, **changes)
+    except (TypeError, ValueError) as error:
+        raise ConnectorConfigurationError(
+            f"capture settings leave the connector config invalid: {error}"
+        ) from error
 
 
 def _require_parseable_extensions(
@@ -263,13 +333,23 @@ class ConnectorPool:
     Entries are keyed by ``(tenant_id, fingerprint, task_id)``: every activity of
     one run shares a connector, while a later run, or the same run after an
     edit, builds its own from the snapshot it started with.
+
+    Args:
+        revisions: Stored snapshots the run connectors are built from.
+        secrets: Resolves the credential references of a snapshot.
+        destination_policy: Hosts connectors may reach beyond public addresses; every
+            connector the pool builds receives it.
+        parser: Attachment parser for connectors that accept one.
+        rate_limiter: Limiter shared by the connectors that use one.
+        capacity: Connectors kept before the least recently used is closed.
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913 - the stores and settings the pool composes
         self,
         *,
         revisions: ConnectionRevisionRepositoryPort,
         secrets: SecretResolver,
+        destination_policy: DestinationPolicy,
         parser: HarborParserRegistry | None = None,
         rate_limiter: ConnectorRateLimiter | None = None,
         capacity: int = DEFAULT_POOL_CAPACITY,
@@ -278,14 +358,33 @@ class ConnectorPool:
         self._secrets = secrets
         self._parser = parser
         self._rate_limiter = rate_limiter
+        self._destination_policy = destination_policy
         self._capacity = capacity
         self._entries: OrderedDict[tuple[str, str, str], HarborConnector] = OrderedDict()
         self._locks: dict[tuple[str, str, str], asyncio.Lock] = {}
 
     async def connector(
-        self, *, tenant_id: str, task_id: str, configuration_fingerprint: str
+        self,
+        *,
+        tenant_id: str,
+        task_id: str,
+        configuration_fingerprint: str,
+        run_settings: RunSettings | None = None,
     ) -> HarborConnector:
         """Return the run's connector, building it from its snapshot on first use.
+
+        Every activity of one run shares the connector, so the first call's
+        ``run_settings`` stay in force for the whole run.
+
+        Args:
+            tenant_id: Tenant of the run.
+            task_id: The run the connector belongs to.
+            configuration_fingerprint: Fingerprint of the run's connection snapshot.
+            run_settings: The run's pinned settings; its ``capture.*`` overrides
+                narrow the connection's own size and extension limits.
+
+        Returns:
+            The run's connector facade.
 
         Raises:
             ConnectorConfigurationError: The snapshot is unknown or its values are rejected.
@@ -298,7 +397,7 @@ class ConnectorPool:
         async with self._locks.setdefault(key, asyncio.Lock()):
             connector = self._entries.get(key)
             if connector is None:
-                connector = await self._build(tenant_id, configuration_fingerprint)
+                connector = await self._build(tenant_id, configuration_fingerprint, run_settings)
                 self._entries[key] = connector
                 await self._evict()
         self._locks.pop(key, None)
@@ -308,6 +407,13 @@ class ConnectorPool:
         self, *, tenant_id: str, configuration_fingerprint: str
     ) -> ConnectionSnapshot:
         """Return the stored snapshot behind a fingerprint.
+
+        Args:
+            tenant_id: Tenant that owns the connection.
+            configuration_fingerprint: Fingerprint of the connection revision.
+
+        Returns:
+            The connection snapshot.
 
         Raises:
             ConnectorConfigurationError: No snapshot has this fingerprint.
@@ -327,7 +433,9 @@ class ConnectorPool:
         self._entries.clear()
         await asyncio.gather(*(asyncio.to_thread(c.close) for c in entries), return_exceptions=True)
 
-    async def _build(self, tenant_id: str, fingerprint: str) -> HarborConnector:
+    async def _build(
+        self, tenant_id: str, fingerprint: str, run_settings: RunSettings | None = None
+    ) -> HarborConnector:
         """Load the snapshot, resolve its secrets and construct the connector."""
         snapshot = await self.snapshot(tenant_id=tenant_id, configuration_fingerprint=fingerprint)
         secret_values = await self._secrets.resolve_credentials(
@@ -339,6 +447,8 @@ class ConnectorPool:
             secret_values,
             parser=self._parser,
             rate_limiter=self._rate_limiter,
+            destination_policy=self._destination_policy,
+            run_settings=run_settings,
         )
         logger.info(
             "Connection connector built source_type=%s fingerprint=%s",
@@ -359,6 +469,12 @@ class ConnectorPool:
 
 def require_fingerprint(fingerprint: str | None) -> str:
     """Return a run's connection fingerprint.
+
+    Args:
+        fingerprint: The fingerprint the run recorded, if any.
+
+    Returns:
+        The fingerprint.
 
     Raises:
         ConnectorConfigurationError: The run predates connection revisions.

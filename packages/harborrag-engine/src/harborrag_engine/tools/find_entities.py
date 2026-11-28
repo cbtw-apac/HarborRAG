@@ -6,6 +6,12 @@ with its comments and attachments -- and the caller can say which entities
 qualify (``facets``) separately from what to look for in them (``query``).
 Every match carries the evidence chunk ids the summary authority released for
 it, so a follow-up ``fetch_evidence`` cites real passages.
+
+The facet name as a source declares it (``skill_set``), never the connector field it is copied from
+(``Skill Set``).
+
+Ranked entities left out for want of a released summary; non-zero only alongside the
+entities_without_released_evidence reason.
 """
 
 from __future__ import annotations
@@ -30,7 +36,7 @@ from .retrieval_inputs import (
     text,
 )
 
-logger = logging.getLogger("harborrag.runtime.tools.entities")
+logger = logging.getLogger("harborrag.engine.tools.find_entities")
 
 _FACET_VALUE = {
     "oneOf": [
@@ -80,8 +86,6 @@ FIND_ENTITIES_SPEC = ToolSpec(
             "query": {"type": "string", "minLength": 1, "maxLength": 4000},
             "facets": {
                 "type": "object",
-                # The facet name as a source declares it (``skill_set``), never the
-                # connector field it is copied from (``Skill Set``).
                 "propertyNames": {"pattern": FACET_NAME_PATTERN},
                 "additionalProperties": _FACET_VALUE,
                 "maxProperties": 12,
@@ -110,8 +114,6 @@ FIND_ENTITIES_SPEC = ToolSpec(
                 "ok": {"const": True},
                 "request_id": {"type": "string", "minLength": 1},
                 "contract_revision": {"type": "string"},
-                # Ranked entities left out for want of a released summary; non-zero
-                # only alongside the entities_without_released_evidence reason.
                 "withheld_entity_count": {"type": "integer", "minimum": 0},
                 "matches": {
                     "type": "array",
@@ -178,6 +180,8 @@ FIND_ENTITIES_SPEC = ToolSpec(
 
 @dataclass(slots=True)
 class FindEntitiesTool(ReaderTool):
+    """Find graph entities by name."""
+
     spec = FIND_ENTITIES_SPEC
 
     async def call(
@@ -187,20 +191,26 @@ class FindEntitiesTool(ReaderTool):
         principal_id: str,
         context: ToolInvocationContext | None = None,
     ) -> dict[str, object]:
+        """Return the entities that match the name filters.
+
+        Truncation is one reason among several: a missing index or hits with no released summary
+        leave the answer short too, and an empty list must not read as "nothing matched" when it is
+        "could not look".
+        """
         if context is not None and principal_id != context.access.principal_id:
             raise PermissionError("tool principal does not match invocation context")
         try:
-            request = EntityFindRequest(
-                access=access(arguments, principal_id),
-                query=text(arguments, "query"),
-                facets=mapping(arguments, "facets"),
-                source_scope_ids=string_list(arguments, "source_ids"),
-                limit=integer(arguments, "limit", 10, minimum=1, maximum=ENTITY_FIND_LIMIT),
-            )
+            try:
+                request = EntityFindRequest(
+                    access=access(arguments, principal_id),
+                    query=text(arguments, "query"),
+                    facets=mapping(arguments, "facets"),
+                    source_scope_ids=string_list(arguments, "source_ids"),
+                    limit=integer(arguments, "limit", 10, minimum=1, maximum=ENTITY_FIND_LIMIT),
+                )
+            except ValueError as exc:
+                return failure(str(exc))
             response = await self.require_retrieval().find_entities(request)
-            # Truncation is one reason among several: a missing index or hits with
-            # no released summary leave the answer short too, and an empty list
-            # must not read as "nothing matched" when it is "could not look".
             reasons = [*response.reasons, *(["candidate_limit"] if response.truncated else [])]
             return success(
                 response.request_id,
@@ -223,13 +233,8 @@ class FindEntitiesTool(ReaderTool):
                 complete=not reasons,
                 reasons=reasons,
             )
-        except (HarborValidationError, ValueError) as exc:
-            return failure(str(exc))
-        except HarborCapabilityError as exc:
+        except (HarborValidationError, HarborCapabilityError) as exc:
             return failure(str(exc))
         except Exception:
             logger.exception("find_entities failed")
             return failure("entity search failed")
-
-
-__all__ = ["FIND_ENTITIES_SPEC", "FindEntitiesTool"]

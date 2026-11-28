@@ -62,7 +62,7 @@ class JiraProjectConfig:
     """
 
     base_url: str
-    token: str | None = field(default=None, repr=False)  # secret: keep out of repr/logs
+    token: str | None = field(default=None, repr=False)
     email: str | None = None
     deployment_type: JiraDeploymentType | str | None = None
     project_keys: list[str] = field(default_factory=list)

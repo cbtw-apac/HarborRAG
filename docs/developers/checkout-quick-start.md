@@ -1,47 +1,47 @@
 # Running HarborRAG from a checkout
 
-This page is for people working on HarborRAG itself, or running the durable Temporal-based
-ingestion mode. If you just want to use HarborRAG on your documents, follow the
-[Quick Start](../getting-started/quick-start.md) instead - it needs no clone.
+Work on HarborRAG itself once the [Quick Start](../getting-started/quick-start.md) has your
+checkout and its local stack running. This page shows how to explore the code without
+services, start and rebuild one service at a time, drive ingestion runs, and run the tests.
 
-Two stages: a five-minute check that needs no Docker or credentials, then the full local
-stack (data services, Temporal, worker, API) for durable ingestion and the HTTP surface.
+Run every command from the root of the checkout unless a step says otherwise.
 
 ## Requirements
 
-- Python 3.12 or newer
-- [`uv`](https://docs.astral.sh/uv/)
-- Docker Engine with Compose v2 (the full stack only)
-- Roughly 520 MB of disk for the workspace sync, plus several GB for the full stack's images and
-  model cache
+The [Quick Start prerequisites](../getting-started/quick-start.md#before-you-start) cover what
+this page needs: Git, uv, Docker Engine with Compose v2, OpenSSL and an API key for a model endpoint.
+The workspace pins Python 3.12 in `.python-version`.
 
 ## Explore a checkout without services
 
-### 1. Clone and sync
+### 1. Install the development tools
+
+[Quick Start step 1](../getting-started/quick-start.md#1-clone-the-repository-and-install-the-cli)
+clones the repository and installs the CLI. To change code, also install the `dev` extra,
+which adds the lint, type-check and test tools:
 
 ```bash
-git clone https://github.com/cbtw-apac/HarborRAG.git
-cd HarborRAG
-uv sync --all-packages --extra dev
+uv sync --all-packages --extra dev --extra production
 ```
+
+The environment takes about 930 MB. `--extra dev` on its own leaves out the Temporal,
+PostgreSQL, Qdrant, FalkorDB and MinIO clients that the stack commands below need.
 
 ### 2. Confirm the CLI
 
-```bash
-uv run harborrag --help
-```
+`uv run harborrag --help` lists the commands described in Quick Start step 1, and works
+without Temporal or any data service. The `harborrag` command runs only inside a repository
+checkout: elsewhere it exits 1, and in a terminal it prints `harborrag: no project found.
+Run it inside a HarborRAG repository checkout, ...`. In a pipe it prints the same message in
+a JSON error envelope.
 
-You should see five commands, grouped by purpose: `init` (Setup), `doctor` (Operations),
-`chat` (Chat), `retrieve` (Retrieval), and `ingest` (Ingestion, itself a subgroup). This works
-without Temporal or any data service.
-
-> `harborrag doctor` checks the checkout's catalogs and the local services, so most lines
-> fail until step 6 starts them; add `--temporal` after step 7 to check the workflow service.
+`harborrag doctor` checks the checkout's catalogs and the local services, Temporal included,
+so its service lines fail until step 6 starts them.
 
 ### 3. Parse a document
 
 The parser registry picks a parser *family* by suffix and MIME type, then the family routes
-to a concrete engine. Run this from the checkout root - `source_uri` is
+to a concrete engine. Run this from the checkout root, because `source_uri` is
 repository-relative:
 
 ```bash
@@ -67,8 +67,8 @@ asyncio.run(main())
 PY
 ```
 
-Expect something like `markup markdown 663` - the family, the engine, and the extracted
-character count.
+You should see a line such as `markup markdown 2938`: the family, the engine, and the number
+of characters extracted, which changes whenever the file does.
 
 ### 4. Inspect the catalogs
 
@@ -89,165 +89,160 @@ print('enabled parsers:', c.names(enabled_only=True))
 "
 ```
 
-Three connections are enabled: `harborrag-workspace` (local files, no credentials),
-`confluence-main`, and `jira-main`. Only the first works without credentials, and it is the
-one the rest of this guide uses.
+Four connections are enabled: `harborrag-workspace` (local files, no credentials),
+`confluence-main`, `jira-main` and `sharepoint-main`. Only the first works without
+credentials, and it is the one the rest of this page uses. The enabled parsers are
+`image-liteparse` and `pdf-liteparse`.
 
-That is the service-free check. You have a working install and a working parser. Continue below for
-real ingestion, or jump to [Configuration](../users/configuration/README.md) to point
-HarborRAG at your own sources.
+Continue below for the full stack, or see [Configuration](../users/configuration/README.md)
+to point HarborRAG at your own sources.
 
 ## Run the full stack
 
 ### 5. Create the `env/` folder
 
-Every credential lives in an ignored `env/` folder that you create once. One command
-creates all seven files from their templates, generates a random MCP bearer token, and sets
-mode `0600`:
+[Quick Start step 2](../getting-started/quick-start.md#2-create-the-environment-files)
+creates `env/` with `scripts/deployment/dev.sh bootstrap`, fills in the four model values
+in `env/.env.models`, and uncomments the `HARBORRAG_CONTROL_DB_URL` line in
+`env/.env.database`. When you work on the code, these points also matter:
 
-```bash
-scripts/deployment/dev.sh bootstrap
-```
+- Back up `HARBORRAG_SECRETS_ENCRYPTION_KEY` from `env/.env.database`. The API and the worker
+  encrypt stored connection secrets with it, and cannot read them without it.
+- The `HARBORRAG_CONTROL_DB_URL` line substitutes the `POSTGRES_*` values verbatim, so
+  URL-encode a password that contains `@ : / # % ?`. When the CLI uses the line, it also takes
+  `HARBORRAG_SECRETS_ENCRYPTION_KEY` from the same file.
+- Every CLI command run from the checkout migrates that database. After each pull, rebuild
+  the images with `scripts/deployment/dev.sh up --build` before you run a CLI command, or the
+  CLI can migrate the database ahead of the running services.
 
-Now fill in the values that have no safe default. **The first one is mandatory - Compose
-will not start without it:**
-
-```bash
-openssl rand -hex 32     # use the output as HARBORRAG_SECRETS_ENCRYPTION_KEY
-```
-
-```dotenv
-# env/.env.database
-HARBORRAG_SECRETS_ENCRYPTION_KEY=<the value above>
-POSTGRES_PASSWORD=<a strong password, replacing change-me>
-```
-
-```dotenv
-# env/.env.models - config/models/models.yaml requires all six
-HARBORRAG_CHAT_PROVIDER=openai
-HARBORRAG_CHAT_MODEL=gpt-4o-mini
-HARBORRAG_CHAT_API_KEY=<your key>
-HARBORRAG_EMBED_PROVIDER=openai
-HARBORRAG_EMBED_MODEL=text-embedding-3-small
-HARBORRAG_EMBED_API_KEY=<your key>
-```
-
-Everything else has a working local default. See
-[Configuration](../users/configuration/README.md) for what each file holds and how to keep
-it outside the checkout.
-
-Check the model catalog resolves before starting anything:
+Check that the model catalog resolves before you start anything:
 
 ```bash
 uv run --env-file env/.env.models \
   python -m harborrag_adapters.models explain config/models/models.yaml --family chat
 ```
 
-References expand eagerly, so this fails immediately on a missing or empty variable -
-which is exactly what you want to find out now rather than mid-ingestion.
+It prints the chat family as JSON. References expand eagerly, so an unset variable fails here
+with `environment variable <NAME> is not set` instead of in the middle of an ingestion.
+
+[Deployment](deployment/README.md#prepare-the-environment-files) lists which service reads
+which file, and [Configuration](../users/configuration/README.md) explains how to keep them
+outside the checkout.
 
 ### 6. Start the services
 
-```bash
-scripts/deployment/dev.sh up
-```
+`scripts/deployment/dev.sh up` starts the whole stack, as in
+[Quick Start step 3](../getting-started/quick-start.md#3-start-the-local-stack). On a clean
+checkout `up` bootstraps `env/` and then stops, so you can review the credentials; run it again
+after editing them.
 
-That starts, in order: the data stack (PostgreSQL, Qdrant, FalkorDB, Redis, MinIO), the
-Temporal server with its schema, namespace, and UI, the ingestion workers, and the
-control-plane API.
-
-On a clean checkout `up` bootstraps `env/` and then stops so you can review the
-credentials. Run it again after editing them.
-
-The first worker build installs the selected parser and model dependencies and can take
-several minutes. Downloaded Hugging Face assets persist in the shared
-`harborrag-model-cache` volume and are reused after the container is replaced.
-
-Prefer to bring things up one at a time?
+To bring things up one at a time, use these commands:
 
 | Command | Starts |
 | --- | --- |
-| `dev.sh data` | data services only - creates the shared network, so it goes first |
-| `dev.sh temporal` | Temporal server, schema, namespace, UI - never a worker |
+| `dev.sh data` | data services only; creates the shared network, so it goes first |
+| `dev.sh temporal` | Temporal server, schema, namespace and UI; never a worker |
 | `dev.sh worker` | the ingestion worker only |
 | `dev.sh api` | the API only |
 | `dev.sh up --no-worker` | everything except the worker |
-| `dev.sh down` | stop everything; `--volumes` also discards the data |
+| `dev.sh down` | stops everything; `--volumes` also discards the data |
+| `dev.sh sharepoint-login` | signs the worker in to SharePoint for `auth_mode: device_code` |
 
-Add `--build` to `up`, `worker`, or `api` after changing source or dependencies.
-`config/` is mounted, so a configuration change needs only a restart.
+Add `--build` to `up`, `worker` or `api` after changing source or dependencies. `config/` is
+mounted into the containers, so a configuration change needs only a restart. Add
+`--device gpu` to `up` or `worker` to build the CUDA worker image, which needs the NVIDIA
+Container Toolkit on the host.
 
-**If `up` fails with `required variable HARBORRAG_SECRETS_ENCRYPTION_KEY is missing a
-value`**, go back to step 5 - Compose treats an empty value as unset.
+The first worker build installs the selected parser and model dependencies and can take
+several minutes. Downloaded Hugging Face assets persist in the shared `harborrag-model-cache`
+volume and are reused after the container is replaced.
 
-### 7. Verify
+**If `up` fails with `HARBORRAG_SECRETS_ENCRYPTION_KEY is blank in env/.env.database, but …
+already holds a database`**, restore the key that database was written with. `dev.sh`
+generates a new key only while no database volume exists, because a new key cannot read
+secrets stored under the old one.
 
-```bash
-HARBORRAG_TEMPORAL_TARGET=localhost:7233 \
-  uv run harborrag doctor --json --temporal
-```
-
-`doctor` only contacts Temporal when `--temporal` is passed; without the flag the target
-above is read but never used, and the `temporal` check reports `skip`.
-
-The Temporal UI is at <http://localhost:8080>, and `dev.sh api` prints the API health URL
-(`http://127.0.0.1:8000/healthz` by default).
-
-### 8. Ingest something
+### 7. Check that the services are reachable
 
 ```bash
-export HARBORRAG_TEMPORAL_TARGET=localhost:7233
-
-uv run harborrag ingest start \
-  --connector-id harborrag-workspace \
-  --tenant tenant-1 \
-  --wait
+uv run harborrag doctor
 ```
 
-`--connector-id` names a connection from `config/sources/connectors.yaml`, **not** a source type -
-`--connector-id local` fails with the list of valid IDs. `--connector` is an accepted alias.
-`--wait` shows the same inline progress block as `ingest run`; `ingest watch RUN_ID`
-attaches it to a run started elsewhere.
+`doctor` prints one line per check and ends with the tenants that hold data. It exits 0 when
+every required check passes, 6 when only service checks fail, and 1 when a configuration
+check fails; `-o json` prints the same report as JSON. In a fresh checkout,
+`connector credentials` warns until `env/.env.connector` holds the credentials of the
+enabled remote connections, and `source path` warns when `HARBORRAG_LOCAL_SOURCE_ROOT`
+names a container path such as `/data/sources`. Warnings do not change the exit code, and
+the stack does not need those values for `harborrag-workspace`: `dev.sh` mounts `docs/`
+into the worker when `LOCAL_SOURCE_PATH` is unset.
 
-Save the run ID and drive it:
+The Temporal UI is at <http://localhost:8080>, and `dev.sh api` prints the API health URL,
+`http://127.0.0.1:8000/healthz` by default.
+
+### 8. Ingest the workspace connection
+
+[Quick Start step 5](../getting-started/quick-start.md#5-ingest-the-documentation-folder)
+runs `uv run harborrag ingestions start default/harborrag-workspace --wait`. The argument is
+the connection's ref, `PROJECT_ID/CONNECTION_ID`, the same value as `connection_ref` in the
+HTTP API. On its first start the API imports `config/sources/connectors.yaml` once into
+tenant `DEFAULT`, project `default`, and each YAML key becomes a `connection_id`. A bare key
+such as `harborrag-workspace`, or a source type such as `local`, is refused with a hint;
+`uv run harborrag connections list` lists the refs.
+
+The CLI reaches Temporal at `localhost:7233` through `config/temporal.yaml`. Do not export
+`HARBORRAG_TEMPORAL_TARGET` in the shell you start the stack from: Compose reads it too and
+would point the containers at their own `localhost`.
+
+`--wait` prints a line whenever the run's status or counters change, and exits 0 when the run
+succeeds and 8 when it fails or is cancelled. Without `--wait`, the command prints the started
+run and returns; follow it from any shell with its `ingestion_id`:
 
 ```bash
-uv run harborrag ingest status RUN_ID --json
-uv run harborrag ingest wait RUN_ID --json
-uv run harborrag ingest watch RUN_ID      # inline progress until the run settles
-uv run harborrag ingest pause RUN_ID
-uv run harborrag ingest resume RUN_ID
-uv run harborrag ingest cancel RUN_ID
+uv run harborrag ingestions list --connection-ref default/harborrag-workspace
+uv run harborrag ingestions get INGESTION_ID
+uv run harborrag ingestions get INGESTION_ID --watch
 ```
 
-Re-running the same ingestion reports documents as `unchanged`. That is the admission fast
-path, not an error - it skips parsing, chunking, and encoding. Use `--force-reprocess` to
-override it; see [Ingestion modes](../users/ingestion-modes.md).
-
-### 9. Query it
+Pause, resume or cancel a run with the same ID:
 
 ```bash
-uv run harborrag retrieve "deployment requirements" \
-  --tenant tenant-1 \
-  --top-k 5 \
-  --include-content
+uv run harborrag ingestions pause INGESTION_ID
+uv run harborrag ingestions resume INGESTION_ID
+uv run harborrag ingestions cancel INGESTION_ID
 ```
 
-`retrieve` runs hybrid dense + sparse search with graph observation enabled. Use
-`--lane dense|sparse|hybrid` to pin one lane and `--no-graph` to skip graph expansion.
+Ctrl-C stops following and leaves the run going.
 
-Chat is retrieval-grounded and makes a real provider request, so it may incur charges:
+`--inline` runs the pipeline in the CLI's own process, without Temporal or a worker, which
+helps when you debug the pipeline. It reads the files on this machine, so it needs a
+connection whose `source_path` is a directory here, inside the CLI's
+`HARBORRAG_LOCAL_SOURCE_ROOT` (`/data/sources` in the `env/.env.database` template). The
+stack's `default/harborrag-workspace` names `/data/sources` as the containers see it, so
+on a machine without that directory `--inline` refuses it with `422 validation_error`.
+See [Run an ingestion in this process](../users/cli-reference/README.md#run-an-ingestion-in-this-process).
+
+Re-running the same ingestion counts the unchanged documents as `skipped`. That is the
+admission fast path, not an error: it skips parsing, chunking and encoding. Use
+`--mode force` to override it; see [Ingestion modes](../users/ingestion-modes.md).
+
+### 9. Chat over the ingested documents
+
+[Quick Start step 6](../getting-started/quick-start.md#6-ask-a-question) explains the corpus
+mode: the `env/.env.api` template sets `HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared` and
+`HARBORRAG_CORPUS_SHARED_TENANT_ID=DEFAULT`, and the CLI reads those two lines from that
+file. An `env/.env.api` copied from an older template needs them added, or chat from a
+checkout finds no passages; `uv run harborrag doctor` shows the mode in its `corpus mode` row.
+
+Chat is retrieval-grounded and makes a real provider request, so it can incur charges. It
+asks a one-off question, which stores nothing; `-o json` prints the HTTP completion body:
 
 ```bash
-uv run harborrag chat \
-  "Explain HarborRAG in one paragraph." \
-  --tenant tenant-1 \
-  --json
+uv run harborrag chat "Explain HarborRAG in one paragraph." -o json
 ```
 
-The JSON response contains a generated session ID. Pass it back with `--session` on later
-calls to keep conversation context. See the [Chat guide](../users/chat/README.md) for the
-HTTP surface.
+To keep a conversation's context, create a session over HTTP and pass its ID with
+`--session-id` on each question. See the [Chat guide](../users/chat/README.md).
 
 ### 10. Connect an MCP client
 
@@ -256,18 +251,31 @@ scripts/deployment/mcp.sh --check
 ```
 
 That performs a real MCP handshake and prints the eleven advertised retrieval tools without
-opening provider connections. For normal use, point your MCP client at
-`scripts/deployment/mcp.sh`; for a browser playground, run `scripts/deployment/mcp.sh --http`
-and open <http://127.0.0.1:8010/>. See
-[MCP Tools](../users/detailed-guides/mcp-server/README.md).
+opening provider connections.
+
+The MCP server reads Postgres and MinIO with read-only accounts of its own, not the owner
+credentials in `env/.env.database`. Create them once, before the first `mcp.sh` start other
+than `--check`, and again after each upgrade:
+
+```bash
+scripts/deployment/dev.sh mcp-access
+```
+
+For normal use, point your MCP client at `scripts/deployment/mcp.sh`; for a browser
+playground, run `scripts/deployment/mcp.sh --http` and open <http://127.0.0.1:8010/>. See
+[MCP Tools](../users/detailed-guides/mcp-server/README.md) and
+[Read-only database and object-store accounts](../users/detailed-guides/mcp-server/setup-and-integration.md#read-only-database-and-object-store-accounts).
 
 ## Run the tests
 
 ```bash
-uv run pytest packages/harborrag-core/tests   # one package, fast
-uv run pytest                                 # everything
-uv run make coverage                          # with the 90% gate
+uv run pytest packages/harborrag-core/tests
+uv run pytest
+uv run make coverage
 ```
+
+The first command runs one package's tests, the second the whole suite, and the third the
+suite with the 90% coverage gate.
 
 `--extra dev` covers most of the suite, but several packages gate optional adapters behind
 their own extras. To run it the way CI does:
@@ -277,19 +285,19 @@ uv sync --all-packages --all-extras
 uv run pytest
 ```
 
-## Something not working?
+## Get help when something fails
 
-- [Troubleshooting](../users/troubleshooting/README.md) - setup, configuration, provider,
-  and quality-gate failures
-- [Installation](../getting-started/installation.md) - `pip`, editable installs, PDF/OCR backends, platform
-  notes
+- [Troubleshooting](../users/troubleshooting/README.md) - setup, configuration, provider and
+  quality-gate failures.
+- [Installation](../getting-started/installation.md) - uv and pip workflows, extras, PDF and
+  OCR backends.
 
-## Continue
+## Read next
 
-- [Configuration](../users/configuration/README.md) - point HarborRAG at your own sources
-- [CLI Reference](../users/cli-reference/README.md) - every command and flag
-- [Python SDK](../users/python-sdk/README.md) - use it as a library
-- [Chat](../users/chat/README.md) - retrieval-grounded chat over HTTP and CLI
-- [Architecture](../developers/architecture/README.md) - before contributing code
-- [Deployment](../developers/deployment/README.md) - the full local topology and the
-  production boundary
+- [Configuration](../users/configuration/README.md) - point HarborRAG at your own sources.
+- [CLI Reference](../users/cli-reference/README.md) - how the commands map to the HTTP API,
+  with every command and option.
+- [Python SDK](../users/python-sdk/README.md) - use HarborRAG as a library.
+- [Chat](../users/chat/README.md) - retrieval-grounded chat over HTTP and CLI.
+- [Architecture](architecture/README.md) - read before contributing code.
+- [Deployment](deployment/README.md) - the full local topology and the production boundary.

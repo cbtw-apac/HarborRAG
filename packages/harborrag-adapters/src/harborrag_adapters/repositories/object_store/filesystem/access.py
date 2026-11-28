@@ -7,6 +7,7 @@ import stat
 from pathlib import Path
 from typing import BinaryIO
 
+from harborrag_adapters._shared.private_directories import make_private_directories
 from harborrag_adapters.repositories.errors import (
     HarborStorageAlreadyExistsError,
     HarborStorageError,
@@ -52,9 +53,13 @@ class FilesystemAccessMixin:
     _encode_key_segments: bool = os.name == "nt"
 
     def _ensure_private_directory(self, path: Path) -> None:
-        """Create and lock down directories beneath the configured root."""
+        """Create and lock down directories beneath the configured root.
 
-        path.mkdir(mode=0o700, parents=True, exist_ok=True)
+        Each missing directory, those above the root included, is created with mode
+        0700. An existing directory above the root keeps its mode.
+        """
+
+        make_private_directories(path)
         current = path
         while current == self._root or self._root in current.parents:
             os.chmod(current, 0o700)

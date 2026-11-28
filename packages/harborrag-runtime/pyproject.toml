@@ -9,22 +9,21 @@ license-files = ["LICENSE"]
 dependencies = [
     "harborrag-core==2.0.0a2",
     "harborrag-engine==2.0.0a2",
+    "harborrag-memory==2.0.0a2",
     "harborrag-adapters==2.0.0a2",
-    "jsonschema>=4.26,<5",
     "PyYAML>=6.0.0",
     "pydantic>=2.13,<3",
     "pydantic-settings>=2.2",
-    "opentelemetry-api>=1.45.1,<2",
+    "python-dotenv>=1,<2",
+    "opentelemetry-api>=1.45.2,<2",
     "prometheus-client>=0.19,<1",
 ]
 
 [project.optional-dependencies]
 reader = ["harborrag-adapters[control-plane,falkordb,llm,postgres,qdrant,s3]==2.0.0a2"]
 chat = ["harborrag-adapters[llm]==2.0.0a2"]
-memory = ["harborrag-memory==2.0.0a2"]
 temporal = [
-    "temporalio>=1.30,<2",
-    "cloudpickle>=3.1,<4",
+    "temporalio>=1.37,<2",
 ]
 production = [
     "harborrag-adapters[chunking,chunking-code,control-plane,falkordb,langfuse,llm,opentelemetry,parsers,pdf-liteparse,postgres,qdrant,redis,s3,tables]==2.0.0a2",

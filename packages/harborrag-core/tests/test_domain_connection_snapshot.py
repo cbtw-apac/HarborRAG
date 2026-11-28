@@ -10,13 +10,13 @@ from harborrag_core.domain.connection_snapshot import ConnectionSnapshot
 def _snapshot(**changes: object) -> ConnectionSnapshot:
     values: dict[str, object] = {
         "tenant_id": "acme",
-        "source_key": "cpm/tickets",
+        "source_key": "demo/tickets",
         "source_type": "jira",
         "credentials": {
             "base_url": "https://acme.atlassian.net",
             "api_token": {"secret_ref": "secret://db/a", "last4": "9f2c", "updated_at": "t1"},
         },
-        "config": {"jql": "project = CPM"},
+        "config": {"jql": "project = DEMO"},
         "tuning": {"requests_per_minute": 600},
     }
     values.update(changes)
@@ -40,7 +40,7 @@ def test_fingerprint_ignores_secret_status_and_key_order() -> None:
     [
         {"config": {"jql": "project = HR"}},
         {"tuning": {"requests_per_minute": 60}},
-        {"source_key": "cpm/other"},
+        {"source_key": "demo/other"},
         {"credentials": {"api_token": {"secret_ref": "secret://db/b"}}},
     ],
 )

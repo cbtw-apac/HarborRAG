@@ -1,7 +1,17 @@
+"""Identities and change fingerprints of ingested documents and their graph projections.
+
+Every identifier comes from stable inputs through ``encoded_identifier``, so a repeated
+run reproduces it and a changed input changes it. Change an input or its encoding only
+with a plan for the identifiers already stored.
+"""
+
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from hashlib import sha256
+from unicodedata import normalize
+from urllib.parse import quote
 from uuid import UUID, uuid5
 
 from harborrag_core.chunking import ConnectorType, RelationType
@@ -18,6 +28,7 @@ from .source_contracts import (
 from .states import KnowledgeNodeKind
 
 POINT_NAMESPACE = UUID("8e134e44-cb65-5d87-8777-4e897fc7f08d")
+_LOSSY_SPACING = re.compile(r"[^\S ]| {2}|\A | \Z")
 
 _RUNTIME_FIELDS = frozenset(
     {
@@ -51,13 +62,11 @@ _RUNTIME_FIELDS = frozenset(
 
 def is_runtime_field(name: object) -> bool:
     """Whether a key names runtime-only state that knowledge records must not carry."""
-
     return canonical_field_name(name) in _RUNTIME_FIELDS
 
 
 def reject_runtime_fields(value: object) -> None:
     """Reject runtime-only keys before canonical or projection persistence."""
-
     if isinstance(value, Mapping):
         for raw_key, item in value.items():
             key = canonical_field_name(raw_key)
@@ -68,6 +77,44 @@ def reject_runtime_fields(value: object) -> None:
     if isinstance(value, (list, tuple)):
         for item in value:
             reject_runtime_fields(item)
+
+
+def _normalization_changes(value: str) -> bool:
+    """Whether identity normalization changes the spacing or the Unicode form of ``value``."""
+    return bool(_LOSSY_SPACING.search(value)) or normalize("NFC", value) != value
+
+
+def _with_exact_form(identity: dict[str, str], key: str, value: str) -> dict[str, str]:
+    """Add the exact form of a source value that identity encoding would change.
+
+    ``encoded_identifier`` normalizes text. It trims a value, folds every run of
+    whitespace into one space and composes it to Unicode NFC, so two file paths that
+    differ only in spacing or in Unicode form would share one identity. Their exact
+    form, percent-encoded so normalization leaves it alone, keeps them apart. A value
+    that normalization keeps gets no extra entry, so every identifier stored before
+    keeps its value.
+    """
+    if _normalization_changes(value):
+        identity[f"{key}_exact"] = quote(value, safe="")
+    return identity
+
+
+def _document_identity(
+    *,
+    tenant_id: str,
+    connector_type: ConnectorType,
+    connection_id: str,
+    source_item_id: str,
+) -> dict[str, str]:
+    """Return the identity inputs of a document ID, before any exact entry."""
+    identity = {
+        "connector_type": connector_type.value,
+        "connection_id": connection_id,
+        "source_item_id": source_item_id,
+    }
+    if tenant_id != "DEFAULT":
+        identity["tenant_id"] = tenant_id
+    return identity
 
 
 class DocumentIdentityBuilder:
@@ -81,19 +128,31 @@ class DocumentIdentityBuilder:
         connection_id: str,
         source_item_id: str,
     ) -> DocumentId:
-        identity = {
-            "connector_type": connector_type.value,
-            "connection_id": connection_id,
-            "source_item_id": source_item_id,
-        }
-        # Preserve identifiers created before tenancy became authoritative for
-        # the historic DEFAULT namespace; every other tenant is namespaced.
-        if tenant_id != "DEFAULT":
-            identity["tenant_id"] = tenant_id
+        """Return the stable ID of one source item in one connection.
+
+        The historic ``DEFAULT`` tenant is left out of the identity, so documents
+        stored before tenancy became authoritative keep their IDs. Every other
+        tenant is part of it.
+
+        Args:
+            tenant_id: Tenant that owns the connection.
+            connector_type: Connector that produced the item.
+            connection_id: Connection the item came from.
+            source_item_id: The connector's ID of the item, such as a file path.
+
+        Returns:
+            The document ID.
+        """
+        identity = _document_identity(
+            tenant_id=tenant_id,
+            connector_type=connector_type,
+            connection_id=connection_id,
+            source_item_id=source_item_id,
+        )
         return DocumentId(
             encoded_identifier(
                 "document",
-                identity,
+                _with_exact_form(identity, "source_item_id", source_item_id),
             )
         )
 
@@ -105,6 +164,7 @@ class DocumentIdentityBuilder:
         retrieval_metadata_hash: str,
         processing_fingerprint: str,
     ) -> DocumentVersionId:
+        """Return the ID of a document version from its content and processing hashes."""
         return DocumentVersionId(
             encoded_identifier(
                 "document-version",
@@ -118,6 +178,7 @@ class DocumentIdentityBuilder:
         )
 
     def point_id(self, *, chunk_id: str) -> str:
+        """Return the vector point UUID of a chunk."""
         return str(uuid5(POINT_NAMESPACE, chunk_id))
 
     def node_key(
@@ -128,6 +189,7 @@ class DocumentIdentityBuilder:
         logical_id: str,
         document_version_id: str,
     ) -> str:
+        """Return the key of a graph node that one document version owns."""
         return encoded_identifier(
             "graph-v2-node",
             {
@@ -139,9 +201,11 @@ class DocumentIdentityBuilder:
         )
 
     def tenant_node_key(self, *, tenant_id: str) -> str:
+        """Return the key of a tenant's graph node."""
         return encoded_identifier("graph-v2-tenant", {"tenant_id": tenant_id})
 
     def data_source_node_key(self, *, tenant_id: str, source_scope_id: str) -> str:
+        """Return the key of the graph node of one source scope of a tenant."""
         return encoded_identifier(
             "graph-v2-data-source",
             {"tenant_id": tenant_id, "source_scope_id": source_scope_id},
@@ -155,14 +219,19 @@ class DocumentIdentityBuilder:
         entity_type: str,
         provider_id: str,
     ) -> str:
+        """Return the key of a source item or container node inside one source scope."""
         return encoded_identifier(
             "graph-v2-source-entity",
-            {
-                "tenant_id": tenant_id,
-                "source_scope_id": source_scope_id,
-                "entity_type": entity_type,
-                "provider_id": provider_id,
-            },
+            _with_exact_form(
+                {
+                    "tenant_id": tenant_id,
+                    "source_scope_id": source_scope_id,
+                    "entity_type": entity_type,
+                    "provider_id": provider_id,
+                },
+                "provider_id",
+                provider_id,
+            ),
         )
 
     def external_source_entity_node_key(
@@ -181,15 +250,18 @@ class DocumentIdentityBuilder:
         the target is ingested, relation repair re-points the links and the stub is
         pruned once nothing references it.
         """
-
         return encoded_identifier(
             "graph-v2-external-source-entity",
-            {
-                "tenant_id": tenant_id,
-                "connector_type": connector_type,
-                "connection_id": connection_id,
-                "source_item_id": source_item_id,
-            },
+            _with_exact_form(
+                {
+                    "tenant_id": tenant_id,
+                    "connector_type": connector_type,
+                    "connection_id": connection_id,
+                    "source_item_id": source_item_id,
+                },
+                "source_item_id",
+                source_item_id,
+            ),
         )
 
     def document_version_node_key(
@@ -198,6 +270,7 @@ class DocumentIdentityBuilder:
         document_id: str,
         document_version_id: str,
     ) -> str:
+        """Return the key of a document version's graph node."""
         return encoded_identifier(
             "graph-v2-document-version",
             {
@@ -214,6 +287,7 @@ class DocumentIdentityBuilder:
         target_node_key: str,
         source_relation_version: str,
     ) -> str:
+        """Return the ID of one graph relation between two nodes."""
         return encoded_identifier(
             "graph-relation",
             {
@@ -233,6 +307,7 @@ class ChangeFingerprintBuilder:
         *,
         snapshot: AdmissionSnapshot,
     ) -> str:
+        """Return the key that changes when the source reports a changed item."""
         raw_value = {
             "source_version": snapshot.source_version,
             "comments": tuple(item.model_dump(mode="json") for item in snapshot.comments),
@@ -255,11 +330,13 @@ class ChangeFingerprintBuilder:
         return encoded_identifier("admission-change", value)
 
     def canonical_content_hash(self, evidence: object) -> str:
+        """Return the SHA-256 of a document's canonical evidence."""
         reject_runtime_fields(evidence)
         payload = canonical_identity_payload(evidence).encode("utf-8")
         return sha256(payload).hexdigest()
 
     def retrieval_metadata_hash(self, metadata: Mapping[str, object]) -> str:
+        """Return the hash of a document's retrieval metadata."""
         reject_runtime_fields(metadata)
         return encoded_identifier("retrieval-metadata", dict(metadata))
 
@@ -268,6 +345,7 @@ class ChangeFingerprintBuilder:
         *,
         profile: ProcessingProfile,
     ) -> str:
+        """Return the fingerprint of the parser, chunker and encoder profiles in use."""
         return encoded_identifier(
             "processing",
             {
@@ -289,6 +367,7 @@ class ChangeFingerprintBuilder:
         retrieval_metadata: Mapping[str, object],
         processing: ProcessingProfile,
     ) -> ChangeFingerprints:
+        """Return the four fingerprints of one document version."""
         return ChangeFingerprints(
             admission_change_key=self.admission_change_key(snapshot=admission),
             canonical_content_hash=self.canonical_content_hash(canonical_evidence),
@@ -298,9 +377,47 @@ class ChangeFingerprintBuilder:
 
 
 def identity_for_source(source: SourceIdentity) -> DocumentId:
+    """Return the document ID of a source identity."""
     return DocumentIdentityBuilder().document_id(
         tenant_id=source.tenant_id,
         connector_type=source.connector_type,
         connection_id=source.connection_id,
         source_item_id=source.source_item_id,
     )
+
+
+def legacy_identity_for_source(source: SourceIdentity) -> DocumentId:
+    """Return the document ID that 2.0.0a2 and earlier gave a source identity.
+
+    Those releases had no exact entry, so source item IDs that differ only in spacing
+    or in Unicode form shared one ID. For every other source item ID it equals
+    ``identity_for_source``.
+    """
+    return DocumentId(
+        encoded_identifier(
+            "document",
+            _document_identity(
+                tenant_id=source.tenant_id,
+                connector_type=source.connector_type,
+                connection_id=source.connection_id,
+                source_item_id=source.source_item_id,
+            ),
+        )
+    )
+
+
+def composed_owner_of_legacy_identity(source: SourceIdentity) -> SourceIdentity | None:
+    """Return the NFC spelling of ``source`` when it now owns the source's legacy ID.
+
+    2.0.0a2 and earlier gave a source item ID outside Unicode NFC the ID of its NFC
+    spelling, and published its document under it. That ID now belongs to the NFC
+    spelling. Returns None when the source item ID is already NFC, or when its NFC
+    spelling has another ID, as for an ID whose spacing normalization changes too.
+    """
+    composed = normalize("NFC", source.source_item_id)
+    if composed == source.source_item_id:
+        return None
+    spelling = source.model_copy(update={"source_item_id": composed})
+    if identity_for_source(spelling) != legacy_identity_for_source(source):
+        return None
+    return spelling

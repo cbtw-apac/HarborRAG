@@ -78,7 +78,9 @@ class MsWordBinaryDocumentEngine(HarborDocumentEngine):
         except ParseError:
             raise
         except BINARY_DECODE_ERRORS as exc:
-            raise ParseError(f"{self.parser_engine} failed to parse Word document: {exc}") from exc
+            raise ParseError(
+                f"{self.parser_engine} failed to parse Word document: {type(exc).__name__}"
+            ) from exc
 
         elements = self._elements(stories)
         content = "\n\n".join(element.content or "" for element in elements)

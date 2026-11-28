@@ -315,6 +315,14 @@ class ConversationSessions(Protocol):
         """
         ...
 
+    async def erase_completions(self, *, tenant_id: str, user_id: str) -> int:
+        """Delete every stored completion request of one end user, returning how many.
+
+        Requests with and without a session go, stored answers included, so a key
+        the user sent before can be claimed again.
+        """
+        ...
+
 
 @dataclass(frozen=True, slots=True)
 class ConversationSummaryRow:
@@ -426,31 +434,3 @@ class ConversationHistoryRepository(
     Protocol,
 ):
     """Session lifecycle, both history views, and the conversation directory."""
-
-
-__all__ = [
-    "CONVERSATION_CURSOR_ERROR",
-    "MAX_CONVERSATION_PAGE_LIMIT",
-    "MAX_CONVERSATION_TITLE_LENGTH",
-    "ConversationDirectory",
-    "ConversationHistoryRepository",
-    "ConversationIdentity",
-    "ConversationMemory",
-    "ConversationMessage",
-    "ConversationMessageStore",
-    "ConversationPage",
-    "ConversationRepository",
-    "ConversationRole",
-    "ConversationSessions",
-    "ConversationSummaryRow",
-    "ConversationTurn",
-    "ConversationTurnLeases",
-    "decode_conversation_cursor",
-    "complete_message_pairs",
-    "encode_conversation_cursor",
-    "new_message_id",
-    "is_complete_reply",
-    "new_session_id",
-    "normalize_conversation_title",
-    "turns_from_messages",
-]

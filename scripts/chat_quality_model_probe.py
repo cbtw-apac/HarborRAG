@@ -14,11 +14,11 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from harborrag_app.workflow_control.chat.evidence import ChatEvidence
-from harborrag_app.workflow_control.chat.presenters import citation_marker, cited_results
-from harborrag_app.workflow_control.chat.prompting import prompt_text
 from harborrag_core.domain.retrieval import RetrievalResult
 from harborrag_core.models.chat import HarborChatMessage, HarborChatMetadata, HarborChatRequest
+from harborrag_runtime.application.chat.evidence import ChatEvidence
+from harborrag_runtime.application.chat.presenters import citation_marker, cited_results
+from harborrag_runtime.application.chat.prompting import prompt_text
 from harborrag_runtime.chat import ChatPrompt, RuntimeChatService
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.contracts import RetrievalResponse
@@ -27,6 +27,8 @@ from harborrag_runtime.sdk import RetrievalLane
 
 @dataclass(frozen=True, slots=True)
 class Probe:
+    """A question with the passages the model must answer from and the terms it must or must not use."""
+
     name: str
     question: str
     passages: tuple[str, ...]
@@ -39,6 +41,8 @@ class Probe:
 
 @dataclass(frozen=True, slots=True)
 class ScopeProbe:
+    """A question whose scope the model must classify."""
+
     name: str
     question: str
     expected: str
@@ -50,7 +54,6 @@ CASE_FILE = Path(__file__).with_name("chat_quality_model_cases.json")
 
 def _load_cases(path: Path) -> tuple[tuple[Probe, ...], tuple[ScopeProbe, ...]]:
     """Load controlled questions and expected evidence from a data fixture."""
-
     data = json.loads(path.read_text(encoding="utf-8"))
     if (
         not isinstance(data, dict)
@@ -121,7 +124,7 @@ def _request(probe: Probe) -> HarborChatRequest:
     results = _results(probe)
     if not results:
         return HarborChatRequest(
-            messages=(HarborChatMessage.user(prompt_text(probe.question, ())),),
+            messages=(HarborChatMessage.user(prompt_text(probe.question)),),
             sensitive=True,
             metadata=HarborChatMetadata(
                 tenant_id="QUALITY_PROBE",
@@ -275,6 +278,7 @@ async def _run() -> int:
 
 
 def main() -> int:
+    """Run every probe and return the exit code."""
     return asyncio.run(_run())
 
 

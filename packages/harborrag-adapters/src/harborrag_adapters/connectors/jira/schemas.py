@@ -7,7 +7,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any, ClassVar
 
-from harborrag_adapters.connectors.schemas import ConnectorMetadata
+from harborrag_core.ingestion.connector_contracts import ConnectorMetadata
 
 
 @dataclass(slots=True)
@@ -101,7 +101,6 @@ class JiraCustomFieldMetadata:
     @property
     def is_searchable_prose(self) -> bool:
         """Return whether the field belongs in independent dense evidence."""
-
         return self.value_kind == JiraCustomFieldKind.PROSE
 
 

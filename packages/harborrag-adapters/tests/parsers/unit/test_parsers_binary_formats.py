@@ -126,7 +126,9 @@ def test_epub_parser_preserves_spine_section_order(caplog):
     assert [element.metadata["order"] for element in document.elements] == [1, 2, 3]
     assert document.metadata["sections"] == 3
     assert document.warnings is None
-    assert "Parsed EPUB b.epub sections=3" in caplog.text
+    assert "Parsed EPUB input=e0dee3b60c9d suffix=.epub size=" in caplog.text
+    assert "sections=3" in caplog.text
+    assert "b.epub" not in caplog.text
 
 
 def test_epub_parser_warns_on_missing_referenced_section():
@@ -267,7 +269,7 @@ def test_epub_parser_excludes_nav_document_from_spine_content():
 
     document = EpubParser().parse(ParseInput(content=buffer.getvalue(), filename="book.epub"))
 
-    assert document.content == "Harbor Book\n\nChapter One\nChapter body text"
+    assert document.content == "Harbor Book\n\n# Chapter One\n\nChapter body text"
     assert document.content.count("Chapter One") == 1
     assert document.metadata["sections"] == 1
 

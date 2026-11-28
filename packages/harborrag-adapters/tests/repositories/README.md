@@ -1,20 +1,43 @@
 # Repository adapter tests
 
-This module owns vector, graph, cache, object-store, database, workflow-state,
-provider-map, lifecycle, and repository telemetry behavior.
+These tests cover the vector, graph and object-store repositories, the control-plane and
+ingestion-control databases, the provider map, repository lifecycle and repository
+telemetry.
 
-| Type | Scope |
+| Folder | What it covers |
 | --- | --- |
-| `unit/` | Provider behavior with in-memory, temporary local, or fake SDK dependencies |
-| `integration/` | Control-plane migrations and SQLAlchemy repositories composed over real local SQLite |
-| `smoke/` | Live SQLite, PostgreSQL, Redis, Qdrant, and FalkorDB operations |
+| `unit/` | Provider behaviour with in-memory, temporary local or fake SDK dependencies |
+| `integration/` | Control-plane migrations and SQLAlchemy repositories over a temporary local SQLite database |
+| `smoke/` | Standalone scripts that run real Qdrant and FalkorDB operations |
 
-Run all repository pytest coverage with:
+Run the default selection from the repository root:
 
 ```bash
-python -m pytest packages/harborrag-adapters/tests/repositories
+uv run pytest packages/harborrag-adapters/tests/repositories
 ```
 
-The smoke suite can mutate external services and requires a reviewed disposable
-database stack, client extras, ports, and credentials. Follow the complete
-[repository smoke setup](smoke/README.md) before running it.
+The default run leaves out tests marked `integration`, which is most of `integration/`; only
+`test_mcp_api_keys_repository.py` there carries no marker and runs by default, because it
+runs on a temporary SQLite database and needs no external service. The marked tests need
+no external service either, so run them explicitly:
+
+```bash
+uv run pytest packages/harborrag-adapters/tests/repositories/integration -m integration
+```
+
+## Check the repositories coverage gate
+
+`harborrag_adapters.repositories` must stay at 90% line and branch coverage. Measure it with the
+unit and integration tests together, because the SQL repositories are covered only by the
+integration tests; the unit tests alone reach about 76%:
+
+```bash
+uv run pytest -n 0 packages/harborrag-adapters/tests/repositories -m "not e2e and not smoke" \
+  --cov=harborrag_adapters.repositories --cov-fail-under=90
+```
+
+The run takes about five minutes and exits non-zero below 90%.
+
+The smoke scripts write to real services, so they need a disposable database stack, the client
+libraries, open ports and credentials. Set them up with
+[Repository smoke checks](smoke/README.md) before you run them.

@@ -11,7 +11,7 @@ import pytest
 from temporalio.service import RPCError, RPCStatusCode
 
 from harborrag_core.ingestion import DocumentIngestionOutcome
-from harborrag_runtime.ingestion.source.models import PlannedDocuments
+from harborrag_engine.ingestion.source.models import PlannedDocuments
 from harborrag_runtime.temporal import ingestion_activities as activity_module
 from harborrag_runtime.temporal import source_activities as source_activities_module
 from harborrag_runtime.temporal.ingestion_activities import IngestionActivities
@@ -130,6 +130,7 @@ def _planned_document() -> SimpleNamespace:
         connector_name="jira-main",
         configuration_fingerprint="config-v1",
         source_identity=SimpleNamespace(connector_type=connector_type),
+        run_settings=None,
     )
     return SimpleNamespace(document_id="doc-1", request=request)
 
@@ -156,7 +157,13 @@ def _build_activities() -> tuple[
     )
     connector_calls: list[tuple[str, str]] = []
 
-    async def connector(*, tenant_id: str, task_id: str, configuration_fingerprint: str) -> object:
+    async def connector(
+        *,
+        tenant_id: str,
+        task_id: str,
+        configuration_fingerprint: str,
+        run_settings: object = None,
+    ) -> object:
         connector_calls.append((task_id, configuration_fingerprint))
         return "connector"
 
@@ -381,6 +388,11 @@ class FlakyGraphProjections:
 async def test_graph_projection_retry_does_not_replay_the_vector_write(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """A replay runs only the failed activity with its original input.
+
+    Temporal replays only the failed activity with its original input, not the sibling activity that
+    already completed.
+    """
     monkeypatch.setattr(activity_module, "to_prepared_stage", lambda request: "prepared-stage")
 
     activities, *_ = _build_activities()
@@ -394,8 +406,6 @@ async def test_graph_projection_retry_does_not_replay_the_vector_write(
     with pytest.raises(ConnectionError):
         await activities.write_graph_projection(prepared)
 
-    # Temporal replays only the failed activity with its original input, not the
-    # sibling activity that already completed.
     assert await activities.write_graph_projection(prepared) is prepared
 
     assert [name for name, _ in projections.calls] == [

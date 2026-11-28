@@ -5,8 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from harborrag_app.api.auth.base import BaseTokenVerifier
-from harborrag_app.api.auth.principal import ROLE_ORDER, Principal
+from harborrag_app.operations.principal import Principal
 from harborrag_core.contracts.errors import HarborAuthError
+from harborrag_core.domain.member import ROLE_ORDER
 
 
 @dataclass(slots=True)
@@ -25,6 +26,3 @@ class MockTokenVerifier(BaseTokenVerifier):
             tenant_ids=frozenset({"*"}),
             token_kind="mock",
         )
-
-
-__all__ = ["MockTokenVerifier"]

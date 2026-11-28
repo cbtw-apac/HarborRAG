@@ -244,7 +244,7 @@ def test_a_device_code_sharepoint_definition_ignores_ambient_app_credentials(
         environment={
             "MICROSOFT_TENANT_ID": "tid",
             "MICROSOFT_CLIENT_ID": "cid",
-            "HARBORRAG_INGESTION_TENANT_ID": "acme",
+            "HARBORRAG_TENANT_ID": "acme",
             "MICROSOFT_GRAPH_TOKEN": "ambient-token",
             "MICROSOFT_CLIENT_SECRET": "ambient-secret",
         },

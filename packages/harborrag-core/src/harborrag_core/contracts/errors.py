@@ -1,17 +1,12 @@
+"""Base and shared HarborRAG error types."""
+
+
 class HarborError(Exception):
     """Base HarborRAG error."""
 
 
-class HarborImportError(HarborError):
-    """Raised when a required module is not installed."""
-
-
 class HarborConnectionError(HarborError):
     """Raised when there is a connection error to an external service."""
-
-
-class HarborNotSupportedError(HarborError):
-    """Raised when a feature or operation is not supported."""
 
 
 class HarborConfigurationError(HarborError):
@@ -124,8 +119,101 @@ class HarborAuthError(HarborError):
     """Authentication failed, or the principal lacks the required role.
 
     forbidden=False -> not authenticated (401); True -> authenticated
-    but not allowed (403)"""
+    but not allowed (403)
+    """
 
     def __init__(self, message: str, forbidden: bool = False) -> None:
         super().__init__(message)
         self.forbidden = forbidden
+
+
+class UnknownReferenceError(HarborValidationError):
+    """A project or connection the request names does not exist in the tenant."""
+
+    error_code = "reference_not_found"
+
+
+class ConnectionOutOfScopeError(HarborValidationError):
+    """A requested connection sits outside the session's or the question's projects."""
+
+    error_code = "connection_out_of_scope"
+
+
+class ChatModelUnavailableError(HarborUnavailableError):
+    """No chat model answered: none is configured, or the provider is down."""
+
+    error_code = "llm_unavailable"
+
+
+class ModeUnavailableError(HarborValidationError):
+    """The chat mode is not enabled on this install."""
+
+    error_code = "mode_unavailable"
+
+
+class CompletionInProgressError(HarborConflictError):
+    """The first request with this idempotency key is still being answered."""
+
+    error_code = "session_busy"
+
+
+class StorageNotFoundError(RuntimeError):
+    """A storage backend has no record of the requested resource.
+
+    Base class of the adapter-level not-found error, so use cases catch it without
+    importing an adapter.
+    """
+
+
+class IngestionNotFoundError(HarborNotFoundError):
+    """The named ingestion does not exist for the caller's tenant."""
+
+    error_code = "not_found"
+
+
+class IngestionAlreadyCompletedError(HarborConflictError):
+    """The ingestion already reached a terminal state."""
+
+    error_code = "invalid_state"
+
+
+class IngestionAlreadyPausedError(HarborConflictError):
+    """The ingestion is already paused."""
+
+    error_code = "invalid_state"
+
+
+class IngestionAlreadyRunningError(HarborConflictError):
+    """The ingestion is already running."""
+
+    error_code = "already_running"
+
+
+class IngestionActionStateError(HarborConflictError):
+    """The requested action is not allowed in the ingestion's current state."""
+
+    error_code = "invalid_state"
+
+
+class IngestionIdempotencyConflictError(HarborConflictError):
+    """An idempotency key was reused for a different ingestion request."""
+
+    error_code = "invalid_state"
+
+
+class IngestionRetryConflictError(HarborConflictError):
+    """There is nothing to retry, or the run is not yet complete enough to retry."""
+
+    error_code = "invalid_state"
+
+
+class IngestionCursorError(HarborValidationError):
+    """A pagination cursor is malformed or does not match the request filters."""
+
+    error_code = "validation_error"
+
+
+class IngestionFailureIdError(HarborValidationError):
+    """A failure ID is malformed."""
+
+    error_code = "validation_error"

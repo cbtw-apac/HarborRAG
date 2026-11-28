@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from io import BytesIO
 from typing import ClassVar
 
+import fitz
 import pytest
-from pypdf import PdfWriter
 
 from harborrag_adapters.parsers.common.models import ParseRequest
 from harborrag_adapters.parsers.compat import PdfBackend, PdfParser, PdfParseResult
@@ -18,12 +17,10 @@ pytestmark = [pytest.mark.unit, pytest.mark.graybox]
 
 
 def _pdf(pages: int) -> bytes:
-    writer = PdfWriter()
-    for _ in range(pages):
-        writer.add_blank_page(width=612, height=792)
-    buffer = BytesIO()
-    writer.write(buffer)
-    return buffer.getvalue()
+    with fitz.open() as document:
+        for _ in range(pages):
+            document.new_page(width=612, height=792)
+        return bytes(document.tobytes())
 
 
 class _RecordingBackend(PdfBackend):

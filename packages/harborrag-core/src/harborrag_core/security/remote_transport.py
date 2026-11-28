@@ -71,6 +71,3 @@ class RemoteTransportPolicy:
                 f"remote {self.service} requires an encrypted transport ({secure_choices})"
             )
         return parsed
-
-
-__all__ = ["RemoteTransportPolicy", "is_loopback_host"]

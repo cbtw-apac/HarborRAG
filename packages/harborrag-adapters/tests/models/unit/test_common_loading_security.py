@@ -48,25 +48,11 @@ def test_common_config_loading_environment_and_secrets(tmp_path: Path, monkeypat
     with pytest.raises(ValueError, match="mapping"):
         load_config_document(list_path)
 
-    document = {
-        "embed": {"timeout": 1, "nested": {"a": 1}},
-        "profiles": {"prod": {"embed": {"timeout": 2, "nested": {"b": 2}}}},
-    }
-    prepared = prepare_config_section(
-        document, section="embed", profile="prod", overrides={"nested": {"c": 3}}
-    )
-    assert prepared == {"timeout": 2, "nested": {"a": 1, "b": 2, "c": 3}}
-    with pytest.raises(ValueError, match="unknown"):
-        prepare_config_section(document, section="embed", profile="missing", overrides=None)
+    document = {"embed": {"timeout": 1, "nested": {"a": 1}}}
+    prepared = prepare_config_section(document, section="embed", overrides={"nested": {"c": 3}})
+    assert prepared == {"timeout": 1, "nested": {"a": 1, "c": 3}}
     with pytest.raises(ValueError, match="must be a mapping"):
-        prepare_config_section({"embed": []}, section="embed", profile=None, overrides=None)
-    with pytest.raises(ValueError, match="must be a mapping"):
-        prepare_config_section(
-            {"embed": {}, "profiles": {"bad": {"embed": []}}},
-            section="embed",
-            profile="bad",
-            overrides=None,
-        )
+        prepare_config_section({"embed": []}, section="embed", overrides=None)
 
     monkeypatch.setenv("API_KEY", "secret-value")
     monkeypatch.setenv("SECRET_URI", "secret://vault/key")

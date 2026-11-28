@@ -10,7 +10,7 @@ from bootstrap import (
     print_failure,
 )
 
-from harborrag_adapters.connectors.schemas import ConnectorQuery
+from harborrag_core.ingestion.connector_contracts import ConnectorQuery
 
 
 def run_github(*, connection_id: str | None = None, limit: int = 3) -> int:

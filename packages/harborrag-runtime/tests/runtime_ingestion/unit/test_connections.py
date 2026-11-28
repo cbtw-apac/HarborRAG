@@ -2,14 +2,24 @@
 
 from __future__ import annotations
 
+import http.server
+import threading
+from collections.abc import Iterator
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from harborrag_adapters.connectors.exceptions import AuthenticationError
+from harborrag_adapters.connectors.policies.network import (
+    ALLOWED_HOSTS_VARIABLE,
+    BlockedDestinationError,
+    DestinationPolicy,
+)
 from harborrag_adapters.parsers import HarborParserFactory
 from harborrag_core.domain.connection import ConnectionBuilder
+from harborrag_core.ingestion.run_contracts import RunSettings
 from harborrag_core.testing.control_plane_fakes import (
     FakeConnectionRepository,
     FakeConnectionRevisionRepository,
@@ -24,6 +34,7 @@ from harborrag_runtime.ingestion.connections import (
     ConnectionResolver,
     ConnectionUnavailableError,
     ConnectorPool,
+    _narrow_capture_limits,
     build_connector,
     build_connector_from_parts,
 )
@@ -63,6 +74,7 @@ async def _github(
 
 
 def _pool(revisions: FakeConnectionRevisionRepository, **kwargs: Any) -> ConnectorPool:
+    kwargs.setdefault("destination_policy", DestinationPolicy())
     return ConnectorPool(
         revisions=revisions,
         secrets=default_secret_resolver(
@@ -167,6 +179,40 @@ async def test_activities_of_one_run_share_a_connector_and_each_run_gets_its_own
 
 
 @pytest.mark.asyncio
+async def test_whichever_activity_builds_the_connector_first_pins_its_capture_narrowing(
+    stores: Any,
+) -> None:
+    """Every activity of one run shares the pool's cached connector (see the test
+
+    above), so whichever activity happens to build it first -- discovery, a direct
+    fetch, or a retry -- must already pass the run's pinned ``run_settings``: a later
+    call in the same run that omits it does NOT widen the narrowing back, since the
+    cached connector from the first call is reused unchanged.
+    """
+    connections, revisions = stores
+    await _github(connections)
+    resolved = await ConnectionResolver(connections, revisions).resolve(
+        tenant_id="tenant-1", source_key="handbook"
+    )
+    pool = _pool(revisions)
+
+    discovery = await pool.connector(
+        tenant_id="tenant-1",
+        task_id="run-1",
+        configuration_fingerprint=resolved.fingerprint,
+        run_settings=RunSettings("rev_1", max_document_mb=1),
+    )
+    fetch = await pool.connector(
+        tenant_id="tenant-1",
+        task_id="run-1",
+        configuration_fingerprint=resolved.fingerprint,
+    )
+
+    assert discovery is fetch
+    assert fetch.provider.config.max_file_size_bytes == 1024 * 1024
+
+
+@pytest.mark.asyncio
 async def test_the_pool_closes_connectors_it_evicts_and_on_shutdown(
     stores: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -202,7 +248,9 @@ async def test_the_pool_refuses_unknown_snapshots_and_unreadable_secrets(stores:
         tenant_id="tenant-1", source_key="handbook"
     )
     without_env = ConnectorPool(
-        revisions=revisions, secrets=default_secret_resolver(FakeSecrets(), environ={})
+        revisions=revisions,
+        secrets=default_secret_resolver(FakeSecrets(), environ={}),
+        destination_policy=DestinationPolicy(),
     )
 
     with pytest.raises(ConnectorConfigurationError, match="unknown"):
@@ -252,6 +300,89 @@ def test_a_stored_jira_connection_with_a_removed_setting_still_builds(caplog) ->
     assert "include_attachment_text_in_content" in caplog.text
 
 
+def test_capture_max_document_mb_narrows_but_never_raises_the_connection_ceiling(
+    tmp_path: Path,
+) -> None:
+    from runtime_ingestion.connection_support import resolved_connection
+
+    resolved = resolved_connection(
+        "local_file", config={"source_path": str(tmp_path), "max_file_size_bytes": 10_000_000}
+    )
+
+    narrower = build_connector(
+        resolved.snapshot, {}, run_settings=RunSettings("rev_1", max_document_mb=5)
+    )
+    assert narrower.provider.config.max_file_size_bytes == 5 * 1024 * 1024
+
+    wider = build_connector(
+        resolved.snapshot, {}, run_settings=RunSettings("rev_1", max_document_mb=50)
+    )
+    assert wider.provider.config.max_file_size_bytes == 10_000_000
+
+    unchanged = build_connector(resolved.snapshot, {})
+    assert unchanged.provider.config.max_file_size_bytes == 10_000_000
+
+
+def test_capture_file_types_narrows_allowed_extensions_to_the_intersection(
+    tmp_path: Path,
+) -> None:
+    from runtime_ingestion.connection_support import resolved_connection
+
+    resolved = resolved_connection(
+        "local_file",
+        config={"source_path": str(tmp_path), "allowed_extensions": [".md", ".pdf", ".docx"]},
+    )
+
+    connector = build_connector(
+        resolved.snapshot, {}, run_settings=RunSettings("rev_1", file_types=(".pdf", ".xyz"))
+    )
+
+    assert connector.provider.config.allowed_extensions == {".pdf"}
+
+
+def test_capture_file_types_with_no_shared_extension_fails_instead_of_keeping_every_file(
+    tmp_path: Path,
+) -> None:
+    from runtime_ingestion.connection_support import resolved_connection
+
+    resolved = resolved_connection(
+        "local_file",
+        config={"source_path": str(tmp_path), "allowed_extensions": [".md", ".pdf"]},
+    )
+
+    with pytest.raises(ConnectorConfigurationError, match=r"capture\.file_types"):
+        build_connector(
+            resolved.snapshot, {}, run_settings=RunSettings("rev_1", file_types=(".png",))
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class _AttachmentLimits:
+    max_attachment_size_bytes: int | None
+
+
+@dataclass(frozen=True, slots=True)
+class _FileLimits:
+    max_file_size_bytes: int | None
+    allowed_extensions: set[str]
+
+
+def test_narrow_capture_limits_uses_the_attachment_field_name_when_present() -> None:
+    config = _AttachmentLimits(max_attachment_size_bytes=10_000_000)
+
+    narrowed = _narrow_capture_limits(config, RunSettings("rev_1", max_document_mb=5))
+
+    assert isinstance(narrowed, _AttachmentLimits)
+    assert narrowed.max_attachment_size_bytes == 5 * 1024 * 1024
+    assert config.max_attachment_size_bytes == 10_000_000
+
+
+def test_narrow_capture_limits_is_a_noop_without_run_settings() -> None:
+    config = _FileLimits(max_file_size_bytes=10_000_000, allowed_extensions={".pdf"})
+
+    assert _narrow_capture_limits(config, None) is config
+
+
 @pytest.mark.asyncio
 async def test_health_flags_rejected_credentials_and_clears_after_a_good_run(
     stores: Any,
@@ -285,3 +416,86 @@ async def _status(connections: FakeConnectionRepository) -> str:
     row = await connections.get_by_source_key(tenant_id="tenant-1", source_key="handbook")
     assert row is not None
     return row.status
+
+
+@pytest.fixture
+def local_server() -> Iterator[str]:
+    server = http.server.HTTPServer(("127.0.0.1", 0), http.server.SimpleHTTPRequestHandler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    yield f"http://localhost:{server.server_port}/"
+    server.shutdown()
+
+
+async def _github_connector(stores: Any, pool_policy: DestinationPolicy, task_id: str) -> Any:
+    connections, revisions = stores
+    await _github(connections)
+    resolved = await ConnectionResolver(connections, revisions).resolve(
+        tenant_id="tenant-1", source_key="handbook"
+    )
+    pool = _pool(revisions, destination_policy=pool_policy)
+    return await pool.connector(
+        tenant_id="tenant-1", task_id=task_id, configuration_fingerprint=resolved.fingerprint
+    )
+
+
+@pytest.mark.asyncio
+async def test_the_pool_gives_every_connector_its_destination_policy(
+    stores: Any, local_server: str
+) -> None:
+    allowing = DestinationPolicy(hosts=frozenset({"localhost"}))
+
+    connector = await _github_connector(stores, allowing, "run-1")
+
+    assert connector.provider.client.session.get(local_server, timeout=5).status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_the_pool_does_not_read_the_environment_for_each_connector(
+    stores: Any, local_server: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    connections, revisions = stores
+    await _github(connections)
+    resolved = await ConnectionResolver(connections, revisions).resolve(
+        tenant_id="tenant-1", source_key="handbook"
+    )
+    monkeypatch.setenv(ALLOWED_HOSTS_VARIABLE, "localhost,127.0.0.0/8")
+    pool = _pool(revisions, destination_policy=DestinationPolicy.from_environ())
+    monkeypatch.setenv(ALLOWED_HOSTS_VARIABLE, "")
+
+    for task_id in ("run-1", "run-2"):
+        connector = await pool.connector(
+            tenant_id="tenant-1", task_id=task_id, configuration_fingerprint=resolved.fingerprint
+        )
+        assert connector.provider.client.session.get(local_server, timeout=5).status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_a_pool_policy_without_allowed_hosts_refuses_loopback_whatever_the_environment_says(
+    stores: Any, local_server: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv(ALLOWED_HOSTS_VARIABLE, "localhost,127.0.0.0/8")
+
+    connector = await _github_connector(stores, DestinationPolicy(), "run-1")
+
+    with pytest.raises(BlockedDestinationError):
+        connector.provider.client.session.get(local_server, timeout=5)
+
+
+@pytest.mark.asyncio
+async def test_a_connector_built_without_a_policy_reaches_public_addresses_only(
+    stores: Any, local_server: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    connections, revisions = stores
+    await _github(connections)
+    resolved = await ConnectionResolver(connections, revisions).resolve(
+        tenant_id="tenant-1", source_key="handbook"
+    )
+    secrets = await default_secret_resolver(
+        FakeSecrets(), environ={"TEST_GITHUB_TOKEN": "ghp_x"}
+    ).resolve_credentials(resolved.snapshot.credentials, tenant_id="tenant-1")
+    monkeypatch.setenv(ALLOWED_HOSTS_VARIABLE, "localhost,127.0.0.0/8")
+
+    connector = build_connector(resolved.snapshot, secrets)
+
+    with pytest.raises(BlockedDestinationError):
+        connector.provider.client.session.get(local_server, timeout=5)

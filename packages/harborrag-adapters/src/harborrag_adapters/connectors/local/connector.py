@@ -4,26 +4,26 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterator
-from pathlib import Path
 
 from harborrag_adapters.connectors.base import BaseConnector
 from harborrag_adapters.connectors.exceptions import (
     DocumentProcessingError,
     FetchError,
 )
-from harborrag_adapters.connectors.schemas import (
+from harborrag_core.domain.raw_document import RawDocument
+from harborrag_core.domain.source import SourceRecord
+from harborrag_core.ingestion.connector_contracts import (
     ConnectorCapabilities,
     ConnectorQuery,
     ConnectorSkip,
 )
-from harborrag_core.domain.raw_document import RawDocument
-from harborrag_core.domain.source import SourceRecord
 
 from .config import LocalFileConfig
 from .filesystem import LocalFileSystem
 from .filesystem_paths import guess_mime_type
 from .mappers import build_document_metadata, path_from_record
 from .relations import LocalDocumentRelationResolver
+from .skips import path_digest
 
 logger = logging.getLogger("harborrag.adapters.connectors.local")
 
@@ -34,6 +34,14 @@ class LocalFileConnector(BaseConnector):
     The configured source path is the trust boundary. Discovery and direct loads
     resolve candidate paths and reject anything outside that scope, including
     symlink escapes.
+
+    Args:
+        config: Local source configuration that defines the trusted scope.
+
+    Attributes:
+        config: Local source configuration.
+        provider_name: Connector type name used in the registry.
+        capabilities: What this connector supports, such as incremental sync.
     """
 
     provider_name = "local"
@@ -46,7 +54,6 @@ class LocalFileConnector(BaseConnector):
     )
 
     def __init__(self, config: LocalFileConfig) -> None:
-        """Initialize safe filesystem operations for the configured scope."""
         self.config = config
         self._files = LocalFileSystem(config)
         self.source_path = self._files.source_path
@@ -63,10 +70,13 @@ class LocalFileConnector(BaseConnector):
             if query.limit is not None and yielded >= query.limit:
                 return
 
+    def bind_run_id(self, run_id: str) -> None:
+        """Tag this connector's skip warnings with the caller's run ID."""
+        self._files.skips.run_id = run_id
+
     @property
     def skipped(self) -> tuple[ConnectorSkip, ...]:
         """Report files traversal dropped instead of discovering."""
-
         return self._files.skips.entries
 
     def load(self, record: SourceRecord) -> RawDocument:
@@ -75,14 +85,17 @@ class LocalFileConnector(BaseConnector):
         path = record_path if record_path.is_absolute() else self.root_path / record_path
         if not path.is_relative_to(self.root_path):
             raise DocumentProcessingError(
-                f"Local path is outside configured source scope {self.root_path}: {path}"
+                f"Local path is outside configured source scope {self.root_path}: "
+                f"path_digest={path_digest(path)}"
             )
 
-        logger.info("Loading local file %s", path)
+        logger.info("Loading local file path_digest=%s", path_digest(path))
         try:
             snapshot = self._files.read_snapshot(path)
         except OSError as exc:
-            raise FetchError(f"Could not read local file {path}") from exc
+            raise FetchError(
+                f"Could not read local file path_digest={path_digest(path)}: {type(exc).__name__}"
+            ) from None
 
         metadata = build_document_metadata(
             path,
@@ -110,10 +123,4 @@ class LocalFileConnector(BaseConnector):
 
     def close(self) -> None:
         """Release the root descriptor held by the filesystem boundary."""
-
         self._files.close()
-
-    def load_by_paths(self, paths: list[str | Path]) -> Iterator[RawDocument]:
-        """Load files for callers that already have file paths."""
-        for path in paths:
-            yield self.load(self._files.record_for_path(path))

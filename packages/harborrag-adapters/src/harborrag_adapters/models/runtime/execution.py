@@ -131,6 +131,8 @@ class RoutedModelExecutor[D: DeploymentLike]:
                     retryable=retryable,
                     current_available=state.available(time.monotonic()),
                 ):
+                    if error is exc:
+                        raise
                     raise error from exc
                 if on_transition is not None:
                     on_transition(cursor.transition(before, attempt.public, error))
@@ -184,6 +186,8 @@ class RoutedModelExecutor[D: DeploymentLike]:
                     retryable=retryable,
                     current_available=state.available(time.monotonic()),
                 ):
+                    if error is exc:
+                        raise
                     raise error from exc
                 if on_transition is not None:
                     await on_transition(cursor.transition(before, attempt.public, error))

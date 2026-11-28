@@ -20,6 +20,8 @@ from typing import Any
 import typer
 import yaml
 
+from harborrag_runtime.config.settings import RuntimeSettings
+
 logger = logging.getLogger("harborrag.app.cli.project")
 
 # The project main() activated for this process, so later code (doctor) reports it instead
@@ -32,6 +34,7 @@ _ACTIVE: Project | None = None
 # it; anything else (a later chdir, a test that never activated) means "use the CWD".
 _INVOCATION: tuple[Path, Path] | None = None
 
+STDIO_PATH = "-"
 PROJECT_FILE = "harborrag.yaml"
 # A repository checkout carries no harborrag.yaml but does ship catalogs under config/.
 LEGACY_CONFIG_MARKER = Path("config") / "sources" / "connectors.yaml"
@@ -195,6 +198,13 @@ def invocation_cwd() -> Path:
     return cwd
 
 
+def from_invocation(path: str | Path) -> Path:
+    """Expand ``~`` and anchor a relative path at :func:`invocation_cwd`."""
+
+    expanded = Path(path).expanduser()
+    return expanded if expanded.is_absolute() else invocation_cwd() / expanded
+
+
 def invocation_path(
     *, exists: bool = False, dir_okay: bool = True
 ) -> Callable[[Path | None], Path | None]:
@@ -205,14 +215,18 @@ def invocation_path(
     absolute, which is also what a command should report back. This is a callback rather
     than a ``click.Path`` subclass because Typer 0.26+ vendors Click and no longer installs
     it, so ``harborrag-app`` must not import ``click`` itself.
+
+    Raises:
+        typer.BadParameter: The value is ``-``, because no option using this callback
+            reads stdin or writes stdout, so ``-`` would name a file called ``-``.
     """
 
     def rebase(value: Path | None) -> Path | None:
-        if value is None or os.fspath(value) == "-":
+        if value is None:
             return value
-        path = Path(value).expanduser()
-        if not path.is_absolute():
-            path = invocation_cwd() / path
+        if os.fspath(value) == STDIO_PATH:
+            raise typer.BadParameter("'-' is not accepted here; name a file")
+        path = from_invocation(value)
         if exists and not path.exists():
             raise typer.BadParameter(f"File '{value}' does not exist.")
         if not dir_okay and path.is_dir():
@@ -300,6 +314,13 @@ def _load(root: Path) -> Project:
     runtime = raw.get("runtime") or {}
     if not isinstance(runtime, dict):
         raise ProjectConfigurationError(f"{marker}: 'runtime' must be a mapping")
+    unknown = sorted(
+        str(key) for key in runtime if str(key).lower() not in RuntimeSettings.model_fields
+    )
+    if unknown:
+        raise ProjectConfigurationError(
+            f"{marker}: unknown 'runtime' settings: {', '.join(unknown)}"
+        )
     return Project(root=root, runtime={str(key): value for key, value in runtime.items()})
 
 
@@ -307,25 +328,3 @@ def _env_value(value: Any) -> str:
     if isinstance(value, bool):
         return "true" if value else "false"
     return str(value)
-
-
-__all__ = [
-    "ENV_FILE",
-    "invocation_path",
-    "LEGACY_CONFIG_MARKER",
-    "PROJECT_ENV_VAR",
-    "PROJECT_FILE",
-    "Project",
-    "ProjectConfigurationError",
-    "ProjectError",
-    "ProjectNotFoundError",
-    "UnsafeProjectError",
-    "activate_from_argv",
-    "activate_legacy_checkout",
-    "active_project",
-    "activate_project",
-    "find_legacy_checkout",
-    "find_project",
-    "invocation_cwd",
-    "project_option_from_argv",
-]

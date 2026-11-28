@@ -62,7 +62,7 @@ class LiteParsePDFEngine(HarborPDFEngine):
         try:
             result = self._parse_with_liteparse(parser, input)
         except Exception as exc:  # noqa: BLE001 - external parser boundary
-            raise ParseError(f"LiteParse could not parse PDF: {exc}") from exc
+            raise ParseError(f"LiteParse could not parse PDF: {type(exc).__name__}") from exc
 
         content = self._content_from_result(result)
         return PDFParseResult(

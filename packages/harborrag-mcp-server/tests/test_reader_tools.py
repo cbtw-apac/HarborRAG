@@ -35,6 +35,8 @@ from harborrag_runtime.sdk import (
     SourceListResponse,
 )
 
+pytestmark = pytest.mark.unit
+
 
 def _node(key: str) -> GraphNodeRecord:
     return GraphNodeRecord(
@@ -51,6 +53,16 @@ def _node(key: str) -> GraphNodeRecord:
 
 @dataclass
 class FakeReaderKnowledge:
+    """Reader knowledge service that records requests and answers with fixtures.
+
+    Attributes:
+        evidence_requests: ``read_evidence`` requests received.
+        context_requests: ``get_document_context`` requests received.
+        source_requests: ``list_sources`` requests received.
+        node_requests: ``resolve_graph_nodes`` requests received.
+        document_requests: ``list_documents`` requests received.
+    """
+
     evidence_requests: list[object] = field(default_factory=list)
     context_requests: list[object] = field(default_factory=list)
     source_requests: list[object] = field(default_factory=list)
@@ -58,6 +70,7 @@ class FakeReaderKnowledge:
     document_requests: list[object] = field(default_factory=list)
 
     async def list_documents(self, request):
+        """Record the request and return one page of fixture documents."""
         self.document_requests.append(request)
         page = 2 if request.after_document_id else 1
         return DocumentListResponse(
@@ -67,6 +80,7 @@ class FakeReaderKnowledge:
         )
 
     async def read_evidence(self, request):
+        """Record the request; only ``chunk-1`` is available."""
         self.evidence_requests.append(request)
         items = tuple(
             EvidenceReadItem(
@@ -77,7 +91,7 @@ class FakeReaderKnowledge:
                 document_version_id="version-1" if item.chunk_id == "chunk-1" else None,
                 source_scope_id="source-1" if item.chunk_id == "chunk-1" else None,
                 connector_type="local" if item.chunk_id == "chunk-1" else None,
-                chunk_kind="text" if item.chunk_id == "chunk-1" else None,
+                chunk_kind=("text",) if item.chunk_id == "chunk-1" else (),
                 ordinal=0 if item.chunk_id == "chunk-1" else None,
                 section_path=("Overview",) if item.chunk_id == "chunk-1" else (),
                 citation_locator={"start_line": 1} if item.chunk_id == "chunk-1" else {},
@@ -87,6 +101,7 @@ class FakeReaderKnowledge:
         return EvidenceReadResponse("evidence-1", items)
 
     async def get_document_context(self, request):
+        """Record the request and return a one-chunk window at its offset."""
         self.context_requests.append(request)
         offset = request.offset
         return DocumentContextResponse(
@@ -101,6 +116,7 @@ class FakeReaderKnowledge:
         )
 
     async def list_sources(self, request):
+        """Record the request and return fixture sources."""
         self.source_requests.append(request)
         page = 2 if request.after_source_scope_id else 1
         value = ReadableSource(
@@ -120,6 +136,7 @@ class FakeReaderKnowledge:
         return SourceListResponse(f"sources-{page}", (value,), has_more=page == 1)
 
     async def resolve_graph_nodes(self, request):
+        """Record the request and return fixture graph nodes."""
         self.node_requests.append(request)
         return GraphNodeResolveResponse("nodes-1", (_node("node-1"), _node("node-2")))
 
@@ -141,7 +158,7 @@ def _context_chunk(chunk_id: str, ordinal: int):
         chunk_id,
         ordinal,
         f"Context {ordinal}",
-        "text",
+        ("text",),
         ("Overview",),
         {"start_line": ordinal + 1},
     )
@@ -149,6 +166,12 @@ def _context_chunk(chunk_id: str, ordinal: int):
 
 @dataclass
 class FakeRuntime:
+    """Runtime whose knowledge service is a ``FakeReaderKnowledge``.
+
+    Attributes:
+        knowledge: The fake reader knowledge service.
+    """
+
     knowledge: FakeReaderKnowledge = field(default_factory=FakeReaderKnowledge)
 
 
@@ -220,6 +243,7 @@ async def test_fetch_evidence_preserves_mixed_batch_availability_and_expectation
 
 @pytest.mark.asyncio
 async def test_document_cursor_is_owner_bound_and_keeps_one_version() -> None:
+    """The title rides along with each window, so no separate metadata read is needed."""
     runtime = FakeRuntime()
     server = McpServer(runtime=runtime)  # type: ignore[arg-type]
     first = await server.call_tool(
@@ -255,7 +279,6 @@ async def test_document_cursor_is_owner_bound_and_keeps_one_version() -> None:
 
     assert [item["chunk_id"] for item in first["chunks"]] == ["chunk-1"]
     assert [item["chunk_id"] for item in second["chunks"]] == ["chunk-2"]
-    # The title rides along with each window, so no separate metadata read is needed.
     assert first["document_title"] == second["document_title"] == "Guide"
     assert runtime.knowledge.context_requests[1].expected_document_version_id == "version-1"
     assert denied == {"ok": False, "error": "cursor is unavailable"}
@@ -263,6 +286,7 @@ async def test_document_cursor_is_owner_bound_and_keeps_one_version() -> None:
 
 @pytest.mark.asyncio
 async def test_source_pagination_and_graph_resolution_are_explicit() -> None:
+    """The facet vocabulary find_entities filters by is discoverable per source."""
     runtime = FakeRuntime()
     server = McpServer(runtime=runtime)  # type: ignore[arg-type]
     sources = await server.call_tool(
@@ -285,7 +309,6 @@ async def test_source_pagination_and_graph_resolution_are_explicit() -> None:
 
     assert [item["source_id"] for item in sources["sources"]] == ["source-1"]
     assert [item["source_id"] for item in next_sources["sources"]] == ["source-2"]
-    # The facet vocabulary find_entities filters by is discoverable per source.
     assert sources["sources"][0]["entity_facets"] == [
         {"name": "skill_set", "type": "text", "field": "Skill Set"}
     ]

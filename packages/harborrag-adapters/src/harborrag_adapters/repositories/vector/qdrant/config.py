@@ -5,7 +5,7 @@ from ipaddress import ip_address
 from typing import Literal
 from urllib.parse import urlsplit
 
-from pydantic import SecretStr, model_validator
+from pydantic import Field, SecretStr, model_validator
 
 from harborrag_adapters.repositories.plugin import RepositoryConfig
 
@@ -26,6 +26,7 @@ class QdrantVectorConfig(RepositoryConfig):
     path: str | None = None
     api_key: SecretStr | None = None
     prefer_grpc: bool = True
+    grpc_port: int | None = Field(default=None, ge=1, le=65_535)
     allow_insecure_remote: bool = False
 
     @model_validator(mode="after")

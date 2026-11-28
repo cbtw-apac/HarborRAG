@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from harborrag_core.security import RemoteTransportPolicy
@@ -44,7 +44,9 @@ class TenantCapacityOverride(BaseModel):
 class ApiSettings(BaseSettings):
     """Environment-driven settings for the Control Plane API process."""
 
-    model_config = SettingsConfigDict(env_prefix="HARBORRAG_", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_prefix="HARBORRAG_", extra="ignore", hide_input_in_errors=True
+    )
 
     # Safe local default. Container deployments explicitly override this to
     # 0.0.0.0 and must acknowledge disabled authentication in development.
@@ -115,6 +117,14 @@ class ApiSettings(BaseSettings):
         ):
             data = {**data, "docs_enabled": False}
         return data
+
+    @field_validator("metrics_scrape_token")
+    @classmethod
+    def _blank_scrape_token_is_unset(cls, value: SecretStr | None) -> SecretStr | None:
+        """Treat a blank scrape token as unset, so ``/metrics`` refuses every request."""
+        if value is None or not value.get_secret_value().strip():
+            return None
+        return value
 
     @model_validator(mode="after")
     def _validate_ops_port(self) -> ApiSettings:

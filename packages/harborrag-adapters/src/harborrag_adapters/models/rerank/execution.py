@@ -262,7 +262,7 @@ class RerankExecution:
             attempt.deployment,
             routed,
             timeout=self.config.timeouts.request_seconds,
-            litellm_provider=descriptor.litellm_provider,
+            metadata=descriptor,
         )
         params.update(self.cache.provider_parameters(decision))
         params["metadata"] = litellm_telemetry_metadata(

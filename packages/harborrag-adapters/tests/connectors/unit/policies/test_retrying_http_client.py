@@ -22,11 +22,19 @@ pytestmark = pytest.mark.unit
 class _ScriptedClient(RetryingHttpClient):
     """Replays responses or exceptions, one per attempt."""
 
-    def __init__(self, script: list[Any], *, policy: RetryPolicy, refreshable: bool = False):
+    def __init__(
+        self,
+        script: list[Any],
+        *,
+        policy: RetryPolicy,
+        refreshable: bool = False,
+        secrets: tuple[str, ...] = (),
+    ):
         super().__init__(label="Example", logger=logging.getLogger("test"))
         self.script = script
         self.policy = policy
         self.refreshable = refreshable
+        self.secrets = secrets
         self.attempts = 0
         self.refreshes = 0
 
@@ -43,6 +51,16 @@ class _ScriptedClient(RetryingHttpClient):
     def _refresh_credentials(self) -> bool:
         self.refreshes += 1
         return self.refreshable
+
+    def _known_secrets(self) -> tuple[str, ...]:
+        return self.secrets
+
+
+class _BodySignalledLimitClient(_ScriptedClient):
+    """Treats a 403 whose body says "slow down" as a rate limit."""
+
+    def _rate_limited(self, response: Any, detail: str) -> bool:
+        return response.status_code == 429 or "slow down" in detail
 
 
 @pytest.fixture(autouse=True)
@@ -101,6 +119,47 @@ def test_connection_errors_after_the_last_retry_are_a_fetch_error() -> None:
 
     with pytest.raises(FetchError, match="Example request failed"):
         client.request("GET", "https://example.com/x")
+
+
+def test_a_connection_failure_never_carries_the_request_url() -> None:
+    signed = "https://example.com/file?signature=synthetic-signature-value"
+    client = _client([requests.ConnectionError(f"Max retries exceeded with url: {signed}")] * 3)
+
+    with pytest.raises(FetchError) as raised:
+        client.request("GET", signed)
+
+    assert "synthetic-signature-value" not in str(raised.value)
+    assert raised.value.__cause__ is None
+    assert raised.value.__suppress_context__ is True
+
+
+def test_error_text_never_shows_a_known_secret() -> None:
+    secret = "token-ExampleValue42"
+    client = _client([FakeResponse(status_code=400, text=f"rejected {secret}")], secrets=(secret,))
+
+    with pytest.raises(FetchError) as raised:
+        client.request("GET", "https://example.com/x")
+
+    assert secret not in str(raised.value)
+    assert raised.value.status_code == 400
+
+
+def test_a_refused_body_is_read_once_for_the_rate_limit_check_and_the_error() -> None:
+    policy = RetryPolicy(max_retries=1, backoff_factor=0.0)
+    client = _BodySignalledLimitClient(
+        [
+            FakeResponse(status_code=403, text="slow down"),
+            FakeResponse(status_code=403, text="slow down"),
+        ],
+        policy=policy,
+    )
+
+    with pytest.raises(RateLimitError) as raised:
+        client.request("GET", "https://example.com/x")
+
+    assert client.attempts == 2
+    assert raised.value.status_code == 403
+    assert "slow down" in str(raised.value)
 
 
 def test_a_401_is_resent_once_with_fresh_credentials_without_using_a_retry() -> None:

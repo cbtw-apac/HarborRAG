@@ -4,9 +4,20 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
 from harborrag_adapters.connectors.jira.document_transform import JiraDocumentTransform
 from harborrag_core.domain import Document, DocumentProvenance, ParsedDocument, RawDocument
 from harborrag_core.domain.element import DocumentElement
+
+pytestmark = pytest.mark.unit
+
+_WIKI_TABLE = "||Layer||Approach||\n|Functional|Manual|"
+_RENDERED_TABLE = (
+    "<table><tr><th>Layer</th><th>Approach</th></tr><tr><td>Functional</td><td>Manual</td></tr>"
+    "</table>"
+)
+_MARKDOWN_TABLE = "| Layer | Approach |\n| --- | --- |\n| Functional | Manual |"
 
 
 def make_inputs(
@@ -32,6 +43,32 @@ def make_inputs(
         provenance=DocumentProvenance(source="jira", record_id="HARBOR-1"),
     )
     return raw, parsed, document
+
+
+def test_server_description_in_wiki_markup_uses_the_rendered_table() -> None:
+    raw, parsed, document = make_inputs(fields={"summary": "Checks", "description": _WIKI_TABLE})
+    assert raw.raw is not None
+    raw.raw["renderedFields"] = {"description": _RENDERED_TABLE}
+
+    result = JiraDocumentTransform().transform(raw, parsed, document)
+
+    description = next(element for element in result.content if element.id.endswith(":description"))
+    assert description.content == _MARKDOWN_TABLE
+
+
+def test_cloud_description_in_adf_wins_over_the_rendered_html() -> None:
+    adf = {
+        "type": "doc",
+        "content": [{"type": "paragraph", "content": [{"type": "text", "text": "From ADF"}]}],
+    }
+    raw, parsed, document = make_inputs(fields={"summary": "Checks", "description": adf})
+    assert raw.raw is not None
+    raw.raw["renderedFields"] = {"description": "<p>From HTML</p>"}
+
+    result = JiraDocumentTransform().transform(raw, parsed, document)
+
+    description = next(element for element in result.content if element.id.endswith(":description"))
+    assert description.content == "From ADF"
 
 
 def test_transform_keeps_the_summary_as_canonical_evidence() -> None:
@@ -76,8 +113,8 @@ def test_comment_only_issue_still_produces_content() -> None:
     """
 
     raw, parsed, document = make_inputs(
-        fields={"summary": "Candidate profile", "description": ""},
-        metadata={"comments": [{"id": "1001", "body": "Interview notes"}]},
+        fields={"summary": "Service profile", "description": ""},
+        metadata={"comments": [{"id": "1001", "body": "Review notes"}]},
     )
 
     result = JiraDocumentTransform().transform(raw, parsed, document)
@@ -98,7 +135,7 @@ def test_typed_custom_fields_are_rendered_as_searchable_content() -> None:
 
     raw, parsed, document = make_inputs(
         fields={
-            "summary": "Candidate profile",
+            "summary": "Service profile",
             "customfield_10001": "Data Engineering",
             "customfield_10002": 3.0,
         },
@@ -195,7 +232,7 @@ def test_typed_custom_fields_become_one_exact_filterable_map() -> None:
         "customfield_3": "Restricted to",
         "customfield_4": "PD Consent",
         "customfield_5": "Available From",
-        "customfield_6": "Candidate's email 1",
+        "customfield_6": "Owner's email 1",
         "customfield_7": "Notes",
         "customfield_8": "Empty",
     }
@@ -215,7 +252,7 @@ def test_typed_custom_fields_become_one_exact_filterable_map() -> None:
         "restricted_to": ["Aidan NELL", "Martin PAPY"],
         "pd_consent": False,
         "available_from": "2026-09-13",
-        "candidate_s_email_1": "nguyen@example.com",
+        "owner_s_email_1": "nguyen@example.com",
     }
 
 
@@ -225,7 +262,7 @@ def test_a_field_name_that_cannot_be_a_key_falls_back_to_the_field_id() -> None:
 
     raw, parsed, document = make_inputs(
         fields={
-            "summary": "Candidate",
+            "summary": "Service",
             "customfield_1": "first",
             "customfield_2": "second",
             "customfield_3": "abc-123",

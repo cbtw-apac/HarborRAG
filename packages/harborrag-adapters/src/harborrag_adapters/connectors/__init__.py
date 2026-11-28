@@ -1,6 +1,6 @@
 """Connectors that pull documents from source systems, and their registry.
 
-Importing this package is cheap: the registry, query and metadata types load
+Importing this package is cheap: the registry and descriptor types load
 eagerly, while each provider (Confluence, GitHub, Jira, local files,
 SharePoint) loads on first access to its names or on the registry's first
 lookup. Connectors import ``_shared`` and core, never ``parsers``.
@@ -18,12 +18,6 @@ from harborrag_adapters.connectors.harbor_connector import HarborConnector
 from harborrag_adapters.connectors.registry import (
     ConnectorProviderDefinition,
     connector_registry,
-)
-from harborrag_adapters.connectors.schemas import (
-    ConnectorCapabilities,
-    ConnectorMetadata,
-    ConnectorQuery,
-    ConnectorSkip,
 )
 
 if TYPE_CHECKING:
@@ -82,12 +76,8 @@ __all__ = [
     "ConfluenceDeploymentType",
     "ConfluenceDocumentTransform",
     "ConfluenceSpaceConfig",
-    "ConnectorCapabilities",
     "ConnectorDocumentDescriptor",
-    "ConnectorMetadata",
     "ConnectorProviderDefinition",
-    "ConnectorQuery",
-    "ConnectorSkip",
     "GitHubConnector",
     "GitHubRepositoryConfig",
     "HarborConnector",

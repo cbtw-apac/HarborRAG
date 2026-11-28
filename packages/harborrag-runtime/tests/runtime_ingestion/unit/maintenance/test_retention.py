@@ -29,11 +29,9 @@ from harborrag_core.ingestion import (
 )
 from harborrag_core.schemas.object_store import PutObjectRequest
 from harborrag_core.storage import StorageFamily, StorageOperationContext
-from harborrag_runtime.ingestion import (
-    DocumentReleaseService,
-    ProjectionCleanupService,
-    RetiredVersionPurgeService,
-)
+from harborrag_engine.ingestion.maintenance.cleanup import ProjectionCleanupService
+from harborrag_engine.ingestion.release.service import DocumentReleaseService
+from harborrag_runtime.ingestion import RetiredVersionPurgeService
 from harborrag_runtime.ingestion.maintenance.retention import RetiredVersionPurgeBatch
 
 from ...fixtures.connectors import SourceConnector
@@ -132,6 +130,12 @@ async def test_purge_deletes_version_owned_objects_and_keeps_shared_ones(
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
+    """Purge deletes version-owned objects and keeps shared ones.
+
+    Same bytes share one content-addressed raw object. Objects no version records, such as
+    a shared parse cache entry and a task plan, survive, as does a sibling id that merely
+    extends the retired id. A second run finds nothing eligible, so the purge is idempotent.
+    """
     control = build_control_plane(tmp_path)
     resources = build_release_resources(control)
     async with control, resources.store:
@@ -143,13 +147,10 @@ async def test_purge_deletes_version_owned_objects_and_keeps_shared_ones(
         assert retired_snapshot.raw_artifact is not None
         assert retired_snapshot.raw_metadata_artifact is not None
         assert active_snapshot.raw_artifact is not None
-        # Same bytes, same content-addressed raw object.
         assert retired_snapshot.raw_artifact.key == active_snapshot.raw_artifact.key
-        # Objects no version records: a shared parse cache entry and a task plan.
         for bucket, key in (
             (ARTIFACT_BUCKET, f"parsed/{released.document_id}/parser-v1/hash.json"),
             (ARTIFACT_BUCKET, "source-plans/task-1/scan-1.json"),
-            # A sibling id that merely extends the retired id must survive.
             (ARTIFACT_BUCKET, f"comments/{released.document_id}/{released.retired}x.json"),
         ):
             await resources.store.put(
@@ -199,7 +200,6 @@ async def test_purge_deletes_version_owned_objects_and_keeps_shared_ones(
         assert await control.reliability.projection_manifest(released.active) is not None
         assert "Retired version purged" in caplog.text
 
-        # Idempotent: nothing is eligible on the next run.
         again = await _service(control, resources.store).run_scope(
             tenant_id="default",
             source_scope_id="docs",
@@ -272,6 +272,12 @@ async def test_a_storage_error_leaves_the_version_purging_for_the_next_run(
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
+    """A storage error leaves the version PURGING for the next run.
+
+    Some objects may already be gone, so the version stays claimed: replay keeps waiting
+    on it and the next run resumes the purge rather than restarting it. The failed purge
+    keeps its lease as a backoff; once it lapses the next run resumes the purge.
+    """
     control = build_control_plane(tmp_path)
     resources = build_release_resources(control)
     async with control, resources.store:
@@ -287,14 +293,10 @@ async def test_a_storage_error_leaves_the_version_purging_for_the_next_run(
         assert (failed.purged, failed.failed) == (0, 1)
         assert "error_type=HarborStorageConnectionError" in caplog.text
         assert snapshot is not None
-        # Some objects may already be gone, so the version stays claimed: replay keeps
-        # waiting on it and the next run resumes the purge rather than restarting it.
         assert snapshot.state == DocumentVersionState.PURGING
         assert snapshot.canonical_artifact is not None
         assert await control.reliability.projection_manifest(released.retired) is not None
 
-        # The failed purge keeps its lease as a backoff; once it lapses the next run
-        # resumes the purge.
         assert (
             await _service(control, store).run_scope(
                 tenant_id="default",
@@ -372,6 +374,10 @@ async def test_the_periodic_sweep_purges_scopes_that_are_never_reingested(
 
 @pytest.mark.asyncio
 async def test_the_worker_sweeps_on_its_interval_and_stops_with_the_worker() -> None:
+    """The worker sweeps on its interval and stops with the worker.
+
+    A failed sweep waits for the next interval.
+    """
     import asyncio
 
     from harborrag_runtime.temporal.worker import _retention_runner
@@ -386,7 +392,7 @@ async def test_the_worker_sweeps_on_its_interval_and_stops_with_the_worker() -> 
             if calls == 2:
                 stop.set()
             if calls == 1:
-                raise RuntimeError("storage briefly down")  # a failed sweep waits for the next
+                raise RuntimeError("storage briefly down")
             return RetiredVersionPurgeBatch()
 
     runtime = type("Runtime", (), {"retention": _Retention()})()

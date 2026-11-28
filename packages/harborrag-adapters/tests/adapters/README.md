@@ -1,19 +1,18 @@
 # Top-level adapter tests
 
-This module covers adapter base contracts and the minimal cross-family
-composition exposed by the adapter package.
+These tests check the base contracts every adapter family shares, and that a connector and a
+parser work together. `unit/test_adapter_contracts.py` checks that:
 
-```text
-adapters/
-  unit/       deterministic base-contract and cross-family checks
-  README.md
-```
+- the base connector and parser methods raise `NotImplementedError` until a subclass implements
+  them;
+- the repository contracts are abstract;
+- a connector's documents parse through a parser end to end.
 
-Run the module from the repository root:
+Run them from the repository root:
 
 ```bash
-python -m pytest packages/harborrag-adapters/tests/adapters
+uv run pytest packages/harborrag-adapters/tests/adapters
 ```
 
-Provider-specific behavior belongs to the connector, model, parser, or
-repository module instead of this top-level suite.
+Provider-specific behaviour belongs in the connector, model, parser or repository module, not in
+this suite. The [test index](../README.md) lists those modules.

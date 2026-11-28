@@ -248,6 +248,18 @@ Regular paragraph text.
         assert processor._process_link_path("./CONTRIBUTING.md") == "/docs/CONTRIBUTING.html"
         assert processor._process_link_path("/README.md") == "/docs/README.html"
 
+    @pytest.mark.unit
+    def test_process_link_path_nested_readme_link_stays_relative(self):
+        """A README link from a nested page names that folder's README, not the root one."""
+        from website.builder.markdown import MarkdownProcessor
+
+        processor = MarkdownProcessor()
+        page = "docs/users/chat/limits.md"
+
+        assert processor._process_link_path("README.md#migration", page) == "README.html#migration"
+        assert processor._process_link_path("../README.md", page) == "../README.html"
+        assert processor._process_link_path("../../../README.md#x", page) == "/docs/README.html#x"
+
 
 class TestAssetManagerCoverage:
     """Test asset manager to increase coverage."""

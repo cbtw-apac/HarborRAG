@@ -59,7 +59,7 @@ _WORKER_KEYS = frozenset(
         "max_concurrent_workflow_tasks",
     }
 )
-_WORKFLOW_KEYS = frozenset({"execution_timeout_seconds", "task_timeout_seconds"})
+_WORKFLOW_KEYS = frozenset({"execution_timeout_seconds", "task_timeout_seconds", "native_pause"})
 _HEALTH_KEYS = frozenset({"timeout_seconds"})
 _INGESTION_KEYS = frozenset({"batch_size", "document_concurrency"})
 _TASK_QUEUE_KEYS = frozenset({"discovery", "index", "io", "model", "parser", "transform"})
@@ -197,6 +197,9 @@ def load_temporal_config(path: str | Path) -> TemporalRuntimeConfig:
                 workflow,
                 "task_timeout_seconds",
                 defaults.workflow_task_timeout_seconds,
+            ),
+            workflow_native_pause=_boolean(
+                workflow, "native_pause", defaults.workflow_native_pause
             ),
             health_timeout_seconds=_number(
                 health,

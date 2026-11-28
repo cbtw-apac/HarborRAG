@@ -20,11 +20,13 @@ from .reader_catalog import LIST_SOURCES_SPEC
 from .reader_support import cursor_payload, failure, match_cursor_value, source, success
 from .retrieval_inputs import access, integer, optional_text, string_list, text
 
-logger = logging.getLogger("harborrag.runtime.tools.sources")
+logger = logging.getLogger("harborrag.engine.tools.source_list_tool")
 
 
 @dataclass(slots=True)
 class ListSourcesTool(ReaderTool):
+    """List the sources readable by the principal."""
+
     spec = LIST_SOURCES_SPEC
 
     async def call(
@@ -34,34 +36,37 @@ class ListSourcesTool(ReaderTool):
         principal_id: str,
         context: ToolInvocationContext | None = None,
     ) -> dict[str, object]:
+        """Return the readable sources."""
         if context is not None and principal_id != context.access.principal_id:
             raise PermissionError("tool principal does not match invocation context")
         try:
-            tenant_id = text(arguments, "tenant_id")
-            source_ids = string_list(arguments, "source_ids")
-            connector_types = string_list(arguments, "connector_types")
-            stored = self._cursor(arguments, tenant_id, principal_id)
-            match_cursor_value(arguments, stored, "source_ids", list(source_ids))
-            match_cursor_value(arguments, stored, "connector_types", list(connector_types))
-            requested_limit = integer(
-                arguments,
-                "limit",
-                SOURCE_LIST_LIMIT,
-                minimum=1,
-                maximum=SOURCE_LIST_LIMIT,
-            )
-            match_cursor_value(arguments, stored, "limit", requested_limit)
-            source_ids = tuple(stored.get("source_ids", source_ids))
-            connector_types = tuple(stored.get("connector_types", connector_types))
-            response = await self.require_knowledge().list_sources(
-                SourceListRequest(
+            try:
+                tenant_id = text(arguments, "tenant_id")
+                source_ids = string_list(arguments, "source_ids")
+                connector_types = string_list(arguments, "connector_types")
+                stored = self._cursor(arguments, tenant_id, principal_id)
+                match_cursor_value(arguments, stored, "source_ids", list(source_ids))
+                match_cursor_value(arguments, stored, "connector_types", list(connector_types))
+                requested_limit = integer(
+                    arguments,
+                    "limit",
+                    SOURCE_LIST_LIMIT,
+                    minimum=1,
+                    maximum=SOURCE_LIST_LIMIT,
+                )
+                match_cursor_value(arguments, stored, "limit", requested_limit)
+                source_ids = tuple(stored.get("source_ids", source_ids))
+                connector_types = tuple(stored.get("connector_types", connector_types))
+                request = SourceListRequest(
                     access(arguments, principal_id),
                     source_ids,
                     connector_types,
                     stored.get("after_source_id"),
                     int(stored.get("limit", requested_limit)),
                 )
-            )
+            except ValueError as exc:
+                return failure(str(exc))
+            response = await self.require_knowledge().list_sources(request)
             next_cursor = self._next_cursor(
                 response, tenant_id, principal_id, source_ids, connector_types
             )
@@ -74,9 +79,7 @@ class ListSourcesTool(ReaderTool):
                 complete=next_cursor is None,
                 reasons=[] if next_cursor is None else ["page_limit"],
             )
-        except (HarborValidationError, ValueError) as exc:
-            return failure(str(exc))
-        except HarborCapabilityError as exc:
+        except (HarborValidationError, HarborCapabilityError) as exc:
             return failure(str(exc))
         except Exception:
             logger.exception("list_sources failed")
@@ -117,6 +120,3 @@ class ListSourcesTool(ReaderTool):
         return self.reference_store().issue(
             "cursor", payload, tenant_id=tenant_id, principal_id=principal_id
         )
-
-
-__all__ = ["ListSourcesTool"]

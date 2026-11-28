@@ -10,10 +10,14 @@ from itertools import islice
 from harborrag_adapters.connectors.base import BaseConnector
 from harborrag_adapters.connectors.harbor_connector import HarborConnector
 from harborrag_core.ingestion import BindingKind, DocumentIngestionOutcome
+from harborrag_engine.ingestion.release.models import DocumentReleaseOutcome
+from harborrag_engine.ingestion.source.models import (
+    PlannedDocumentRelease,
+    SourceDispatchSummary,
+    SourceIngestionRequest,
+)
 
-from ..document.models import DocumentReleaseOutcome
 from .documents import SourceDocumentService
-from .models import PlannedDocumentRelease, SourceDispatchSummary, SourceIngestionRequest
 from .retry import SourceRetryService
 
 logger = logging.getLogger("harborrag.runtime.ingestion.source")
@@ -31,6 +35,7 @@ class SourceDocumentOperations:
         planned: PlannedDocumentRelease,
         connector: BaseConnector | HarborConnector,
     ) -> DocumentIngestionOutcome:
+        """Release one planned document and record its outcome."""
         return await self._document_results.release_one(task_id, planned, connector)
 
     async def record_published_document(
@@ -39,6 +44,7 @@ class SourceDocumentOperations:
         planned: PlannedDocumentRelease,
         outcome: DocumentReleaseOutcome,
     ) -> DocumentIngestionOutcome:
+        """Record the outcome of a document that was released."""
         return await self._document_results.record_published_document(
             task_id,
             planned,
@@ -54,6 +60,7 @@ class SourceDocumentOperations:
         failed_stage: str = "FetchAndCaptureRaw",
         skip_reason: str | None = None,
     ) -> None:
+        """Record a document whose release failed."""
         await self._document_results.record_failed_document(
             task_id,
             planned,
@@ -63,9 +70,11 @@ class SourceDocumentOperations:
         )
 
     async def begin_retry(self, task_id: str, *, selected: int) -> None:
+        """Mark a retry task running for ``selected`` documents."""
         await self._retries.begin_retry(task_id, selected=selected)
 
     async def fail_retry(self, task_id: str, *, error_code: str) -> None:
+        """Mark a retry task failed with ``error_code``."""
         await self._retries.fail_retry(task_id, error_code=error_code)
 
     async def retry_one(
@@ -76,6 +85,7 @@ class SourceDocumentOperations:
         planned: PlannedDocumentRelease,
         connector_factory: Callable[[], Awaitable[BaseConnector | HarborConnector]],
     ) -> DocumentIngestionOutcome:
+        """Retry one failed document under a retry task."""
         return await self._retries.retry_one(
             retry_task_id=retry_task_id,
             original_task_id=original_task_id,
@@ -92,6 +102,7 @@ class SourceDocumentOperations:
         error_type: str,
         skip_reason: str | None = None,
     ) -> None:
+        """Record a document that failed again during a retry."""
         await self._retries.record_retry_failure(
             retry_task_id=retry_task_id,
             original_task_id=original_task_id,
@@ -107,6 +118,7 @@ class SourceDocumentOperations:
         selected: int,
         summary: SourceDispatchSummary,
     ) -> None:
+        """Close a retry task with the summary of its documents."""
         await self._retries.finish_retry(
             task_id,
             selected=selected,

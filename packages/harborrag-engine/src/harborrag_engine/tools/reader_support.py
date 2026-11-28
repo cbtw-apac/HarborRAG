@@ -15,6 +15,7 @@ from .retrieval_inputs import optional_text, text
 
 
 def evidence_selector(raw: object) -> EvidenceReadSelector:
+    """Read one ``fetch_evidence`` item into a selector."""
     if not isinstance(raw, dict):
         raise HarborValidationError("each evidence item must be an object")
     return EvidenceReadSelector(
@@ -25,6 +26,7 @@ def evidence_selector(raw: object) -> EvidenceReadSelector:
 
 
 def evidence_item(item: EvidenceReadItem) -> dict[str, object]:
+    """Serialize one read chunk for the ``fetch_evidence`` output."""
     return {
         "chunk_id": item.chunk_id,
         "availability": item.availability,
@@ -34,7 +36,7 @@ def evidence_item(item: EvidenceReadItem) -> dict[str, object]:
         "document_title": item.document_title,
         "source_scope_id": item.source_scope_id,
         "connector_type": item.connector_type,
-        "chunk_kind": item.chunk_kind,
+        "chunk_kind": list(item.chunk_kind),
         "ordinal": item.ordinal,
         "section_path": list(item.section_path),
         "citation_locator": item.citation_locator,
@@ -42,6 +44,7 @@ def evidence_item(item: EvidenceReadItem) -> dict[str, object]:
 
 
 def source(item: ReadableSource) -> dict[str, object]:
+    """Serialize one readable source for the ``list_sources`` output."""
     return {
         "source_id": item.source_scope_id,
         "name": item.display_name,
@@ -60,6 +63,7 @@ def source(item: ReadableSource) -> dict[str, object]:
 
 
 def node(item: GraphNodeRecord) -> dict[str, object]:
+    """Serialize one graph node, saying which tool can read its content."""
     availability = "unknown"
     if item.node_kind.value == "chunk":
         availability = "evidence"
@@ -76,6 +80,18 @@ def node(item: GraphNodeRecord) -> dict[str, object]:
 
 
 def cursor_payload(value: str | None, tool: str) -> dict[str, Any]:
+    """Decode a cursor issued by ``tool``, refusing any other tool's cursor.
+
+    Args:
+        value: Cursor string the caller sent back.
+        tool: Name of the tool reading the cursor.
+
+    Returns:
+        The decoded cursor state.
+
+    Raises:
+        HarborValidationError: The cursor is missing, malformed or from another tool.
+    """
     if value is None:
         raise HarborValidationError("cursor is unavailable")
     try:
@@ -90,6 +106,17 @@ def cursor_payload(value: str | None, tool: str) -> dict[str, Any]:
 def match_cursor_value(
     arguments: dict[str, object], stored: dict[str, Any], name: str, value: object
 ) -> None:
+    """Refuse a cursor whose stored ``name`` differs from the value asked for now.
+
+    Args:
+        arguments: Arguments of the current call.
+        stored: State decoded from the cursor.
+        name: Argument to compare.
+        value: Value the current call resolved for ``name``.
+
+    Raises:
+        HarborValidationError: The request names ``name`` with a different value.
+    """
     if name in arguments and name in stored and stored[name] != value:
         raise HarborValidationError("cursor does not match the requested scope")
 
@@ -101,6 +128,7 @@ def success(
     complete: bool,
     reasons: list[str],
 ) -> dict[str, object]:
+    """Wrap one reader tool's data in the success envelope."""
     return {
         "ok": True,
         "request_id": request_id,
@@ -111,20 +139,9 @@ def success(
 
 
 def failure(message: str) -> dict[str, object]:
+    """Build the failure envelope a reader tool returns."""
     return {"ok": False, "error": message}
 
 
 def _time(value: datetime | None) -> str | None:
     return value.isoformat() if value is not None else None
-
-
-__all__ = [
-    "cursor_payload",
-    "evidence_item",
-    "evidence_selector",
-    "failure",
-    "match_cursor_value",
-    "node",
-    "source",
-    "success",
-]

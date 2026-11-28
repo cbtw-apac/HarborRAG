@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from app_test_connections import ConnectionWorld, connection_world
 from app_test_fixtures import MockAppService
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -23,15 +22,18 @@ from harborrag_adapters.repositories.database.control_plane.migrations import ru
 from harborrag_app.api import app as api_app
 from harborrag_app.api.app import create_fastapi_app
 from harborrag_app.api.settings import ApiSettings
-from harborrag_app.workflow_control.control_plane.settings_service import SettingsService
 from harborrag_core.config_store import SettingChange, SettingsLevel, SettingsRegistry
 from harborrag_core.domain.project import Project
+from harborrag_runtime.application.control_plane.settings_service import SettingsService
 from harborrag_runtime.composition import ControlPlaneRepositories
 from harborrag_runtime.config_store import CachedConfigProvider
+from harborrag_runtime.testing.connection_fakes import ConnectionWorld, connection_world
+
+pytestmark = pytest.mark.unit
 
 _URL = "/v1/admin/settings"
 _SECRET_VALUE = "s3cr3t-token-value"
-_TICKETS = "connection:cpm/cpm-tickets"
+_TICKETS = "connection:demo/demo-tickets"
 _RAISED_BODY = {**_BODY, "credentials": {**_BODY["credentials"], "api_token": _SECRET_VALUE}}
 _ETAG = re.compile(r'^W/"rev-[0-9]+"$')
 
@@ -78,7 +80,7 @@ def env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[_Env]:
     registry = SettingsRegistry.default()
     world = connection_world(
         [
-            Project(id="cpm", name="CPM", collection="cpm", tenant_id="acme"),
+            Project(id="demo", name="DEMO", collection="demo", tenant_id="acme"),
             Project(id="hr", name="HR", collection="hr", tenant_id="acme"),
         ]
     )
@@ -92,9 +94,9 @@ def env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[_Env]:
     with TestClient(app) as client:
         admin = {"Authorization": f"Bearer {_token('admin', ['acme'])}", "X-Tenant-Id": "acme"}
         for path, body in (
-            ("cpm/connections/cpm-tickets", _RAISED_BODY),
-            ("cpm/connections/cpm-wiki", _BODY),
-            ("hr/connections/hr-cvs", _BODY),
+            ("demo/connections/demo-tickets", _RAISED_BODY),
+            ("demo/connections/demo-wiki", _BODY),
+            ("hr/connections/hr-docs", _BODY),
         ):
             assert (
                 client.put(f"/v1/admin/projects/{path}", json=body, headers=admin).status_code
@@ -108,7 +110,7 @@ def _seed(client: TestClient, store: SqlSettingsStore) -> None:
     portal = client.portal
     assert portal is not None
     for revision, (level, value) in enumerate(
-        (("tenant", 512), ("project:cpm", 384), (_TICKETS, 256))
+        (("tenant", 512), ("project:demo", 384), (_TICKETS, 256))
     ):
         change = SettingChange(level, "chunking.max_tokens", 1200, value, "next_ingestion")
         portal.call(
@@ -123,11 +125,11 @@ def _field(response: Any) -> str:
 
 
 def test_read_overrides_at_level(env: _Env) -> None:
-    response = env.get(level="project:cpm", effective="false")
+    response = env.get(level="project:demo", effective="false")
 
     assert response.status_code == 200
     assert response.json() == {
-        "level": "project:cpm",
+        "level": "project:demo",
         "revision": "rev_3",
         "values": {"chunking.max_tokens": 384},
     }
@@ -143,11 +145,11 @@ def test_effective_view_and_precedence(env: _Env) -> None:
     tickets = values(_TICKETS)
     assert tickets["chunking.max_tokens"] == {"value": 256, "origin": "connection"}
     assert tickets["retrieval.top_k"] == {"value": 5, "origin": "default"}
-    assert values("connection:cpm/cpm-wiki")["chunking.max_tokens"] == {
+    assert values("connection:demo/demo-wiki")["chunking.max_tokens"] == {
         "value": 384,
         "origin": "project",
     }
-    assert values("connection:hr/hr-cvs")["chunking.max_tokens"] == {
+    assert values("connection:hr/hr-docs")["chunking.max_tokens"] == {
         "value": 512,
         "origin": "tenant",
     }
@@ -157,7 +159,7 @@ def test_roles_and_no_secret_in_responses(env: _Env) -> None:
     responses = [env.get("editor", level=_TICKETS)]
     forbidden = [
         env.get("editor"),
-        env.get("editor", level="project:cpm"),
+        env.get("editor", level="project:demo"),
         env.get("reader", level=_TICKETS),
         env.get("reader"),
     ]
@@ -171,7 +173,7 @@ def test_roles_and_no_secret_in_responses(env: _Env) -> None:
 
 
 def test_patch_applies_and_records_actor(env: _Env) -> None:
-    response = env.patch({"chunking.max_tokens": 300}, level="project:cpm")
+    response = env.patch({"chunking.max_tokens": 300}, level="project:demo")
 
     assert response.status_code == 200
     assert response.json() == {
@@ -182,47 +184,49 @@ def test_patch_applies_and_records_actor(env: _Env) -> None:
         ],
     }
     assert response.headers["ETag"] == 'W/"rev-4"'
-    reread = env.get(level="project:cpm")
+    reread = env.get(level="project:demo")
     assert reread.json()["values"] == {"chunking.max_tokens": 300}
     assert reread.headers["ETag"] == 'W/"rev-4"'
     logged = env.client.portal.call(lambda: env.store.revision("acme", 4))  # type: ignore[union-attr]
     assert logged is not None
-    assert (logged.source, logged.created_by) == ("api", "u_huy")
+    assert (logged.source, logged.created_by) == ("api", "u_alex")
     assert (
-        env.patch({"chunking.max_tokens": 200}, role="editor", level="project:cpm").status_code
+        env.patch({"chunking.max_tokens": 200}, role="editor", level="project:demo").status_code
         == 403
     )
 
 
 def test_dry_run_changes_nothing(env: _Env) -> None:
-    response = env.patch({"chunking.max_tokens": 300}, level="project:cpm", dry_run="true")
+    response = env.patch({"chunking.max_tokens": 300}, level="project:demo", dry_run="true")
 
     assert response.status_code == 200
     assert response.json()["dry_run"] is True
     assert response.json()["changed"]
-    reread = env.get(level="project:cpm")
+    reread = env.get(level="project:demo")
     assert reread.json()["values"] == {"chunking.max_tokens": 384}
     assert reread.headers["ETag"] == 'W/"rev-3"'
 
 
 def test_null_removes_override(env: _Env) -> None:
-    response = env.patch({"chunking.max_tokens": None}, level="project:cpm")
+    response = env.patch({"chunking.max_tokens": None}, level="project:demo")
 
     assert response.status_code == 200
     assert response.json()["changed"][0]["to"] is None
-    effective = env.get(level="project:cpm", effective="true").json()["values"]
+    effective = env.get(level="project:demo", effective="true").json()["values"]
     assert effective["chunking.max_tokens"] == {"value": 512, "origin": "tenant"}
 
 
 @pytest.mark.parametrize(
     ("body", "level", "if_match", "field"),
     [
-        ({"chunking.max_tokenz": 1}, "project:cpm", 'W/"rev-3"', "chunking.max_tokenz"),
-        ({"chunking.max_tokens": 99999}, "project:cpm", 'W/"rev-3"', "chunking.max_tokens"),
+        ({"chunking.max_tokenz": 1}, "project:demo", 'W/"rev-3"', "chunking.max_tokenz"),
+        ({"chunking.max_tokens": 99999}, "project:demo", 'W/"rev-3"', "chunking.max_tokens"),
         ({"retrieval.top_k": 5}, _TICKETS, 'W/"rev-3"', "retrieval.top_k"),
-        ({"chunking.max_tokens": 300}, "project:cpm", None, "If-Match"),
+        ({"chunking.max_tokens": 300}, "project:demo", None, "If-Match"),
         ({"database.url": "postgres://x"}, "tenant", 'W/"rev-3"', "database.url"),
         ({"retrieval.rerank": True}, "tenant", 'W/"rev-3"', "retrieval.rerank"),
+        ({"chunking.overlap_tokens": 256}, _TICKETS, 'W/"rev-3"', "chunking.overlap_tokens"),
+        ({"capture.file_types": ["exe"]}, _TICKETS, 'W/"rev-3"', "capture.file_types"),
     ],
 )
 def test_validation_saves_nothing(
@@ -238,7 +242,7 @@ def test_validation_saves_nothing(
 
 def test_stale_if_match_is_precondition_failed(env: _Env) -> None:
     for if_match in ('W/"rev-2"', "garbage"):
-        response = env.patch({"chunking.max_tokens": 300}, level="project:cpm", if_match=if_match)
+        response = env.patch({"chunking.max_tokens": 300}, level="project:demo", if_match=if_match)
 
         assert response.status_code == 412
         assert response.json()["error"]["code"] == "precondition_failed"
@@ -248,7 +252,7 @@ def test_stale_if_match_is_precondition_failed(env: _Env) -> None:
 def test_reindex_refused(env: _Env) -> None:
     key = "models.embedding"
     refused = env.patch({key: "prov_openai:text-embedding-3-small"})
-    flagged = env.patch({"chunking.max_tokens": 300}, level="project:cpm", reindex="true")
+    flagged = env.patch({"chunking.max_tokens": 300}, level="project:demo", reindex="true")
 
     assert refused.status_code == 409
     assert refused.json()["error"]["code"] == "reindex_required"
@@ -259,7 +263,7 @@ def test_reindex_refused(env: _Env) -> None:
 
 def test_level_references(env: _Env) -> None:
     missing = env.get(level="project:nope")
-    missing_patch = env.patch({"chunking.max_tokens": 300}, level="connection:cpm/nope")
+    missing_patch = env.patch({"chunking.max_tokens": 300}, level="connection:demo/nope")
     malformed = env.get(level="folder:x")
 
     assert missing.status_code == 422
@@ -273,7 +277,7 @@ def test_level_references(env: _Env) -> None:
 
 
 def test_if_match_star_uses_current_revision(env: _Env) -> None:
-    response = env.patch({"chunking.max_tokens": 300}, level="project:cpm", if_match="*")
+    response = env.patch({"chunking.max_tokens": 300}, level="project:demo", if_match="*")
 
     assert response.status_code == 200
     assert response.json()["revision"] == "rev_4"
@@ -284,10 +288,10 @@ def test_patch_invalidates_cache(env: _Env) -> None:
     assert config is not None
     portal = env.client.portal
     assert portal is not None
-    level = SettingsLevel.parse("project:cpm")
+    level = SettingsLevel.parse("project:demo")
     assert portal.call(lambda: config.effective("acme", level)).value("chunking.max_tokens") == 384
 
-    assert env.patch({"chunking.max_tokens": 300}, level="project:cpm").status_code == 200
+    assert env.patch({"chunking.max_tokens": 300}, level="project:demo").status_code == 200
 
     assert portal.call(lambda: config.effective("acme", level)).value("chunking.max_tokens") == 300
 
@@ -300,8 +304,10 @@ def test_schema_lists_registry_by_group(env: _Env) -> None:
     groups = response.json()["groups"]
     assert [(group["name"], group["title"]) for group in groups] == [
         ("retrieval", "Retrieval"),
+        ("capture", "Capture"),
         ("parsing", "Parsing"),
         ("chunking", "Chunking"),
+        ("embedding", "Embedding"),
         ("ingestion", "Ingestion"),
         ("models", "Models"),
     ]

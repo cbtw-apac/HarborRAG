@@ -1,3 +1,8 @@
+"""Metrics and Temporal failure translation at ingestion activity boundaries.
+
+Entry point: ActivityObservability.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -9,11 +14,11 @@ from time import perf_counter
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from harborrag_core.ingestion import IngestionFailureClassifier
 from harborrag_core.invariants import HarborInvariantError
-from harborrag_engine.ingestion import IngestionFailureClassifier
 from harborrag_engine.ingestion.chunking.schemas import ChunkingStatistics
-from harborrag_runtime.ingestion.document.models import DocumentReleaseOutcome
-from harborrag_runtime.ingestion.document.stage_models import (
+from harborrag_engine.ingestion.release.models import DocumentReleaseOutcome
+from harborrag_engine.ingestion.release.stage_models import (
     PreparedDocumentStage,
     RawCaptureStageResult,
 )
@@ -58,7 +63,12 @@ _ACTIVITY_STAGES = {
 
 
 class ActivityObservability:
-    """Decorate activity boundaries and translate stage results into metrics."""
+    """Decorate activity boundaries and translate stage results into metrics.
+
+    Args:
+        telemetry: Ingestion metrics sink.
+        failures: Classifier of stage failures; the ingestion default when omitted.
+    """
 
     def __init__(
         self,
@@ -71,8 +81,20 @@ class ActivityObservability:
 
     @contextmanager
     def boundary(self, stage: str) -> Iterator[None]:
-        """Emit telemetry and convert domain failures into Temporal retry intent."""
+        """Emit telemetry and convert domain failures into Temporal retry intent.
 
+        A connector that declines one item names the standard skip reason; it rides in the
+        failure details so the document result can record it. The original error is not
+        chained, so its message, which can hold a file name or a signed URL, stays out of
+        Temporal history; the failure type carries its safe code.
+
+        Args:
+            stage: Activity stage name; must be in ``_ACTIVITY_STAGES``.
+
+        Raises:
+            HarborInvariantError: The stage has no metric stage.
+            ApplicationError: The wrapped activity failed; retryable per its classification.
+        """
         try:
             metric_stage = _ACTIVITY_STAGES[stage]
         except KeyError:
@@ -120,9 +142,6 @@ class ActivityObservability:
                     getattr(error, "status_code", None),
                     failure.retryable,
                 )
-                # A connector that declines one item names the standard skip
-                # reason; it rides in the failure details so the document
-                # result can record it.
                 skip_reason = getattr(error, "skip_reason", None)
                 details = (skip_reason,) if isinstance(skip_reason, str) and skip_reason else ()
                 raise ApplicationError(
@@ -130,7 +149,7 @@ class ActivityObservability:
                     *details,
                     type=failure.code,
                     non_retryable=not failure.retryable,
-                ) from error
+                ) from None
             else:
                 logger.debug(
                     "Activity completed stage=%s workflow_id=%s activity_id=%s "
@@ -149,6 +168,7 @@ class ActivityObservability:
         *,
         replayed: bool,
     ) -> None:
+        """Count discovered or replayed documents of a connector."""
         self._telemetry.record_documents(
             (DocumentMetricOutcome.REPLAYED if replayed else DocumentMetricOutcome.DISCOVERED),
             connector_type,
@@ -163,6 +183,7 @@ class ActivityObservability:
         duration_seconds: float,
         replayed: bool,
     ) -> None:
+        """Record one discovery page's size and duration."""
         self._telemetry.record_discovery_page(
             connector_type,
             root_count=root_count,
@@ -175,10 +196,16 @@ class ActivityObservability:
         capture: RawCaptureStageResult,
         connector_type: str,
     ) -> None:
+        """Count an admitted capture and its raw artifact bytes.
+
+        An unchanged capture records nothing: publication is the terminal document outcome,
+        including the idempotent no-op for unchanged versions, so counting the skip there
+        keeps one document from incrementing the outcome twice.
+
+        Raises:
+            HarborInvariantError: A changed capture has no raw reference.
+        """
         if capture.unchanged:
-            # Publication is the terminal document outcome, including the
-            # idempotent no-op used for unchanged versions. Count the skip
-            # there so one document never increments the outcome twice.
             return
         self._telemetry.record_documents(
             DocumentMetricOutcome.ADMITTED,
@@ -192,6 +219,7 @@ class ActivityObservability:
         )
 
     def record_prepared(self, prepared: PreparedDocumentStage) -> None:
+        """Record the canonical artifact bytes of a prepared document."""
         if prepared.canonical_reference is not None:
             self._telemetry.record_artifact_bytes(
                 ArtifactMetricKind.CANONICAL,
@@ -199,6 +227,7 @@ class ActivityObservability:
             )
 
     def record_chunking(self, statistics: ChunkingStatistics | None) -> None:
+        """Record chunk counts and tokens from chunking statistics."""
         if statistics is None:
             return
         self._telemetry.record_chunks(
@@ -224,6 +253,7 @@ class ActivityObservability:
         outcome: DocumentReleaseOutcome,
         connector_type: str,
     ) -> None:
+        """Count an activated or skipped document from its release outcome."""
         self._telemetry.record_documents(
             (
                 DocumentMetricOutcome.ACTIVATED
@@ -234,12 +264,18 @@ class ActivityObservability:
         )
 
     def record_document_failure(self, connector_type: str) -> None:
+        """Count a failed document of a connector."""
         self._telemetry.record_documents(
             DocumentMetricOutcome.FAILED,
             connector_type,
         )
 
     def record_subprocess_outcome(self, stage: str, outcome: SubprocessOutcomeLabel) -> None:
+        """Record how a stage's subprocess ended.
+
+        Raises:
+            HarborInvariantError: The stage has no metric stage.
+        """
         try:
             metric_stage = _ACTIVITY_STAGES[stage]
         except KeyError:

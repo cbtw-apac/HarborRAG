@@ -131,6 +131,8 @@ class ChatStreamExecution:
                     self.middleware.error(error, context)
                     operation.error(error, streaming=True)
                     yield normalizer.error(error)
+                    if error is exc:
+                        raise
                     raise error from exc
                 before = cursor.counts
                 if not cursor.failed(
@@ -140,6 +142,8 @@ class ChatStreamExecution:
                     self.middleware.error(error, context)
                     operation.error(error, streaming=True)
                     yield normalizer.error(error)
+                    if error is exc:
+                        raise
                     raise error from exc
                 operation.transition(cursor.transition(before, attempt.public, error))
                 delay = self.runtime.retry.delay_seconds(cursor.retry_count)
@@ -230,6 +234,8 @@ class ChatStreamExecution:
                     await self.middleware.aerror(error, context)
                     await operation.aerror(error, streaming=True)
                     yield normalizer.error(error)
+                    if error is exc:
+                        raise
                     raise error from exc
                 before = cursor.counts
                 if not cursor.failed(
@@ -239,6 +245,8 @@ class ChatStreamExecution:
                     await self.middleware.aerror(error, context)
                     await operation.aerror(error, streaming=True)
                     yield normalizer.error(error)
+                    if error is exc:
+                        raise
                     raise error from exc
                 await operation.atransition(cursor.transition(before, attempt.public, error))
                 await self.runtime.retry.sleep(cursor.retry_count)
@@ -269,7 +277,7 @@ class ChatStreamExecution:
             timeout=self.config.timeouts.stream_seconds or self.config.timeouts.request_seconds,
             stream=True,
             model_override=override,
-            litellm_provider=descriptor.litellm_provider,
+            metadata=descriptor,
         )
         parameters["caching"] = False
         parameters["metadata"] = litellm_telemetry_metadata(

@@ -16,6 +16,8 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.pool import NullPool, StaticPool
 
+from harborrag_adapters.repositories.backends.sqlalchemy import enforce_sqlite_foreign_keys
+
 DEFAULT_DSN = "sqlite+aiosqlite:///./harborrag_control.db"
 
 
@@ -46,16 +48,23 @@ def create_control_plane_engine(dsn: str = DEFAULT_DSN, **pool_options: Any) -> 
     reuse pays off; ``pool_options`` (``pool_size``, ``max_overflow``,
     ``pool_pre_ping`` ...) tune it for callers whose needs differ from the
     API's, and are ignored for SQLite, whose pooling is fixed above.
+
+    Both SQLite forms enforce foreign keys, as Postgres does. Every form hides
+    SQL parameters from errors and logs, since they can hold credentials.
     """
+    if not dsn.startswith("sqlite"):
+        return create_async_engine(dsn, hide_parameters=True, **pool_options)
     if _is_memory_sqlite_dsn(dsn):
-        return create_async_engine(
+        engine = create_async_engine(
             dsn,
             poolclass=StaticPool,
             connect_args={"check_same_thread": False},
+            hide_parameters=True,
         )
-    if dsn.startswith("sqlite"):
-        return create_async_engine(dsn, poolclass=NullPool)
-    return create_async_engine(dsn, **pool_options)
+    else:
+        engine = create_async_engine(dsn, poolclass=NullPool, hide_parameters=True)
+    enforce_sqlite_foreign_keys(engine)
+    return engine
 
 
 def create_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:

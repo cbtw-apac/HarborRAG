@@ -19,7 +19,7 @@ from .reader_catalog import reader_success_schema
 from .reader_support import cursor_payload, failure, success
 from .retrieval_inputs import TENANT_PROPERTY, access, integer, optional_text, text
 
-logger = logging.getLogger("harborrag.runtime.tools.documents")
+logger = logging.getLogger("harborrag.engine.tools.document_tools")
 
 _DOCUMENT = {
     "type": "object",
@@ -45,6 +45,8 @@ _DOCUMENT = {
 
 @dataclass(slots=True)
 class ListDocumentsTool(ReaderTool):
+    """List readable active documents without a semantic query."""
+
     spec = ToolSpec(
         "list_documents",
         "Discover readable active documents without a semantic query. Results are ordered "
@@ -82,29 +84,32 @@ class ListDocumentsTool(ReaderTool):
         principal_id: str,
         context: ToolInvocationContext | None = None,
     ) -> dict[str, object]:
+        """Return one page of readable documents for the principal."""
         if context is not None and principal_id != context.access.principal_id:
             raise PermissionError("tool principal does not match invocation context")
         try:
-            identity = access(arguments, principal_id)
-            limit = integer(
-                arguments, "limit", DOCUMENT_LIST_LIMIT, minimum=1, maximum=DOCUMENT_LIST_LIMIT
-            )
-            cursor = optional_text(arguments, "cursor")
-            after = None
-            if cursor is not None:
-                stored = cursor_payload(
-                    self.references.resolve(
-                        cursor,
-                        "cursor",
-                        tenant_id=str(identity.tenant_id),
-                        principal_id=principal_id,
-                    ),
-                    "list_documents",
+            try:
+                identity = access(arguments, principal_id)
+                limit = integer(
+                    arguments, "limit", DOCUMENT_LIST_LIMIT, minimum=1, maximum=DOCUMENT_LIST_LIMIT
                 )
-                after = text(stored, "after_document_id")
-            response = await self.require_knowledge().list_documents(
-                DocumentListRequest(identity, after, limit)
-            )
+                cursor = optional_text(arguments, "cursor")
+                after = None
+                if cursor is not None:
+                    stored = cursor_payload(
+                        self.references.resolve(
+                            cursor,
+                            "cursor",
+                            tenant_id=str(identity.tenant_id),
+                            principal_id=principal_id,
+                        ),
+                        "list_documents",
+                    )
+                    after = text(stored, "after_document_id")
+                request = DocumentListRequest(identity, after, limit)
+            except ValueError as exc:
+                return failure(str(exc))
+            response = await self.require_knowledge().list_documents(request)
             next_cursor = None
             if response.next_document_id is not None:
                 next_cursor = self.references.issue(
@@ -124,7 +129,7 @@ class ListDocumentsTool(ReaderTool):
                 complete=next_cursor is None,
                 reasons=[] if next_cursor is None else ["page_limit"],
             )
-        except (HarborValidationError, HarborCapabilityError, ValueError) as exc:
+        except (HarborValidationError, HarborCapabilityError) as exc:
             return failure(str(exc))
         except Exception:
             logger.exception("document discovery failed")

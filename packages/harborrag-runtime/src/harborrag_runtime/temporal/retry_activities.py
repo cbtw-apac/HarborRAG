@@ -1,16 +1,19 @@
+"""Temporal activities for the failure retry workflow."""
+
 from __future__ import annotations
 
 from temporalio import activity
 
 from harborrag_core.ingestion import DocumentIngestionOutcome
 from harborrag_core.storage import StorageOperationContext
+from harborrag_engine.ingestion.source.models import SourceDispatchSummary
+from harborrag_engine.ingestion.source.tasks import source_scan_id
 from harborrag_runtime.ingestion.composition import IngestionRuntime
 from harborrag_runtime.ingestion.connections import require_fingerprint
-from harborrag_runtime.ingestion.source.models import SourceDispatchSummary
-from harborrag_runtime.ingestion.source.tasks import source_scan_id
 
 from .activity_observability import ActivityObservability
 from .conversion import to_workflow_artifact
+from .heartbeats import heartbeat_while
 from .plan_resolver import PlanDocumentResolver
 from .schemas import (
     RetryDocumentFailureInput,
@@ -34,6 +37,7 @@ class RetryActivitiesMixin:
         self,
         request: RetryFailuresInput,
     ) -> RetryPreparationResult:
+        """Select the failures to retry and store their plan."""
         with self._observability.boundary("PrepareRetryFailures"):
             context = StorageOperationContext.system(request.tenant_id)
             original = await self._runtime.source_plans.find(
@@ -75,26 +79,37 @@ class RetryActivitiesMixin:
         self,
         request: RetryDocumentInput,
     ) -> DocumentIngestionOutcome:
+        """Release one document of a retry, heartbeating so a cancel reaches it.
+
+        The heartbeat starts before the plan lookup, so a stalled store fails with its own
+        timeout error instead of a heartbeat timeout.
+        """
         with self._observability.boundary("RetryDocumentRelease"):
-            planned = await self._documents.get(request)
-            return await self._runtime.sources.retry_one(
-                retry_task_id=request.retry_task_id,
-                original_task_id=request.original_task_id,
-                planned=planned,
-                connector_factory=lambda: self._runtime.connector(
-                    tenant_id=request.tenant_id,
-                    task_id=request.retry_task_id,
-                    configuration_fingerprint=require_fingerprint(
-                        planned.request.configuration_fingerprint
-                    ),
+            return await heartbeat_while(self._retry_one(request), detail="retry-document-release")
+
+    async def _retry_one(self, request: RetryDocumentInput) -> DocumentIngestionOutcome:
+        """Resolve the planned release, then release it again."""
+        planned = await self._documents.get(request)
+        return await self._runtime.sources.retry_one(
+            retry_task_id=request.retry_task_id,
+            original_task_id=request.original_task_id,
+            planned=planned,
+            connector_factory=lambda: self._runtime.connector(
+                tenant_id=request.tenant_id,
+                task_id=request.retry_task_id,
+                configuration_fingerprint=require_fingerprint(
+                    planned.request.configuration_fingerprint
                 ),
-            )
+                run_settings=planned.request.run_settings,
+            ),
+        )
 
     @activity.defn(name="harborrag.record_retry_document_failure")
     async def record_retry_document_failure(
         self,
         request: RetryDocumentFailureInput,
     ) -> None:
+        """Record a document that failed during a retry."""
         with self._observability.boundary("RecordRetryDocumentFailure"):
             planned = await self._documents.get(request.document)
             await self._runtime.sources.record_retry_failure(
@@ -110,6 +125,7 @@ class RetryActivitiesMixin:
         self,
         request: RetryTaskFailureInput,
     ) -> None:
+        """Record that the retry task as a whole failed."""
         with self._observability.boundary("RecordRetryFailuresTaskFailure"):
             await self._runtime.sources.fail_retry(
                 request.retry_task_id,
@@ -118,6 +134,7 @@ class RetryActivitiesMixin:
 
     @activity.defn(name="harborrag.finalize_retry_failures")
     async def finalize_retry_failures(self, request: RetryFinalizationInput) -> None:
+        """Close the retry task with its summary."""
         with self._observability.boundary("FinalizeRetryFailures"):
             await self._runtime.sources.finish_retry(
                 request.retry_task_id,

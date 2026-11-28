@@ -52,7 +52,6 @@ parsers:
   #   enabled: true
   #   settings:
   #     profile: fast
-  #     ocr_server_url: ${HARBORRAG_OCR_SERVER_URL:-}
   #     min_content_chars: 20
 
   # Mixed text/layout/OCR PDF fallback chain.
@@ -61,7 +60,6 @@ parsers:
   #   enabled: true
   #   settings:
   #     profile: balanced
-  #     ocr_server_url: ${HARBORRAG_OCR_SERVER_URL:-}
   #     min_content_chars: 20
 
   # OCR-oriented PDF fallback chain for predominantly scanned documents.
@@ -78,7 +76,6 @@ parsers:
   #   enabled: true
   #   settings:
   #     profile: quality
-  #     ocr_server_url: ${HARBORRAG_OCR_SERVER_URL:-}
   #     min_content_chars: 50
 
   # Docling with RapidOCR (previously the active PDF parser).

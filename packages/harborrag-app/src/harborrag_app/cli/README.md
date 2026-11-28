@@ -1,339 +1,238 @@
 # HarborRAG CLI
 
-The `harborrag_app.cli` package is the operator-facing command-line boundary.
-It renders workflow, retrieval, and chat results, but delegates all operations to the
-same transport-neutral application service used by the Control Plane API.
+Find where each part of the `harborrag` command lives, how to add or change a command,
+and the failure modes worth knowing before you change this package. The
+`harborrag_app.cli` package is the operator command line: a second adapter, next to the
+FastAPI routes, over the operations in `harborrag_app.operations`. A command parses its
+input, calls one operation and prints the result; the operation holds the rules.
 
-The installed command is `harborrag`.
+These notes are for contributors. What each command does for a user, how it maps to
+HTTP, its global options, output and exit codes are in the
+[CLI reference](../../../../../docs/users/cli-reference/README.md). Every option of
+every command is in the generated
+[CLI command reference](../../../../../docs/users/cli-reference/commands.md).
 
-## Install and run
+## Install and run from a checkout
 
-From a source checkout, install the production runtime dependencies required
-by ingestion and hybrid retrieval:
+The CLI runs from inside a HarborRAG repository checkout. Install the production
+dependencies that ingestion and the local stack need:
 
 ```bash
 uv sync --package harborrag-app --extra production
 uv run harborrag --help
 ```
 
-The base package is sufficient for help and presentation code. Live commands
-also require their configured services:
-
-- `doctor` and `ingest` require Temporal;
-- `chat` requires the configured chat provider and model credentials;
-- `retrieve` requires the configured embedding provider, Qdrant, FalkorDB,
-  and the ingestion object store;
-- production control-plane composition requires its SQL database.
-
-The repository development topology can be started with:
+The base package is enough for `--help`. A command that calls an operation builds the
+whole application service in its process, so it needs the services that service uses: the
+control database, Temporal for ingestion runs, and the stores and the model gateway for
+`chat`. The application services live in `harborrag_runtime.application`, not in this
+package. Start the repository's development stack with:
 
 ```bash
 scripts/deployment/dev.sh up
 ```
 
-Build and run the non-root CLI image from the repository root:
+The non-root CLI image, `deploy/docker/Dockerfile.cli`, is built and run as described in
+[Build the CLI and MCP images](../../../../../docs/developers/deployment/README.md#build-the-cli-and-mcp-images).
 
-```bash
-docker build -f deploy/docker/Dockerfile.cli -t harborrag-cli .
-docker run --rm \
-  --env-file env/.env.models \
-  harborrag-cli chat "Explain HarborRAG" --json
-```
+## Find the code
 
-The image contains the tracked configuration and prompt templates. Mount
-`config/` at `/app/config:ro` when an operator-managed configuration should
-replace the image copy. Database, Temporal, and retrieval commands additionally
-need their service environment variables and network connectivity.
+`main.py` registers the commands and resolves the checkout or project directory before
+any command builds a service. The kernel modules every command shares:
 
-## Command overview
-
-| Command | Purpose |
+| Module | What it owns |
 | --- | --- |
-| `harborrag doctor` | Check Temporal connectivity and readiness |
-| `harborrag chat` | Generate a retrieval-grounded response with conversation memory |
-| `harborrag ingest start` | Submit a durable ingestion run |
-| `harborrag ingest status` | Read current progress and attention queues |
-| `harborrag ingest wait` | Wait for the terminal result |
-| `harborrag ingest watch` | Open the interactive Textual dashboard |
-| `harborrag ingest pause` | Request a durable pause |
-| `harborrag ingest resume` | Resume a paused run |
-| `harborrag ingest cancel` | Cancel at a safe workflow boundary |
-| `harborrag config import` | Show or apply a settings file as one revision |
-| `harborrag config export` | Print stored runtime settings overrides as a settings file |
-| `harborrag retrieve` | Run tenant-scoped Qdrant and FalkorDB retrieval |
+| `globals.py` | The global options (`--tenant`, `-o/--output`, `--profile`, `--config`, `-y/--yes`) and their precedence: flag, environment, profile, default |
+| `profiles.py` | The profile file `~/.config/harborrag/config.yaml`, with the keys `tenant` and `output` only |
+| `invoke.py` | `run_operation` and `run_standalone` (a CLI-only command with no service, such as `auth keys`). `run_operation`: builds the service, runs the checkout refusal and the tenant question before a write, calls the operation, prints the body or the error, and exits with the spec's code; holds the CLI's log records back until the command succeeds |
+| `output.py` | Prints a body as JSON, YAML or a table, and an error as the HTTP envelope or one line on stderr |
+| `views.py` | The table views: list columns, resource trees and the `doctor` report |
+| `exit_codes.py` | The exit code of each HTTP status, plus usage, failed run and Ctrl-C |
+| `bodies.py` | Body files (`-f`, `-` for stdin) merged with flags, validated into the request model; `--secret-prompt` |
+| `paging.py` | `--limit`, `--cursor` and `--all` |
+| `tenant_guard.py` | The question before a write into a tenant with no data, and before a deletion |
+| `local_mode.py` | The local-mode principal, `cli:<os-user>` with role `owner` in every tenant |
+| `follow.py` | `--wait` and `--watch`: reads a run every 5 seconds until it ends; a read that fails reports the error with the run's ID and how to re-attach |
+| `inline_run.py` | `ingestions start --inline`: runs the pipeline in this process without Temporal |
+| `environment.py` | Loads the checkout's `env/` files and refuses writes to the local SQLite control database |
+| `typer_app.py` | `new_typer`, which builds every Typer app of the CLI and turns Typer's unknown-command hint off, because Click prints its own |
+| `banner.py` | The ASCII banner above the help output |
+| `project.py` | Finds the checkout or a `harborrag.yaml` project directory |
+| `registry.py` | Which operation each command calls, and which commands and operations have no counterpart |
+| `reference.py` | Renders `docs/users/cli-reference/commands.md` from the command tree, the registry and the OpenAPI document `make openapi` exports: each command's HTTP route, the CLI-only and HTTP-only lists, and every command's options |
 
-Use `harborrag COMMAND --help` or
-`harborrag ingest ACTION --help` for the authoritative option list.
+One module per command group in `commands/`:
 
-## Runtime settings
+| Command | Subcommands | Module |
+| --- | --- | --- |
+| `harborrag me` | none | `commands/me.py` |
+| `harborrag projects` | `list`, `get`, `create`, `update`, `delete` | `commands/projects.py` |
+| `harborrag source-types` | `list` | `commands/source_types.py` |
+| `harborrag connections` | `list`, `get`, `create`, `update`, `delete`, `test` | `commands/connections.py` |
+| `harborrag ingestions` | `start`, `list`, `get`, `pause`, `resume`, `cancel`, `retry-failures` | `commands/ingestions.py` |
+| `harborrag failures` | `list`, `retry` | `commands/failures.py` |
+| `harborrag settings` | `schema`, `get`, `set`, `import`, `export` | `commands/settings.py` |
+| `harborrag chat` | none | `commands/chat.py` |
+| `harborrag doctor` | none | `commands/doctor.py`, `doctor/` |
+| `harborrag auth keys` | `create`, `list`, `revoke`; the global options, the shared body and error output, CLI-only | `commands/auth.py`, `commands/auth_keys.py` |
+| `harborrag source`, `harborrag ingest` (hidden) | the old names | `commands/legacy.py` |
 
-`harborrag config import FILE [--apply] [--prune] [--tenant TENANT_ID] [--json]` is a dry run
-unless `--apply` is given. `harborrag config export [--level LEVEL] [--tenant TENANT_ID]
-[--output PATH]` writes registry keys only. See
-[Runtime settings](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/configuration/runtime-settings.md).
+The legacy stubs accept any arguments, `--help` and `-h` included, print the command that
+replaced the old one, such as
+`error: 'harborrag source list' was renamed; use 'harborrag connections list'`, and exit
+2. A group alone, with or without `--help`, names the group that replaced it:
+`error: 'harborrag ingest' was renamed; use 'harborrag ingestions'`. `retrieve` and
+`topology` are not registered at all.
 
-## Diagnostics
+## Add or change a command
 
-```bash
-harborrag doctor
-harborrag doctor --json
-```
+1. Write the command in its group's module. It takes the global options as the
+   `TenantOption`, `OutputOption`, `ProfileOption`, `ConfigOption` and `YesOption`
+   parameters and resolves them with `current_globals`.
+2. Parse the arguments and build the request body there, with `parse_ref` for a
+   connection ref and `load_body` for a body; a parse problem is a `click.UsageError`
+   (exit 2).
+3. Define `call(operations, scope)`, which calls one method of `LocalOperations`, and
+   pass it to `run_operation` with the operation's ID. Pass `write=True` when the
+   operation writes, so the checkout refusal and the tenant question run.
+4. Add the command to `COMMAND_OPERATIONS` in `registry.py`, or to `CLI_ONLY` with the
+   reason when it has no operation.
+5. Regenerate the command reference, which exports the OpenAPI document first, and commit
+   it with the change:
 
-`doctor` connects to the configured Temporal frontend and reports its target,
-namespace, and readiness. It does not submit a workflow.
+    ```bash
+    make cli-reference
+    ```
 
-## Chat
+6. Update the [CLI reference](../../../../../docs/users/cli-reference/README.md) when
+   the command changes how the CLI maps to HTTP.
 
-```bash
-harborrag chat \
-  "Explain HarborRAG" \
-  --tenant DEFAULT \
-  --json
-```
+Keep business rules in the operations: the same method serves the HTTP route, so a rule
+written in a command is a rule HTTP does not apply. Nothing in this package or in
+`harborrag_app.operations` may import FastAPI or Starlette, so the CLI runs without
+them.
 
-The command uses the server-owned default prompt and retrieval-grounded chat
-service. Omit `--session` for the first turn; the JSON response contains the
-generated session ID. Reuse it with `--session` to recall the two latest
-PostgreSQL-backed turns.
+## Keep the CLI in step with HTTP
 
-## Ingestion
+`tests/test_cli_http_parity.py` fails the build when the two drift apart:
 
-`--connector-id` takes a **configured connector name** - a key under `connectors:`
-in `config/sources/connectors.yaml` - not a provider type. (`--connector` is an accepted alias for
-the same option; prefer `--connector-id`, which says what the value is.) The shipped
-configuration defines `harborrag-workspace` (provider `local`), `confluence-main`, and
-`jira-main`, so `--connector-id local` fails with
-`Unknown configured connector: 'local'`. List the configured names with:
+- every `operationId` of the OpenAPI export is a command's operation in
+  `COMMAND_OPERATIONS` or listed in `HTTP_ONLY`, and every command maps to an operation,
+  is in `CLI_ONLY` or is a legacy stub;
+- a command's `-o json` output validates against its operation's response schema;
+- a failing call answers the same status and code as the route, and the exit code the
+  table in `exit_codes.py` gives;
+- `docs/users/cli-reference/commands.md` equals what `make cli-reference` writes.
 
-```bash
-python -c "import yaml; print(*yaml.safe_load(open('config/sources/connectors.yaml'))['connectors'])"
-```
-
-Each connector resolves settings and credentials from the environment variables
-named in its `environment:` and `secrets:` blocks. Every one of them must be set
-before the run is accepted:
-
-| Connector | Required environment |
-| --- | --- |
-| `harborrag-workspace` | `LOCAL_SOURCE_PATH` |
-| `confluence-main` | `CONFLUENCE_BASE_URL`, `CONFLUENCE_SPACE_KEY`, `CONFLUENCE_EMAIL`, `CONFLUENCE_TOKEN` |
-| `jira-main` | `JIRA_BASE_URL`, `JIRA_PROJECT_KEY`, `JIRA_TOKEN`, `JIRA_EMAIL` |
-
-**You do not need to set these on the command line.** The CLI loads
-`env/.env.connector`, `env/.env.parser`, and `env/.env.models` on startup - the
-same files compose hands to the worker - so credentials configured once are
-picked up by every command. An exported or inline variable still wins over the
-file. `env/.env.api` and `env/.env.database` are deliberately not loaded: they
-point at in-cluster hostnames a host CLI cannot reach. `CONNECTOR_ENV_FILE`,
-`PARSER_ENV_FILE`, and `MODEL_ENV_FILE` relocate the files, exactly as in
-`scripts/deployment/dev.sh`.
-
-A missing variable fails fast and names both the variable and the field it feeds:
-`Connector 'jira-main' requires environment variable 'JIRA_BASE_URL' for 'base_url'`.
-
-With `env/.env.connector` populated, a run is just:
-
-```bash
-harborrag ingest start \
-  --tenant tenant-1 \
-  --connector-id jira-main \
-  --limit 100
-```
-
-`--connector-id` and `--connector` are the same option. Do not confuse either with
-`--connection-id`, which sets the stable logical connection identity and defaults to
-the connector name.
-
-The local connector works the same way:
+`tests/test_cli_no_fastapi.py` checks that the CLI imports without FastAPI. Run the CLI
+tests from the repository root:
 
 ```bash
-harborrag ingest start \
-  --tenant tenant-1 \
-  --connector-id harborrag-workspace \
-  --limit 100
+uv run pytest packages/harborrag-app/tests -k "cli or doctor" -q
 ```
 
-`JIRA_PROJECT_KEY` accepts a comma-separated list (`PROJ,OPS`). `JIRA_TOKEN` is an
-Atlassian API token, and on Cloud it is paired with `JIRA_EMAIL` for basic auth.
+## Load the environment files
 
-> Credentials must also be present in the **worker**, which runs in its own
-> container and does the actual fetching. Compose supplies them from
-> `env/.env.connector` via `env_file:`, so editing that one file covers both the CLI
-> and the worker - but a worker started before the edit keeps the old values until
-> it is restarted.
+What the CLI reads from `env/` is in
+[Run from a repository checkout](../../../../../docs/users/cli-reference/README.md#run-from-a-repository-checkout).
+The loading is in `environment.py`:
 
-> **A zero exit from `ingest start` means the workflow was submitted, not that it
-> succeeded.** Credentials and connectivity are only exercised once the run reaches
-> its Fetch stage, so a bad token still submits cleanly and fails afterwards. Use
-> `--wait`, or check `harborrag ingest status <run-id>`, before treating a run as
-> done.
+- `env/.env.connector`, `env/.env.parser` and `env/.env.models` are loaded on startup,
+  the same files Compose hands to the worker. An exported or inline variable still wins
+  over the file.
+- `CONNECTOR_ENV_FILE`, `PARSER_ENV_FILE` and `MODEL_ENV_FILE` relocate those files,
+  exactly as in `scripts/deployment/dev.sh`.
+- `env/.env.api` and `env/.env.database` are not loaded wholesale: they point services at
+  in-cluster hostnames and at the API's own control-plane DSN, which a host CLI cannot
+  reach. From the checkout's `env/.env.database`, the CLI reads only the MinIO root pair
+  (the host reaches the same MinIO on `localhost`), `HARBORRAG_LOCAL_SOURCE_ROOT`, and an
+  uncommented `HARBORRAG_CONTROL_DB_URL` line, with the
+  `HARBORRAG_SECRETS_ENCRYPTION_KEY` that database's secrets are stored under. The
+  `POSTGRES_*` values alone never select the database. From the checkout's `env/.env.api`
+  it reads only `HARBORRAG_CORPUS_ACCESS_MODE`, `HARBORRAG_CORPUS_SHARED_TENANT_ID` and
+  `HARBORRAG_TENANT_ID`, so `chat` reads the corpus in the mode the API does; blank values
+  are skipped. The tenant is the last default before `DEFAULT`, below `--tenant`, an
+  exported `HARBORRAG_TENANT_ID` and the profile, and is never exported to the process
+  environment.
+- `DATABASE_ENV_FILE` and `API_ENV_FILE` name other files for those selected keys and are
+  honoured in any directory.
 
-Omit `--limit` to process every discovered document. A run ID is generated
-when omitted. Connection and source-scope IDs are deterministic unless supplied
-explicitly:
+From a checkout, every write refuses the local SQLite control database until
+`HARBORRAG_CONTROL_DB_URL` points at the stack's Postgres. The check is
+`checkout_write_refusal()` in `environment.py`. Once the variable is set, every checkout
+command migrates that database, so rebuild the images after each pull:
 
 ```bash
-harborrag ingest start \
-  --tenant tenant-1 \
-  --connector harborrag-workspace \
-  --run-id release-notes-2026-07 \
-  --connection-id engineering-files \
-  --source-scope-id engineering-release-notes \
-  --pattern '*.md' \
-  --no-attachments \
-  --wait
+scripts/deployment/dev.sh up --build
 ```
 
-`--wait` keeps the command attached until Temporal returns the terminal run
-summary. The connector name must match an enabled connector in the worker's
-configuration.
+## Diagnose a control-plane schema error
 
-### Schema errors during ingestion
+A command that calls an operation refuses to start when the control-plane database is
+not usable, and exits 6:
 
-Commands that do real work refuse to start when the control-plane database is not
-usable, and say why:
-
-```
-✗ Control plane is not ready. Refusing to run against a database whose schema
-  may be stale; run 'harborrag doctor' for diagnostics.
+```text
+error 503 dependency_unavailable: Control plane is not ready. Refusing to run against a database whose schema may be stale; run 'harborrag doctor' for diagnostics. (set HARBORRAG_LOG_LEVEL=DEBUG for details) (trace 1a2b3c4d…)
 ```
 
-`harborrag doctor` is exempt - it stays available precisely when the control plane
-is degraded.
+`harborrag doctor` stays available precisely when the control plane is degraded. The
+message leaves out the underlying database error; run with `HARBORRAG_LOG_LEVEL=DEBUG`,
+or run `harborrag doctor`, to see which migration failed. The check is
+`control_plane_failure()` in `invoke.py`.
 
-The message deliberately does not interpolate the underlying database error. With `--json`
-you get `{"error_type": "ControlPlaneUnavailable"}` and nothing more; the detail is
-**logged**, not returned, so read the process log (or run `harborrag doctor`) to find out
-which migration failed.
+When the migrations themselves fail, composition stops with
+`control-plane migrations failed; inspect the startup logs` and logs an `ERROR` line from
+`harborrag.runtime.composition` whose message reads:
 
-If you reach a missing-column error instead (for example
-`no such column: source_scopes.tenant_id`), the migrations did not run. Boot only
-logs that and continues, so check the startup line:
-
-```
-ERROR harborrag.runtime.composition Control-plane migrations failed ... error=...
+```text
+Control-plane migrations failed database_scheme=... error_type=... hint=...
 ```
 
-`table <name> already exists` there means the schema was created without Alembic
-recording it, so the runner replays from the first revision and collides. Stamp
-the version table at the revision the schema already matches, then upgrade:
+A `hint=` saying the schema exists but is not stamped means the schema was created
+without Alembic recording it, so the runner replays from the first revision and collides
+with `table <name> already exists`. Stamp the version table at the revision the schema
+already matches, then upgrade:
 
 ```bash
-python - <<'PY'
+uv run python - <<'PY'
 from alembic import command
 from harborrag_adapters.repositories.database.control_plane import migrations
 cfg = migrations._build_config("sqlite+aiosqlite:///./harborrag_control.db")
-command.stamp(cfg, "0007")   # the revision the existing schema matches
+command.stamp(cfg, "0007")
 command.upgrade(cfg, "head")
 PY
 ```
 
-### Observe a run
+Replace `0007` with the revision the existing schema matches, and the URL with your
+control database.
+
+## Control logging
+
+Logs go to stderr at `WARNING` by default. While an operation runs, `invoke.py` holds
+the CLI's log records back, prints them after a success and drops them after a failure,
+so a failure's stderr is its error report alone, as over HTTP. Set
+`HARBORRAG_LOG_LEVEL=INFO` or `DEBUG` to turn the hold off; `DEBUG` also prints the
+cause and traceback of a failure as it happens. Disable color with either form:
 
 ```bash
-harborrag ingest status RUN_ID
-harborrag ingest wait RUN_ID
-harborrag ingest watch RUN_ID --refresh 1.5
+uv run harborrag --no-color doctor
+NO_COLOR=1 uv run harborrag doctor
 ```
 
-- `status` performs one non-blocking status query;
-- `wait` blocks for the final result;
-- `watch` opens a full-screen dashboard and polls every second by default.
+## Configure the runtime
 
-The dashboard refresh interval accepts values from 0.25 through 60 seconds.
-Its footer exposes refresh, pause, resume, cancellation, and quit controls.
-See [dashboard/README.md](dashboard/README.md) for the presentation boundary.
-
-### Control a run
-
-```bash
-harborrag ingest pause RUN_ID
-harborrag ingest resume RUN_ID
-harborrag ingest cancel RUN_ID
-```
-
-Cancellation waits for a safe source-batch boundary, persists `CANCELLED`, and
-drains eligible projection cleanup jobs. Activity retries are automatic. To
-replay a terminal failure, submit a new run for the same source scope; the
-pipeline resumes from raw, canonical, chunk, or projection artifacts when
-their fingerprints remain reusable.
-
-## Hybrid retrieval
-
-```bash
-harborrag retrieve \
-  "deployment requirements" \
-  --tenant tenant-1 \
-  --top-k 5
-```
-
-Retrieval:
-
-1. embeds the query using the configured query embedding deployment;
-2. searches active, tenant-scoped Qdrant vectors;
-3. expands matching chunk context through FalkorDB;
-4. fuses vector and graph rankings;
-5. loads canonical chunk text from the ingestion object store.
-
-Document content is omitted from output by default:
-
-```bash
-harborrag retrieve \
-  "deployment requirements" \
-  --tenant tenant-1 \
-  --top-k 5 \
-  --include-content
-```
-
-Only use `--include-content` when the terminal and downstream consumers are
-authorized to receive source text. The CLI process must point at the same
-object-store root, active index generation, collection, graph namespace, and
-embedding space used by the ingestion worker.
-
-## Machine-readable output
-
-Every one-shot command supports `--json`:
-
-```bash
-harborrag ingest status RUN_ID --json
-harborrag chat "Explain HarborRAG" --json
-harborrag retrieve "deployment requirements" \
-  --tenant tenant-1 \
-  --json |
-  jq .
-```
-
-JSON mode writes exactly one stable envelope to stdout:
-
-```json
-{"data":{},"error":null,"ok":true}
-```
-
-Logs remain on stderr, and Rich spinners, panels, and ANSI styling are
-suppressed. Successful operations exit with status 0; validation and runtime
-failures exit with a non-zero status.
-
-For human-readable commands, disable color globally:
-
-```bash
-harborrag --no-color ingest status RUN_ID
-NO_COLOR=1 harborrag ingest status RUN_ID
-```
-
-Set `HARBORRAG_LOG_LEVEL=INFO` or `DEBUG` for diagnostic logs. The CLI defaults
-to `WARNING` so normal and JSON output remain concise.
-
-## Runtime configuration
-
-The CLI constructs production application composition for every invocation.
-Relevant `HARBORRAG_` variables include:
+The CLI builds the production application composition for every invocation. These are
+the `HARBORRAG_` variables it reads most often; every runtime variable is in the
+[engine configuration reference](../../../../../docs/users/configuration/config-file-reference.md).
 
 | Variable | Default | Used by |
 | --- | --- | --- |
 | `HARBORRAG_ENV` | `dev` | Runtime safety policy |
-| `HARBORRAG_CONTROL_DB_URL` | local SQLite | Control-plane migrations and diagnostics |
-| `HARBORRAG_TEMPORAL_CONFIG_PATH` | `config/temporal.yaml` | Temporal connection, queues, retries, worker, health, and workflow configuration |
-| `HARBORRAG_TEMPORAL_TARGET` | value from YAML | Optional `doctor` and ingestion override |
+| `HARBORRAG_TENANT_ID` | the profile's tenant, else the checkout's `env/.env.api` value, else `DEFAULT` | The CLI's default tenant, shared with the API and the workers |
+| `HARBORRAG_CONTROL_DB_URL` | local SQLite | Control-plane migrations, connections, run state and diagnostics |
+| `HARBORRAG_LOCAL_SOURCE_ROOT` | unset | The folder `local_file` connections must stay inside |
+| `HARBORRAG_TEMPORAL_CONFIG_PATH` | `config/temporal.yaml` | Temporal connection, queues, retries, worker, health and workflow configuration |
+| `HARBORRAG_TEMPORAL_TARGET` | value from YAML | Optional Temporal address override for `doctor` and ingestion |
 | `HARBORRAG_TEMPORAL_NAMESPACE` | value from YAML | Optional workflow namespace override |
 | `HARBORRAG_TEMPORAL_TLS` | value from YAML | Optional TLS override for a managed Temporal endpoint |
 | `HARBORRAG_TEMPORAL_API_KEY` | unset | Secret API credential; keep it outside tracked YAML |
@@ -341,54 +240,49 @@ Relevant `HARBORRAG_` variables include:
 | `HARBORRAG_QDRANT_URL` | `http://localhost:6333` | Vector retrieval |
 | `HARBORRAG_FALKORDB_HOST` | `localhost` | Graph expansion |
 | `HARBORRAG_FALKORDB_PORT` | `6379` | Graph expansion |
-| `HARBORRAG_OBJECT_STORE_ENDPOINT_URL` | `http://localhost:9000` | S3/MinIO object store holding canonical chunk content |
+| `HARBORRAG_OBJECT_STORE_ENDPOINT_URL` | `http://localhost:9000` | S3 or MinIO object store holding canonical chunk content |
 | `HARBORRAG_OBJECT_STORE_ACCESS_KEY_ID` | unset | Object-store credential |
 | `HARBORRAG_OBJECT_STORE_SECRET_ACCESS_KEY` | unset | Object-store credential |
-| `HARBORRAG_STORAGE_NAMESPACE_PREFIX` | `harborrag` | Per-tenant store namespace `{prefix}_{tenant_id}`: Qdrant collection stem, FalkorDB graph, object-store key prefix (replaces the removed `HARBORRAG_QDRANT_COLLECTION_PREFIX`) |
+| `HARBORRAG_STORAGE_NAMESPACE_PREFIX` | `harborrag` | Per-tenant store namespace `{prefix}_{tenant_id}`: Qdrant collection stem, FalkorDB graph, object-store key prefix |
 | `HARBORRAG_FALKORDB_GRAPH` | `harborrag` | Graph projection name |
-| `HARBORRAG_LOG_LEVEL` | `WARNING` for CLI | Diagnostic logging |
+| `HARBORRAG_CORPUS_ACCESS_MODE` | `source_acl` | Whether chat retrieval reads the shared corpus or the caller's source permissions; the shipped `env-example/.env.api.example` sets `tenant_shared`, and a checkout's CLI reads it from `env/.env.api` |
+| `HARBORRAG_CORPUS_SHARED_TENANT_ID` | unset | Tenant whose retrieval reads the shared corpus in `tenant_shared` mode |
+| `HARBORRAG_LOG_LEVEL` | `WARNING` for the CLI | Diagnostic logging |
 
-Plaintext connections to non-loopback services fail closed unless their
-explicit `HARBORRAG_*_ALLOW_INSECURE_REMOTE` development-network option is
-enabled. Do not use those opt-outs on an untrusted network.
+From a checkout the CLI reads only the two corpus-mode lines and the tenant line of
+`env/.env.api` (the file named by `API_ENV_FILE`), where an exported variable outranks the
+file; see
+[Ask a grounded question](../../../../../docs/users/cli-reference/README.md#ask-a-grounded-question).
 
-### The CLI and the worker must share one object store
+`chat` reads its passages from the same object store the worker wrote them to. The
+Compose worker uses `http://minio:9000` on the shared Docker network, while the CLI on
+the host defaults to `http://localhost:9000`: the same MinIO container through its
+published port. They diverge if you change `MINIO_API_PORT` or run the CLI against
+another deployment; then point `HARBORRAG_OBJECT_STORE_ENDPOINT_URL` at the worker's
+store.
 
-Qdrant stores vectors and chunk *references*; the canonical chunk bodies live in the
-S3-compatible object store. `retrieve` reads those bodies, so it must point at the same
-store the worker wrote them to.
+Plaintext connections to non-loopback services fail closed unless their explicit
+`HARBORRAG_*_ALLOW_INSECURE_REMOTE` development-network option is enabled, and that option
+counts only while `HARBORRAG_ENV` is `dev`. Do not use those opt-outs on an untrusted
+network.
 
-The Compose worker uses `http://minio:9000` on the shared Docker network, while a CLI run
-on the host defaults to `http://localhost:9000` - the same MinIO container through its
-published port, so they agree by default. They diverge if you change `MINIO_API_PORT`, bind
-MinIO to a different address, or run the CLI against a different deployment.
-
-When they disagree, ingestion reports success and retrieval then fails on a missing object
-even though the vectors are present. Point the CLI at the worker's endpoint with
-`HARBORRAG_OBJECT_STORE_ENDPOINT_URL` (plus the matching credentials), or run `retrieve`
-inside the worker's environment.
-
-## Package boundary
+## Keep the package boundary
 
 This package may:
 
-- define Typer commands and validate command-line arguments;
-- render `AppResponse` values with Rich or Textual;
-- manage one application-service lifecycle per invocation;
-- emit stable JSON and exit codes for automation.
+- define Typer commands and parse command-line arguments and body files;
+- call the operations through `run_operation`, which builds one application service
+  (`harborrag_runtime.application`) per invocation, or run a CLI-only command that needs
+  no service, such as `auth keys`, through `run_standalone`, which prints and exits the
+  same way;
+- print bodies and errors in the shape the HTTP route answers, and exit with the codes
+  in `exit_codes.py`. Two commands are the exceptions: `doctor` prints its own report and
+  exits 0, 1 or 6, and `settings export` writes YAML to stdout. `connections test` and a
+  followed run exit 8 after printing their body when the check or the run failed.
 
 It must not:
 
-- call connectors, parsers, repositories, or Temporal SDK handles directly;
-- implement workflow or retrieval business rules;
-- import FastAPI to provide CLI behavior;
-- expose secret or unreviewed provider exception text.
-
-Run its focused tests from the repository root:
-
-```bash
-pytest \
-  packages/harborrag-app/tests/test_ingestion_cli_rendering.py \
-  packages/harborrag-app/tests/test_ingestion_service_cli.py \
-  packages/harborrag-app/tests/test_retrieval_cli.py
-```
+- call connectors, parsers, repositories or Temporal SDK handles directly;
+- hold business rules that the HTTP route would not apply;
+- import FastAPI or Starlette;
+- print secrets, document content or unreviewed provider exception text.

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import logging
 import os
 from collections.abc import Iterator
@@ -9,8 +10,8 @@ from hashlib import sha256
 from pathlib import Path
 
 from harborrag_adapters.connectors.exceptions import DocumentProcessingError, FetchError
-from harborrag_adapters.connectors.schemas import ConnectorQuery
 from harborrag_core.domain.source import SourceRecord
+from harborrag_core.ingestion.connector_contracts import ConnectorQuery
 
 from .config import LocalFileConfig
 from .filesystem_paths import (
@@ -23,22 +24,33 @@ from .filters import file_paths_from_query
 from .mappers import build_source_record
 from .secure_read import LocalFileSnapshot, SecureReadScope, read_snapshot_beneath
 from .selection import LocalFileSelector
-from .skips import LocalSkipReport
+from .skips import LocalSkipReport, path_digest
 
 logger = logging.getLogger("harborrag.adapters.connectors.local")
 
 _READ_CHUNK_SIZE = 1024 * 1024
+_SKIPPED_LISTING_ERRNOS = frozenset({errno.EACCES, errno.EPERM, errno.ENOENT})
 
 
 class LocalFileSystem:
-    """Filesystem traversal, filtering, and scope enforcement for local files."""
+    """Filesystem traversal, filtering, and scope enforcement for local files.
+
+    Config accepts strings at the package boundary; traversal uses one concrete Path representation
+    after validation. Without dir_fd support (Windows), reads fall back to plain, per-component
+    symlink-checked opens in `secure_read.py`.
+
+    Args:
+        config: Local source configuration; its source is normalized into
+            concrete traversal paths.
+
+    Attributes:
+        config: Local source configuration.
+        skips: Paths traversal dropped, with reasons.
+    """
 
     def __init__(self, config: LocalFileConfig) -> None:
-        """Normalize the configured source into concrete traversal paths."""
         self.config = config
         self.skips = LocalSkipReport()
-        # Config accepts strings at the package boundary; traversal uses one
-        # concrete Path representation after validation.
         self.source_path = Path(config.source_path)
         self._source_is_file = self.source_path.is_file()
         self.root_path = self.source_path.parent if self._source_is_file else self.source_path
@@ -48,8 +60,6 @@ class LocalFileSystem:
             flags |= getattr(os, "O_NOFOLLOW", 0)
             self._root_fd = os.open(self.root_path, flags)
         else:
-            # No dir_fd support (Windows): reads fall back to plain,
-            # per-component symlink-checked opens in `secure_read.py`.
             self._root_fd = -1
         self._selector = LocalFileSelector(
             config,
@@ -61,7 +71,6 @@ class LocalFileSystem:
 
     def close(self) -> None:
         """Release the trusted root descriptor used for race-free reads."""
-
         if SUPPORTS_DIR_FD and self._root_fd >= 0:
             os.close(self._root_fd)
             self._root_fd = -1
@@ -79,7 +88,7 @@ class LocalFileSystem:
             return
 
         start_path = self.start_path(query)
-        logger.info("Discovering local files under %s", start_path)
+        logger.info("Discovering local files under path_digest=%s", path_digest(start_path))
         for path, is_symlink in self.iter_files(start_path, query=query):
             if self.should_process_file(path, query):
                 yield path, is_symlink
@@ -102,7 +111,9 @@ class LocalFileSystem:
         seen_dirs = seen_dirs or set()
         directory_key = resolve_path(start_path)
         if directory_key in seen_dirs:
-            logger.debug("Skipping already visited local directory %s", start_path)
+            logger.debug(
+                "Skipping already visited local directory path_digest=%s", path_digest(start_path)
+            )
             return
         seen_dirs.add(directory_key)
 
@@ -120,16 +131,33 @@ class LocalFileSystem:
             self.skips.out_of_scope(path)
             return False
         if not path.is_file() and not path.is_dir():
-            raise DocumentProcessingError(f"Local path is not a file or directory: {path}")
+            raise DocumentProcessingError(
+                f"Local path is not a file or directory: path_digest={path_digest(path)}"
+            )
         return True
 
     def _directory_entries(self, path: Path) -> list[Path] | None:
+        """List a directory, or skip one that is denied or already gone.
+
+        Any other listing failure raises, so a scan that missed part of the tree
+        is never taken as complete and the files below are not retired.
+
+        Raises:
+            FetchError: The listing failed for another reason, or any listing failed
+                with ``fail_on_error`` set.
+        """
         try:
             return sorted(path.iterdir(), key=lambda item: item.name.lower())
         except OSError as exc:
-            if self.config.fail_on_error:
-                raise FetchError(f"Could not list local directory {path}: {exc}") from exc
-            self.skips.unreadable(path, error=exc)
+            if self.config.fail_on_error or exc.errno not in _SKIPPED_LISTING_ERRNOS:
+                raise FetchError(
+                    f"Could not list local directory path_digest={path_digest(path)}: "
+                    f"{type(exc).__name__}"
+                ) from None
+            if exc.errno == errno.ENOENT:
+                self.skips.deleted(path)
+            else:
+                self.skips.unreadable(path, error=exc)
             return None
 
     def _walk_entry(
@@ -179,7 +207,7 @@ class LocalFileSystem:
             return
         if size > self.config.max_file_size_bytes:
             raise DocumentProcessingError(
-                f"Local file {path} size {size} exceeds "
+                f"Local file path_digest={path_digest(path)} size {size} exceeds "
                 f"max_file_size_bytes {self.config.max_file_size_bytes}"
             )
 
@@ -203,7 +231,6 @@ class LocalFileSystem:
         `read_snapshot_beneath` falls back to per-component symlink checks
         followed by a plain open -- a narrower, best-effort guarantee.
         """
-
         return read_snapshot_beneath(
             path,
             scope=SecureReadScope(
@@ -224,7 +251,6 @@ class LocalFileSystem:
         descriptor_stat: os.stat_result,
     ) -> LocalFileSnapshot:
         """Read and hash an authorized descriptor with a hard byte cap."""
-
         limit = self.config.max_file_size_bytes
         buffer = bytearray()
         digest = sha256()
@@ -237,7 +263,8 @@ class LocalFileSystem:
                 digest.update(chunk)
                 if limit is not None and len(buffer) > limit:
                     raise DocumentProcessingError(
-                        f"Local file {path} exceeds max_file_size_bytes {limit}"
+                        f"Local file path_digest={path_digest(path)} exceeds "
+                        f"max_file_size_bytes {limit}"
                     )
         return LocalFileSnapshot(
             content=bytes(buffer),
@@ -253,12 +280,6 @@ class LocalFileSystem:
             checksum=self.checksum(path),
             is_symlink=is_symlink,
         )
-
-    def record_for_path(self, path: str | Path) -> SourceRecord:
-        """Resolve a caller-provided path and return its source record."""
-        is_symlink = Path(path).is_symlink()
-        resolved = self.resolve_candidate(path)
-        return self.source_record(resolved, is_symlink=is_symlink)
 
     def checksum(self, path: Path) -> str | None:
         """Return the configured change-detection signature for a file.
@@ -289,12 +310,12 @@ class LocalFileSystem:
             candidate = self.root_path / candidate
         if not self.config.follow_symlinks and self.has_symlink_component(candidate):
             raise DocumentProcessingError(
-                f"Local symlinks are disabled for source scope {self.root_path}: {value}"
+                f"Local symlinks are disabled: path_digest={path_digest(value)}"
             )
         resolved = resolve_path(candidate)
         if not self.within_source_scope(resolved):
             raise DocumentProcessingError(
-                f"Local path is outside configured source scope {self.root_path}: {value}"
+                f"Local path is outside the configured source scope: path_digest={path_digest(value)}"
             )
         return resolved
 

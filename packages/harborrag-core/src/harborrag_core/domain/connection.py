@@ -1,13 +1,7 @@
 """Connection aggregate: one configured data source inside a project.
 
-Handles:
-- the connection identity (tenant, project, ``connection_id``) and its ``ref``
-- the immutable ``source_key`` ingestion keys documents and scopes by
-- the optimistic-concurrency ``version`` behind the HTTP ``ETag``
-- ``ConnectionBuilder``, the one place defaults and actor stamps are applied
-
-Does NOT validate credentials or config against a source type's schema; the
-runtime source-type registry owns that.
+Credentials and config are validated against a source type's schema by the runtime
+source-type registry, not here.
 """
 
 from __future__ import annotations

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock
+import asyncio
 
 import pytest
 
@@ -32,7 +32,7 @@ async def test_a_pause_pending_until_the_next_batch_boundary_is_accepted(
 ) -> None:
     sdk = _SdkClient()
     sdk.source_handle.query.side_effect = lambda *_args, **_kwargs: _pending()
-    monkeypatch.setattr(client_module.asyncio, "sleep", AsyncMock())
+    monkeypatch.setattr(client_module, "_PAUSE_SETTLE_SECONDS", 0.0)
     client = IngestionTemporalClient(sdk, TemporalRuntimeConfig())
 
     await client.pause("task-1")
@@ -47,10 +47,27 @@ async def test_a_pause_overtaken_by_cancellation_still_reports_failure(
 ) -> None:
     sdk = _SdkClient()
     sdk.source_handle.query.side_effect = lambda *_args, **_kwargs: _pending(cancel_requested=True)
-    monkeypatch.setattr(client_module.asyncio, "sleep", AsyncMock())
+    monkeypatch.setattr(client_module, "_PAUSE_SETTLE_SECONDS", 0.0)
     client = IngestionTemporalClient(sdk, TemporalRuntimeConfig())
 
     with pytest.raises(WorkflowOperationError, match="pause relay did not settle"):
         await client.pause("task-1")
 
     sdk.workflow_service.pause_workflow_execution.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_stalled_status_query_cannot_extend_the_pause_wait(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def stalled_query(*args: object, **kwargs: object) -> SourceIngestionStatus:
+        await asyncio.Event().wait()
+        return _pending()
+
+    sdk = _SdkClient()
+    sdk.source_handle.query.side_effect = stalled_query
+    monkeypatch.setattr(client_module, "_PAUSE_SETTLE_SECONDS", 0.01)
+    client = IngestionTemporalClient(sdk, TemporalRuntimeConfig())
+
+    with pytest.raises(WorkflowOperationError, match="pause relay did not settle"):
+        await asyncio.wait_for(client.pause("task-1"), 0.25)

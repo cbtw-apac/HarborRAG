@@ -1,3 +1,9 @@
+"""Inline ingestion executor for the SDK's ``direct`` execution mode.
+
+The executor owns one ingestion runtime. A lock serializes its startup, runs
+and shutdown, so a failed start never leaves a half-built runtime in use.
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -29,7 +35,11 @@ _TERMINAL_TASK_STATES = frozenset(
 
 
 class DirectIngestionExecutor:
-    """Run source ingestion inline through the production use-case graph."""
+    """Run source ingestion inline through the production use-case graph.
+
+    Args:
+        settings: Runtime settings the ingestion runtime is built from.
+    """
 
     def __init__(self, settings: RuntimeSettings) -> None:
         self._settings = settings
@@ -39,6 +49,7 @@ class DirectIngestionExecutor:
         self._imported = False
 
     async def start(self) -> None:
+        """Build and start the ingestion runtime unless it is already running."""
         async with self._lifecycle_lock:
             if self._runtime_started:
                 return
@@ -46,6 +57,20 @@ class DirectIngestionExecutor:
             await self._connect_runtime()
 
     async def run(self, request: IngestionRequest) -> IngestionResult:
+        """Run one ingestion in this process and return its outcome.
+
+        Without ``start``, the runtime is built for this run. If resolving the
+        connection or building the connector then fails, that runtime is closed
+        and the original error is raised. A ``ConnectionNotFoundError`` or
+        ``ConnectorConfigurationError`` passes through, and
+        ``WorkflowRunAlreadyStartedError`` means the run ID belongs to a finished run.
+
+        Args:
+            request: The run to execute.
+
+        Returns:
+            The run's final counts, including the items it skipped.
+        """
         async with self._lifecycle_lock:
             fresh = not self._runtime_started
             if fresh:
@@ -61,22 +86,16 @@ class DirectIngestionExecutor:
                     tenant_id=source.tenant_id,
                     task_id=source.task_id,
                     configuration_fingerprint=source.configuration_fingerprint,
+                    run_settings=source.run_settings,
                 )
             except Exception:
                 if fresh:
-                    # Best effort: the configuration error is the one to report.
                     with contextlib.suppress(Exception):
                         await self._close_runtime()
                 raise
             if fresh:
                 await self._connect_runtime()
-        # A finished task cannot run again; without this the reused ID would surface
-        # as an invalid state transition from deep inside the run.
-        existing = await runtime.control.tasks.get(source.task_id)
-        if existing is not None and existing.status in _TERMINAL_TASK_STATES:
-            raise WorkflowRunAlreadyStartedError(
-                f"run id {source.task_id!r} already used ({existing.status.value})"
-            )
+        await _reject_finished_run(runtime, source.task_id)
         source_request = to_source_request(source)
         outcome = await runtime.sources.ingest(source_request, connector)
         return IngestionResult(
@@ -86,6 +105,7 @@ class DirectIngestionExecutor:
             published=outcome.published,
             unchanged=outcome.unchanged,
             failed=outcome.failed,
+            skipped=outcome.skipped,
         )
 
     async def _import_connectors_once(self, runtime: IngestionRuntime) -> None:
@@ -96,7 +116,7 @@ class DirectIngestionExecutor:
         await asyncio.to_thread(migrate_control_plane, self._settings)
         await import_connectors_once(
             self._settings.connector_config_path,
-            tenant_id=self._settings.ingestion_tenant_id,
+            tenant_id=self._settings.tenant_id,
             projects=stores.projects,
             connections=stores.connections,
             settings=stores.settings,
@@ -108,6 +128,7 @@ class DirectIngestionExecutor:
         self._runtime = build_ingestion_runtime(self._settings)
 
     async def _connect_runtime(self) -> None:
+        """Start the built runtime, and close it again if startup fails."""
         if self._runtime is None:
             raise HarborInvariantError("self._runtime must not be None here")
         try:
@@ -124,6 +145,7 @@ class DirectIngestionExecutor:
         self._runtime_started = True
 
     async def aclose(self) -> None:
+        """Close the runtime. Safe to call more than once."""
         async with self._lifecycle_lock:
             await self._close_runtime()
 
@@ -132,3 +154,16 @@ class DirectIngestionExecutor:
         if self._runtime is not None:
             await self._runtime.close()
             self._runtime = None
+
+
+async def _reject_finished_run(runtime: IngestionRuntime, task_id: str) -> None:
+    """Refuse a run ID whose task already finished.
+
+    Without this check the reused ID would surface as an invalid state
+    transition from deep inside the run.
+    """
+    existing = await runtime.control.tasks.get(task_id)
+    if existing is not None and existing.status in _TERMINAL_TASK_STATES:
+        raise WorkflowRunAlreadyStartedError(
+            f"run id {task_id!r} already used ({existing.status.value})"
+        )

@@ -10,7 +10,8 @@ from temporalio.converter import DataConverter
 from temporalio.exceptions import ApplicationError
 
 from harborrag_core.ingestion import ReindexJob, ReindexJobState
-from harborrag_runtime.ingestion.maintenance.cleanup import ProjectionCleanupBatch
+from harborrag_core.ingestion.source_query import ProcessingProfileInput
+from harborrag_engine.ingestion.maintenance.cleanup import ProjectionCleanupBatch
 from harborrag_runtime.ingestion.maintenance.relation_repair import RelationRepairResult
 from harborrag_runtime.ingestion.maintenance.retention import RetiredVersionPurgeBatch
 from harborrag_runtime.ingestion.observability import IngestionTelemetry
@@ -21,10 +22,7 @@ from harborrag_runtime.temporal.maintenance_schemas import (
     ProjectionCleanupResult,
     ReindexInput,
 )
-from harborrag_runtime.temporal.schemas import (
-    ProcessingProfileInput,
-    SourceIngestionInput,
-)
+from harborrag_runtime.temporal.schemas import SourceIngestionInput
 
 
 def _processing() -> ProcessingProfileInput:
@@ -142,6 +140,12 @@ async def test_maintenance_cleanup_routes_source_corpus_and_document_scopes() ->
 
 @pytest.mark.asyncio
 async def test_source_cleanup_purges_retired_versions_of_the_same_scope() -> None:
+    """Source cleanup purges the retired versions of the same scope.
+
+    A failed purge leaves the version PURGING under its lease for a later run; it is
+    reported without failing the activity, unlike a failed projection cleanup. A scope
+    purge does not know the global backlog, so the sweep's gauge stands.
+    """
     runtime = _runtime()
     runtime.retention = SimpleNamespace(
         run_scope=AsyncMock(
@@ -160,14 +164,11 @@ async def test_source_cleanup_purges_retired_versions_of_the_same_scope() -> Non
         source_scope_id="docs",
         limit=1_000,
     )
-    # A failed purge leaves the version PURGING under its lease for a later run;
-    # it is reported without failing the activity, unlike a failed projection cleanup.
     assert (result.completed, result.purged_versions, result.purge_failed_versions) == (1, 2, 1)
     sample = telemetry.registry.get_sample_value
     assert sample("harborrag_retention_purge_versions_total", {"outcome": "purged"}) == 2
     assert sample("harborrag_retention_purge_versions_total", {"outcome": "failed"}) == 1
     assert sample("harborrag_retention_purge_deleted_objects_total") == 9
-    # A scope purge does not know the global backlog, so the sweep's gauge stands.
     assert sample("harborrag_retention_purge_backlog") == 5
 
 

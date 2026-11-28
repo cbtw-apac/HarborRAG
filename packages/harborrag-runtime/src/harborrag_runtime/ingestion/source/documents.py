@@ -11,17 +11,21 @@ from harborrag_adapters.repositories.database import IngestionControlPlaneDataba
 from harborrag_core.ingestion import (
     BindingKind,
     DocumentIngestionOutcome,
+    SourceAdmissionDecision,
     TaskDocumentResult,
     is_retryable_failure_code,
 )
 from harborrag_core.schemas.ids import DocumentId, DocumentVersionId
+from harborrag_engine.ingestion.release.models import DocumentReleaseOutcome
+from harborrag_engine.ingestion.release.service import DocumentReleaseService
+from harborrag_engine.ingestion.source.models import PlannedDocumentRelease
 
-from ..document.models import DocumentReleaseOutcome
-from ..document.service import DocumentReleaseService
 from ..failure_classification import ingestion_failure_classifier
-from .models import PlannedDocumentRelease
 
 logger = logging.getLogger("harborrag.runtime.ingestion.source_documents")
+
+_NO_INDEXABLE_CONTENT = "no_indexable_content"
+_SKIPPED_STATUS = "skipped"
 
 
 class SourceDocumentService:
@@ -42,6 +46,7 @@ class SourceDocumentService:
         planned: PlannedDocumentRelease,
         connector: BaseConnector | HarborConnector,
     ) -> DocumentIngestionOutcome:
+        """Release one planned document and record its outcome."""
         try:
             return await self.publish_one(task_id, planned, connector)
         except Exception as error:
@@ -72,6 +77,7 @@ class SourceDocumentService:
         planned: PlannedDocumentRelease,
         connector: BaseConnector | HarborConnector,
     ) -> DocumentIngestionOutcome:
+        """Publish one planned document and record its outcome."""
         outcome = await self._documents.release(planned.request, connector)
         return await self.record_published_document(task_id, planned, outcome)
 
@@ -81,11 +87,19 @@ class SourceDocumentService:
         planned: PlannedDocumentRelease,
         outcome: DocumentReleaseOutcome,
     ) -> DocumentIngestionOutcome:
+        """Record the outcome of a document that was released.
+
+        A document whose active version was retired because it no longer yields
+        evidence is stored as skipped, with a skip reason. It still returns
+        UNCHANGED, which is how the run's dispatch summary counts it.
+        """
         status = (
             DocumentIngestionOutcome.PUBLISHED
             if outcome.published
             else DocumentIngestionOutcome.UNCHANGED
         )
+        retired = outcome.decision == SourceAdmissionDecision.REMOVED_CANDIDATE
+        stored_status = _SKIPPED_STATUS if retired else status.value
         await self._control.tasks.record_document_result(
             TaskDocumentResult(
                 task_id=task_id,
@@ -95,13 +109,14 @@ class SourceDocumentService:
                     if outcome.document_version_id is not None
                     else None
                 ),
-                status=status,
+                status=stored_status,
                 result={
                     **self._document_summary(planned),
                     "decision": outcome.decision.value,
                     "evidence_chunks": outcome.evidence_chunks,
                     "graph_nodes": outcome.graph_nodes,
                     "graph_relations": outcome.graph_relations,
+                    **({"skip_reason": _NO_INDEXABLE_CONTENT} if retired else {}),
                 },
             )
         )
@@ -109,7 +124,7 @@ class SourceDocumentService:
             "Document ingestion completed task_id=%s document_id=%s status=%s decision=%s",
             task_id,
             planned.document_id,
-            status,
+            stored_status,
             outcome.decision.value,
         )
         return status
@@ -123,6 +138,7 @@ class SourceDocumentService:
         failed_stage: str = "FetchAndCaptureRaw",
         skip_reason: str | None = None,
     ) -> None:
+        """Record a document whose release failed."""
         normalized = error_type.strip().lower()
         if not normalized:
             raise ValueError("document failure error type must be non-empty")

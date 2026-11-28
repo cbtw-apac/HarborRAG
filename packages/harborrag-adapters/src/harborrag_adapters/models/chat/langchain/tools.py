@@ -120,14 +120,3 @@ def compose_structured_output(
 
 def _single_tool_choice(tools: Sequence[HarborChatTool]) -> dict[str, Any]:
     return {"type": "function", "function": {"name": tools[0].function.name}}
-
-
-__all__ = [
-    "StructuredOutputMethod",
-    "ToolLike",
-    "compose_structured_output",
-    "json_schema_response_format",
-    "normalize_tool_choice",
-    "structured_output_parser",
-    "to_harbor_tools",
-]

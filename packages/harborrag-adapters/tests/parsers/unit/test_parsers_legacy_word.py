@@ -27,15 +27,15 @@ VIETNAMESE = "Nguyễn Văn Á — Kỹ sư phần mềm"
 CYRILLIC = "Иван Петров, инженер"
 
 
-def _parse(data: bytes, filename: str = "cv.doc"):
+def _parse(data: bytes, filename: str = "runbook.doc"):
     return MsWordParser().parse(ParseInput(content=data, filename=filename))
 
 
 def test_utf16_pieces_preserve_vietnamese_and_cyrillic_text() -> None:
-    document = _parse(build_doc_bytes(f"Curriculum Vitae\r{VIETNAMESE}\r{CYRILLIC}\r"))
+    document = _parse(build_doc_bytes(f"Runbook\r{VIETNAMESE}\r{CYRILLIC}\r"))
 
     assert document.parser_name == "doc"
-    assert document.content == f"Curriculum Vitae\n{VIETNAMESE}\n{CYRILLIC}"
+    assert document.content == f"Runbook\n{VIETNAMESE}\n{CYRILLIC}"
     assert document.metadata["word_nfib"] == 0xC1
     assert [element.metadata["part"] for element in document.elements] == ["body"]
 
@@ -49,7 +49,7 @@ def test_compressed_cp1252_pieces_mix_with_utf16_pieces() -> None:
 
 def test_field_instructions_are_stripped_but_results_kept() -> None:
     main = (
-        'See \x13 HYPERLINK "https://example.test/cv" \x14my portfolio\x15 online.\r'
+        'See \x13 HYPERLINK "https://example.test/runbook" \x14my portfolio\x15 online.\r'
         "Page \x13 PAGE \x14\x13 NESTED \x147\x15\x15 end.\r"
         "\x13 TOC \\o \x15Visible\r"
     )
@@ -160,7 +160,7 @@ def test_ole_file_without_word_stream_is_unsupported() -> None:
 
 
 def test_renamed_docx_is_delegated_to_the_docx_engine() -> None:
-    document = _parse(build_docx_bytes("Renamed package"), filename="cv.doc")
+    document = _parse(build_docx_bytes("Renamed package"), filename="runbook.doc")
     assert document.parser_name == "docx"
     assert "Renamed package" in document.content
 
@@ -200,7 +200,7 @@ def test_missing_olefile_dependency_raises_parse_error(monkeypatch) -> None:
 
 @pytest.mark.parametrize(
     ("filename", "mime_type"),
-    [("CV.DOC", None), ("template.dot", "application/msword"), (None, "application/msword")],
+    [("RUNBOOK.DOC", None), ("template.dot", "application/msword"), (None, "application/msword")],
 )
 def test_default_registry_routes_word_binary_to_document_family(filename, mime_type) -> None:
     registry = HarborParserFactory().create_registry()

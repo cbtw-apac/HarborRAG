@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from harborrag_adapters.chunking import RecursiveTextRefiner, RoutingTextRefiner, factory
+from harborrag_core.chunking.tokenization import ApproximateTokenCounter
 from harborrag_runtime.config.chunking import (
     RefinerConfig,
     chunking_settings_from,
@@ -22,14 +23,9 @@ from harborrag_runtime.ingestion.chunking_profile import (
     refiner_fingerprint,
 )
 from harborrag_runtime.ingestion.profiles import build_processing_profile
-from harborrag_runtime.tokenization import ApproximateTokenCounter
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[4]
 SHIPPED = REPOSITORY_ROOT / "config" / "ingestion" / "chunking.yaml"
-SCAFFOLD = (
-    REPOSITORY_ROOT
-    / "packages/harborrag-app/src/harborrag_app/scaffold/templates/chunking.yaml.tmpl"
-)
 
 
 def _write(tmp_path: Path, text: str) -> Path:
@@ -38,14 +34,13 @@ def _write(tmp_path: Path, text: str) -> Path:
     return path
 
 
-def test_shipped_file_and_scaffold_declare_exactly_the_built_in_defaults() -> None:
+def test_shipped_file_declares_exactly_the_built_in_defaults() -> None:
     defaults = default_chunking_settings()
 
-    for path in (SHIPPED, SCAFFOLD):
-        loaded = load_chunking_settings(path)
-        assert loaded.config == defaults.config
-        assert loaded.refiner == defaults.refiner
-    assert SHIPPED.read_text(encoding="utf-8") == SCAFFOLD.read_text(encoding="utf-8")
+    loaded = load_chunking_settings(SHIPPED)
+
+    assert loaded.config == defaults.config
+    assert loaded.refiner == defaults.refiner
 
 
 def test_omitted_sections_keep_the_defaults(tmp_path: Path) -> None:
@@ -154,6 +149,7 @@ def test_missing_code_grammars_stop_ingestion_unless_the_fallback_is_chosen(
 
 
 def test_refiner_choice_is_part_of_processing_identity(tmp_path: Path) -> None:
+    """Requiring grammars changes what fails at startup, not how text splits."""
     parser = tmp_path / "parsers.yaml"
     parser.write_text("version: 1\n", encoding="utf-8")
     structure = _write(tmp_path, "version: 1\n")
@@ -167,6 +163,5 @@ def test_refiner_choice_is_part_of_processing_identity(tmp_path: Path) -> None:
         return build_processing_profile(settings).chunk_strategy
 
     assert identity(structure) != identity(recursive)
-    # Requiring grammars changes what fails at startup, not how text splits.
     assert identity(structure) == identity(grammars)
     assert identity(structure) == chunk_strategy_fingerprint(default_chunking_settings().config)

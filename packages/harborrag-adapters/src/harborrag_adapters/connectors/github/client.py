@@ -8,15 +8,14 @@ from typing import Any, Protocol, Unpack
 import requests
 
 from harborrag_adapters.connectors._http import RequestOptions, RetryingHttpClient, RetryPolicy
-from harborrag_adapters.connectors.exceptions import FetchError
+from harborrag_adapters.connectors.exceptions import FetchError, RefusedResponseError
 from harborrag_adapters.connectors.policies.http import (
     DEFAULT_JSON_BODY_LIMIT,
     ResponseTooLargeError,
     read_capped_json,
     require_same_origin_url,
-    safe_response_error_detail,
 )
-from harborrag_adapters.connectors.policies.network import guarded_session
+from harborrag_adapters.connectors.policies.network import DestinationPolicy, guarded_session
 from harborrag_adapters.connectors.rate_limiting import (
     ConnectorRateLimiter,
     LocalIntervalRateLimiter,
@@ -50,12 +49,14 @@ class _RequestsGitHubClient(RetryingHttpClient):
     """GitHub REST client on the shared retry loop and the token's rate-limit lane.
 
     A 403 that carries GitHub's primary or secondary rate-limit signal is
-    retried like a 429.
+    retried like a 429; any other 403 is an authorization failure.
 
     Args:
         config: Repository config that supplies the API URL, token and request settings.
         rate_limiter: Limiter shared by every worker reading with the same token;
             a per-process limiter when omitted.
+        destination_policy: Hosts the session may reach beyond public addresses;
+            public addresses only when omitted.
     """
 
     def __init__(
@@ -63,10 +64,11 @@ class _RequestsGitHubClient(RetryingHttpClient):
         config: GitHubRepositoryConfig,
         *,
         rate_limiter: ConnectorRateLimiter | None = None,
+        destination_policy: DestinationPolicy | None = None,
     ) -> None:
         super().__init__(label="GitHub", logger=logger)
         self.config = config
-        self.session = guarded_session()
+        self.session = guarded_session(destination_policy or DestinationPolicy())
         self.session.headers.update(
             {
                 "Accept": "application/vnd.github+json",
@@ -109,7 +111,9 @@ class _RequestsGitHubClient(RetryingHttpClient):
                 max_bytes=DEFAULT_JSON_BODY_LIMIT if max_bytes is None else max_bytes,
             )
         except ResponseTooLargeError as exc:
-            raise FetchError(f"GitHub response exceeded byte limit for {endpoint}") from exc
+            raise RefusedResponseError(
+                f"GitHub response exceeded byte limit for {endpoint}"
+            ) from exc
         except ValueError as exc:
             raise FetchError(f"GitHub returned non-JSON response for {endpoint}") from exc
         if isinstance(payload, dict):
@@ -149,12 +153,17 @@ class _RequestsGitHubClient(RetryingHttpClient):
                     label="GitHub API",
                 )
             except ValueError as exc:
-                raise FetchError(str(exc)) from exc
+                raise RefusedResponseError(str(exc)) from exc
         return f"{self.config.api_url}/{endpoint.lstrip('/')}"
 
     @staticmethod
-    def _rate_limited(response: requests.Response) -> bool:
-        """A 429, or a 403 that carries GitHub's primary or secondary rate-limit signal."""
+    def _rate_limited(response: requests.Response, detail: str = "") -> bool:
+        """Return whether a 429, or a 403 by its headers or ``detail``, is a rate limit.
+
+        Args:
+            response: Response whose status and headers are checked.
+            detail: The 403 body already read, since a streamed body reads only once.
+        """
         if response.status_code == 429:
             return True
         if response.status_code != 403:
@@ -163,5 +172,5 @@ class _RequestsGitHubClient(RetryingHttpClient):
             return True
         if response.headers.get("Retry-After"):
             return True
-        body = safe_response_error_detail(response, limit=2_000).lower()
+        body = detail.lower()
         return "secondary rate limit" in body or "abuse detection" in body

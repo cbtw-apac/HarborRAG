@@ -1,6 +1,6 @@
-from importlib.metadata import PackageNotFoundError, version
+"""HarborRAG HTTP, CLI and operations layer on top of the runtime package."""
 
-from harborrag_app.workflow_control import AppResponse, BaseAppService
+from importlib.metadata import PackageNotFoundError, version
 
 try:
     __version__ = version("harborrag-app")
@@ -8,7 +8,5 @@ except PackageNotFoundError:  # pragma: no cover - source checkout without insta
     __version__ = "0+unknown"
 
 __all__ = [
-    "AppResponse",
-    "BaseAppService",
     "__version__",
 ]

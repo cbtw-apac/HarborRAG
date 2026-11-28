@@ -7,7 +7,7 @@ from typing import Self
 from pydantic import ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
 from .common import HttpTuning
-from .fields import HttpsUrl, HttpUrl, Secret, StrictModel
+from .fields import HttpsUrl, HttpUrl, PathText, Secret, StrictModel
 from .spec import AuthMethodSpec, Capabilities, Setup, SourceTypeSpec, constant_environment
 
 _API_HELP = "REST API root; left out, https://api.github.com. Change for GitHub Enterprise Server"
@@ -62,7 +62,7 @@ class GitHubConfig(StrictModel):
     commit_sha: str | None = Field(
         default=None, description="Commit to read; not with ref or branch"
     )
-    root_path: str | None = Field(
+    root_path: PathText | None = Field(
         default=None, description="Folder inside the repository; left out, the whole repository"
     )
     allowed_extensions: list[str] = Field(
@@ -73,14 +73,14 @@ class GitHubConfig(StrictModel):
         ),
     )
     excluded_extensions: list[str] = Field(default_factory=list, description="File types to drop")
-    include_paths: list[str] = Field(
+    include_paths: list[PathText] = Field(
         default_factory=list, description="Paths to read; empty reads every path"
     )
-    exclude_paths: list[str] = Field(default_factory=list, description="Paths to skip")
-    include_globs: list[str] = Field(
+    exclude_paths: list[PathText] = Field(default_factory=list, description="Paths to skip")
+    include_globs: list[PathText] = Field(
         default_factory=list, description="Glob patterns to read, such as docs/**/*.md"
     )
-    exclude_globs: list[str] = Field(default_factory=list, description="Glob patterns to skip")
+    exclude_globs: list[PathText] = Field(default_factory=list, description="Glob patterns to skip")
     max_file_size_bytes: int | None = Field(
         default=None, ge=0, description="Largest file to read, in bytes; left out, 20 MiB"
     )

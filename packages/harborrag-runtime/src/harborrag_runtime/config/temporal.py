@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
 
+from harborrag_core.ingestion.limits import MAX_BATCH_SIZE, MAX_DOCUMENT_CONCURRENCY
 from harborrag_runtime.errors import RuntimeConfigurationError
 from harborrag_runtime.temporal_models import (
     ActivityRetryConfig,
@@ -143,13 +144,6 @@ class WorkerConfig:
             raise RuntimeConfigurationError("Temporal worker identity or capacity is out of range")
 
 
-# Mirrors harborrag_runtime.ingestion.limits.MAX_BATCH_SIZE / MAX_DOCUMENT_CONCURRENCY:
-# config stays decoupled from runtime services, so the bounds are duplicated rather
-# than imported (see settings.py, which does the same for these fields).
-_MAX_INGESTION_BATCH_SIZE = 300
-_MAX_INGESTION_DOCUMENT_CONCURRENCY = 100
-
-
 @dataclass(frozen=True, slots=True)
 class IngestionConfig:
     """Default per-run source batching; a CLI/API caller may override it."""
@@ -158,8 +152,8 @@ class IngestionConfig:
     document_concurrency: int = 8
 
     def __post_init__(self) -> None:
-        if not 1 <= self.batch_size <= _MAX_INGESTION_BATCH_SIZE or not (
-            1 <= self.document_concurrency <= _MAX_INGESTION_DOCUMENT_CONCURRENCY
+        if not 1 <= self.batch_size <= MAX_BATCH_SIZE or not (
+            1 <= self.document_concurrency <= MAX_DOCUMENT_CONCURRENCY
         ):
             raise RuntimeConfigurationError(
                 "Temporal ingestion batch_size or document_concurrency is out of range"
@@ -178,6 +172,7 @@ class TemporalRuntimeConfig:
     ingestion: IngestionConfig = IngestionConfig()
     workflow_execution_timeout_seconds: int = 2_592_000
     workflow_task_timeout_seconds: int = 10
+    workflow_native_pause: bool = False
     health_timeout_seconds: float = 5.0
 
     def __post_init__(self) -> None:
@@ -204,7 +199,10 @@ class TemporalRuntimeConfig:
         """Freeze configurable routing, retries and budgets into workflow history."""
 
         return TemporalWorkflowOptions(
-            task_queues=self.task_queues, retries=self.retries, timeouts=self.timeouts
+            task_queues=self.task_queues,
+            retries=self.retries,
+            timeouts=self.timeouts,
+            native_pause=self.workflow_native_pause,
         )
 
     @classmethod
@@ -283,9 +281,12 @@ class TemporalRuntimeConfig:
             )
             if "temporal_tls" in explicit_fields
             else connection.tls,
-            allow_insecure_remote=settings.temporal_allow_insecure_remote
-            if "temporal_allow_insecure_remote" in explicit_fields
-            else connection.allow_insecure_remote,
+            allow_insecure_remote=settings.env == "dev"
+            and (
+                settings.temporal_allow_insecure_remote
+                if "temporal_allow_insecure_remote" in explicit_fields
+                else connection.allow_insecure_remote
+            ),
         )
         selected_worker = replace(
             worker,

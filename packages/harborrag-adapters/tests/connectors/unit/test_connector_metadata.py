@@ -14,8 +14,8 @@ from harborrag_adapters.connectors.confluence.schemas import ConfluenceMetadata
 from harborrag_adapters.connectors.github.schemas import GitHubMetadata
 from harborrag_adapters.connectors.jira.schemas import JiraMetadata
 from harborrag_adapters.connectors.local.schemas import LocalFileMetadata
-from harborrag_adapters.connectors.schemas import ConnectorMetadata
 from harborrag_adapters.connectors.sharepoint.schemas import SharePointMetadata
+from harborrag_core.ingestion.connector_contracts import ConnectorMetadata
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 

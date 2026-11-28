@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from typing import Any, Protocol
 
+from harborrag_adapters.models.runtime.litellm_backend import configure_litellm
+
 RerankCallable = Callable[..., Any]
 AsyncRerankCallable = Callable[..., Awaitable[Any]]
 
@@ -38,6 +40,7 @@ class LiteLLMRerankInvocation:
         """Store injected callables, defaulting to LiteLLM reranking functions."""
 
         if rerank is None or arerank is None:
+            configure_litellm()
             import litellm
 
             rerank = rerank or litellm.rerank

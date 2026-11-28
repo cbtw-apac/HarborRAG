@@ -1,13 +1,6 @@
 """Remove one connection's documents from every store.
 
-Handles:
-- retiring each published document of the connection, which queues the same
-  projection cleanup a removed source item gets
-- draining that cleanup so the vectors and graph versions are gone
-- dropping the connection's source scopes from the graph
-- optionally purging its Postgres history (runs, documents, scopes)
-
-Does NOT touch the connection row or its secrets; the caller removes those last.
+The connection row and its secrets are left to the caller, which removes them last.
 """
 
 from __future__ import annotations
@@ -20,8 +13,7 @@ from dataclasses import dataclass
 from harborrag_adapters.repositories.database import IngestionControlPlaneDatabase
 from harborrag_core.ports import KnowledgeGraphRepositoryPort
 from harborrag_core.storage import StorageOperationContext
-
-from .cleanup import ProjectionCleanupService
+from harborrag_engine.ingestion.maintenance.cleanup import ProjectionCleanupService
 
 logger = logging.getLogger("harborrag.runtime.ingestion.connection_removal")
 

@@ -94,6 +94,9 @@ def classify_model_exception(exc: Exception, *, provider: str | None = None) -> 
         retryable = True
 
     try:
+        from .litellm_backend import configure_litellm
+
+        configure_litellm()
         import litellm
 
         mappings = (

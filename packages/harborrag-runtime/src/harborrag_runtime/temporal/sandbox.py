@@ -27,7 +27,7 @@ def workflow_sandbox_runner(
     sandbox's ``sys.modules`` lazily serves only configured modules, and
     ``typing.get_type_hints`` reads it whenever Temporal decodes a dataclass input:
     ``SourceIngestionInput`` inherits fields annotated in
-    ``harborrag_runtime.ingestion_contracts``, a module no workflow imports by name.
+    ``harborrag_core.ingestion.run_contracts``, a module no workflow imports by name.
     With the in-module form, that lookup found nothing and every source workflow
     failed with ``NameError: name 'ProcessingProfileInput' is not defined``.
 
@@ -36,7 +36,6 @@ def workflow_sandbox_runner(
     its workflow modules, which would turn off the sandbox's determinism checks
     for workflow code.
     """
-
     modules = sys.modules if loaded_modules is None else loaded_modules
     sandboxed: set[str] = set()
     for workflow_type in workflows:

@@ -1,22 +1,11 @@
-"""Transport-independent tool invocation and audit ports."""
+"""Transport-independent tool audit and access ports."""
 
 from __future__ import annotations
 
 from typing import Protocol
 
-from harborrag_core.contracts.tools import BaseTool, ToolInvocationContext, ToolSpec
-
-
-class ToolInvokerPort(Protocol):
-    def list_tools(self) -> list[ToolSpec]: ...
-
-    async def invoke(
-        self,
-        name: str,
-        arguments: dict[str, object],
-        *,
-        context: ToolInvocationContext,
-    ) -> dict[str, object]: ...
+from harborrag_core.contracts.tools import BaseTool as BaseTool
+from harborrag_core.contracts.tools import ToolInvocationContext
 
 
 class ToolExecutionAudit(Protocol):
@@ -25,6 +14,3 @@ class ToolExecutionAudit(Protocol):
 
 class ToolAccessPolicy(Protocol):
     def allowed(self, context: ToolInvocationContext, name: str) -> bool: ...
-
-
-__all__ = ["BaseTool", "ToolAccessPolicy", "ToolExecutionAudit", "ToolInvokerPort"]

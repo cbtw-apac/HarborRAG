@@ -190,17 +190,32 @@ def test_worker_image_installs_durable_artifact_adapters() -> None:
     assert f"harborrag-adapters[{adapter_extras}]'" in dockerfile
 
 
-def test_mcp_compose_does_not_opt_into_plaintext_remote_backends() -> None:
-    # The MCP service uses host networking and reaches every backend on loopback,
-    # which the adapters already accept without TLS. A *_ALLOW_INSECURE_REMOTE
-    # flag there only ever widened a later remote override to plaintext.
+def test_mcp_compose_reaches_fixed_backends_on_the_data_network() -> None:
+    """Pin the backend addresses as literals.
+
+    The plaintext acknowledgements beside them then cannot be pointed at a remote
+    host by an override.
+    """
     mcp = (ROOT / "deploy/compose/docker-compose.mcp.yml").read_text(encoding="utf-8")
 
-    assert "network_mode: host" in mcp
-    assert "_ALLOW_INSECURE_REMOTE" not in mcp
-    assert "http://127.0.0.1:${MINIO_API_PORT:-9000}" in mcp
-    assert "http://127.0.0.1:${QDRANT_HTTP_PORT:-6333}" in mcp
-    assert "HARBORRAG_FALKORDB_HOST: 127.0.0.1" in mcp
+    assert "network_mode" not in mcp
+    assert "name: harborrag-data-network" in mcp
+    assert "@postgres:5432/" in mcp
+    for fixed_address in (
+        "HARBORRAG_OBJECT_STORE_ENDPOINT_URL: http://minio:9000",
+        "HARBORRAG_QDRANT_URL: http://qdrant:6333",
+        "HARBORRAG_FALKORDB_HOST: falkordb",
+    ):
+        assert fixed_address in mcp
+
+
+def test_mcp_compose_publishes_its_port_on_loopback_only() -> None:
+    mcp = (ROOT / "deploy/compose/docker-compose.mcp.yml").read_text(encoding="utf-8")
+
+    assert '- "127.0.0.1:${HARBORRAG_MCP_PORT:-8010}:8010"' in mcp
+    assert "HARBORRAG_MCP_HOST: 0.0.0.0" in mcp
+    assert 'HARBORRAG_MCP_ALLOWED_HOSTS: "127.0.0.1,localhost"' in mcp
+    assert 'HARBORRAG_MCP_ALLOW_INSECURE_BIND: "true"' in mcp
 
 
 def test_mcp_compose_does_not_receive_the_secrets_encryption_key() -> None:
@@ -279,3 +294,32 @@ def test_the_api_has_every_variable_the_connector_import_reads() -> None:
     }
     assert unset == []
     assert referenced.isdisjoint(environment)
+
+
+def test_mcp_compose_brings_the_server_back_after_docker_restarts() -> None:
+    mcp = (ROOT / "deploy/compose/docker-compose.mcp.yml").read_text(encoding="utf-8")
+
+    assert "restart: unless-stopped" in mcp
+    assert "on-failure" not in mcp
+
+
+def test_mcp_images_record_the_commit_they_were_built_from() -> None:
+    mcp = (ROOT / "deploy/compose/docker-compose.mcp.yml").read_text(encoding="utf-8")
+
+    assert "HARBORRAG_GIT_REVISION: ${HARBORRAG_GIT_REVISION:-unknown}" in mcp
+    for name in ("Dockerfile.mcp", "Dockerfile.mcp-ui"):
+        dockerfile = (ROOT / "deploy/docker" / name).read_text(encoding="utf-8")
+        assert "ARG HARBORRAG_GIT_REVISION=unknown" in dockerfile
+        assert 'org.opencontainers.image.revision="${HARBORRAG_GIT_REVISION}"' in dockerfile
+
+
+def test_shipped_templates_share_the_corpus_mode_of_the_default_tenant() -> None:
+    expected = {
+        "HARBORRAG_CORPUS_ACCESS_MODE": "tenant_shared",
+        "HARBORRAG_CORPUS_SHARED_TENANT_ID": "DEFAULT",
+    }
+
+    for name in (".env.api.example", ".env.temporal.example", ".env.mcp.example"):
+        lines = (ROOT / "env-example" / name).read_text(encoding="utf-8").splitlines()
+        active = dict(line.split("=", 1) for line in lines if line.startswith("HARBORRAG_CORPUS_"))
+        assert active == expected, name

@@ -207,7 +207,7 @@ async def test_the_model_is_asked_for_prose_only_even_when_the_scope_declares_fa
         facets=(SummaryFacet(name="stage", field="status"),),
     )
     card, _ = await SummaryReducer("tenant", policy, Cache(), generator).reduce(
-        "SourceEntity", {"name": "PROJ-1"}, ("a CV", "an interview note")
+        "SourceEntity", {"name": "PROJ-1"}, ("a runbook", "an incident review")
     )
     assert card.attributes == ()
     # The entity's own budget reached the generator, and nothing else did.

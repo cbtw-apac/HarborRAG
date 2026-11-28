@@ -1,0 +1,518 @@
+"""Authoritative retrieval service implementation."""
+
+from __future__ import annotations
+
+import logging
+from dataclasses import replace
+from time import perf_counter
+from typing import TYPE_CHECKING
+from uuid import uuid4
+
+from harborrag_core.contracts.errors import (
+    HarborAuthorizationUnavailableError,
+    StorageNotFoundError,
+)
+from harborrag_core.contracts.reader import (
+    EntityFindRequest,
+    EntityFindResponse,
+)
+from harborrag_core.indexing import VectorFilter, VectorSearchResult
+from harborrag_core.security import AccessContext
+from harborrag_core.storage import StorageOperationContext
+from harborrag_core.topology.search import RetrievalMode
+from harborrag_engine.ingestion.projections.vector import EVIDENCE_INDEX
+from harborrag_engine.retrieval import (
+    ActiveVersionCandidateValidator,
+    AuthoritativeGraphSearch,
+    AuthoritativeProjectionSearch,
+    AuthoritativeSearchDiagnostics,
+    AuthoritativeSearchRequest,
+    AuthoritativeSearchResult,
+    RetrievalLane,
+)
+from harborrag_engine.retrieval.duplicates import collapse_duplicates, duplicate_identity
+from harborrag_engine.retrieval.evidence_filters import validate_evidence_filter
+from harborrag_engine.retrieval.service.contracts import (
+    CloseOperation,
+    RetrievalDiagnostics,
+    RetrievalOptions,
+    RetrievalPolicy,
+    RetrievalResources,
+    RetrievalTelemetry,
+    RuntimeRetrievalReport,
+)
+from harborrag_engine.retrieval.service.entity_summary import split_facet_filters
+from harborrag_engine.retrieval.service.errors import no_entity_index, no_indexed_content
+from harborrag_engine.retrieval.service.evidence import (
+    budget_diagnostics,
+    build_evidence_bundle,
+    select_evidence,
+)
+from harborrag_engine.retrieval.service.graph_observation import GraphObservation, GraphObserver
+from harborrag_engine.retrieval.service.graph_service import RuntimeGraphRetrievalMixin
+from harborrag_engine.retrieval.service.permissions import RetrievalPermissions
+from harborrag_engine.retrieval.service.reader_service import RuntimeReaderRetrievalMixin
+from harborrag_engine.retrieval.service.readers import ReaderResources, ReaderRetrieval
+from harborrag_engine.retrieval.service.reranking import PassageReranker
+from harborrag_engine.retrieval.service.result_loader import EvidenceResultLoader
+from harborrag_engine.retrieval.service.source_fields import SourceFieldTrace, split_field_filters
+from harborrag_engine.retrieval.service.topology import TopologyRetrieval
+from harborrag_engine.retrieval.service.validation import validate_retrieval_request
+
+RERANK_POOL_FACTOR = 4
+RERANK_POOL_LIMIT = 100
+
+_NO_CANDIDATES = AuthoritativeSearchDiagnostics(
+    candidate_count=0,
+    accepted_count=0,
+    stale_count=0,
+    unpublished_count=0,
+    malformed_count=0,
+    search_window=0,
+    exhausted=True,
+)
+
+logger = logging.getLogger("harborrag.engine.retrieval.service.service")
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from harborrag_core.domain.retrieval import RetrievalResult
+    from harborrag_core.ports.storage import VectorRepositoryPort
+
+
+class _NullRetrievalTelemetry:
+    def record_stale_candidate_rejections(self, count: int) -> None:
+        del count
+
+
+class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrievalMixin):
+    """Resolve projection visibility through Postgres before loading evidence.
+
+    Args:
+        resources: Stores and model clients the service reads through.
+        policy: Process-wide retrieval settings.
+        close_resources: Close operations ``aclose`` runs, in reverse order.
+        telemetry: Metrics sink for stale-candidate rejections; ``None`` drops them.
+    """
+
+    def __init__(
+        self,
+        *,
+        resources: RetrievalResources,
+        policy: RetrievalPolicy,
+        close_resources: tuple[CloseOperation, ...] = (),
+        telemetry: RetrievalTelemetry | None = None,
+    ) -> None:
+        self._sparse = resources.sparse_encoder
+        self._graph = resources.graph_repository
+        self._summaries = resources.summary_repository
+        self._entities = resources.entity_summary_search
+        self._policy = policy
+        self._result_loader = EvidenceResultLoader(resources.embed_client, policy)
+        self._reranker = (
+            PassageReranker(resources.rerank_client)
+            if resources.rerank_client is not None
+            else None
+        )
+        self._permissions = RetrievalPermissions(resources.topology_repository)
+        self._candidate_validator = ActiveVersionCandidateValidator(resources.active_versions)
+        self._vector_repository = resources.vector_repository
+        self._reader = ReaderRetrieval(
+            ReaderResources(
+                vectors=resources.vector_repository,
+                validator=self._candidate_validator,
+                permissions=self._permissions,
+                topology=resources.topology_repository,
+                snapshots=resources.document_snapshots,
+                chunks=resources.chunk_reader,
+                sources=resources.source_catalog,
+                graph=resources.graph_repository,
+                summaries=resources.summary_repository,
+            )
+        )
+        self._topology = TopologyRetrieval(
+            resources.topology_repository,
+            resources.vector_repository,
+            self._candidate_validator,
+            policy=policy.topology.model_copy(update={"semantic_weight": policy.semantic_weight}),
+            contextual=resources.contextual_search,
+        )
+        self._search = AuthoritativeProjectionSearch(
+            resources.vector_repository,
+            self._candidate_validator,
+        )
+        self._fields = SourceFieldTrace(resources.vector_repository, EVIDENCE_INDEX)
+        self._graph_search = (
+            AuthoritativeGraphSearch(
+                resources.graph_repository,
+                resources.active_versions,
+                resources.topology_repository,
+            )
+            if resources.graph_repository is not None
+            else None
+        )
+        self._close_resources = close_resources
+        self._telemetry = telemetry or _NullRetrievalTelemetry()
+        # TODO: decide whether to observe the graph under access control (a topology repository).
+        self._observer = (
+            GraphObserver(resources.graph_repository, authorizer=resources.topology_repository)
+            if resources.graph_repository is not None and resources.topology_repository is None
+            else None
+        )
+        self._closed = False
+
+    async def find_entities(self, request: EntityFindRequest) -> EntityFindResponse:
+        """Rank source entities for a question, within the facet values a caller names.
+
+        The entity index answers "which entities, in what order"; the summary
+        authority answers "which of those may this principal see, and with what
+        evidence". Nothing from the index is returned unless the authority
+        released it, so an entity whose binding is stale or private is simply
+        absent, not shown without its evidence. A missing index, and (on a shared
+        corpus) hits nothing was released for, come back as reason codes rather
+        than as an empty answer that looks complete -- see ``EntitySummarySearch.find``.
+        """
+        request_id = f"entities-{uuid4().hex}"
+        if self._entities is None or self._summaries is None:
+            raise no_entity_index()
+        context = self._retrieval_context(
+            request_id=request_id,
+            tenant_id=str(request.access.tenant_id),
+            access=request.access,
+        )
+        dense_vector = await self._result_loader.dense_vector(request.query)
+        return await self._entities.find(request, request_id, dense_vector, context)
+
+    @property
+    def vector_repository(self) -> VectorRepositoryPort:
+        """The connected vector client, so the memory index shares it instead of opening a second one.
+
+        Memory lives in its own logical collection, never the document or evidence one.
+        """
+        return self._vector_repository
+
+    @property
+    def embedding_dimensions(self) -> int:
+        """Dense vector width, so a second index matches this deployment."""
+        return self._policy.embedding_dimensions
+
+    async def retrieve(
+        self,
+        query: str,
+        *,
+        tenant_id: str,
+        top_k: int = 10,
+        options: RetrievalOptions | None = None,
+        access: AccessContext | None = None,
+    ) -> RuntimeRetrievalReport:
+        """Search active evidence vectors and return their canonical payload content.
+
+        Filters are split before searching. The caller's own keys are checked
+        before permission conditions join them, and an unindexed key is refused
+        rather than scanned. A ``facet.*`` filter addresses entity summary points,
+        not chunks, so it is applied on the entity lane and taken out of the chunk
+        filter; left in, it would match nothing on chunks and force the flat lane.
+        A ``fields.*`` filter names an item's own fields, such as a Jira issue's
+        custom fields, which its attachments do not carry. It is resolved to the
+        matching items first and applied as their evidence or evidence attached to
+        them, so an attached document is reached through the issue it belongs to. When no item has
+        those values nothing can qualify, no entity's evidence either, and an empty
+        membership condition is not one every backend accepts, so the search is
+        skipped.
+
+        Entity-reached chunks join the authoritative set before validation, so they
+        face the permission and active-version checks every other candidate faces,
+        and they must meet the rest of the caller's filter. With a facet filter the
+        lane selects instead of enriching: only qualifying entities' evidence
+        remains. Entity- and topology-reached chunks arrive after the search
+        collapsed its own duplicates, so duplicates are collapsed again. Graph
+        observation is optional diagnostic context and is discarded when
+        publication advanced during retrieval, so it cannot describe a candidate
+        the final authority check removed.
+        """
+        validate_retrieval_request(query, tenant_id, top_k)
+        selected = options or RetrievalOptions()
+        validate_evidence_filter(selected.filters)
+        started = perf_counter()
+        request_id = f"retrieval-{uuid4().hex}"
+        context = self._retrieval_context(
+            request_id=request_id,
+            tenant_id=tenant_id,
+            access=access,
+        )
+        reranker = self._requested_reranker(selected, request_id)
+        pool = rerank_pool(top_k) if reranker is not None else top_k
+        sparse_vector = (
+            self._sparse.encode_query(query).vector
+            if selected.lane in {RetrievalLane.SPARSE, RetrievalLane.HYBRID}
+            else None
+        )
+        dense_vector = (
+            await self._result_loader.dense_vector(query)
+            if selected.lane in {RetrievalLane.DENSE, RetrievalLane.HYBRID}
+            else None
+        )
+        facet_filter, chunk_filter = (
+            split_facet_filters(selected.filters)
+            if self._entities is not None
+            else (None, selected.filters)
+        )
+        if facet_filter is not None:
+            selected = replace(selected, filters=chunk_filter)
+        field_filter, chunk_filter = split_field_filters(chunk_filter)
+        traced: tuple[str, ...] | None = None
+        try:
+            if field_filter is not None:
+                traced = await self._traced_items(field_filter, context)
+                chunk_filter = SourceFieldTrace.scope(traced, chunk_filter)
+                selected = replace(selected, filters=chunk_filter)
+            search = (
+                await self._readable_search(
+                    AuthoritativeSearchRequest(
+                        lane=selected.lane,
+                        top_k=pool,
+                        dense_vector=dense_vector,
+                        sparse_vector=sparse_vector,
+                        filters=chunk_filter,
+                        dense_weight=self._policy.dense_weight,
+                    ),
+                    context,
+                )
+                if traced != ()
+                else AuthoritativeSearchResult((), _NO_CANDIDATES)
+            )
+        except StorageNotFoundError as exc:
+            logger.info(
+                "Retrieval found no index for the tenant",
+                extra={"request_id": request_id, "tenant_id": tenant_id},
+            )
+            raise no_indexed_content() from exc
+        candidates = search.candidates
+        if self._entities is not None and traced != ():
+            candidates = await self._entities.expand(
+                candidates,
+                dense_vector,
+                context=context,
+                facet_filter=facet_filter,
+                chunk_filter=chunk_filter,
+            )
+        topology = await self._topology.prepare(
+            query,
+            await self._permissions.validate(candidates, context),
+            options=selected,
+            context=context,
+            dense_vector=dense_vector,
+        )
+        loaded, load_failures = await self._result_loader.load_candidates(
+            topology.candidates,
+            request_id=request_id,
+        )
+        observation = (
+            await self._observer.observe(
+                await self._permissions.validate(search.candidates, context),
+                context=context,
+                request_id=request_id,
+                memory_seeds=selected.graph_seeds,
+            )
+            if selected.observe_graph and self._observer is not None
+            else GraphObservation()
+        )
+        loaded, topology_diagnostics = await self._topology.finalize(
+            topology, loaded, context=context
+        )
+        final_validation = await self._candidate_validator.validate(
+            tuple(candidate for candidate, _ in loaded)
+        )
+        permitted = await self._permissions.validate(final_validation.accepted, context)
+        active_candidate_ids = {str(candidate.id) for candidate in permitted}
+        distinct, late_duplicates = collapse_duplicates(
+            [result for candidate, result in loaded if str(candidate.id) in active_candidate_ids],
+            lambda result: duplicate_identity(result.metadata),
+            limit=pool,
+        )
+        results = list(distinct)
+        direct = topology.flat
+        if reranker is not None:
+            results = await reranker.rerank(query, results)
+            direct = in_result_order(direct, results)
+        if selected.mode != RetrievalMode.FLAT:
+            results, tokens, excluded = select_evidence(
+                results, direct, top_k=top_k, policy=self._policy.topology
+            )
+            topology_diagnostics = budget_diagnostics(topology_diagnostics, tokens, excluded)
+        results = results[:top_k]
+        if final_validation.rejected_count:
+            observation = GraphObservation()
+        duration_ms = (perf_counter() - started) * 1_000
+        diagnostics = search.diagnostics
+        stale_count = diagnostics.stale_count + final_validation.stale_count
+        unpublished_count = diagnostics.unpublished_count + final_validation.unpublished_count
+        malformed_count = (
+            diagnostics.malformed_count + final_validation.malformed_count + load_failures
+        )
+        self._telemetry.record_stale_candidate_rejections(stale_count)
+        logger.info(
+            "Completed authoritative retrieval",
+            extra={
+                "request_id": request_id,
+                "tenant_id": tenant_id,
+                "lane": selected.lane.value,
+                "candidate_hits": len(search.candidates),
+                "stale_candidates": stale_count,
+                "result_count": len(results),
+                "duration_ms": duration_ms,
+            },
+        )
+        return RuntimeRetrievalReport(
+            request_id=request_id,
+            lane=selected.lane,
+            results=tuple(results),
+            evidence=build_evidence_bundle(tuple(results), topology.evidence, topology_diagnostics),
+            diagnostics=RetrievalDiagnostics(
+                candidate_hits=len(search.candidates),
+                stale_candidates=stale_count,
+                unpublished_candidates=unpublished_count,
+                malformed_candidates=malformed_count,
+                search_window=diagnostics.search_window,
+                graph_nodes=observation.nodes,
+                graph_relations=observation.relations,
+                graph_truncated=observation.truncated,
+                duration_ms=duration_ms,
+                graph_documents=observation.documents,
+                short_by=max(0, top_k - len(results)),
+                topology=topology_diagnostics,
+                duplicates_collapsed=diagnostics.collapsed_count + late_duplicates,
+            ),
+        )
+
+    def _requested_reranker(
+        self, options: RetrievalOptions, request_id: str
+    ) -> PassageReranker | None:
+        """Return the reranker when ``options`` ask for one and the catalog has one.
+
+        A ``retrieval.rerank`` override can outlive the ``rerank`` section it was
+        set against; that request is served unranked and logged.
+        """
+        if options.rerank and self._reranker is None:
+            logger.warning(
+                "Rerank requested but no rerank model is configured",
+                extra={"request_id": request_id},
+            )
+        return self._reranker if options.rerank else None
+
+    async def _traced_items(
+        self, field_filter: VectorFilter, context: StorageOperationContext
+    ) -> tuple[str, ...]:
+        """Return the items a ``fields.*`` filter matches, among documents the caller may read.
+
+        Over the enumeration budget the pre-query ACL is the readable source
+        scopes, which can hold documents the caller may not read. Whether any item
+        matched -- and whether more than the trace limit did -- would then answer
+        a question about hidden documents' field values. Authorizing every traced
+        item first costs a lookup per item, so the request is refused instead,
+        exactly as such a principal's every request was before the scope fallback.
+        """
+        scoped = await self._permissions.scoped(field_filter, context)
+        if not scoped.exact:
+            logger.info("Fields filter refused: readable documents exceed the enumeration budget")
+            raise HarborAuthorizationUnavailableError("AUTHORIZATION_UNAVAILABLE")
+        return await self._fields.matching_items(scoped.filters, context=context)
+
+    async def _readable_search(
+        self, request: AuthoritativeSearchRequest, context: StorageOperationContext
+    ) -> AuthoritativeSearchResult:
+        """Search under the caller's ACL; report only what they may read.
+
+        With the exact readable-document condition every search candidate and
+        count already lies within the caller's documents. Under the source-scope
+        fallback they need not: the hit count, the stale, unpublished and
+        malformed counts, the window and the collapsed duplicates would each say
+        something about documents the caller cannot read. So the candidates are
+        permission-checked here, and the counts describe only those.
+        """
+        scoped = await self._permissions.scoped(request.filters, context)
+        search = await self._search.search(
+            replace(request, filters=scoped.filters), context=context
+        )
+        if scoped.exact:
+            return search
+        visible = await self._permissions.validate(search.candidates, context)
+        return AuthoritativeSearchResult(
+            visible,
+            replace(_NO_CANDIDATES, candidate_count=len(visible), accepted_count=len(visible)),
+        )
+
+    @staticmethod
+    def _retrieval_context(
+        *,
+        request_id: str,
+        tenant_id: str,
+        access: AccessContext | None,
+    ) -> StorageOperationContext:
+        if access is not None:
+            if str(access.tenant_id) != tenant_id:
+                raise ValueError("retrieval access tenant must match tenant_id")
+            return StorageOperationContext.for_access(
+                access,
+                operation_kind="retrieval",
+                idempotency_key=request_id,
+            )
+        return StorageOperationContext.system(
+            tenant_id,
+            operation_kind="retrieval",
+            idempotency_key=request_id,
+        )
+
+    async def aclose(self) -> None:
+        """Run every close operation, newest first; a second call after success is a no-op.
+
+        A failed close leaves the service open, so a caller can retry ``aclose`` and give
+        the failed resources another attempt; close operations must be idempotent.
+
+        Raises:
+            BaseExceptionGroup: A close operation raised a non-``Exception`` such as
+                ``KeyboardInterrupt``.
+            ExceptionGroup: One or more close operations failed.
+        """
+        if self._closed:
+            return
+        results: list[BaseException] = []
+        for close in reversed(self._close_resources):
+            try:
+                await close()
+            except BaseException as error:
+                results.append(error)
+        errors = [result for result in results if isinstance(result, Exception)]
+        fatal = [
+            result
+            for result in results
+            if isinstance(result, BaseException) and not isinstance(result, Exception)
+        ]
+        if fatal:
+            raise BaseExceptionGroup("retrieval resource close failed", fatal)
+        if errors:
+            raise ExceptionGroup("retrieval resource close failed", errors)
+        self._closed = True
+
+
+def rerank_pool(top_k: int) -> int:
+    """Return how many passages a rerank chooses ``top_k`` from.
+
+    ``RERANK_POOL_FACTOR`` times ``top_k`` lets the model promote passages the
+    vector ranking placed lower; ``RERANK_POOL_LIMIT`` keeps one request within
+    the 100 documents a rerank search unit covers.
+    """
+    return max(top_k, min(top_k * RERANK_POOL_FACTOR, RERANK_POOL_LIMIT))
+
+
+def in_result_order(
+    direct: tuple[VectorSearchResult, ...], results: Sequence[RetrievalResult]
+) -> tuple[VectorSearchResult, ...]:
+    """Order direct hits as ``results`` are, so reserved evidence slots follow the rerank."""
+    position = {result.id: index for index, result in enumerate(results)}
+    return tuple(
+        sorted(
+            direct, key=lambda hit: position.get(str(hit.payload.get("chunk_id")), len(position))
+        )
+    )

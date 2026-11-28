@@ -2,7 +2,7 @@
 
 ``score`` orders results; on the hybrid lane it is rank arithmetic whose top hit
 sits near 1.0 whatever the match, and on the sparse lane a squashed BM25 value
-that put off-topic CVs at 0.95. Only cosine is a similarity a caller can compare
+that put off-topic runbooks at 0.95. Only cosine is a similarity a caller can compare
 across queries, so it is the one number reported as relevance.
 """
 

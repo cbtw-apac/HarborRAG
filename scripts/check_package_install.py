@@ -24,7 +24,7 @@ MODULES = {
         "harborrag_adapters",
         "harborrag_adapters.connectors.registry",
         "harborrag_adapters.parsers.registry",
-        "harborrag_adapters.repositories.state.sql_base",
+        "harborrag_adapters.repositories.backends.sqlalchemy",
     ],
     "harborrag-memory": ["harborrag_memory", "harborrag_memory.context"],
     "harborrag-engine": [
@@ -42,7 +42,7 @@ MODULES = {
     "harborrag-app": [
         "harborrag_app",
         "harborrag_app.cli.main",
-        "harborrag_app.workflow_control",
+        "harborrag_runtime.application",
     ],
     "harborrag-mcp-server": ["harborrag_mcp_server", "harborrag_mcp_server.__main__"],
     "harborrag": ["harborrag", "harborrag_app.cli.main"],
@@ -83,6 +83,7 @@ print(f'{package}: bare installed-wheel imports and resources passed')
 
 
 def main() -> None:
+    """Install the requested wheel in a fresh environment and smoke-test it."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("package", choices=MODULES)
     parser.add_argument("--wheel-dir", type=Path, default=Path("dist"))

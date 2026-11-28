@@ -60,20 +60,6 @@ def http_ok(url: str, *, timeout: float = DEFAULT_TIMEOUT) -> str | None:
     return f"{shown} returned HTTP {status}"
 
 
-def redis_ping(host: str, port: int, *, timeout: float = DEFAULT_TIMEOUT) -> str | None:
-    """RESP ``PING`` without a Redis client; FalkorDB speaks the same protocol."""
-
-    try:
-        with socket.create_connection((host, port), timeout=timeout) as connection:
-            connection.sendall(b"*1\r\n$4\r\nPING\r\n")
-            reply = connection.recv(64)
-    except OSError as exc:
-        return f"{host}:{port} unreachable ({exc.strerror or exc})"
-    if reply.startswith(b"+PONG"):
-        return None
-    return f"{host}:{port} answered {reply[:32]!r} instead of PONG"
-
-
 def s3_credentials(
     endpoint: str,
     region: str | None,
@@ -125,15 +111,3 @@ def s3_credentials(
 def host_port(url: str, *, default_port: int) -> tuple[str, int]:
     parsed = urlparse(url)
     return parsed.hostname or "localhost", parsed.port or default_port
-
-
-__all__ = [
-    "DEFAULT_TIMEOUT",
-    "UNVERIFIED",
-    "host_port",
-    "http_ok",
-    "redis_ping",
-    "s3_credentials",
-    "safe_url",
-    "tcp_reachable",
-]

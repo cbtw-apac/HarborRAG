@@ -5,10 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from harborrag_adapters.repositories.backends.sqlalchemy import SQLAlchemyDBClient
+from harborrag_adapters.repositories.backends.sqlite import prepare_sqlite_database
 from harborrag_adapters.repositories.database.ingestion_control import (
     IngestionControlPlaneDatabase,
 )
-from harborrag_adapters.repositories.database.sqlite.client import SQLiteDBClient
 from harborrag_adapters.repositories.object_store import (
     CanonicalCommentArtifactRepository,
     CanonicalDocumentArtifactRepository,
@@ -22,6 +23,7 @@ from harborrag_adapters.repositories.object_store import (
     RawDocumentArtifactRepository,
 )
 from harborrag_core.chunking import ConnectorType
+from harborrag_core.chunking.tokenization import ApproximateTokenCounter
 from harborrag_core.domain.source import SourceRecord
 from harborrag_core.ingestion import (
     AdmissionSnapshot,
@@ -41,14 +43,12 @@ from harborrag_engine.ingestion import (
     VectorProjectionStore,
     build_chunking_service,
 )
-from harborrag_runtime.ingestion import (
-    DocumentReleaseDependencies,
-    DocumentReleaseRequest,
-    DocumentReleaseService,
-    GraphRelationRepairService,
-    SourceIngestionRequest,
-)
-from harborrag_runtime.tokenization import ApproximateTokenCounter
+from harborrag_engine.ingestion.release.dependencies import DocumentReleaseDependencies
+from harborrag_engine.ingestion.release.models import DocumentReleaseRequest
+from harborrag_engine.ingestion.release.service import DocumentReleaseService
+from harborrag_engine.ingestion.source.models import SourceIngestionRequest
+from harborrag_runtime.ingestion import GraphRelationRepairService
+from harborrag_runtime.ingestion.failure_classification import ingestion_failure_classifier
 
 from .connectors import (
     DeterministicEmbedClient,
@@ -62,7 +62,14 @@ from .storage import (
 
 def build_control_plane(tmp_path: Path) -> IngestionControlPlaneDatabase:
     return IngestionControlPlaneDatabase(
-        SQLiteDBClient(database=str(tmp_path / "release.db")),
+        SQLAlchemyDBClient(
+            backend="sqlite",
+            url=prepare_sqlite_database(str(tmp_path / "release.db")),
+            pool_size=None,
+            max_overflow=None,
+            pool_recycle_seconds=1800,
+            echo=False,
+        ),
         create_schema=True,
     )
 
@@ -149,7 +156,7 @@ def build_dependencies(
         canonical_artifacts=CanonicalDocumentArtifactRepository(writer, reader),
         comment_artifacts=CanonicalCommentArtifactRepository(writer, reader),
         table_artifacts=CanonicalTableArtifactRepository(writer, reader),
-        chunk_writer=ChunkArtifactWriter(writer),
+        chunk_writer=ChunkArtifactWriter(writer, reader),
         chunk_reader=ChunkArtifactReader(reader),
         projection_artifacts=ProjectionArtifactRepository(writer, reader),
         vector_store=VectorProjectionStore(
@@ -157,6 +164,7 @@ def build_dependencies(
             VectorProjectionPolicy(dimension=3),
         ),
         graph_store=resources.graph,
+        failures=ingestion_failure_classifier(),
     )
 
 

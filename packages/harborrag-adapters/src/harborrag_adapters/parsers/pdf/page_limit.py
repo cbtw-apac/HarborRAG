@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from io import BytesIO
 
 from harborrag_adapters.parsers.common.limits import PDF_MAX_PAGES
 from harborrag_adapters.parsers.common.resources import read_parse_input_bytes
@@ -33,17 +32,9 @@ def count_with_pymupdf(data: bytes) -> int:
         return int(document.page_count)
 
 
-def count_with_pypdf(data: bytes) -> int:
-    """Count pages with pypdf."""
-    from pypdf import PdfReader
-
-    return len(PdfReader(BytesIO(data)).pages)
-
-
 DEFAULT_PAGE_COUNTERS: tuple[PageCounter, ...] = (
     count_with_pypdfium2,
     count_with_pymupdf,
-    count_with_pypdf,
 )
 
 

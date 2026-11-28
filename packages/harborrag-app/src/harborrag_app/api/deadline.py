@@ -27,6 +27,3 @@ async def enforce_deadline(request: Request) -> AsyncIterator[None]:
             yield
     except TimeoutError as exc:
         raise HarborDeadlineExceeded("API request exceeded its server deadline") from exc
-
-
-__all__ = ["enforce_deadline"]

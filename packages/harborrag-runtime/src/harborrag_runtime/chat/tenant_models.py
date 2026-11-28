@@ -20,6 +20,3 @@ class TenantModelSources:
 
     catalog: TenantModelCatalogPort
     secrets: SecretsPort
-
-
-__all__ = ["TenantModelSources"]

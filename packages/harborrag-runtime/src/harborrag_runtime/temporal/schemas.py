@@ -1,17 +1,11 @@
+"""Temporal workflow and activity payloads for ingestion."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from harborrag_runtime.ingestion.limits import (
-    MAX_RETRY_DOCUMENT_IDS,
-)
-from harborrag_runtime.ingestion_contracts import PreparedSourceSubmission
-from harborrag_runtime.source_query import (
-    ProcessingProfileInput as ProcessingProfileInput,
-)
-from harborrag_runtime.source_query import (
-    SourceQuery as SourceQuery,
-)
+from harborrag_core.ingestion.limits import MAX_RETRY_DOCUMENT_IDS
+from harborrag_core.ingestion.run_contracts import PreparedSourceSubmission
 from harborrag_runtime.temporal_models import TemporalWorkflowOptions
 
 from .dispatch import DocumentDispatchSummary
@@ -23,6 +17,8 @@ _SOURCE_TASK_STATES = frozenset(
 
 @dataclass(frozen=True, slots=True)
 class WorkflowArtifactReference:
+    """Reference to a workflow artifact in the object store."""
+
     bucket: str
     key: str
     sha256: str
@@ -62,6 +58,7 @@ class SourceContinuation:
     next_document_index: int
     batch_number: int
     summary: DocumentDispatchSummary
+    skipped_by_reason: dict[str, int] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.scan_id.strip():
@@ -101,6 +98,8 @@ class ScheduledSourceIngestionInput:
 
 @dataclass(frozen=True, slots=True)
 class ScheduledSourcePreparationInput:
+    """Input to prepare a scheduled source run."""
+
     task_id: str
     tenant_id: str
     connection_id: str
@@ -118,6 +117,8 @@ class ScheduledSourcePreparation:
 
 @dataclass(frozen=True, slots=True)
 class ScheduledSourceIngestionResult:
+    """Result of a scheduled source ingestion."""
+
     schedule_id: str
     outcome: str
     task_id: str | None = None
@@ -126,6 +127,8 @@ class ScheduledSourceIngestionResult:
 
 @dataclass(frozen=True, slots=True)
 class ScheduledRunMetricInput:
+    """Metrics of one scheduled run."""
+
     schedule_id: str
     outcome: str
     schedule_to_start_seconds: float | None = None
@@ -133,13 +136,18 @@ class ScheduledRunMetricInput:
 
 @dataclass(frozen=True, slots=True)
 class SourceDiscoveryResult:
+    """Result of discovering a source's items."""
+
     scan_id: str
     plan_reference: WorkflowArtifactReference
     document_count: int
+    skipped_by_reason: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
 class SourceBatchInput:
+    """Input to process one batch of a source's documents."""
+
     task_id: str
     tenant_id: str
     connector_name: str
@@ -153,6 +161,8 @@ class SourceBatchInput:
 
 @dataclass(frozen=True, slots=True)
 class DocumentIngestionInput:
+    """Input to ingest one document."""
+
     task_id: str
     tenant_id: str
     connector_name: str
@@ -163,6 +173,8 @@ class DocumentIngestionInput:
 
 @dataclass(frozen=True, slots=True)
 class RawCaptureResult:
+    """Result of capturing a document's raw bytes."""
+
     document: DocumentIngestionInput
     document_id: str
     document_version_id: str | None
@@ -190,6 +202,8 @@ class RawCaptureResult:
 
 @dataclass(frozen=True, slots=True)
 class PreparedDocument:
+    """A document after parsing and normalization."""
+
     document: DocumentIngestionInput
     document_id: str
     document_version_id: str
@@ -204,6 +218,8 @@ class PreparedDocument:
 
 @dataclass(frozen=True, slots=True)
 class DocumentFailureInput:
+    """Input to record a failed document."""
+
     document: DocumentIngestionInput
     prepared: PreparedDocument | None
     failed_stage: str
@@ -217,6 +233,8 @@ class DocumentFailureInput:
 
 @dataclass(frozen=True, slots=True)
 class SourceFinalizationInput:
+    """Input to finalize a source ingestion."""
+
     source: SourceIngestionInput
     scan_id: str
     plan_reference: WorkflowArtifactReference
@@ -225,6 +243,8 @@ class SourceFinalizationInput:
 
 @dataclass(frozen=True, slots=True)
 class SourceCancellationInput:
+    """Input to cancel a source ingestion."""
+
     task_id: str
 
     def __post_init__(self) -> None:
@@ -233,7 +253,20 @@ class SourceCancellationInput:
 
 
 @dataclass(frozen=True, slots=True)
+class SourceCancellationResult:
+    """Skips of a source ingestion when it was cancelled.
+
+    Attributes:
+        skipped_by_reason: Items skipped at discovery or per document, by reason code.
+    """
+
+    skipped_by_reason: dict[str, int] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
 class SourcePauseInput:
+    """Input to pause a source ingestion."""
+
     task_id: str
 
     def __post_init__(self) -> None:
@@ -243,6 +276,8 @@ class SourcePauseInput:
 
 @dataclass(frozen=True, slots=True)
 class SourceResumeInput:
+    """Input to resume a source ingestion."""
+
     task_id: str
 
     def __post_init__(self) -> None:
@@ -252,6 +287,8 @@ class SourceResumeInput:
 
 @dataclass(frozen=True, slots=True)
 class SourceFailureInput:
+    """Input to record a source ingestion failure."""
+
     task_id: str
     error_code: str
 
@@ -260,34 +297,41 @@ class SourceFailureInput:
             raise ValueError("source failure task ID and error code must be non-empty")
 
 
-# A result travels through Temporal as one payload, capped at 2 MB. Each removed
-# document id is about 75 bytes, so a rescan that retires tens of thousands of
-# documents cannot carry them all; the retirements are durable in the control
-# plane anyway, so the result names a bounded sample and the full count.
 MAX_REPORTED_REMOVAL_CANDIDATES = 1_000
+"""A result travels through Temporal as one payload, capped at 2 MB. Each removed document id is
+about 75 bytes, so a rescan that retires tens of thousands of documents cannot carry them all;
+the retirements are durable in the control plane anyway, so the result names a bounded sample and
+the full count.
+"""
 
 
 def reported_removal_candidates(removals: tuple[str, ...]) -> tuple[str, ...]:
     """The removed document ids a Temporal result may carry."""
-
     return removals[:MAX_REPORTED_REMOVAL_CANDIDATES]
 
 
 @dataclass(frozen=True, slots=True)
 class SourceIngestionResult:
+    """Result of a source ingestion."""
+
     task_id: str
     scan_id: str
     discovered: int
     published: int
     unchanged: int
     failed: int
-    # At most MAX_REPORTED_REMOVAL_CANDIDATES of the removed documents.
     removal_candidates: tuple[str, ...]
+    """At most MAX_REPORTED_REMOVAL_CANDIDATES of the removed documents."""
     unresolved_relations: int
     status: str = "COMPLETED"
-    # Every removed document, including those not named above. Results recorded
-    # before this field existed carry no value and are read as the named ones.
     removal_count: int | None = None
+    """Every removed document, including those not named above. Results recorded before this field
+    existed carry no value and are read as the named ones.
+    """
+    skipped: int = 0
+    """Items the run skipped at discovery or in its document results; older results read 0."""
+    skipped_by_reason: dict[str, int] = field(default_factory=dict)
+    """``skipped`` counted by reason code; older results read no reasons."""
 
     def __post_init__(self) -> None:
         if self.status not in {"COMPLETED", "PARTIAL", "FAILED", "CANCELLED"}:
@@ -302,11 +346,14 @@ class SourceIngestionResult:
 
 @dataclass(frozen=True, slots=True)
 class SourceIngestionStatus:
+    """Status of a source ingestion workflow."""
+
     task_id: str
     status: str
     paused: bool
     cancel_requested: bool
     pause_applied: bool = False
+    native_pause_pending: bool = False
 
     def __post_init__(self) -> None:
         if not self.task_id.strip():
@@ -317,7 +364,10 @@ class SourceIngestionStatus:
 
 @dataclass(frozen=True, slots=True)
 class WorkflowExecutionControlInput:
+    """Input to pause or unpause a workflow execution."""
+
     workflow_id: str
+    run_id: str | None = None
 
     def __post_init__(self) -> None:
         if not self.workflow_id.strip():
@@ -326,6 +376,8 @@ class WorkflowExecutionControlInput:
 
 @dataclass(frozen=True, slots=True)
 class SourceBatchStatus:
+    """Status of one source batch."""
+
     task_id: str
     status: str
     paused: bool
@@ -340,6 +392,8 @@ class SourceBatchStatus:
 
 @dataclass(frozen=True, slots=True)
 class RetryFailuresInput:
+    """Input of a failure retry workflow."""
+
     retry_task_id: str
     original_task_id: str
     tenant_id: str
@@ -368,12 +422,16 @@ class RetryFailuresInput:
 
 @dataclass(frozen=True, slots=True)
 class RetryPreparationResult:
+    """Result of preparing a failure retry."""
+
     plan_reference: WorkflowArtifactReference
     document_count: int
 
 
 @dataclass(frozen=True, slots=True)
 class RetryDocumentInput:
+    """Input to retry one document."""
+
     retry_task_id: str
     original_task_id: str
     tenant_id: str
@@ -384,6 +442,8 @@ class RetryDocumentInput:
 
 @dataclass(frozen=True, slots=True)
 class RetryDocumentFailureInput:
+    """Input to record a document that failed during a retry."""
+
     document: RetryDocumentInput
     error_type: str
     skip_reason: str | None = None
@@ -391,6 +451,8 @@ class RetryDocumentFailureInput:
 
 @dataclass(frozen=True, slots=True)
 class RetryTaskFailureInput:
+    """Input to record that a retry task failed."""
+
     retry_task_id: str
     error_code: str
 
@@ -401,6 +463,8 @@ class RetryTaskFailureInput:
 
 @dataclass(frozen=True, slots=True)
 class RetryFinalizationInput:
+    """Input to finalize a failure retry."""
+
     retry_task_id: str
     selected: int
     summary: DocumentDispatchSummary
@@ -408,6 +472,8 @@ class RetryFinalizationInput:
 
 @dataclass(frozen=True, slots=True)
 class RetryFailuresResult:
+    """Result of a failure retry workflow."""
+
     retry_task_id: str
     selected: int
     published: int

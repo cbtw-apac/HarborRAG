@@ -40,6 +40,20 @@ class DocumentVersionPort(Protocol):
 
     async def mark_verified(self, document_version_id: str) -> None: ...
 
+    async def refresh_admission_change_key(
+        self, document_version_id: str, *, admission_change_key: str
+    ) -> None:
+        """Store the change key the source now reports on an active version.
+
+        A refetch that found the content unchanged records the new key, so the next
+        run decides the item is unchanged before fetching it. A version that is not
+        active is left as it is.
+
+        Args:
+            document_version_id: The active version.
+            admission_change_key: The key the source reported for the item this run.
+        """
+
     async def active_versions(
         self, document_ids: Sequence[str]
     ) -> dict[str, ActiveDocumentVersion]: ...
@@ -68,6 +82,7 @@ class DocumentVersionPort(Protocol):
     async def active_relation_document_ids(
         self,
         *,
+        tenant_id: str,
         processing_fingerprint: str,
         anchor_document_id: str | None = None,
         limit: int = 100000,

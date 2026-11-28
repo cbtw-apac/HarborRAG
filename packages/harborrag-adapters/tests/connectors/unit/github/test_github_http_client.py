@@ -251,10 +251,10 @@ def test_github_rate_limited_static_predicate_branches():
         FakeResponse(status_code=403, headers={"Retry-After": "5"}, text="")
     )
     assert _RequestsGitHubClient._rate_limited(
-        FakeResponse(status_code=403, headers={}, text="Abuse Detection triggered")
+        FakeResponse(status_code=403, headers={}), "Abuse Detection triggered"
     )
     assert not _RequestsGitHubClient._rate_limited(
-        FakeResponse(status_code=403, headers={}, text="just forbidden")
+        FakeResponse(status_code=403, headers={}), "just forbidden"
     )
 
 

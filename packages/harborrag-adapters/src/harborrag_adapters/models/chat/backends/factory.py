@@ -40,7 +40,7 @@ def build_chat_backend(
         router = build_litellm_router(
             config,
             config.models,
-            provider_resolver=lambda deployment: registry.get(deployment.provider).litellm_provider,
+            provider_resolver=lambda deployment: registry.get(deployment.provider),
             router_factory=router_factory,
         )
         return LiteLLMRouterBackend(

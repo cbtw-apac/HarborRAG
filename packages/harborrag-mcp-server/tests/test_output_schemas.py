@@ -27,6 +27,8 @@ from harborrag_engine.tools.output_schemas import (
 )
 from harborrag_mcp_server.server.server import McpServer
 
+pytestmark = pytest.mark.unit
+
 
 def _validator(schema: dict[str, object]):
     validator_type = validator_for(schema)
@@ -115,6 +117,7 @@ def test_graph_search_diagnostics_schema_rejects_a_missing_or_extra_field() -> N
 
 
 def test_retrieval_result_schema_rejects_an_unlisted_metadata_key() -> None:
+    """vector_search trims bookkeeping keys from its output, so the schema refuses them."""
     valid = {
         "id": "chunk:1",
         "text": "content",
@@ -122,16 +125,15 @@ def test_retrieval_result_schema_rejects_an_unlisted_metadata_key() -> None:
         "metadata": {
             "document_id": "doc-1",
             "document_version_id": "version-1",
-            "chunk_kind": "text",
+            "chunk_kind": ["text"],
             "connector_type": "local",
             "citation_locator": {},
             "document_title": "Document One",
             "section_path": ["Section 1"],
-            "issue_key": "CPM-1",
+            "issue_key": "DEMO-1",
         },
     }
     _validator(RETRIEVAL_RESULT_SCHEMA).validate(valid)
-    # vector_search trims these from its output, so the schema no longer lists them.
     trimmed = {**valid, "metadata": {**valid["metadata"], "retrieval_source": "qdrant"}}
     with pytest.raises(ValidationError):
         _validator(RETRIEVAL_RESULT_SCHEMA).validate(trimmed)
@@ -190,8 +192,11 @@ def _references(value: object) -> list[str]:
 
 
 def test_default_tool_registry_schemas_carry_no_unresolved_references() -> None:
-    # Fragments are nested far from any ``$defs``; an MCP client resolving a
-    # ``#/$defs/...`` pointer against the tool root rejects the whole tool.
+    """Fragments sit far from any ``$defs``, so a ``$ref`` there breaks the whole tool.
+
+    An MCP client resolves a ``#/$defs/...`` pointer against the tool root and
+    rejects the tool when it does not resolve.
+    """
     server = McpServer()
     assert server.tools is not None
     for tool in server.tools:

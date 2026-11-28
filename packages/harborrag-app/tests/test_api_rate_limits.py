@@ -10,7 +10,6 @@ from datetime import UTC, datetime, timedelta
 
 import jwt
 import pytest
-from app_test_connections import connection_world
 from app_test_fixtures import MockAppService
 from fastapi import APIRouter, Depends
 from fastapi.testclient import TestClient
@@ -21,13 +20,16 @@ from harborrag_app.api.auth.access import api_routes, require_role
 from harborrag_app.api.deadline import enforce_deadline
 from harborrag_app.api.rate_limit import LocalRateLimiter, RedisRateLimiter
 from harborrag_app.api.settings import ApiSettings
-from harborrag_app.workflow_control.control_plane.projects import ProjectService
 from harborrag_core.domain.project import Project
+from harborrag_runtime.application.control_plane.projects import ProjectService
+from harborrag_runtime.testing.connection_fakes import connection_world
+
+pytestmark = pytest.mark.unit
 
 _SECRET = "test-secret-at-least-32-bytes-long-for-hs256"
 
 
-def _token(role: str, subject: str = "u_huy") -> str:
+def _token(role: str, subject: str = "u_alex") -> str:
     now = datetime.now(UTC)
     return jwt.encode(
         {
@@ -44,7 +46,7 @@ def _token(role: str, subject: str = "u_huy") -> str:
     )
 
 
-def _bearer(role: str, subject: str = "u_huy") -> dict[str, str]:
+def _bearer(role: str, subject: str = "u_alex") -> dict[str, str]:
     return {"Authorization": f"Bearer {_token(role, subject)}"}
 
 
@@ -60,7 +62,7 @@ class _App(MockAppService):
     def __init__(self) -> None:
         super().__init__()
         world = connection_world(
-            [Project(id="cpm", name="CPM", collection="cpm", tenant_id="DEFAULT")]
+            [Project(id="demo", name="DEMO", collection="demo", tenant_id="DEFAULT")]
         )
         self.connection_service = world.service
         self.project_service = ProjectService(

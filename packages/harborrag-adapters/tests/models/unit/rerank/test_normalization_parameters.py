@@ -22,7 +22,7 @@ from harborrag_adapters.models.rerank.parameters import (
     normalize_rerank_documents,
     prepare_rerank_request,
 )
-from harborrag_adapters.models.rerank.registry import HarborRerankProvider
+from harborrag_adapters.models.rerank.registry import HarborRerankProvider, RerankProviderRegistry
 from harborrag_adapters.models.rerank.validation import (
     validate_rerank_configuration,
     validate_rerank_request,
@@ -41,6 +41,13 @@ from harborrag_core.models.rerank import (
 )
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
+
+
+def _litellm_parameters(
+    deployment: HarborRerankProviderConfig, request: HarborRerankRequest, **options: Any
+) -> dict[str, Any]:
+    metadata = RerankProviderRegistry.default().get(deployment.provider)
+    return build_litellm_parameters(deployment, request, metadata=metadata, **options)
 
 
 def deployment(**updates: Any) -> HarborRerankProviderConfig:
@@ -260,13 +267,13 @@ def test_litellm_rerank_parameters_include_complete_candidate_set() -> None:
         custom_headers={"X-Request": SecretStr("two")},
         extra_params={"return_original_response": True},
     )
-    params = build_litellm_parameters(deployment(), item, timeout=5, litellm_provider="cohere")
+    params = _litellm_parameters(deployment(), item, timeout=5)
     assert params["documents"] == [{"title": "first"}, {"title": "second"}]
     assert params["rank_fields"] == ["title"]
     assert params["extra_headers"] == {"X-Deploy": "one", "X-Request": "two"}
     assert params["return_original_response"] is True
     with pytest.raises(HarborRerankInvalidRequestError):
-        build_litellm_parameters(
+        _litellm_parameters(
             deployment(),
             item.model_copy(update={"extra_params": {"model": "bad"}}),
             timeout=1,

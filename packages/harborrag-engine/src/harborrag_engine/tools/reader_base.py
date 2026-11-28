@@ -40,6 +40,3 @@ class ReaderTool(BaseTool):
         if service is None:
             raise HarborCapabilityError("retrieval reader backend is not configured")
         return service
-
-
-__all__ = ["ReaderTool"]

@@ -1,4 +1,8 @@
-"""Runtime resource ownership and public composition entry point."""
+"""Runtime resource ownership and public composition entry point.
+
+``_START_HINTS`` is the fallback fix hint per resource for runtimes built without
+``resource_hints`` (tests, embedders).
+"""
 
 from __future__ import annotations
 
@@ -14,18 +18,19 @@ from harborrag_adapters.models.embed import HarborEmbedClient
 from harborrag_adapters.repositories.database import IngestionControlPlaneDatabase
 from harborrag_adapters.repositories.object_store import ARTIFACT_BUCKET, RAW_BUCKET
 from harborrag_core.ingestion import ProcessingProfile
+from harborrag_core.ingestion.run_contracts import RunSettings
 from harborrag_core.ports import KnowledgeGraphRepositoryPort
 from harborrag_core.ports.model_clients import HarborChatClientProtocol
 from harborrag_core.ports.storage import ObjectStorePort, VectorRepositoryPort
+from harborrag_engine.ingestion.maintenance.cleanup import ProjectionCleanupService
+from harborrag_engine.ingestion.maintenance.reindex import DocumentReindexService
+from harborrag_engine.ingestion.release.pipeline import DocumentStagePipeline
+from harborrag_engine.ingestion.release.service import DocumentReleaseService
 from harborrag_runtime.composition.connection_stores import ConnectionStores
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.errors import RuntimeConnectionError
 
 from .connections import ConnectionHealth, ConnectionResolver, ConnectorPool
-from .document.pipeline import DocumentStagePipeline
-from .document.service import DocumentReleaseService
-from .maintenance.cleanup import ProjectionCleanupService
-from .maintenance.reindex import DocumentReindexService
 from .maintenance.relation_repair import GraphRelationRepairService
 from .maintenance.retention import RetiredVersionPurgeService
 from .observability import IngestionTelemetry
@@ -34,9 +39,8 @@ from .source.service import SourceIngestionService
 
 if TYPE_CHECKING:
     from harborrag_engine.ingestion import ChunkingConfig, ChunkStrategy
+    from harborrag_engine.ingestion.normalizers.builder import SourceDocumentNormalizerBuilder
     from harborrag_runtime.config_store import CachedConfigProvider
-
-    from .document.normalizers import SourceDocumentNormalizerBuilder
 
 logger = logging.getLogger("harborrag.runtime.ingestion.composition")
 
@@ -46,18 +50,51 @@ _FALLBACK_TARGETS = {
     "vector": "the vector store",
     "graph": "the graph store",
 }
-# Fallbacks for runtimes built without resource_hints (tests, embedders).
 _START_HINTS = {
     "control": "check HARBORRAG_CONTROL_DB_URL",
     "object_store": "check HARBORRAG_OBJECT_STORE_* credentials and that MinIO is running",
-    "vector": "start Qdrant or set HARBORRAG_QDRANT_PREFER_GRPC=false to use HTTP",
+    "vector": (
+        "start Qdrant, check HARBORRAG_QDRANT_GRPC_PORT, or set "
+        "HARBORRAG_QDRANT_PREFER_GRPC=false to use HTTP"
+    ),
     "graph": "start FalkorDB",
 }
 
 
 @dataclass(slots=True)
 class IngestionRuntime:
-    """Own connected providers and production ingestion application services."""
+    """Own connected providers and production ingestion application services.
+
+    Args:
+        connector_pool: Per-run connectors built on first use.
+        processing: Processing profile new versions are built with.
+        control: Ingestion control-plane database.
+        documents: Document release service.
+        stages: Ordered document stage pipeline.
+        sources: Source ingestion service.
+        relations: Graph relation repair service.
+        cleanup: Projection cleanup service.
+        reindex: Connector-free reindex service.
+        source_plans: Repository of source ingestion plans.
+        object_store: Object store holding artifacts.
+        vector_repository: Vector store repository.
+        graph_repository: Knowledge graph repository.
+        embed_client: Embedding client.
+        connector_rate_limiter: Limiter shared by the connectors.
+        telemetry: Ingestion metrics.
+        connection_health: Health of the configured connections.
+        connection_resolver: Resolves connection snapshots for a run.
+        connection_stores: Stores behind connection records.
+        parser_chat_client: Chat client of the PDF engines that read pages with a chat
+            model; built only when a parser definition does.
+        retention: Retired-version purge; ``None`` keeps hand-built runtimes (tests,
+            embedders) free of the purge.
+        resource_targets: Safe display string per resource label; read only on the failure
+            path.
+        resource_hints: What to check per resource label for the configured providers; read
+            only on the failure path.
+        config: Cached runtime configuration provider.
+    """
 
     connector_pool: ConnectorPool
     processing: ProcessingProfile
@@ -78,13 +115,9 @@ class IngestionRuntime:
     connection_health: ConnectionHealth = field(default_factory=lambda: ConnectionHealth(None))
     connection_resolver: ConnectionResolver | None = None
     connection_stores: ConnectionStores | None = None
-    # Built only when a parser definition reads PDF pages with a chat model.
     parser_chat_client: HarborChatClientProtocol | None = None
-    # None keeps hand-built runtimes (tests, embedders) free of the purge.
     retention: RetiredVersionPurgeService | None = None
-    # Safe display strings per resource label; read only on the failure path.
     resource_targets: Mapping[str, str] = field(default_factory=dict)
-    # What to check per resource label for the configured providers; same path.
     resource_hints: Mapping[str, str] = field(default_factory=dict)
     config: CachedConfigProvider | None = None
     _started: bool = field(default=False, init=False)
@@ -135,7 +168,7 @@ class IngestionRuntime:
         logger.info("Ingestion runtime started resources=%d", len(connected))
 
     def _unreachable(self, label: str, error: Exception) -> RuntimeConnectionError:
-        """Authored message only: the driver's text may carry credentials."""
+        """Build a connection error from authored text only, as the driver's text may carry credentials."""
         targets = getattr(self, "resource_targets", None) or {}
         target = targets.get(label) or _FALLBACK_TARGETS[label]
         hints = getattr(self, "resource_hints", None) or {}
@@ -153,6 +186,15 @@ class IngestionRuntime:
             await config.aclose()
 
     async def close(self) -> None:
+        """Close every owned resource, then mark the runtime not started.
+
+        On failure the runtime stays started and retryable: repository and connector close
+        contracts are idempotent, so a later close attempt can converge the resources whose
+        first close failed.
+
+        Raises:
+            BaseExceptionGroup: One or more resources failed to close.
+        """
         if not self._started:
             await asyncio.gather(
                 self._close_config(),
@@ -185,9 +227,6 @@ class IngestionRuntime:
                 len(failures),
                 ",".join(sorted({type(error).__name__ for error in failures})),
             )
-            # Keep the runtime retryable. Repository/connector close contracts
-            # are idempotent, so a later close attempt can converge resources
-            # whose first close failed.
             raise BaseExceptionGroup("ingestion runtime shutdown failed", failures)
         self._started = False
         logger.info("Ingestion runtime closed")
@@ -198,6 +237,7 @@ class IngestionRuntime:
         tenant_id: str,
         task_id: str,
         configuration_fingerprint: str,
+        run_settings: RunSettings | None = None,
     ) -> HarborConnector:
         """Return the run's connector, built from the snapshot the run started with.
 
@@ -205,6 +245,8 @@ class IngestionRuntime:
             tenant_id: Tenant of the run.
             task_id: The run; every activity of one run shares its connector.
             configuration_fingerprint: Fingerprint of the run's connection snapshot.
+            run_settings: The run's pinned settings; its ``capture.*`` overrides
+                narrow the connection's own size/extension ceiling.
 
         Returns:
             The connector facade.
@@ -217,6 +259,7 @@ class IngestionRuntime:
             tenant_id=tenant_id,
             task_id=task_id,
             configuration_fingerprint=configuration_fingerprint,
+            run_settings=run_settings,
         )
 
     async def _close_connection_stores(self) -> None:
@@ -238,7 +281,6 @@ def build_ingestion_runtime(
     chunking_strategies: tuple[ChunkStrategy, ...] = (),
 ) -> IngestionRuntime:
     """Build an ingestion runtime through the production object-graph builder."""
-
     from .runtime_builder import build_ingestion_runtime as build
 
     return build(

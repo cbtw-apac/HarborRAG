@@ -5,6 +5,7 @@ from typing import Any
 import pytest
 
 from harborrag_adapters.models.chat import HarborChatClientConfig
+from harborrag_adapters.models.chat.registry import ProviderRegistry
 from harborrag_adapters.models.runtime.litellm_router import build_litellm_router
 
 from .fakes import runtime_config
@@ -26,7 +27,7 @@ def test_litellm_router_disables_opaque_retry_and_forwards_budgets() -> None:
     build_litellm_router(
         config,
         config.models,
-        provider_resolver=lambda _deployment: "openai",
+        provider_resolver=lambda deployment: ProviderRegistry.default().get(deployment.provider),
         router_factory=factory,
     )
 

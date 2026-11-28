@@ -9,6 +9,8 @@ from dataclasses import dataclass, field
 from html import escape
 from typing import Any
 
+from requests.exceptions import StreamConsumedError
+
 
 def build_docx_bytes(text: str = "Hello Harbor") -> bytes:
     from docx import Document
@@ -180,36 +182,53 @@ def build_understated_file_size_zip_bytes(
     return bytes(data)
 
 
+_STREAMED_BODY_REREAD = "The content for this response was already consumed"
+
+
 @dataclass
 class FakeResponse:
-    """Minimal stand-in for ``requests.Response`` used by client-level tests."""
+    """Minimal stand-in for ``requests.Response`` used by client-level tests.
+
+    Like a streamed ``requests`` body, it is read once: a second ``iter_content``
+    raises ``StreamConsumedError``, and ``text``, ``content`` or ``json()`` after
+    ``iter_content`` raise ``RuntimeError``. ``text=`` sets the body.
+    """
 
     status_code: int = 200
     headers: dict[str, str] = field(default_factory=dict)
     _json: Any = None
-    text: str = ""
+    text: str = field(default="", repr=False)
     _chunks: list[bytes] = field(default_factory=list)
     closed: bool = False
+    _consumed: bool = field(default=False, init=False, repr=False)
+
+    def __getattribute__(self, name: str) -> Any:
+        if name == "text" and object.__getattribute__(self, "_consumed"):
+            raise RuntimeError(_STREAMED_BODY_REREAD)
+        return object.__getattribute__(self, name)
 
     def json(self) -> Any:
+        if self._consumed:
+            raise RuntimeError(_STREAMED_BODY_REREAD)
         if self._json is None:
             raise ValueError("no json")
         return self._json
 
     def iter_content(self, chunk_size: int = 65536) -> Iterator[bytes]:
         _ = chunk_size
-        if self._chunks:
-            yield from self._chunks
-        elif self._json is not None:
-            yield json.dumps(self._json).encode("utf-8")
-        elif self.text:
-            yield self.text.encode("utf-8")
+        if self._consumed:
+            raise StreamConsumedError()
+        body = self.content
+        self._consumed = True
+        return iter(self._chunks or ([body] if body else []))
 
     def close(self) -> None:
         self.closed = True
 
     @property
     def content(self) -> bytes:
+        if self._consumed:
+            raise RuntimeError(_STREAMED_BODY_REREAD)
         if self._chunks:
             return b"".join(self._chunks)
         if self._json is not None:

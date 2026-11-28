@@ -7,6 +7,19 @@ from collections.abc import Callable
 import pytest
 from temporalio.worker.workflow_sandbox import SandboxedWorkflowRunner, SandboxRestrictions
 
+SHELL_VARIABLES = (
+    "HARBORRAG_LOCAL_SOURCE_ROOT",
+    "HARBORRAG_TENANT_ID",
+    "HARBORRAG_INGESTION_TENANT_ID",
+)
+
+
+@pytest.fixture(autouse=True)
+def _isolated_from_shell(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Drop the variables a developer's shell may export; a test that needs one sets it."""
+    for name in SHELL_VARIABLES:
+        monkeypatch.delenv(name, raising=False)
+
 
 @pytest.fixture
 def sandbox_runner() -> Callable[[], SandboxedWorkflowRunner]:

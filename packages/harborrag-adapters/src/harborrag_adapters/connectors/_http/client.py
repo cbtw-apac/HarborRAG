@@ -6,7 +6,8 @@ one attempt is sent (session, credentials, throttling) and its
 payload shapes. The loop retries transient failures only -- connection errors,
 HTTP 429 and 5xx -- a bounded number of times, waits at least as long as
 ``Retry-After`` asks, and turns the final response into one typed connector
-error.
+error. That error never names the request URL, chains an exception that does,
+or shows a credential the subclass reports in ``_known_secrets``.
 
 Start from: RetryingHttpClient.
 """
@@ -16,7 +17,7 @@ from __future__ import annotations
 import logging
 import math
 import time
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any, TypedDict, Unpack
 
@@ -33,14 +34,6 @@ from harborrag_adapters.connectors.policies.http import (
     retry_delay_seconds,
     safe_response_error_detail,
 )
-
-__all__ = [
-    "RETRYABLE_STATUS",
-    "RequestOptions",
-    "RetryPolicy",
-    "RetryingHttpClient",
-    "raise_for_status",
-]
 
 RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
 
@@ -78,7 +71,7 @@ class RetryingHttpClient:
     """Base for connector HTTP clients: bounded retries of transient failures, typed errors.
 
     Subclasses implement ``_send`` and ``_retry_policy`` and may override
-    ``_rate_limited`` and ``_refresh_credentials``.
+    ``_rate_limited``, ``_refresh_credentials`` and ``_known_secrets``.
 
     Args:
         label: Provider name used in error messages and logs, such as ``"GitHub"``.
@@ -95,7 +88,9 @@ class RetryingHttpClient:
         """Send one request, retrying transient failures, and return the final response.
 
         A 401 is resent once with fresh credentials when ``_refresh_credentials``
-        allows it; that resend does not use up a retry.
+        allows it; that resend does not use up a retry. The body of a refused
+        answer, a 4xx other than 429, is read once and serves both
+        ``_rate_limited`` and the raised error.
 
         Args:
             method: HTTP method, such as ``"GET"``.
@@ -111,11 +106,11 @@ class RetryingHttpClient:
             ItemNotFoundError: HTTP 404.
             RateLimitError: Still rate limited after the last retry, or asked to
                 wait longer than ``max_retry_after_seconds``.
-            FetchError: Any other HTTP error, or the connection kept failing.
+            FetchError: Any other HTTP error, or the connection kept failing. A
+                connection failure names only the exception type, never the URL.
         """
         policy = self._retry_policy()
         refreshed = False
-        last_error: Exception | None = None
         for attempt in range(policy.max_retries + 1):
             final = attempt == policy.max_retries
             try:
@@ -126,28 +121,26 @@ class RetryingHttpClient:
                     response = self._send(method, url, **options)
             except requests.RequestException as exc:
                 if final:
-                    raise FetchError(f"{self._label} request failed") from exc
-                last_error = exc
+                    raise FetchError(
+                        f"{self._label} request failed: {type(exc).__name__}"
+                    ) from None
                 self._wait(policy, attempt, exc)
                 continue
 
-            rate_limited = self._rate_limited(response)
+            refusal = self._refusal_detail(response)
+            rate_limited = self._rate_limited(response, refusal or "")
             transient = rate_limited or response.status_code in RETRYABLE_STATUS
             if transient and not final and not self._retry_after_too_long(response, policy):
-                last_error = (RateLimitError if rate_limited else FetchError)(
+                error = (RateLimitError if rate_limited else FetchError)(
                     f"{self._label} request returned HTTP {response.status_code}"
                 )
                 headers = response.headers
                 response.close()
-                self._wait(policy, attempt, last_error, headers)
+                self._wait(policy, attempt, error, headers)
                 continue
-            if rate_limited:
-                raise RateLimitError(
-                    safe_response_error_detail(response), status_code=response.status_code
-                )
-            raise_for_status(response, label=self._label)
+            self._raise_for_final(response, rate_limited=rate_limited, detail=refusal)
             return response
-        raise FetchError(f"{self._label} request failed") from last_error
+        raise FetchError(f"{self._label} request failed")
 
     def _send(self, method: str, url: str, **options: Unpack[RequestOptions]) -> requests.Response:
         """Send one attempt; subclasses add credentials and throttling."""
@@ -157,13 +150,45 @@ class RetryingHttpClient:
         """Return the retry policy for the next request, read from the client's config."""
         raise NotImplementedError
 
-    def _rate_limited(self, response: requests.Response) -> bool:
-        """Return whether ``response`` asks the client to slow down."""
+    def _rate_limited(self, response: requests.Response, detail: str) -> bool:
+        """Return whether ``response`` asks the client to slow down.
+
+        Args:
+            response: Response whose status and headers are checked.
+            detail: Redacted body of a refused answer, already read because a
+                streamed body reads only once; empty for any other response.
+        """
         return response.status_code == 429
 
     def _refresh_credentials(self) -> bool:
         """Drop cached credentials after a 401; return ``True`` to resend once."""
         return False
+
+    def _known_secrets(self) -> Iterable[str | None]:
+        """Return the credential values sent with requests, kept out of error text."""
+        return ()
+
+    def _error_detail(self, response: requests.Response) -> str:
+        """Read a bounded, redacted excerpt of an error body and close the response."""
+        return safe_response_error_detail(response, known_secrets=self._known_secrets())
+
+    def _refusal_detail(self, response: requests.Response) -> str | None:
+        """Read the body of a 4xx other than 429, which is not retried for its status."""
+        status = response.status_code
+        if status < 400 or status in RETRYABLE_STATUS:
+            return None
+        return self._error_detail(response)
+
+    def _raise_for_final(
+        self, response: requests.Response, *, rate_limited: bool, detail: str | None
+    ) -> None:
+        """Raise the typed error of a response that is not retried; return below HTTP 400."""
+        if response.status_code < 400:
+            return
+        text = self._error_detail(response) if detail is None else detail
+        if rate_limited:
+            raise RateLimitError(text, status_code=response.status_code)
+        raise_for_status(response, label=self._label, detail=text)
 
     def _retry_after_too_long(self, response: requests.Response, policy: RetryPolicy) -> bool:
         limit = policy.max_retry_after_seconds
@@ -200,7 +225,7 @@ class RetryingHttpClient:
             time.sleep(delay)
 
 
-def raise_for_status(response: requests.Response, *, label: str) -> None:
+def raise_for_status(response: requests.Response, *, label: str, detail: str | None = None) -> None:
     """Raise the typed connector error for a final response at or above HTTP 400.
 
     The error carries the HTTP status and a bounded, redacted excerpt of the
@@ -209,6 +234,7 @@ def raise_for_status(response: requests.Response, *, label: str) -> None:
     Args:
         response: Final response; one below HTTP 400 is left alone.
         label: Provider name used in the error message.
+        detail: Redacted body already read from ``response``; read here when ``None``.
 
     Raises:
         AuthenticationError: HTTP 401.
@@ -219,7 +245,8 @@ def raise_for_status(response: requests.Response, *, label: str) -> None:
     status = response.status_code
     if status < 400:
         return
-    detail = safe_response_error_detail(response)
+    if detail is None:
+        detail = safe_response_error_detail(response)
     if status == 401:
         raise AuthenticationError(detail, status_code=401)
     if status == 403:

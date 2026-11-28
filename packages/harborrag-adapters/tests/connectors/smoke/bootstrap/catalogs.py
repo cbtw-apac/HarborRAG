@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from typing import TYPE_CHECKING
 
+from harborrag_adapters.connectors.policies.network import DestinationPolicy
 from harborrag_runtime.config import (
     ConnectorConfigurationError,
     load_connector_catalog,
@@ -19,6 +20,9 @@ if TYPE_CHECKING:
     from harborrag_runtime.config import ConnectorDefinition
 
 _ATTACHMENT_PROVIDERS = frozenset({"confluence", "jira"})
+_NETWORK_PROVIDERS = frozenset({"confluence", "github", "jira", "sharepoint"})
+_TENANT_ENV = "HARBORRAG_TENANT_ID"
+_DEFAULT_TENANT_ID = "DEFAULT"
 
 
 def _catalog_source(folder: str, filename: str):
@@ -112,7 +116,14 @@ def build_connector(
     if definition.provider in _ATTACHMENT_PROVIDERS:
         overrides["include_attachments"] = include_attachments
 
+    if definition.provider == "sharepoint":
+        overrides["harborrag_tenant_id"] = os.environ.get(_TENANT_ENV) or _DEFAULT_TENANT_ID
+
+    connector_kwargs: dict[str, object] = {}
+    if definition.provider in _NETWORK_PROVIDERS:
+        connector_kwargs["destination_policy"] = DestinationPolicy.from_environ()
     return definition.build(
         environment=_connector_environment(definition.provider),
         overrides=overrides,
+        connector_kwargs=connector_kwargs,
     )

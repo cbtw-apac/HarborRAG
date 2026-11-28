@@ -162,14 +162,3 @@ def ranked_matches(
 
     ordered = sorted(scores.items(), key=lambda item: (-item[1], item[0]))
     return tuple(MemoryMatch(memory_id=key, score=value) for key, value in ordered[:limit])
-
-
-__all__ = [
-    "MEMORY_INDEX",
-    "match_of",
-    "memory_index_spec",
-    "memory_payload",
-    "query_scopes",
-    "ranked_matches",
-    "scope_filter",
-]

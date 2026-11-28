@@ -11,9 +11,7 @@ from __future__ import annotations
 
 from .registry import ConnectorProviderDefinition
 
-__all__ = ["builtin_connector_definitions"]
-
-_RATE_LIMITED = {"rate_limiter": "rate_limiter"}
+_HTTP_DEPENDENCIES = {"rate_limiter": "rate_limiter", "destination_policy": "destination_policy"}
 
 
 def builtin_connector_definitions() -> tuple[ConnectorProviderDefinition, ...]:
@@ -37,7 +35,7 @@ def builtin_connector_definitions() -> tuple[ConnectorProviderDefinition, ...]:
             ConfluenceConnector,
             aliases=("confluence_cloud", "confluence_datacenter"),
             config_factory=ConfluenceSpaceConfig,
-            constructor_dependencies=_RATE_LIMITED,
+            constructor_dependencies=_HTTP_DEPENDENCIES,
             document_kind="page",
             document_transform_factory=ConfluenceDocumentTransform,
         ),
@@ -46,7 +44,7 @@ def builtin_connector_definitions() -> tuple[ConnectorProviderDefinition, ...]:
             GitHubConnector,
             aliases=("github_repo", "github_repository"),
             config_factory=GitHubRepositoryConfig,
-            constructor_dependencies=_RATE_LIMITED,
+            constructor_dependencies=_HTTP_DEPENDENCIES,
             document_kind="file",
         ),
         ConnectorProviderDefinition(
@@ -54,7 +52,7 @@ def builtin_connector_definitions() -> tuple[ConnectorProviderDefinition, ...]:
             JiraConnector,
             aliases=("jira_cloud", "jira_datacenter"),
             config_factory=JiraProjectConfig,
-            constructor_dependencies=_RATE_LIMITED,
+            constructor_dependencies=_HTTP_DEPENDENCIES,
             document_kind="issue",
             document_transform_factory=JiraDocumentTransform,
         ),
@@ -72,7 +70,7 @@ def builtin_connector_definitions() -> tuple[ConnectorProviderDefinition, ...]:
             SharePointConnector,
             aliases=("microsoft_sharepoint", "sharepoint_online"),
             config_factory=SharePointSiteConfig,
-            constructor_dependencies=_RATE_LIMITED,
+            constructor_dependencies=_HTTP_DEPENDENCIES,
             document_kind="file",
         ),
     )

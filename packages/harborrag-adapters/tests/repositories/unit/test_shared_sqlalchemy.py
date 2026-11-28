@@ -125,6 +125,7 @@ async def test_connect_applies_pool_size_and_max_overflow_when_provided(
     assert captured == {
         "url": "postgresql+asyncpg://user:pass@localhost/db",
         "echo": False,
+        "hide_parameters": True,
         "pool_pre_ping": True,
         "pool_recycle": 1800,
         "pool_size": 3,

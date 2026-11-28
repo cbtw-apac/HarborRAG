@@ -19,6 +19,8 @@ from harborrag_core.topology.resolution import ResolutionRequest
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.topology import operations, security_operations
 
+pytestmark = pytest.mark.unit
+
 
 def _connect(value):
     @asynccontextmanager

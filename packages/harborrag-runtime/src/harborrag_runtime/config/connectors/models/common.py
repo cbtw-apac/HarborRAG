@@ -21,7 +21,10 @@ class HttpTuning(StrictModel):
         default=None, gt=0, description="Seconds to wait for one response"
     )
     max_retries: int | None = Field(
-        default=None, ge=0, description="Retries of a failed or rate-limited request"
+        default=None,
+        ge=0,
+        le=10,
+        description="Retries of a failed or rate-limited request, at most 10",
     )
     backoff_factor: float | None = Field(
         default=None,
@@ -33,7 +36,9 @@ class HttpTuning(StrictModel):
 class PagedHttpTuning(HttpTuning):
     """HTTP tuning for connectors that page through list endpoints."""
 
-    page_size: int | None = Field(default=None, ge=1, description="Items to ask for per page")
+    page_size: int | None = Field(
+        default=None, ge=1, le=100, description="Items to ask for per page, at most 100"
+    )
 
 
 class NoCredentials(StrictModel):

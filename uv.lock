@@ -23,8 +23,12 @@ members = [
     "harborrag-workspace",
 ]
 overrides = [
+    { name = "dnspython", specifier = "==2.9.2" },
     { name = "filelock", specifier = ">=4.2.1" },
+    { name = "mail-parser", specifier = "==4.6.3" },
+    { name = "opentelemetry-api", specifier = "==1.45.2" },
     { name = "pillow", specifier = ">=13.0.0" },
+    { name = "soupsieve", specifier = "==4.1.1" },
 ]
 
 [[package]]
@@ -664,15 +668,6 @@ wheels = [
 ]
 
 [[package]]
-name = "cloudpickle"
-version = "3.1.2"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/27/fb/576f067976d320f5f0114a8d9fa1215425441bb35627b1993e5afd8111e5/cloudpickle-3.1.2.tar.gz", hash = "sha256:7fda9eb655c9c230dab534f1983763de5835249750e85fbcef43aaa30a9a2414", size = 22330, upload-time = "2025-11-03T09:25:26.604Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/88/39/799be3f2f0f38cc727ee3b4f1445fe6d5e4133064ec2e4115069418a5bb6/cloudpickle-3.1.2-py3-none-any.whl", hash = "sha256:9acb47f6afd73f60dc1df93bb801b472f05ff42fa6c84167d25cb206be1fbf4a", size = 22228, upload-time = "2025-11-03T09:25:25.534Z" },
-]
-
-[[package]]
 name = "colorama"
 version = "0.4.6"
 source = { registry = "https://pypi.org/simple" }
@@ -953,11 +948,11 @@ wheels = [
 
 [[package]]
 name = "dnspython"
-version = "2.9.0"
+version = "2.9.2"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/ef/4a/50822184bd67cc6493f0fb6a880749158fcd31ab3fa07409acfd91f9fc85/dnspython-2.9.0.tar.gz", hash = "sha256:b44dc6b18f07a8b1c56676a19fbfdb5209415b046a9cece286baafa87ff3f7f1", size = 423560, upload-time = "2026-10-09T00:07:24.352Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/76/49/900383b471c645a3c397f47b3211d1fcecb3a540c98f683494cdf86b33de/dnspython-2.9.2.tar.gz", hash = "sha256:8d4d39a513e649d634004ce4d39ade2352efcea472a0247535a5c2d18a9d7ba9", size = 455484, upload-time = "2026-11-03T23:56:53.601Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/10/02/cdcc9b7c051786a103c3b09e1003a82fa0c66bcb91ffbdabcfbf7b4163b9/dnspython-2.9.0-py3-none-any.whl", hash = "sha256:9a4aedb833c3c1b49214d04d44d3032ab7a9135f7c1d29a549b4ff78fd82fda9", size = 354822, upload-time = "2026-10-09T00:07:22.622Z" },
+    { url = "https://files.pythonhosted.org/packages/1e/0c/5346358b3a20275d256978c35203ddc2c8617f78c1b23795b79ba22ced6d/dnspython-2.9.2-py3-none-any.whl", hash = "sha256:af15f7d385a6ae2fb35a796fde2138004c8c42c7389090e2addc83e3b3340fd8", size = 360455, upload-time = "2026-11-03T23:56:52.088Z" },
 ]
 
 [[package]]
@@ -1764,6 +1759,7 @@ source = { editable = "packages/harborrag-adapters" }
 dependencies = [
     { name = "aiosqlite" },
     { name = "harborrag-core" },
+    { name = "python-dotenv" },
     { name = "requests" },
     { name = "sqlalchemy", extra = ["asyncio"] },
 ]
@@ -1987,8 +1983,8 @@ requires-dist = [
     { name = "openpyxl", marker = "extra == 'parsers'", specifier = ">=3.1.0" },
     { name = "openpyxl", marker = "extra == 'parsers-all'", specifier = ">=3.1.0" },
     { name = "openpyxl", marker = "extra == 'spreadsheet'", specifier = ">=3.1.0" },
-    { name = "opentelemetry-api", marker = "extra == 'opentelemetry'", specifier = ">=1.45.1,<2" },
-    { name = "opentelemetry-api", marker = "extra == 'test'", specifier = ">=1.45.1,<2" },
+    { name = "opentelemetry-api", marker = "extra == 'opentelemetry'", specifier = ">=1.45.2,<2" },
+    { name = "opentelemetry-api", marker = "extra == 'test'", specifier = ">=1.45.2,<2" },
     { name = "opentelemetry-sdk", marker = "extra == 'opentelemetry'", specifier = ">=1.45.1,<2" },
     { name = "opentelemetry-sdk", marker = "extra == 'test'", specifier = ">=1.45.1,<2" },
     { name = "pillow", marker = "extra == 'image'", specifier = ">=10.0.0" },
@@ -2012,6 +2008,7 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'test'", specifier = ">=9,<10" },
     { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=1.3,<2" },
     { name = "pytest-cov", marker = "extra == 'test'", specifier = ">=7.1,<8" },
+    { name = "python-dotenv", specifier = ">=1,<2" },
     { name = "python-dotenv", marker = "extra == 'test'", specifier = ">=1,<2" },
     { name = "python-pptx", marker = "extra == 'parsers'", specifier = ">=1.0.0" },
     { name = "python-pptx", marker = "extra == 'parsers-all'", specifier = ">=1.0.0" },
@@ -2060,6 +2057,7 @@ name = "harborrag-app"
 version = "2.0.0a2"
 source = { editable = "packages/harborrag-app" }
 dependencies = [
+    { name = "click" },
     { name = "harborrag-core" },
     { name = "harborrag-engine" },
     { name = "harborrag-memory" },
@@ -2068,6 +2066,7 @@ dependencies = [
     { name = "python-dotenv" },
     { name = "pyyaml" },
     { name = "rich" },
+    { name = "sqlalchemy" },
     { name = "typer" },
 ]
 
@@ -2078,6 +2077,7 @@ api = [
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "pyjwt", extra = ["crypto"] },
+    { name = "redis" },
     { name = "sse-starlette" },
     { name = "uvicorn", extra = ["standard"] },
     { name = "websockets" },
@@ -2092,6 +2092,7 @@ production = [
 
 [package.metadata]
 requires-dist = [
+    { name = "click", specifier = ">=8.4.0,<9" },
     { name = "fastapi", marker = "extra == 'api'", specifier = ">=0.115" },
     { name = "harborrag-adapters", extras = ["chunking-code", "control-plane", "falkordb", "llm", "postgres", "qdrant", "s3"], marker = "extra == 'production'", editable = "packages/harborrag-adapters" },
     { name = "harborrag-core", editable = "packages/harborrag-core" },
@@ -2107,9 +2108,11 @@ requires-dist = [
     { name = "pyjwt", extras = ["crypto"], marker = "extra == 'api'", specifier = ">=2.8" },
     { name = "python-dotenv", specifier = ">=1,<2" },
     { name = "pyyaml", specifier = ">=6.0,<7" },
+    { name = "redis", marker = "extra == 'api'", specifier = ">=5,<6" },
     { name = "rich", specifier = ">=14,<16" },
+    { name = "sqlalchemy", specifier = ">=2,<3" },
     { name = "sse-starlette", marker = "extra == 'api'", specifier = ">=2.1" },
-    { name = "typer", specifier = ">=0.24,<0.27" },
+    { name = "typer", specifier = ">=0.24,<0.25" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'api'", specifier = ">=0.30" },
     { name = "websockets", marker = "extra == 'api'", specifier = ">=12" },
 ]
@@ -2152,7 +2155,6 @@ dependencies = [
     { name = "harborrag-runtime" },
     { name = "jsonschema" },
     { name = "pydantic" },
-    { name = "python-dotenv" },
     { name = "pyyaml" },
 ]
 
@@ -2174,7 +2176,6 @@ requires-dist = [
     { name = "harborrag-runtime", extras = ["reader"], marker = "extra == 'reader'", editable = "packages/harborrag-runtime" },
     { name = "jsonschema", specifier = ">=4.26,<5" },
     { name = "pydantic", specifier = ">=2.12,<3" },
-    { name = "python-dotenv", specifier = ">=1,<2" },
     { name = "pyyaml", specifier = ">=6.0.2,<7" },
 ]
 provides-extras = ["mcp", "reader", "ui"]
@@ -2204,11 +2205,12 @@ dependencies = [
     { name = "harborrag-adapters" },
     { name = "harborrag-core" },
     { name = "harborrag-engine" },
-    { name = "jsonschema" },
+    { name = "harborrag-memory" },
     { name = "opentelemetry-api" },
     { name = "prometheus-client" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
+    { name = "python-dotenv" },
     { name = "pyyaml" },
 ]
 
@@ -2219,9 +2221,6 @@ chat = [
 dev = [
     { name = "types-pyyaml" },
 ]
-memory = [
-    { name = "harborrag-memory" },
-]
 production = [
     { name = "harborrag-adapters", extra = ["chunking", "chunking-code", "control-plane", "falkordb", "langfuse", "llm", "opentelemetry", "parsers", "pdf-liteparse", "postgres", "qdrant", "redis", "s3", "tables"] },
 ]
@@ -2229,30 +2228,28 @@ reader = [
     { name = "harborrag-adapters", extra = ["control-plane", "falkordb", "llm", "postgres", "qdrant", "s3"] },
 ]
 temporal = [
-    { name = "cloudpickle" },
     { name = "temporalio" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "cloudpickle", marker = "extra == 'temporal'", specifier = ">=3.1,<4" },
     { name = "harborrag-adapters", editable = "packages/harborrag-adapters" },
     { name = "harborrag-adapters", extras = ["chunking", "chunking-code", "control-plane", "falkordb", "langfuse", "llm", "opentelemetry", "parsers", "pdf-liteparse", "postgres", "qdrant", "redis", "s3", "tables"], marker = "extra == 'production'", editable = "packages/harborrag-adapters" },
     { name = "harborrag-adapters", extras = ["control-plane", "falkordb", "llm", "postgres", "qdrant", "s3"], marker = "extra == 'reader'", editable = "packages/harborrag-adapters" },
     { name = "harborrag-adapters", extras = ["llm"], marker = "extra == 'chat'", editable = "packages/harborrag-adapters" },
     { name = "harborrag-core", editable = "packages/harborrag-core" },
     { name = "harborrag-engine", editable = "packages/harborrag-engine" },
-    { name = "harborrag-memory", marker = "extra == 'memory'", editable = "packages/harborrag-memory" },
-    { name = "jsonschema", specifier = ">=4.26,<5" },
-    { name = "opentelemetry-api", specifier = ">=1.45.1,<2" },
+    { name = "harborrag-memory", editable = "packages/harborrag-memory" },
+    { name = "opentelemetry-api", specifier = ">=1.45.2,<2" },
     { name = "prometheus-client", specifier = ">=0.19,<1" },
     { name = "pydantic", specifier = ">=2.13,<3" },
     { name = "pydantic-settings", specifier = ">=2.2" },
+    { name = "python-dotenv", specifier = ">=1,<2" },
     { name = "pyyaml", specifier = ">=6.0.0" },
-    { name = "temporalio", marker = "extra == 'temporal'", specifier = ">=1.30,<2" },
+    { name = "temporalio", marker = "extra == 'temporal'", specifier = ">=1.37,<2" },
     { name = "types-pyyaml", marker = "extra == 'dev'", specifier = ">=6.0,<7" },
 ]
-provides-extras = ["reader", "chat", "memory", "temporal", "production", "dev"]
+provides-extras = ["reader", "chat", "temporal", "production", "dev"]
 
 [[package]]
 name = "harborrag-workspace"
@@ -2270,6 +2267,7 @@ dev = [
     { name = "httpx" },
     { name = "httpx2" },
     { name = "import-linter" },
+    { name = "jsonschema" },
     { name = "langchain-core" },
     { name = "litellm" },
     { name = "mypy" },
@@ -2319,19 +2317,20 @@ dev = [
 requires-dist = [
     { name = "beautifulsoup4", marker = "extra == 'dev'", specifier = ">=4.12.0" },
     { name = "cairosvg", marker = "extra == 'dev'", specifier = ">=2.7.0" },
-    { name = "click", marker = "extra == 'dev'", specifier = ">=8.1,<9" },
+    { name = "click", marker = "extra == 'dev'", specifier = ">=8.4.0,<9" },
     { name = "defusedxml", marker = "extra == 'dev'", specifier = ">=0.7.1" },
     { name = "docx2txt", marker = "extra == 'dev'", specifier = ">=0.9" },
     { name = "fastapi", marker = "extra == 'dev'", specifier = ">=0.115" },
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.28.1" },
     { name = "httpx2", marker = "extra == 'dev'", specifier = ">=2.10.0,<3" },
     { name = "import-linter", marker = "extra == 'dev'", specifier = ">=2.13,<3" },
+    { name = "jsonschema", marker = "extra == 'dev'", specifier = ">=4.26,<5" },
     { name = "langchain-core", marker = "extra == 'dev'", specifier = ">=1.5,<2" },
     { name = "litellm", marker = "extra == 'dev'", specifier = ">=1.106.0,<1.106.5" },
     { name = "markdown", marker = "extra == 'docs'", specifier = ">=3.5.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.0.0" },
     { name = "openpyxl", marker = "extra == 'dev'", specifier = ">=3.1.0" },
-    { name = "opentelemetry-api", marker = "extra == 'dev'", specifier = ">=1.45.1,<2" },
+    { name = "opentelemetry-api", marker = "extra == 'dev'", specifier = ">=1.45.2,<2" },
     { name = "opentelemetry-sdk", marker = "extra == 'dev'", specifier = ">=1.45.1,<2" },
     { name = "packaging", marker = "extra == 'dev'", specifier = ">=24,<27" },
     { name = "pillow", marker = "extra == 'dev'", specifier = ">=10.0.0" },
@@ -3136,11 +3135,11 @@ wheels = [
 
 [[package]]
 name = "mail-parser"
-version = "4.4.0"
+version = "4.6.3"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/9c/6e/2cee08e0d6fbce02a301d5ab72ef5ffe8f47dd59ac3d8ce61324d8a9143a/mail_parser-4.4.0.tar.gz", hash = "sha256:82d2c0fa98a138620feaa87a378af2a2643b2941b2e125d7abfc65dd21094b33", size = 2852896, upload-time = "2026-06-11T06:56:49.789Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/da/37/4fe3355cfee767234fc57cd62a48ef15829d8cd8e14c7c3412e4f1f16908/mail_parser-4.6.3.tar.gz", hash = "sha256:9b89d91d741ba4688fd4ac0f5071f2b0e238683cf9e94dec407fe3eba0c42698", size = 2898823, upload-time = "2026-08-19T22:09:14.671Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/26/a7/99dfed167ba728384521acd54fadbb7649ce49333018f42e1f190ed25911/mail_parser-4.4.0-py3-none-any.whl", hash = "sha256:46f7931817660fec4f7723e6f1722e66a9cce44c2daeacbeb9e705078379561f", size = 35504, upload-time = "2026-06-11T06:56:48.348Z" },
+    { url = "https://files.pythonhosted.org/packages/05/b2/db246a5f5e430e05ab358501cd34cfe2b422951a2738daf6054f4c2af885/mail_parser-4.6.3-py3-none-any.whl", hash = "sha256:abfcba25955332c72d81c06aaf32107744fd70e610a6e50899efada542712afa", size = 50027, upload-time = "2026-08-19T22:09:13.196Z" },
 ]
 
 [[package]]
@@ -3550,14 +3549,14 @@ wheels = [
 
 [[package]]
 name = "nexus-rpc"
-version = "1.4.0"
+version = "1.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/35/d5/cd1ffb202b76ebc1b33c1332a3416e55a39929006982adc2b1eb069aaa9b/nexus_rpc-1.4.0.tar.gz", hash = "sha256:3b8b373d4865671789cc43623e3dc0bcbf192562e40e13727e17f1c149050fba", size = 82367, upload-time = "2026-02-25T22:01:34.053Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/25/e5/25be948c92492cfc8ac24a524ad8828fe0cb9f71f46a974d7a37f0794a26/nexus_rpc-1.5.0.tar.gz", hash = "sha256:be2d6934414677bc9dd8e571fb5106c22b8769edc19562c3f49d9988edd24e1c", size = 97404, upload-time = "2026-10-28T17:12:21.82Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/11/52/6327a5f4fda01207205038a106a99848a41c83e933cd23ea2cab3d2ebc6c/nexus_rpc-1.4.0-py3-none-any.whl", hash = "sha256:14c953d3519113f8ccec533a9efdb6b10c28afef75d11cdd6d422640c40b3a49", size = 29645, upload-time = "2026-02-25T22:01:33.122Z" },
+    { url = "https://files.pythonhosted.org/packages/33/e2/00541e7997f3dfb294f7be3dafea3307ea09b9d3fd332054fe4d30627efc/nexus_rpc-1.5.0-py3-none-any.whl", hash = "sha256:5d6e856972be812573948df02da2257344c407a8eaa99977b5d38be54448305a", size = 30406, upload-time = "2026-10-28T17:12:20.245Z" },
 ]
 
 [[package]]
@@ -3886,14 +3885,14 @@ wheels = [
 
 [[package]]
 name = "opentelemetry-api"
-version = "1.45.1"
+version = "1.45.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/2e/02/6e0ae9cc61bd3169d401077b507b3ebc344745171e1051ab430be012dcd9/opentelemetry_api-1.45.1.tar.gz", hash = "sha256:aa38ed19bcc084ba42782a73255b3582283eced7ad6dddbd6695189e69adfb75", size = 72804, upload-time = "2026-10-06T17:32:58.133Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/19/14/cf3a6b6448849656e1e5f4e2101f3988dc6789724050096aba1bc5ccf592/opentelemetry_api-1.45.2.tar.gz", hash = "sha256:d7b0008e21e5fd61cbe7a7f34ca3b6905a78ab677d9bc395e299359c75cda6b4", size = 73277, upload-time = "2026-10-29T17:29:37.888Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/1e/41/f7dcf80b81ee8e71c1a2b59f14208bc723edbd89ed027a73b175abf6348e/opentelemetry_api-1.45.1-py3-none-any.whl", hash = "sha256:b31553efa588ae44bc306f863c785c5333a9ecc091248c6ee68b4b6c87fdedfb", size = 60256, upload-time = "2026-10-06T17:32:33.506Z" },
+    { url = "https://files.pythonhosted.org/packages/a9/2d/610db864d7513158cebb8f36cc88e67e73bd6c7aa1905ef18d89e1281c81/opentelemetry_api-1.45.2-py3-none-any.whl", hash = "sha256:2cbd737377e710ee740d261c94e93fa0f08e6d037c18f17513cc0a2d94479a34", size = 60335, upload-time = "2026-10-29T17:29:06.955Z" },
 ]
 
 [[package]]
@@ -3971,29 +3970,29 @@ wheels = [
 
 [[package]]
 name = "opentelemetry-sdk"
-version = "1.45.1"
+version = "1.45.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "opentelemetry-api" },
     { name = "opentelemetry-semantic-conventions" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/a1/79/7392e21a1c8f0c61d90b223e31c7e48cb9d452e91a6b820ad24cca5f23c4/opentelemetry_sdk-1.45.1.tar.gz", hash = "sha256:63d24a6ca645019a631e6a51999c73e93adcac1196ca640b8ae78a7cc4762bf3", size = 218324, upload-time = "2026-10-06T17:33:13.26Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/7b/1a/74a21d4d6969fb8b432ac397e66112a8167a6deb267ea4559dbaf2fe91ef/opentelemetry_sdk-1.45.2.tar.gz", hash = "sha256:7eec4de13dd21ff3a1670dcb0e02079e692736f94d733dfdce5af461d884248d", size = 221705, upload-time = "2026-10-29T17:29:54.685Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/95/3c/87c42b4bd6dd297536f04cd9383d212ac557ecd49f2cbdcd46da1c9ef5c8/opentelemetry_sdk-1.45.1-py3-none-any.whl", hash = "sha256:c604c11dc429810812348989115fa44bd558772a3d7442afc43d024f2c250ca4", size = 140063, upload-time = "2026-10-06T17:32:55.04Z" },
+    { url = "https://files.pythonhosted.org/packages/9f/a5/9a3b793ef48245f2336a16beb2324c2397dbb3f987cd68942f77cca06156/opentelemetry_sdk-1.45.2-py3-none-any.whl", hash = "sha256:ff974ea70ee4f1d51e2ec152db37c2b626c7bf82bb3f7d86114fd8704e7199c6", size = 141756, upload-time = "2026-10-29T17:29:33.722Z" },
 ]
 
 [[package]]
 name = "opentelemetry-semantic-conventions"
-version = "0.66b1"
+version = "0.66b2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "opentelemetry-api" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/46/e4/dbbfb2a010c4db2224a5114638acede6fe563d33cc20fb1752cebcbe6298/opentelemetry_semantic_conventions-0.66b1.tar.gz", hash = "sha256:497ca63bf383723411e8eaf60c8779e9877633c936bb641080adab59d0eb6ec8", size = 150250, upload-time = "2026-10-06T17:33:14.073Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/37/3f/50f95972b50e8e353f5b9342034c9cd17730f1956f009ce6a3fbbd89f9ce/opentelemetry_semantic_conventions-0.66b2.tar.gz", hash = "sha256:7da5f1a5dc4383eb66711d4d3d3e71824d9403ac1559fea021cc103c1a4c4976", size = 150246, upload-time = "2026-10-29T17:29:55.682Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/bc/14/67f8aa798857f8cf686f515bf93d9bb877ce952ddc8efae0fa25b45ce0d6/opentelemetry_semantic_conventions-0.66b1-py3-none-any.whl", hash = "sha256:d4cddeb4315490b35213f55e2bdc9ac54bb1e4d318927475bed62b35545e581b", size = 206279, upload-time = "2026-10-06T17:32:56.103Z" },
+    { url = "https://files.pythonhosted.org/packages/67/bd/6bf33ed31521c565931c037e9e81bac47c1acb000e850c6e24220e2a0c00/opentelemetry_semantic_conventions-0.66b2-py3-none-any.whl", hash = "sha256:4cbe61e5f9275d57ab31708446e7938ef4291ebbe6a7fca6f7a629c5acae87d8", size = 206280, upload-time = "2026-10-29T17:29:35.062Z" },
 ]
 
 [[package]]
@@ -5557,11 +5556,11 @@ wheels = [
 
 [[package]]
 name = "soupsieve"
-version = "2.9"
+version = "4.1.1"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/80/f1/93422647dd7e461f23d254e6b2bfa687a85b53aeb4903fcdbb74474d4584/soupsieve-2.9.tar.gz", hash = "sha256:acee8417325c5653e1377dc31eccad59eb82cbc65942afe6174c53b3aaad63fc", size = 122122, upload-time = "2026-07-19T01:35:18.425Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/1f/52/ee5646b65d98a252e807ccc37725363942372a4113072e0bce7ed22f8b84/soupsieve-4.1.1.tar.gz", hash = "sha256:b296bd2d2f65b1a78149f3d7bf6736a147d2c9e2dfbde0e4404639d748a02e03", size = 169784, upload-time = "2026-11-14T17:23:32.467Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/7b/d6/3185ab5ad1280319b31986898f3206dd7227cd75e293d4dba2a5e6bf27a0/soupsieve-2.9-py3-none-any.whl", hash = "sha256:a2b2c76d67df2382d245409fd71e321a571717e58463efa32ace87dcadac2c12", size = 37387, upload-time = "2026-07-19T01:35:17.106Z" },
+    { url = "https://files.pythonhosted.org/packages/cd/65/7fae69a095696195334a934eab23aeb12e2715e6c3f08025d2f91942750e/soupsieve-4.1.1-py3-none-any.whl", hash = "sha256:8ff3422dab0b720fb667ee79864d80531a0e57994a13eb701697719ffcb751f6", size = 55089, upload-time = "2026-11-14T17:23:31.001Z" },
 ]
 
 [[package]]
@@ -5659,7 +5658,7 @@ wheels = [
 
 [[package]]
 name = "temporalio"
-version = "1.30.0"
+version = "1.37.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "nexus-rpc" },
@@ -5667,13 +5666,15 @@ dependencies = [
     { name = "types-protobuf" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/00/b0/ad8fc3cd7425c6551a637bf23c798e8fdd8eb7a3ec4fee4f46f7678ba8d2/temporalio-1.30.0.tar.gz", hash = "sha256:7c025919511bb465392d547e48ccb85fd560a995db4ebcc82fdb43cddf088e6f", size = 2686876, upload-time = "2026-07-02T21:04:46.713Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/cb/d4/52b885d9db21e3ed7c35a3eda7e3f8cbb3a1f1f983c9f610fdce3b39529e/temporalio-1.37.0.tar.gz", hash = "sha256:e2f0847c97785b605bac439e54d03cb45ca711aba3facf8f06b711dee5026ab9", size = 3058823, upload-time = "2026-11-24T23:52:46.67Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/02/39/842fdffe93388dd30ac12a53a698f71cbfb68b3bc938f30f3e5d6a36d4ad/temporalio-1.30.0-cp310-abi3-macosx_10_12_x86_64.whl", hash = "sha256:6773a6b708dee7675fcbb681bf28e48337ce43b8467ceba8f903e78ae68909f8", size = 14520026, upload-time = "2026-07-02T21:04:31.384Z" },
-    { url = "https://files.pythonhosted.org/packages/40/f3/a2237d5265eb29de591abeac7610a48616b590a1b923b4919f60ee81adfa/temporalio-1.30.0-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:4038c3ce2d9acc12fef31dd16ef9be8cc7f721672da5662aa05e3942d0b5c9d1", size = 14018523, upload-time = "2026-07-02T21:04:34.405Z" },
-    { url = "https://files.pythonhosted.org/packages/e6/57/dc648d812f4c688bd246a616f0d65c5f03b33675df2effb1b480e1df6d21/temporalio-1.30.0-cp310-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:108d1a56e174eabc18add58316084cdead230e239d3df22bbe999d6954986591", size = 14330502, upload-time = "2026-07-02T21:04:37.39Z" },
-    { url = "https://files.pythonhosted.org/packages/1c/e1/dbd57de0f5090891850c2ee5490319834a12b704076b11f32a4a149998d4/temporalio-1.30.0-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:47b156138de30c2cd6723d5bfc06a30abcf680344c5481abb31f2a98a9b1f809", size = 14833364, upload-time = "2026-07-02T21:04:40.454Z" },
-    { url = "https://files.pythonhosted.org/packages/30/2a/6d41289c11465ba276a8b417f31d2e469f0fe4b8afacd61d5244151c5fce/temporalio-1.30.0-cp310-abi3-win_amd64.whl", hash = "sha256:3adee28d5ec47bd6309a5eeef7b00126373f119bc5c1b058a34de098542f4da7", size = 15181893, upload-time = "2026-07-02T21:04:43.609Z" },
+    { url = "https://files.pythonhosted.org/packages/51/4d/48e440b815f3b13829ff30476d8c6178a4e62d7dc8e5a054eccbfb5e5fe6/temporalio-1.37.0-cp311-abi3-macosx_10_12_x86_64.whl", hash = "sha256:e8f9b9089821280335d152f265ff9a057c46525a0f7f352f0f351106d51d537a", size = 14443880, upload-time = "2026-11-24T23:52:29.105Z" },
+    { url = "https://files.pythonhosted.org/packages/bc/61/446101d52ef1fcf7865390dbbf41e65bc81fb33fdb15a0d80db3e6b74bf9/temporalio-1.37.0-cp311-abi3-macosx_11_0_arm64.whl", hash = "sha256:8beeea4e8cddc4153c6267d500b85cd548e31b0ab9032b6aed43f98cf5cb6fd0", size = 13995832, upload-time = "2026-11-24T23:52:31.655Z" },
+    { url = "https://files.pythonhosted.org/packages/90/3c/770539731cda203bf134fa8fdaddeb4759db167811e95c97d12cca4d3baf/temporalio-1.37.0-cp311-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:2ff5034c7de42a7546ac1488fc14b91d9717520d32644f34bbda97d07d136ea3", size = 14393946, upload-time = "2026-11-24T23:52:34.181Z" },
+    { url = "https://files.pythonhosted.org/packages/75/38/4df763f994bfcbdefd8368c492c3ce0373e72c028ab612b31a0f1384349c/temporalio-1.37.0-cp311-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:a45b9152fd23270ea310b87a70f2f7bb60ad5c3133c0386a5afb98a72f69f591", size = 14884761, upload-time = "2026-11-24T23:52:36.691Z" },
+    { url = "https://files.pythonhosted.org/packages/83/fd/12644fa7a6dd3d2e379b8be6274615c748719cfeb840b4a174eb7b5d7e6e/temporalio-1.37.0-cp311-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:7976819e01eaad59e37411da2745e79f1689be82948a9d5d3e5c9b479f925a8e", size = 14462858, upload-time = "2026-11-24T23:52:39.298Z" },
+    { url = "https://files.pythonhosted.org/packages/c1/6b/58b0757efbfb3bf00fbb7750bae765b1181218971e01653b6a9debbaeba8/temporalio-1.37.0-cp311-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:c65f6995eba5b9a676e276aa255c9c14fa3eb210d42846b45209cde5d7ca0130", size = 14993250, upload-time = "2026-11-24T23:52:41.921Z" },
+    { url = "https://files.pythonhosted.org/packages/fb/94/91969d02c676d86fff569a871f70e006e34d40ffb6d234a68e6abe1f86a0/temporalio-1.37.0-cp311-abi3-win_amd64.whl", hash = "sha256:f212e75d2eca6b4b782532a77120e5761357aef18397dfcf577e91ba6f742bcf", size = 15967159, upload-time = "2026-11-24T23:52:44.542Z" },
 ]
 
 [[package]]
@@ -6410,7 +6411,7 @@ wheels = [
 
 [[package]]
 name = "virtualenv"
-version = "21.14.12"
+version = "21.15.13"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "distlib" },
@@ -6419,9 +6420,9 @@ dependencies = [
     { name = "platformdirs" },
     { name = "python-discovery" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c9/2c/1a69b3346931e9a7db9cc00cc0fa847c843a85fa7cf52a598f57261c68df/virtualenv-21.14.12.tar.gz", hash = "sha256:bbcfb78e36c22ad70c6917c4aecb5e63477d3c138e9f88c946f320e31859c76a", size = 5562800, upload-time = "2026-10-21T01:58:51.724Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a1/89/e84f19b1a87f70637694494018fdedb395aed90da17872d31e1eb2314d41/virtualenv-21.15.13.tar.gz", hash = "sha256:f3ad23551343034e613f9c4d8279f282958a19729f5fc2bcb758afcf95fe3a01", size = 5735175, upload-time = "2026-11-23T19:54:07.74Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a0/92/f3b8af2d36ddec4dc61dc25655dc010e419ff456cb4ca0e720c8112f1047/virtualenv-21.14.12-py3-none-any.whl", hash = "sha256:7820aeaef23f1f59a96458edfc7f9d3deac937155718de15f1c9a64471e15551", size = 5556824, upload-time = "2026-10-21T01:58:48.505Z" },
+    { url = "https://files.pythonhosted.org/packages/0f/d8/bc11d9ca589a030f9af2dd99f8329e250a9072d0e1d7dcaa4c291ed468ea/virtualenv-21.15.13-py3-none-any.whl", hash = "sha256:2744de3b2ba59027ed7eb87c773d4907f56287f4db23b459e8172dcdb41c208d", size = 5750972, upload-time = "2026-11-23T19:54:05.968Z" },
 ]
 
 [[package]]

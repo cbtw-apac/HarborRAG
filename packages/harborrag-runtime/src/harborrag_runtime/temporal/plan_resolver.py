@@ -1,3 +1,5 @@
+"""Resolves workflow inputs to the planned releases they refer to."""
+
 from __future__ import annotations
 
 import asyncio
@@ -7,7 +9,7 @@ from temporalio.exceptions import ApplicationError
 
 from harborrag_core.ingestion import ArtifactReference
 from harborrag_core.storage import StorageOperationContext
-from harborrag_runtime.ingestion.source.models import PlannedDocumentRelease, SourcePlanIndex
+from harborrag_engine.ingestion.source.models import PlannedDocumentRelease, SourcePlanIndex
 from harborrag_runtime.ingestion.source.plan import SourcePlanRepository
 
 from .conversion import to_artifact_reference
@@ -49,6 +51,9 @@ class PlanDocumentResolver:
     process, so the cost of one lookup stays bounded by a page rather than by
     the plan. A plan written without an index (a run started before this
     existed) falls back to the whole plan, cached, so it still finishes.
+
+    Fills run one at a time so concurrent documents of the same page do not each download it; the
+    pages are small, so the serialisation is cheap.
     """
 
     def __init__(
@@ -64,14 +69,13 @@ class PlanDocumentResolver:
             page_cache_size
         )
         self._whole: _Lru[str, tuple[PlannedDocumentRelease, ...]] = _Lru(plan_cache_size)
-        # One fill at a time keeps concurrent documents of the same page from
-        # each downloading it; the pages are small, so the serialisation is cheap.
         self._fill = asyncio.Lock()
 
     async def get(
         self,
         request: DocumentIngestionInput | RetryDocumentInput,
     ) -> PlannedDocumentRelease:
+        """Return the planned release the request points at."""
         if request.document_index < 0:
             raise InvalidDocumentIndexError()
         reference = to_artifact_reference(request.plan_reference)

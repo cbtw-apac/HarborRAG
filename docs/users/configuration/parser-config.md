@@ -1,24 +1,61 @@
 # Parser Configuration
 
-The runtime loader reads named parser definitions from versioned YAML. The
-checked-in [`config/ingestion/parsers.yaml`](../../../config/ingestion/parsers.yaml) activates
-LiteParse (with an external OCR server) for both PDFs and raster
-images. Alternative profiles and engines remain in the file as commented
-blocks.
+A parser turns a file, such as a PDF, an Office document or an image, into text and
+structure that HarborRAG can chunk and embed. Most formats use built-in parsers with
+no configuration. [`config/ingestion/parsers.yaml`](../../../config/ingestion/parsers.yaml)
+chooses the engines for PDFs and images; the shipped file uses LiteParse for both, with
+optional OCR (optical character recognition, reading text from scanned pages and
+pictures) through an external OCR server. Alternative profiles and engines stay in the
+file as commented blocks.
 
-## Default parser registry
+The runtime reads the file from `HARBORRAG_PARSER_CONFIG_PATH`, and
+`harborrag doctor` loads it in its `parsers catalog` check. The file's bytes are part
+of every document's processing identity, so editing it reprocesses each connection's
+documents on its next sync; see
+[What reprocesses on the next sync](runtime-settings.md#what-reprocesses-on-the-next-sync).
 
-`HarborParser` routes by filename suffix and MIME type. Its default stack supports PPTX/PPTM, legacy PPT, DOCX, legacy DOC, ODT, Excel (including legacy XLS), CSV/TSV, images, HTML/XHTML, EPUB, JSON/JSONL/NDJSON, Markdown/MDX, PDFs, and plain text/source/config formats.
+## When the file is checked
 
-An enabled catalog definition replaces the default engine for the formats it reads; the rest of its family keeps the defaults, so configuring `docx` still parses `.doc`, `.odt` and `.epub`. A `pdf` definition replaces the whole PDF chain. Parser types not configured in YAML remain available.
+The API and the ingestion worker load the file when they start and stop with a
+configuration error if it is invalid. `harborrag doctor` runs the same check without
+starting either. Loading rejects:
+
+- a field, parser type, backend or setting the file format does not have
+- a setting the selected parser or backend does not support
+- a value outside what a `pdf` or `image` parser setting, or a LiteParse or `llm`
+  engine setting, accepts
+- two enabled definitions for the same parser family
+
+Docling settings are checked by name, not by value.
+
+The error names the definition, the engine's position in its chain, the setting, what
+it accepts and the value given:
+
+```text
+parser 'pdf-liteparse' engine 0 (liteparse) has an invalid setting: LiteParse num_workers must be an integer of at least 1 or null, got 0
+```
+
+If the file is missing, the worker does not start. The API starts and logs a warning,
+and it cannot start an ingestion until the file exists.
+
+## Formats HarborRAG reads
+
+`HarborParser` routes each file by its suffix and media type. Its default stack
+supports PPTX/PPTM, legacy PPT, DOCX, legacy DOC, ODT, Excel (including legacy XLS),
+CSV/TSV, images, HTML/XHTML, EPUB, JSON/JSONL/NDJSON, Markdown/MDX, PDFs, and plain
+text, source and config formats.
+
+An enabled definition in `parsers.yaml` replaces only the engine for its own formats
+in that default stack. For example, a `docx` definition replaces the DOCX engine, and
+DOC, ODT and EPUB files keep their default engines. A `pdf` definition replaces the
+whole PDF parser. Formats the file does not configure stay available.
 
 ### Legacy Microsoft Office binary formats
 
-The `document`, `presentation`, and `spreadsheet` families read the pre-2007
-binary (OLE compound file) formats without LibreOffice or any other external
-converter. The `.doc` and `.ppt` engines need `olefile`, which the
-`parsers`, `document`, `presentation`, and `parsers-all` extras of
-`harborrag-adapters` install.
+The `document`, `presentation` and `spreadsheet` families read the pre-2007 binary
+(OLE compound file) formats without LibreOffice or any other external converter. The
+`.doc` and `.ppt` engines need `olefile`, which the `parsers`, `document`,
+`presentation` and `parsers-all` extras of `harborrag-adapters` install.
 
 | Format | Suffixes / MIME type | Engine | What is extracted |
 | --- | --- | --- | --- |
@@ -28,22 +65,24 @@ converter. The `.doc` and `.ppt` engines need `olefile`, which the
 
 Limits:
 
-- Only Word 97 and later binary files are read. Word 6.0/95 files are rejected
-  as unsupported; re-save them as `.docx`.
-- Text written with legacy 8-bit Vietnamese fonts (TCVN3/ABC, VNI) is stored
-  as Latin-1 look-alike characters inside the file. It is extracted as stored
-  and is not converted to Unicode Vietnamese.
+- Only Word 97 and later binary files are read. Word 6.0/95 files are rejected as
+  unsupported; re-save them as `.docx`.
+- Text written with legacy 8-bit Vietnamese fonts (TCVN3/ABC, VNI) is stored as
+  Latin-1 look-alike characters inside the file. It is extracted as stored and is not
+  converted to Unicode Vietnamese.
 - Password-protected or obfuscated files are rejected as password-protected.
 - The file content decides the parser, not its name: a `.doc` or `.ppt` that is
-  really a DOCX/PPTX package is handed to the DOCX/PPTX engine, and one that is
-  really RTF, HTML, or MHTML is rejected as unsupported.
-- Table cells in `.doc` files are recovered from cell and row marks without
-  reading table formatting, so tables with empty cells can shift a column.
-- Word and PowerPoint templates (`.dot`, `.pot`) route here only by their MIME
-  type: those suffixes are also Graphviz graphs and gettext templates, which keep
-  reaching the plain-text parser.
+  really a DOCX/PPTX package is handed to the DOCX/PPTX engine, and one that is really
+  RTF, HTML or MHTML is rejected as unsupported.
+- Table cells in `.doc` files are recovered from cell and row marks without reading
+  table formatting, so tables with empty cells can shift a column.
+- Word and PowerPoint templates (`.dot`, `.pot`) route here only by their media type:
+  those suffixes are also Graphviz graphs and gettext templates, which keep reaching
+  the plain-text parser.
 
-## Active LiteParse PDF parser
+## PDFs
+
+### The active LiteParse parser
 
 ```yaml
 version: 1
@@ -67,16 +106,62 @@ parsers:
           strip_code_fences: true
 ```
 
-An explicit one-item engine chain guarantees that PDFs go through LiteParse.
-Using a built-in profile would create a fallback chain and could select another
-engine first. Available profiles are `liteparse` (the default when a PDF
-definition names neither `engines` nor `profile`: LiteParse, then PyMuPDF),
-`fast`, `balanced`, `ocr`, and `quality`. The image parser's default
-`ocr_engine` is `liteparse` as well.
-`ocr_server_url` points at a self-hosted OCR service; LiteParse calls it for
-scanned pages instead of running OCR in-process. It comes from
-`HARBORRAG_OCR_SERVER_URL` in `env/.env.parser`. When that is unset or empty no
-OCR server is used and LiteParse OCRs locally with Tesseract.
+The shipped definition sets a few more LiteParse options; the excerpt keeps the ones
+this page explains. A one-item engine chain guarantees that PDFs go through LiteParse;
+a built-in profile would create a fallback chain and could select another engine
+first.
+
+`max_pages` refuses a longer PDF before any engine reads it; the default is 200 and
+`null` turns the check off. A PDF whose pages cannot be counted, such as an encrypted
+one, goes to the engines, which report why it failed.
+
+`strip_code_fences` removes Markdown code-fence delimiters from LiteParse's output.
+Its layout pass fences any block it reads as preformatted, which on a form or a scanned
+page is ordinary prose, sometimes tagged with a guessed language such as
+```` ```python ````. Only the delimiter lines are dropped, so no extracted text is
+lost; set it to `false` to keep LiteParse's fences.
+
+LiteParse replaces an `output_format` or `image_mode` it does not know with its own
+default, so HarborRAG checks both before LiteParse sees them. `output_format` is
+`markdown`, `text` or `json`. `image_mode` is `placeholder`, `embed` or `off`, and
+`none` is read as `off`. `dpi` and `num_workers` are at least 1. `extra_options`
+passes further LiteParse arguments through unchecked, so LiteParse itself rejects one
+it does not know when it parses its first PDF, and `extra_options` cannot repeat a
+setting that has its own key.
+
+YAML reads an unquoted `yes`, `no`, `on` or `off` as a boolean. An unquoted
+`image_mode: off` still means `off`, but quote any other such value, for example the
+language code `'no'`.
+
+### OCR server
+
+`ocr_server_url` points at a self-hosted OCR service that LiteParse calls for scanned
+pages instead of running OCR in-process. It comes from `HARBORRAG_OCR_SERVER_URL`, in
+`env/.env.parser` in a repository checkout. The template leaves it empty; when it is
+unset or empty, no OCR server is used and LiteParse OCRs locally with Tesseract. The
+repository's Compose files do not start an OCR server.
+
+<details markdown="1">
+<summary>Ingestion worker in a container</summary>
+
+Use a Docker DNS name rather than `localhost`, which would be the worker itself. With
+the OCR server attached to the external `harborrag-data-network` under the alias
+`ppocr-server`, set the container port, not the published host port:
+
+```dotenv
+HARBORRAG_OCR_SERVER_URL=http://ppocr-server:8888/ocr
+```
+
+</details>
+
+<details markdown="1">
+<summary>Parser running on the host</summary>
+
+```dotenv
+HARBORRAG_OCR_SERVER_URL=http://localhost:8888/ocr
+```
+
+</details>
 
 A built-in profile takes `ocr_server_url` in its `settings` as well and hands it to
 LiteParse in every profile that runs it (`liteparse`, `fast`, `balanced`, `quality`):
@@ -93,20 +178,9 @@ parsers:
 
 An explicit `engines` chain sets `ocr_server_url` on its `liteparse` engine instead.
 
-For the containerized ingestion worker use a Docker DNS name rather than
-`localhost`, which would be the worker itself: the OCR server joins the
-external `harborrag-data-network` under the `ppocr-server` alias, so set
-`HARBORRAG_OCR_SERVER_URL=http://ppocr-server:8888/ocr` (the container port,
-not the published host port). Use `http://localhost:8888/ocr` when running the
-parser directly on the host.
+### Other PDF engines
 
-`strip_code_fences` removes Markdown code-fence delimiters from LiteParse's
-output. Its layout pass fences any block it reads as preformatted, which on a
-CV or a scanned page is ordinary prose, sometimes tagged with a guessed
-language such as ```` ```python ````. Only the delimiter lines are dropped, so
-no extracted text is lost; set it to `false` to keep LiteParse's fences.
-
-## Explicit backend chain
+A PDF definition can instead name an explicit backend chain, tried in order:
 
 ```yaml
 parsers:
@@ -123,34 +197,40 @@ parsers:
           do_table_structure: true
 ```
 
-Supported backend names are `pymupdf`, `docling`, `liteparse` and `llm`. An explicit `engines` chain cannot also set `profile`. Backend settings are strict and checked against typed option dataclasses.
+Supported backend names are `pymupdf`, `docling`, `liteparse` and `llm`. An explicit
+`engines` chain cannot also set `profile`. Backend settings are strict: a setting the
+selected backend does not have fails the load, so switching `backend` means replacing its
+`settings` too.
 
-`max_pages` refuses a longer PDF before any engine reads it; the default is
-200 and `null` turns the check off. A PDF that cannot be counted, such as an
-encrypted one, goes to the engines, which report why it failed.
+A definition can name a built-in `profile` instead: `liteparse` (the default when a
+PDF definition names neither `engines` nor `profile`: LiteParse, then PyMuPDF),
+`fast`, `balanced`, `ocr`, `ocr_first`, `quality` or `scientific`.
 
-## PDF pages read by a chat model
+To switch PDFs to Docling per tenant, project or connection, see the
+`parsing.pdf_parser` [runtime setting](runtime-settings.md#what-reprocesses-on-the-next-sync).
+
+### PDF pages read by a chat model
 
 The `llm` backend renders each page to an image and has a chat model from
-`config/models.yaml` transcribe it to Markdown, which reads scans, tables and
-multi-column layouts that text extraction gets wrong. The API key lives on the
-model's deployment in `models.yaml` like any other chat model; `parsers.yaml`
-only names the model.
+`config/models/models.yaml` transcribe it to Markdown, which reads scans, tables and
+multi-column layouts that text extraction gets wrong. The API key lives on the model's
+deployment in `models.yaml` like any other chat model; `parsers.yaml` only names the
+model.
 
 ```yaml
-# config/models.yaml, under chat.models
+# config/models/models.yaml, under chat.models
 vision:
   deployments:
     - name: openai-vision
       provider: openai
-      model: ${HARBOR_VISION_MODEL}
-      api_key: ${HARBOR_VISION_API_KEY}
+      model: ${HARBORRAG_VISION_MODEL}
+      api_key: ${HARBORRAG_VISION_API_KEY}
       capabilities:
         multimodal: true
 ```
 
 ```yaml
-# config/parsers.yaml
+# config/ingestion/parsers.yaml
 parsers:
   pdf-llm:
     parser: pdf
@@ -163,21 +243,23 @@ parsers:
       - backend: pymupdf
 ```
 
-- Every page image is sent to the model's provider, so use it only for
-  documents you may share with that provider. It is never part of a named
-  profile; only an explicit `engines` chain uses it.
-- Each page is one model call. `max_pages` (default 50) leaves a longer PDF to
-  the next engine; `dpi` (72 to 300, default 150) sets the image resolution.
-- Workers check at startup that the model exists and that every deployment
-  declares `multimodal: true`.
-- A rate limit, timeout or connection failure retries the document instead of
-  falling back, so what gets indexed does not depend on whether the provider
-  was up. Any other model failure falls back to the next engine.
+- Every page image is sent to the model's provider, so use it only for documents you
+  may share with that provider. It is never part of a named profile; only an explicit
+  `engines` chain uses it.
+- Each page is one model call. `max_pages` (default 50) leaves a longer PDF to the next
+  engine; `dpi` (72 to 300, default 150) sets the image resolution.
+- The `parsing.ocr.enabled` and `parsing.ocr.languages` runtime settings do not apply
+  to it: with OCR turned off, an `llm` chain still sends page images to the model.
+- Workers check at startup that the model exists and that every deployment declares
+  `multimodal: true`.
+- A rate limit, timeout or connection failure retries the document instead of falling
+  back, so what gets indexed does not depend on whether the provider was up. Any other
+  model failure falls back to the next engine.
 - Rendering pages needs PyMuPDF (the `pdf-pymupdf` extra).
-- Changing which provider model the name points to in `models.yaml` does not
-  re-parse documents already ingested; changing `parsers.yaml` does.
+- Changing which provider model the name points to in `models.yaml` does not re-parse
+  documents already ingested; changing `parsers.yaml` does.
 
-## Image OCR engine
+## Images
 
 ```yaml
 parsers:
@@ -191,17 +273,24 @@ parsers:
       max_pixels: 25000000
 ```
 
-`liteparse` sends raster images to the same OCR server as scanned PDF pages
-(or OCRs them locally with Tesseract when no server is set), so the worker
-needs no second local inference runtime. Pillow still decodes
-the image first, so `max_pixels` and decompression-bomb limits apply before
-anything is uploaded. The alternatives are `rapidocr` (local ONNX, needs the
-`image-rapidocr` extra) and `pytesseract` (external Tesseract binary); neither
-uses `ocr_server_url`.
+`ocr_engine` is `liteparse` (the default), `rapidocr` or `pytesseract`.
 
-Image OCR supports `rapidocr` and `pytesseract`. RapidOCR is loaded lazily and
-one engine instance is reused by the configured parser. The `lang`, `config`,
-and `timeout` settings apply to the `pytesseract` alternative.
+- `liteparse` sends raster images to the same OCR server as scanned PDF pages, or
+  OCRs them locally with Tesseract when no server is set, so the worker needs no second
+  local inference runtime.
+- `rapidocr` runs a local ONNX model and needs the `image-rapidocr` extra. It is loaded
+  lazily, and the configured parser reuses one engine instance.
+- `pytesseract` calls an external Tesseract binary and needs the `image-tesseract`
+  extra.
+
+`lang` sets the OCR language for `liteparse` and `pytesseract`; `config` and `timeout`
+apply to `pytesseract` only, and only `liteparse` uses `ocr_server_url`. Pillow
+decodes every image first, so `max_pixels` and decompression-bomb limits apply before
+anything is uploaded.
+
+`timeout` is in seconds, and `0` or `null` sets no limit. A setting that only another
+engine uses is accepted and ignored. An unknown `ocr_engine`, a negative `timeout` or
+a `max_pixels` below 1 fails the load.
 
 ## Document limits
 
@@ -224,18 +313,21 @@ Backend secrets use `<field>_env`:
     password_env: PDF_DOCUMENT_PASSWORD
 ```
 
-The referenced process variable must exist and be non-empty when the parser is
-built. `env-example/.env.parser.example` lists optional values, but HarborRAG
-does not load it automatically.
+The referenced process variable must exist and be non-empty when the parser is built.
+`env-example/.env.parser.example` lists the optional values. The parser loader does
+not read `.env` files itself: in a checkout the CLI loads `env/.env.parser`, and
+Compose passes it to the ingestion worker.
 
-Any setting value may also reference the environment directly with
-`${VARIABLE}` or `${VARIABLE:-default}`, which is how the OCR server URL above
-moves between a containerized worker and a host run. A bare `${VARIABLE}` that
-is unset fails the load; give it a default to make it optional. Credentials do
-not belong here: settings named after a secret field are rejected whatever
-their value, so they keep using the `secrets` block.
+Any setting value may also reference the environment directly with `${VARIABLE}` or
+`${VARIABLE:-default}`, which is how the OCR server URL above moves between a
+containerized worker and a host run. A bare `${VARIABLE}` that is unset fails the
+load; give it a default to make it optional. The API loads the file too and does not
+receive `env/.env.parser` under Compose, so a bare reference must also be set for the
+API, for example in `env/.env.api`. Credentials do not belong here: settings
+named after a secret field are rejected whatever their value, so they keep using the
+`secrets` block.
 
-## Load and build
+## Load the file from Python
 
 ```python
 from harborrag_runtime.config import load_parser_catalog
@@ -248,11 +340,14 @@ image = catalog.build("image-liteparse")
 parser_registry = catalog.build_harbor_parser()
 ```
 
-A catalog with an `llm` engine needs a synchronous chat client:
-`catalog.chat_models()` names the models it reads with, and
-`catalog.build_harbor_parser(chat_client=...)` passes the client to them.
+A catalog with an `llm` engine needs a synchronous chat client: `catalog.chat_models()`
+names the models it reads with, and `catalog.build_harbor_parser(chat_client=...)` passes
+the client to them.
 
-Only one enabled definition may replace a given stable parser name. `build_harbor_parser()` rejects conflicting enabled definitions instead of choosing silently.
+Each parser family takes at most one enabled definition: `docx` and `epub` share the
+document family, `csv` and `excel` the spreadsheet family, and `html` and `markdown`
+the markup family. `load_parser_catalog()` rejects two enabled definitions for one
+family instead of choosing silently.
 
 Code overrides take precedence over YAML settings:
 
@@ -260,4 +355,7 @@ Code overrides take precedence over YAML settings:
 pdf = catalog.build("pdf-liteparse", overrides={"min_content_chars": 100})
 ```
 
-Construction validates configuration. A backend whose optional library, executable, model, device, or service is unavailable reports that availability failure when parsing.
+Loading validates the configuration. Building resolves the `secrets` references, so a
+referenced variable that is unset fails there. A
+backend whose optional library, executable, model, device or service is unavailable
+reports that failure when it parses.

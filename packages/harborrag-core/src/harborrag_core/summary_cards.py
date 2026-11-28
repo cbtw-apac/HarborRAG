@@ -20,7 +20,6 @@ from harborrag_core.base import StrictModel
 SUMMARY_DESCRIPTION_MAX_CHARS = 4096
 SUMMARY_DESCRIPTION_MAX_WORDS = 512
 SUMMARY_CARD_MAX_WORDS = 60
-SUMMARY_CARD_MAX_CHARS = 480
 
 SummaryCoverage = Literal["complete", "partial", "empty"]
 

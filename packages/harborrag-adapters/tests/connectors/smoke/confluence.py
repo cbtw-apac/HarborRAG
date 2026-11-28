@@ -20,7 +20,7 @@ from bootstrap import (
 )
 from bootstrap.confluence_markdown import confluence_html_to_markdown
 
-from harborrag_adapters.connectors.schemas import ConnectorQuery
+from harborrag_core.ingestion.connector_contracts import ConnectorQuery
 
 CONFLUENCE_METADATA_FIELDS: list[tuple[str, str]] = [
     ("Content ID", "content_id"),

@@ -233,6 +233,3 @@ async def build_tenant_chat_config(
         raise
     except Exception as exc:
         raise TenantChatConfigError(str(exc)) from exc
-
-
-__all__ = ["TenantChatConfigError", "build_tenant_chat_config"]

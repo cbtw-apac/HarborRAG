@@ -11,8 +11,8 @@ from bootstrap import (
 )
 
 from harborrag_adapters.connectors.exceptions import ConnectorError
-from harborrag_adapters.connectors.schemas import ConnectorQuery
 from harborrag_core.domain.source import SourceRecord
+from harborrag_core.ingestion.connector_contracts import ConnectorQuery
 
 
 def run_sharepoint(*, connection_id: str | None = None, limit: int = 10) -> int:
@@ -38,7 +38,7 @@ def run_sharepoint(*, connection_id: str | None = None, limit: int = 10) -> int:
 
     try:
         records = list(connector.discover(ConnectorQuery(limit=limit)))
-    except ConnectorError as exc:  # smoke runner maps connector failure to exit 1
+    except ConnectorError as exc:
         print_failure("sharepoint", exc)
         return 1
     print(f"\n[sharepoint] discovered {len(records)} record(s)")

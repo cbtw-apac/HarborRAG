@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+from temporalio.api.common.v1 import Payloads
+from temporalio.api.history.v1 import HistoryEvent, WorkflowExecutionStartedEventAttributes
 from temporalio.client import (
     Schedule,
     ScheduleActionStartWorkflow,
@@ -15,9 +18,12 @@ from temporalio.client import (
     ScheduleState,
     WorkflowFailureError,
 )
+from temporalio.converter import DataConverter
 from temporalio.exceptions import ActivityError, ApplicationError
 from temporalio.service import RPCError, RPCStatusCode
 
+from harborrag_core.ingestion.run_contracts import RunKind
+from harborrag_core.ingestion.source_query import ProcessingProfileInput
 from harborrag_runtime.config.temporal import (
     TemporalConnectionConfig,
     TemporalRuntimeConfig,
@@ -29,7 +35,6 @@ from harborrag_runtime.errors import (
     WorkflowNotRunningError,
     WorkflowOperationError,
 )
-from harborrag_runtime.ingestion_contracts import RunKind
 from harborrag_runtime.scheduling.errors import ScheduleNotFoundError, ScheduleValidationError
 from harborrag_runtime.scheduling.models import (
     ScheduleDefinition,
@@ -47,7 +52,6 @@ from harborrag_runtime.temporal.maintenance_schemas import (
     ReindexResult,
 )
 from harborrag_runtime.temporal.schemas import (
-    ProcessingProfileInput,
     ScheduledSourceIngestionInput,
     SourceIngestionInput,
     SourceIngestionResult,
@@ -565,6 +569,55 @@ async def test_pause_resume_cycles_never_natively_pause_the_source_workflow() ->
 
 
 @pytest.mark.asyncio
+async def test_resume_waits_for_native_pause_after_client_config_is_disabled(monkeypatch) -> None:
+    sdk = _SdkClient()
+    sdk.source_handle.query.side_effect = [
+        replace(_status(), native_pause_pending=True),
+        _status(),
+    ]
+    monkeypatch.setattr(client_module, "_PAUSE_POLL_SECONDS", 0)
+    client = IngestionTemporalClient(sdk, TemporalRuntimeConfig(workflow_native_pause=False))
+
+    await client.resume("task-1")
+
+    assert sdk.workflow_service.unpause_workflow_execution.await_count == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("captured", [False, True])
+async def test_resume_uses_recorded_input_when_status_query_fails(monkeypatch, captured) -> None:
+    sdk = _SdkClient()
+    sdk.source_handle.describe.return_value = SimpleNamespace(
+        status=SimpleNamespace(name="RUNNING")
+    )
+    sdk.source_handle.query.side_effect = [
+        RPCError("query unavailable", RPCStatusCode.UNAVAILABLE, b""),
+        _status(),
+    ]
+    source = _source()
+    pinned = replace(
+        source, workflow_options=replace(source.workflow_options, native_pause=captured)
+    )
+    sdk.data_converter = DataConverter.default
+    payloads = await sdk.data_converter.encode([pinned])
+
+    async def history(**_options):
+        yield HistoryEvent(
+            workflow_execution_started_event_attributes=WorkflowExecutionStartedEventAttributes(
+                input=Payloads(payloads=payloads)
+            )
+        )
+
+    sdk.source_handle.fetch_history_events = history
+    monkeypatch.setattr(client_module, "_PAUSE_POLL_SECONDS", 0)
+    client = IngestionTemporalClient(sdk, TemporalRuntimeConfig(workflow_native_pause=not captured))
+
+    await client.resume("task-1")
+
+    assert sdk.workflow_service.unpause_workflow_execution.await_count == (2 if captured else 1)
+
+
+@pytest.mark.asyncio
 async def test_controls_keep_signaling_when_native_unpause_is_unavailable() -> None:
     sdk = _SdkClient()
     sdk.workflow_service.unpause_workflow_execution.side_effect = RPCError(
@@ -601,14 +654,12 @@ async def test_pause_relay_times_out_without_acknowledgement(
 ) -> None:
     sdk = _SdkClient()
     sdk.source_handle.query.side_effect = lambda *_args, **_kwargs: _status()
-    sleep = AsyncMock()
-    monkeypatch.setattr(client_module.asyncio, "sleep", sleep)
+    monkeypatch.setattr(client_module, "_PAUSE_SETTLE_SECONDS", 0.0)
     client = IngestionTemporalClient(sdk, TemporalRuntimeConfig())
 
     with pytest.raises(WorkflowOperationError, match="pause relay did not settle"):
         await client.pause("task-1")
 
-    assert sleep.await_count == 300
     sdk.workflow_service.pause_workflow_execution.assert_not_awaited()
 
 

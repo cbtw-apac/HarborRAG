@@ -14,10 +14,13 @@ import os
 from decimal import Decimal
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlsplit
 
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from harborrag_core.domain.identity import DEFAULT_TENANT_ID
+from harborrag_core.ingestion.limits import MAX_BATCH_SIZE, MAX_DOCUMENT_CONCURRENCY
 from harborrag_core.invariants import HarborInvariantError
 from harborrag_core.security import RemoteTransportPolicy
 from harborrag_core.storage import (
@@ -51,6 +54,10 @@ _OBJECT_STORE_TRANSPORT = RemoteTransportPolicy(
     allowed_schemes=frozenset({"http", "https"}),
     secure_schemes=frozenset({"https"}),
 )
+QDRANT_DEFAULT_REST_PORT = 6333
+"""Port the Qdrant client dials for REST when ``HARBORRAG_QDRANT_URL`` names none."""
+QDRANT_DEFAULT_GRPC_PORT = 6334
+"""Port the Qdrant client dials for gRPC when ``HARBORRAG_QDRANT_GRPC_PORT`` is unset."""
 
 
 def is_blank_secret(value: SecretStr | None) -> bool:
@@ -66,12 +73,14 @@ def is_blank_secret(value: SecretStr | None) -> bool:
 class RuntimeSettings(MemorySettingsMixin, BaseSettings):
     """Environment-driven settings for runtime composition."""
 
-    model_config = SettingsConfigDict(env_prefix="HARBORRAG_", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_prefix="HARBORRAG_", extra="ignore", hide_input_in_errors=True
+    )
 
     # staging is held to every prod guard: each check below tests env != "dev".
     env: Literal["dev", "staging", "prod"] = "dev"
-    ingestion_tenant_id: str = Field(
-        default="DEFAULT",
+    tenant_id: str = Field(
+        default=DEFAULT_TENANT_ID,
         min_length=1,
         max_length=128,
         pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$",
@@ -102,8 +111,10 @@ class RuntimeSettings(MemorySettingsMixin, BaseSettings):
     temporal_max_concurrent_activity_polls: int = Field(default=2, ge=1, le=100)
     temporal_max_concurrent_workflow_polls: int = Field(default=2, ge=1, le=100)
     temporal_graceful_shutdown_seconds: int = Field(default=30, ge=1, le=3600)
-    temporal_ingestion_batch_size: int = Field(default=200, ge=1, le=300)
-    temporal_ingestion_document_concurrency: int = Field(default=8, ge=1, le=100)
+    temporal_ingestion_batch_size: int = Field(default=200, ge=1, le=MAX_BATCH_SIZE)
+    temporal_ingestion_document_concurrency: int = Field(
+        default=8, ge=1, le=MAX_DOCUMENT_CONCURRENCY
+    )
     temporal_config_path: Path = Path("config/temporal.yaml")
     schedule_config_path: Path = Path("config/sources/schedules.yaml")
     # How often a worker exports schedule pause/overlap gauges by describing every
@@ -144,6 +155,7 @@ class RuntimeSettings(MemorySettingsMixin, BaseSettings):
     qdrant_url: str = "http://localhost:6333"
     qdrant_api_key: SecretStr | None = None
     qdrant_prefer_grpc: bool = True
+    qdrant_grpc_port: int | None = Field(default=None, ge=1, le=65_535)
     qdrant_allow_insecure_remote: bool = False
     falkordb_host: str = "localhost"
     falkordb_port: int = 6379
@@ -238,6 +250,14 @@ class RuntimeSettings(MemorySettingsMixin, BaseSettings):
             return None
         return value
 
+    @field_validator("qdrant_grpc_port", mode="before")
+    @classmethod
+    def _blank_grpc_port_is_unset(cls, value: object) -> object:
+        """Read a blank value, such as Compose's empty default, as no explicit gRPC port."""
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
     @model_validator(mode="after")
     def _warn_removed_environment(self) -> RuntimeSettings:
         for name, replacement in _REMOVED_ENVIRONMENT.items():
@@ -254,6 +274,40 @@ class RuntimeSettings(MemorySettingsMixin, BaseSettings):
             )
         return self
 
+    @model_validator(mode="before")
+    @classmethod
+    def reject_renamed_tenant_variable(cls, data: object) -> object:
+        """Refuse a process that still sets the removed ``HARBORRAG_INGESTION_TENANT_ID`` to a value."""
+        if os.environ.get("HARBORRAG_INGESTION_TENANT_ID"):
+            raise ValueError("HARBORRAG_INGESTION_TENANT_ID was renamed to HARBORRAG_TENANT_ID")
+        return data
+
+    @model_validator(mode="after")
+    def _require_explicit_qdrant_grpc_port(self) -> RuntimeSettings:
+        """Refuse a moved Qdrant REST port while gRPC would still dial the default port.
+
+        The message names neither the URL nor its port: what parses as a port can be
+        a fragment of an unencoded password.
+        """
+        if (
+            self.vector_provider != "qdrant"
+            or not self.qdrant_prefer_grpc
+            or self.qdrant_grpc_port is not None
+        ):
+            return self
+        try:
+            port = urlsplit(self.qdrant_url).port
+        except ValueError:
+            return self
+        if port is not None and port != QDRANT_DEFAULT_REST_PORT:
+            raise ValueError(
+                f"HARBORRAG_QDRANT_URL names a port other than {QDRANT_DEFAULT_REST_PORT}, "
+                f"but gRPC would still dial port {QDRANT_DEFAULT_GRPC_PORT} on that host; set "
+                "HARBORRAG_QDRANT_GRPC_PORT to the gRPC port of the same Qdrant, or "
+                "HARBORRAG_QDRANT_PREFER_GRPC=false to use REST only"
+            )
+        return self
+
     @model_validator(mode="after")
     def validate_secret_urls(self) -> RuntimeSettings:
         if self.corpus_access_mode == "tenant_shared" and not self.corpus_shared_tenant_id:
@@ -264,10 +318,7 @@ class RuntimeSettings(MemorySettingsMixin, BaseSettings):
             raise ValueError(
                 "shared summary processing requires HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared"
             )
-        if (
-            self.summary_processing_allowed
-            and self.corpus_shared_tenant_id != self.ingestion_tenant_id
-        ):
+        if self.summary_processing_allowed and self.corpus_shared_tenant_id != self.tenant_id:
             raise ValueError("shared summary processing tenant must match the configured corpus")
         control_db_url = self.control_db_url.get_secret_value().lower()
         is_sqlite_control_db = control_db_url.startswith("sqlite")

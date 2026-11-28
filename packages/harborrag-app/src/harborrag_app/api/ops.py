@@ -1,11 +1,7 @@
 """The ops port: Prometheus ``/metrics`` behind the scrape token, and nothing else.
 
-Handles:
-- Answering ``GET /metrics`` on ``HARBORRAG_OPS_PORT`` to ``Authorization: Bearer
-  <HARBORRAG_METRICS_SCRAPE_TOKEN>``, with ``401`` for any other credential
-- ``404`` for every other path on the ops port, so the API is not reachable there
-
-Does NOT serve ``/metrics`` on the public port: there the path is an unknown route.
+Every other path on the ops port answers ``404``, so the API is not reachable there. The
+public port does not serve ``/metrics``.
 """
 
 from __future__ import annotations
@@ -80,6 +76,3 @@ class OpsPortMiddleware:
                 headers={"Content-Type": CONTENT_TYPE_PLAIN_0_0_4},
             )
         await response(scope, receive, send)
-
-
-__all__ = ["METRICS_PATH", "OpsPortMiddleware"]

@@ -56,6 +56,8 @@ _SUBMISSION_SETTLED = ("submitted", "executor")
 # Submission markers of PENDING rows that are not awaiting a Temporal start. A claim
 # is in flight; ``pending_submissions`` still returns one once it is stale.
 NOT_AWAITING_SUBMISSION = (*_SUBMISSION_SETTLED, SUBMISSION_CLAIMED)
+PROGRESS_STATE_KEYS = ("_last_progress_snapshot", "_last_failure_cursor")
+"""Summary keys of the progress bridge's snapshot and failure cursor."""
 
 
 def submission_claim_timestamp(moment: datetime) -> str:
@@ -114,7 +116,8 @@ class TaskLifecycleMixin:
 
         Without a summary the stored one is kept: pause and resume are mid-run
         moves, and replacing it with ``{}`` erased discovery's stage, counts and
-        skips for the rest of the run.
+        skips for the rest of the run. A replacement keeps the progress bridge
+        state stored on the row.
         """
 
         safe_summary = None if summary is None else dict(summary)
@@ -139,7 +142,9 @@ class TaskLifecycleMixin:
                 )
             values: dict[str, object] = {"status": target.value}
             if safe_summary is not None:
-                values["summary"] = safe_summary
+                values["summary"] = _keeping_progress_state(
+                    safe_summary, required_mapping(row, "summary")
+                )
             # A resume continues the run that started earlier; only the first
             # move to RUNNING starts it.
             if target == IngestionTaskState.RUNNING and current != IngestionTaskState.PAUSED:
@@ -302,7 +307,10 @@ class TaskLifecycleMixin:
         *,
         summary: Mapping[str, object],
     ) -> None:
-        """Converge a retried finalization activity on its durable outcome."""
+        """Converge a retried finalization activity on its durable outcome.
+
+        The final summary keeps the progress bridge state stored on the row.
+        """
 
         if target not in {
             IngestionTaskState.COMPLETED,
@@ -346,10 +354,21 @@ class TaskLifecycleMixin:
                 .where(INGESTION_TASKS.c.task_id == task_id)
                 .values(
                     status=target.value,
-                    summary=safe_summary,
+                    summary=_keeping_progress_state(safe_summary, required_mapping(row, "summary")),
                     completed_at=now,
                 )
             )
+
+
+def _keeping_progress_state(
+    summary: dict[str, object], stored: Mapping[str, object]
+) -> dict[str, object]:
+    """Return ``summary`` with the progress bridge state ``stored`` on the locked row.
+
+    The bridge advances that state under the row lock, while a caller builds its
+    replacement from an earlier read, so the stored state is never older.
+    """
+    return {**summary, **{key: stored[key] for key in PROGRESS_STATE_KEYS if key in stored}}
 
 
 def _changed_one(result: object) -> bool:

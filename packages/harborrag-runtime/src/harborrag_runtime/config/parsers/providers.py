@@ -1,3 +1,9 @@
+"""Parser and PDF backend constructors that a YAML parser catalog can name.
+
+A parser's or backend's option class owns the checks on its setting values.
+Those checks need no installed parser library, so the catalog loader runs them.
+"""
+
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
@@ -54,6 +60,7 @@ from harborrag_core.ports.model_clients import HarborChatClientProtocol
 type ParserFactory = Callable[..., HarborParser]
 type PdfBackendFactory = Callable[..., HarborPDFEngine]
 type OptionFactory = Callable[..., object]
+type SettingsCheck = Callable[[Mapping[str, Any]], None]
 
 
 def _document_parser(engine: object) -> HarborDocumentParser:
@@ -146,6 +153,19 @@ def _pdf_factory(
     )
 
 
+def _check_image_settings(settings: Mapping[str, Any]) -> None:
+    """Build the image OCR engine's options, which check the values given."""
+    OcrImageEngine(**settings)
+
+
+def _check_pdf_settings(settings: Mapping[str, Any]) -> None:
+    """Build the PDF parser's config objects, which check the values given."""
+    limits = {name: value for name, value in settings.items() if name != "profile"}
+    PDFParserConfig(**limits)
+    if "profile" in settings:
+        PDFRouterConfig(default_profile=settings["profile"])
+
+
 _PARSER_FACTORIES: Mapping[str, ParserFactory] = {
     "csv": _csv_factory,
     "docx": _docx_factory,
@@ -183,6 +203,19 @@ class PdfBackendSpec:
             return set()
         return {item.name for item in fields(self.option_factory)}  # type: ignore[arg-type]
 
+    def check_settings(self, settings: Mapping[str, Any]) -> None:
+        """Run the backend's own value checks on YAML settings without building it.
+
+        Args:
+            settings: Backend option names and their YAML values.
+
+        Raises:
+            TypeError: A setting has a type the backend's options cannot check.
+            ValueError: The backend's options reject a setting's value.
+        """
+        if self.option_factory is not None:
+            self.option_factory(**settings)
+
     def build(
         self,
         settings: Mapping[str, Any],
@@ -217,8 +250,27 @@ class PdfBackendSpec:
 
 _PARSER_SETTING_NAMES: Mapping[str, frozenset[str]] = {
     **{name: frozenset() for name in _PARSER_FACTORIES if name not in {"image", "pdf"}},
-    "image": frozenset({"config", "lang", "max_pixels", "ocr_engine", "ocr_server_url", "timeout"}),
+    "image": frozenset(
+        {"config", "enabled", "lang", "max_pixels", "ocr_engine", "ocr_server_url", "timeout"}
+    ),
     "pdf": frozenset({"max_pages", "min_content_chars", "ocr_server_url", "profile"}),
+}
+_PARSER_FAMILIES: Mapping[str, str] = {
+    "csv": HarborSpreadsheetParser.parser_name,
+    "docx": HarborDocumentParser.parser_name,
+    "epub": HarborDocumentParser.parser_name,
+    "excel": HarborSpreadsheetParser.parser_name,
+    "html": HarborMarkupParser.parser_name,
+    "image": HarborImageParser.parser_name,
+    "json": HarborStructuredParser.parser_name,
+    "markdown": HarborMarkupParser.parser_name,
+    "pdf": HarborPDFParser.parser_name,
+    "pptx": HarborPresentationParser.parser_name,
+    "text": HarborTextParser.parser_name,
+}
+_PARSER_SETTING_CHECKS: Mapping[str, SettingsCheck] = {
+    "image": _check_image_settings,
+    "pdf": _check_pdf_settings,
 }
 _PDF_BACKENDS: Mapping[str, PdfBackendSpec] = {
     "docling": PdfBackendSpec(DoclingPDFEngine, DoclingPDFConfig),
@@ -239,6 +291,27 @@ def parser_factory(parser: str) -> ParserFactory | None:
 def parser_setting_names(parser: str) -> frozenset[str]:
     """Return YAML settings accepted by a parser constructor."""
     return _PARSER_SETTING_NAMES.get(parser, frozenset())
+
+
+def parser_family(parser: str) -> str:
+    """Return the name of the parser family a supported parser type configures."""
+    return _PARSER_FAMILIES[parser]
+
+
+def check_parser_settings(parser: str, settings: Mapping[str, Any]) -> None:
+    """Run the parser's own value checks on YAML settings without building it.
+
+    Args:
+        parser: Stable parser type, such as ``pdf`` or ``image``.
+        settings: Parser setting names and their YAML values.
+
+    Raises:
+        TypeError: A setting has a type the parser's options cannot check.
+        ValueError: The parser's options reject a setting's value.
+    """
+    check = _PARSER_SETTING_CHECKS.get(parser)
+    if check is not None:
+        check(settings)
 
 
 def supported_parser_names() -> list[str]:

@@ -1,11 +1,6 @@
 """Route guards that run credential, tenant and role checks in that order.
 
-Handles:
-- ``require_role``: the one dependency every ``/v1`` route declares for its lowest role
-- ``minimum_role``: reading that role back from a route, for OpenAPI and the contract test
-
-Does NOT verify credentials or pick tenants itself; it composes ``get_principal`` and the
-tenancy dependencies, so a failed check never reaches the handler.
+A failed check never reaches the handler.
 """
 
 from collections.abc import Callable, Iterator, Sequence
@@ -17,11 +12,11 @@ from fastapi.dependencies.models import Dependant
 from fastapi.routing import APIRoute
 from starlette.routing import BaseRoute
 
-from harborrag_core.domain.member import Role
+from harborrag_app.operations.principal import Principal, authorize_role
+from harborrag_core.domain.member import ROLE_ORDER, Role
 
 from ..rate_limit import RateBucket, charge
-from .dependencies import authorize_role, get_principal
-from .principal import ROLE_ORDER, Principal
+from .dependencies import get_principal
 from .tenancy import resolve_tenant, tenant_header
 
 _MINIMUM_ROLE = "minimum_role"
@@ -100,6 +95,3 @@ def minimum_role(route: Any) -> Role | None:
 def scopes_tenant(route: Any) -> bool:
     """Whether ``route`` acts in one tenant picked from the credential."""
     return any(getattr(guard, _SCOPES_TENANT) for guard in _guards(route.dependant))
-
-
-__all__ = ["api_routes", "minimum_role", "require_role", "scopes_tenant"]

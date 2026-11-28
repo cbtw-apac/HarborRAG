@@ -1,4 +1,5 @@
 from dataclasses import replace
+from datetime import UTC, datetime
 
 import pytest
 
@@ -118,7 +119,7 @@ def test_jira_chunks_leave_document_level_detail_on_the_canonical_document() -> 
         extra={
             "issue_key": "ENG-1",
             "typed_custom_attributes": [attribute],
-            "attachment_details": [{"title": "cv.pdf"}],
+            "attachment_details": [{"title": "runbook.pdf"}],
             "processing_profile": {"parser_profile": "jira-v1"},
             "fields": {"skill": "Go"},
         },
@@ -404,7 +405,7 @@ def test_oversized_table_ignores_whitespace_only_refiner_splits() -> None:
 
 
 def test_duplicate_source_links_to_one_target_become_one_chunk_relation() -> None:
-    # Two distinct Jira "relates to" links to the same issue (CPM-145481 -> RHR-2700)
+    # Two distinct Jira "relates to" links to the same issue (DEMO-145481 -> RHR-2700)
     # used to fail chunk validation permanently with duplicate relations.
     profile = make_profile(target=20, maximum=25)
     document = replace(
@@ -494,3 +495,27 @@ def test_oversized_code_passes_its_language_and_keeps_split_scope_and_kind() -> 
     assert code_chunks[1].search_text.endswith("class Foo:\nfghij")
     assert code_chunks[1].content == "fghij"
     assert "class Foo:" not in code_chunks[0].embedding_text
+
+
+def test_local_chunks_carry_document_created_and_updated_at() -> None:
+    created = datetime(2025, 6, 1, tzinfo=UTC)
+    updated = datetime(2026, 1, 1, tzinfo=UTC)
+    profile = make_profile(minimum=1, target=6, maximum=10)
+    document = make_document(
+        [
+            DocumentElement("p1", "paragraph", "aaaaaa"),
+            DocumentElement("p2", "paragraph", "bbbbbb"),
+        ],
+    )
+    document = replace(
+        document,
+        provenance=replace(document.provenance, created_at=created, updated_at=updated),
+    )
+
+    result = make_service(profile).chunk(make_request(document))
+
+    assert result.chunks
+    for record in result.chunks:
+        assert record.metadata["created_at"] == created.isoformat()
+        assert record.metadata["updated_at"] == updated.isoformat()
+        assert "source_created_at" not in record.metadata

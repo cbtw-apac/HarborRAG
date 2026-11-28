@@ -203,6 +203,3 @@ class SqlSettingsStore:
         row.revision = stamp.revision
         row.updated_at = stamp.at
         row.updated_by = stamp.by
-
-
-__all__ = ["SqlSettingsStore", "notify_statement"]

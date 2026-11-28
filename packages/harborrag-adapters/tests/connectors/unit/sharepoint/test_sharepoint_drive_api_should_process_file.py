@@ -8,8 +8,8 @@ import pytest
 from sharepoint_test_helpers import FakeGraphClient, config, file_item
 
 from harborrag_adapters.connectors.exceptions import DocumentProcessingError
-from harborrag_adapters.connectors.schemas import ConnectorQuery
 from harborrag_adapters.connectors.sharepoint.drive import SharePointDriveAPI
+from harborrag_core.ingestion.connector_contracts import ConnectorQuery
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 

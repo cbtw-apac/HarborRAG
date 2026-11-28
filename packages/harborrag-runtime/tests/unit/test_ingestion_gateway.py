@@ -7,15 +7,17 @@ from unittest.mock import AsyncMock
 import pytest
 from temporalio.converter import DataConverter
 
-from harborrag_runtime.ingestion_contracts import (
-    IngestionExecutionReference,
-    IngestionExecutionResult,
-    IngestionExecutionStatus,
+from harborrag_core.ingestion.run_contracts import (
     IngestionRetryRequest,
     PreparedSourceSubmission,
     RunKind,
 )
-from harborrag_runtime.source_query import ProcessingProfileInput, SourceQuery
+from harborrag_core.ingestion.source_query import ProcessingProfileInput, SourceQuery
+from harborrag_runtime.ingestion_contracts import (
+    IngestionExecutionReference,
+    IngestionExecutionResult,
+    IngestionExecutionStatus,
+)
 from harborrag_runtime.temporal.gateway import TemporalIngestionGateway, to_temporal_source
 from harborrag_runtime.temporal.identity import RuntimeWorkflowRef
 from harborrag_runtime.temporal.schemas import (
@@ -79,7 +81,7 @@ async def test_gateway_translates_submissions_and_retries_without_exposing_workf
 
 @pytest.mark.asyncio
 async def test_gateway_translates_status_and_result_while_preserving_response_fields():
-    status = SourceIngestionStatus("task-1", "RUNNING", False, False)
+    status = SourceIngestionStatus("task-1", "PAUSED", True, False, native_pause_pending=True)
     result = SourceIngestionResult("task-1", "scan-1", 5, 3, 1, 1, ("removed",), 2, "PARTIAL")
     client = SimpleNamespace(
         get_status=AsyncMock(return_value=status), result=AsyncMock(return_value=result)

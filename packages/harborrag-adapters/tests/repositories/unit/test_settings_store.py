@@ -35,8 +35,8 @@ _TABLES = {"setting_overrides", "setting_revisions"}
 def _changes() -> list[SettingChange]:
     return [
         SettingChange("tenant", "retrieval.top_k", 5, 10, "live"),
-        SettingChange("project:cpm", "retrieval.top_k", 10, 20, "live"),
-        SettingChange("connection:cpm/wiki", "ingestion.concurrency", 8, 4, "next_ingestion"),
+        SettingChange("project:demo", "retrieval.top_k", 10, 20, "live"),
+        SettingChange("connection:demo/wiki", "ingestion.concurrency", 8, 4, "next_ingestion"),
     ]
 
 
@@ -94,8 +94,8 @@ async def test_write_appends_revision_and_overrides(store: SqlSettingsStore) -> 
 
     snapshot = await store.load("acme")
     assert snapshot.revision == 1
-    assert set(snapshot.overrides) == {"tenant", "project:cpm", "connection:cpm/wiki"}
-    assert snapshot.overrides["project:cpm"] == {"retrieval.top_k": 20}
+    assert set(snapshot.overrides) == {"tenant", "project:demo", "connection:demo/wiki"}
+    assert snapshot.overrides["project:demo"] == {"retrieval.top_k": 20}
     logged = await store.revision("acme", 1)
     assert logged is not None
     assert logged.source == "seed"
@@ -109,12 +109,12 @@ async def test_null_removes_override(store: SqlSettingsStore) -> None:
     await _write(store, _changes(), 0)
 
     revision = await _write(
-        store, [SettingChange("project:cpm", "retrieval.top_k", 20, None, "live")], 1
+        store, [SettingChange("project:demo", "retrieval.top_k", 20, None, "live")], 1
     )
 
     assert revision == 2
     snapshot = await store.load("acme")
-    assert "project:cpm" not in snapshot.overrides
+    assert "project:demo" not in snapshot.overrides
     assert "tenant" in snapshot.overrides
 
 

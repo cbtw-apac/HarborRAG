@@ -17,9 +17,15 @@ from .file_source_projectors import (
 from .graph_state import GraphProjectionState
 from .source_projector_support import (
     BaseSourceProjector,
-    relation_entity_type,
-    source_entity_type,
-    source_provider_id,
+)
+from .source_projector_support import (
+    relation_entity_type as relation_entity_type,
+)
+from .source_projector_support import (
+    source_entity_type as source_entity_type,
+)
+from .source_projector_support import (
+    source_provider_id as source_provider_id,
 )
 
 
@@ -78,19 +84,3 @@ class GenericSourceProjector(BaseSourceProjector):
         self.edge(state, RelationType.CONTAINS, data_source, item)
         self.version(state, item, document_version)
         return item
-
-
-__all__ = [
-    "ConfluenceSourceProjector",
-    "GenericSourceProjector",
-    "GitHubSourceProjector",
-    "GraphSourceProjector",
-    "GraphSourceProjectorRegistry",
-    "JiraSourceProjector",
-    "LocalSourceProjector",
-    "SharePointSourceProjector",
-    "default_graph_source_projector_registry",
-    "relation_entity_type",
-    "source_entity_type",
-    "source_provider_id",
-]

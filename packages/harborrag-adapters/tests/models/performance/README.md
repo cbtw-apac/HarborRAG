@@ -1,9 +1,12 @@
 # Load tests
 
-These bounded local tests verify concurrency control and single-flight behavior without making paid provider calls. Run them independently with:
+These bounded local tests check that the model runtime stays correct under concurrent load: one
+hundred concurrent identical requests coalesce into a single call, and admission control holds its
+concurrency limit during a burst. They make no provider calls.
+
+They are correctness checks, not capacity benchmarks. They are marked `performance` and `load`;
+run only them from the repository root:
 
 ```bash
-python -m pytest packages/harborrag-adapters/tests/models/performance -m load
+uv run pytest packages/harborrag-adapters/tests/models/performance -m load
 ```
-
-They are correctness-oriented micro-load tests, not capacity benchmarks. Production capacity tests should use the deployment manifests and workload profiles documented in `docs/CHAOS_LOAD.md`.

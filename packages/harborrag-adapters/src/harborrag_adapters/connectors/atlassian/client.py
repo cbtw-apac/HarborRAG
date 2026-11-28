@@ -1,4 +1,8 @@
-"""Shared HTTP behavior for Jira and Confluence REST clients."""
+"""Shared HTTP behavior for Jira and Confluence REST clients.
+
+Credentials are sent only to the configured origin. The single redirect hop a
+download may follow is fetched without them.
+"""
 
 from __future__ import annotations
 
@@ -11,7 +15,7 @@ from urllib.parse import urlparse
 import requests
 
 from harborrag_adapters.connectors._http import RequestOptions, RetryingHttpClient, RetryPolicy
-from harborrag_adapters.connectors.exceptions import FetchError
+from harborrag_adapters.connectors.exceptions import FetchError, RefusedResponseError
 from harborrag_adapters.connectors.policies.http import (
     ResponseTooLargeError,
     read_capped_content,
@@ -20,22 +24,28 @@ from harborrag_adapters.connectors.policies.http import (
     safe_response_error_detail,
     same_origin,
 )
-from harborrag_adapters.connectors.policies.network import guarded_session
+from harborrag_adapters.connectors.policies.network import (
+    DestinationPolicy,
+    guarded_session,
+    redirect_location,
+)
 from harborrag_adapters.connectors.rate_limiting import (
     ConnectorRateLimiter,
     LocalIntervalRateLimiter,
     RateLimitIdentity,
 )
 
-# Confluence/Jira Cloud attachment downloads redirect once to Atlassian's
-# media platform with a short-lived, file-scoped signed URL baked into the
-# query string. That single hop is safe to follow without our own Atlassian
-# credentials; every other cross-origin redirect target stays refused.
 _TRUSTED_MEDIA_REDIRECT_HOSTS = frozenset({"api.media.atlassian.com"})
 
 
 def _is_trusted_redirect(location: str, base_url: str) -> bool:
-    """Return whether a redirect target is safe to follow."""
+    """Return whether a redirect target is safe to follow.
+
+    Cloud attachment downloads redirect once to Atlassian's media platform with a
+    short-lived, file-scoped signed URL in the query string. That hop is safe to
+    follow without our credentials. Any other HTTPS target must share the base
+    URL's origin.
+    """
     parsed = urlparse(location)
     if parsed.scheme.lower() != "https":
         return False
@@ -45,7 +55,15 @@ def _is_trusted_redirect(location: str, base_url: str) -> bool:
 
 
 class AtlassianHttpConfig(Protocol):
-    """Read-only configuration the two Atlassian HTTP clients share."""
+    """Read-only configuration the two Atlassian HTTP clients share.
+
+    Attributes:
+        requests_per_minute: Request budget of each API lane, REST or attachment.
+        request_timeout_seconds: Timeout for each HTTP request.
+        max_retries: Retries after the first attempt for retryable responses.
+        backoff_factor: Base delay in seconds for exponential retry backoff.
+        max_attachment_size_bytes: Download size cap, or None for no cap.
+    """
 
     @property
     def requests_per_minute(self) -> int: ...
@@ -65,7 +83,14 @@ class AtlassianHttpConfig(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class AtlassianClientContext:
-    """Stable HTTP and rate-limit identity for one Atlassian client."""
+    """Stable HTTP and rate-limit identity for one Atlassian client.
+
+    Attributes:
+        base_url: Configured site URL. Requests and redirects stay on its origin.
+        provider_label: Product name used in error and log messages.
+        logger: Logger for retry warnings.
+        rate_limit_identity: Identity whose lanes the rate limiter throttles.
+    """
 
     base_url: str
     provider_label: str
@@ -74,7 +99,15 @@ class AtlassianClientContext:
 
 
 class AtlassianRestClient[ConfigT: AtlassianHttpConfig](RetryingHttpClient):
-    """Rate-limited requests client with shared errors and download safety."""
+    """Rate-limited requests client with shared errors and download safety.
+
+    Args:
+        config: HTTP limits, retries and download cap of the connection.
+        context: Base URL, labels, logger and rate-limit identity.
+        rate_limiter: Shared rate limiter, else a local interval limiter.
+        destination_policy: Hosts every session may reach beyond public
+            addresses; public addresses only when omitted.
+    """
 
     def __init__(
         self,
@@ -82,13 +115,15 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig](RetryingHttpClient):
         *,
         context: AtlassianClientContext,
         rate_limiter: ConnectorRateLimiter | None = None,
+        destination_policy: DestinationPolicy | None = None,
     ) -> None:
         super().__init__(label=context.provider_label, logger=context.logger)
         self.config = config
         self.base_url = context.base_url.rstrip("/")
-        self.session = guarded_session()
+        self._destination_policy = destination_policy or DestinationPolicy()
+        self.session = guarded_session(self._destination_policy)
         self.session.headers.update({"Accept": "application/json"})
-        self._redirect_session = guarded_session()
+        self._redirect_session = guarded_session(self._destination_policy)
         self._owner_thread = get_ident()
         self._thread_sessions = local()
         self._sessions = {self.session, self._redirect_session}
@@ -109,7 +144,11 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig](RetryingHttpClient):
         response = self.request(method, url, **options)
         try:
             payload = read_capped_json(response)
-        except (ValueError, ResponseTooLargeError) as exc:
+        except ResponseTooLargeError as exc:
+            raise RefusedResponseError(
+                f"{self._provider_label} response exceeded byte limit for {endpoint}"
+            ) from exc
+        except ValueError as exc:
             raise FetchError(
                 f"{self._provider_label} returned non-JSON response for {endpoint}"
             ) from exc
@@ -130,7 +169,7 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig](RetryingHttpClient):
         try:
             safe_url = require_same_origin_url(url, self.base_url, label=label)
         except ValueError as exc:
-            raise FetchError(str(exc)) from exc
+            raise RefusedResponseError(str(exc)) from exc
         response = self.request(
             "GET",
             safe_url,
@@ -145,7 +184,7 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig](RetryingHttpClient):
             caps = tuple(cap for cap in (configured_cap, max_bytes) if cap is not None)
             content = read_capped_content(response, min(caps) if caps else None)
         except ResponseTooLargeError as exc:
-            raise FetchError(str(exc)) from exc
+            raise RefusedResponseError(str(exc)) from exc
         return content or None
 
     def _follow_trusted_redirect(
@@ -156,16 +195,15 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig](RetryingHttpClient):
     ) -> requests.Response:
         """Follow a single validated redirect hop without forwarding our credentials.
 
-        The initial request already proved the origin trustworthy; the redirect
-        Location is server-issued, not attacker-supplied. Untrusted targets
-        (anything but the same origin or Atlassian's media platform) are still
-        refused, and the fetch to the trusted target is anonymous so our
-        session's Confluence/Jira credentials never reach a different origin.
+        The Location comes from the configured origin, not from page content.
+        Targets other than the same origin or Atlassian's media platform are
+        refused. The trusted target is fetched anonymously, so the Confluence or
+        Jira credentials never reach another origin.
         """
-        location = response.headers.get("Location") or ""
+        location = redirect_location(response.headers.get("Location") or "")
         response.close()
         if not location or not _is_trusted_redirect(location, self.base_url):
-            raise FetchError(f"{label} refused HTTP redirect {response.status_code}")
+            raise RefusedResponseError(f"{label} refused HTTP redirect {response.status_code}")
         try:
             follow_up = self._redirect_session.get(
                 location,
@@ -175,14 +213,16 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig](RetryingHttpClient):
                 allow_redirects=False,
             )
         except requests.RequestException as exc:
-            raise FetchError(f"{label} redirect request failed") from exc
+            raise FetchError(f"{label} redirect request failed: {type(exc).__name__}") from None
         if follow_up.status_code >= 400:
             detail = safe_response_error_detail(follow_up)
             raise FetchError(
                 f"{label} redirect target failed with HTTP {follow_up.status_code}: {detail}"
             )
         if 300 <= follow_up.status_code < 400:
-            raise FetchError(f"{label} refused chained HTTP redirect {follow_up.status_code}")
+            raise RefusedResponseError(
+                f"{label} refused chained HTTP redirect {follow_up.status_code}"
+            )
         return follow_up
 
     def _retry_policy(self) -> RetryPolicy:
@@ -200,7 +240,6 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig](RetryingHttpClient):
 
     def close(self) -> None:
         """Close the connector-owned HTTP connection pool."""
-
         with self._sessions_lock:
             sessions = tuple(self._sessions)
             self._sessions.clear()
@@ -209,13 +248,12 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig](RetryingHttpClient):
 
     def _session_for_thread(self) -> requests.Session:
         """Return an independently pooled session for concurrent descriptors."""
-
         if get_ident() == self._owner_thread:
             return self.session
         session: requests.Session | None = getattr(self._thread_sessions, "session", None)
         if session is not None:
             return session
-        session = guarded_session()
+        session = guarded_session(self._destination_policy)
         session.headers.update(self.session.headers)
         session.auth = self.session.auth
         session.cookies.update(self.session.cookies)
@@ -229,7 +267,6 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig](RetryingHttpClient):
 
     def _acquire(self, url: str) -> None:
         """Throttle requests in the source API-family lane."""
-
         path = urlparse(url).path.lower()
         api_family = "rest" if "/rest/api/" in path else "attachment"
         self._rate_limiter.acquire(

@@ -1,12 +1,18 @@
+"""In-process MCP tool registry that enforces configuration, policy and audit.
+
+One default policy and one audit trail are shared by every ``McpServer`` in the
+process, because the module-level facade builds a new server for each call.
+"""
+
 from __future__ import annotations
 
 import asyncio
-import os
+import logging
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 from harborrag_core.config_store import SettingsLevel
+from harborrag_core.contracts.errors import HarborUnavailableError
 from harborrag_core.contracts.tools import BaseTool, ToolInvocationContext, ToolSpec
 from harborrag_core.invariants import HarborInvariantError
 from harborrag_core.schemas.ids import TenantId
@@ -15,22 +21,20 @@ from harborrag_engine.tools.budgets import ToolBudget
 from harborrag_engine.tools.catalog import build_reader_tool_catalog
 from harborrag_engine.tools.dispatcher import ToolInvoker
 from harborrag_engine.tools.references import KnowledgeReferenceStore
-from harborrag_mcp_server.audit import McpAuditLog
+from harborrag_mcp_server.audit import DEFAULT_AUDIT_PATH, McpAuditLog
 from harborrag_mcp_server.policy import McpToolPolicy
 from harborrag_mcp_server.server.base import BaseMcpServer, tool_reported_error
 
 if TYPE_CHECKING:
     from harborrag_core.ports.config_store import ConfigProvider
     from harborrag_core.ports.reader import ReaderServices
+    from harborrag_core.ports.tenant_directory import TenantDirectory
     from harborrag_mcp_server.configuration import McpConfigurationStore
 
-# Shared, process-wide default policy/audit singletons. The module-level
-# call_tool/list_tools facade constructs a fresh McpServer per invocation, so
-# these live outside the dataclass defaults to retain one audit trail and
-# policy across facade calls.
+logger = logging.getLogger("harborrag.mcp.server")
+
+_TENANT_LOOKUP_TIMEOUT_SECONDS = 2.0
 _default_policy = McpToolPolicy()
-# Set on a refusal raised before the tool runs. The exception keeps its type, so
-# the audit record and the HTTP status mapping are unchanged.
 _CALLER_CORRECTABLE = "_harborrag_caller_correctable"
 _default_audit_log: McpAuditLog | None = None
 _TOP_K_KEY = "retrieval.top_k"
@@ -38,24 +42,37 @@ _VECTOR_SEARCH = "vector_search"
 
 
 def _shared_audit_log() -> McpAuditLog:
-    """Create the process audit trail on first use, not at import.
+    """Create the default process audit trail on first use, not at import.
 
-    The CLI imports this module before it loads ``--env-file`` and
-    ``--local-stack-root`` values, so reading the path at import ignored an
-    ``HARBORRAG_MCP_AUDIT_PATH`` set in those files.
+    The launched server passes its own ``McpAuditLog``; this default serves
+    in-process callers that name none.
     """
-
     global _default_audit_log  # noqa: PLW0603 - one process-wide trail by design
     if _default_audit_log is None:
-        _default_audit_log = McpAuditLog(
-            path=Path(os.environ.get("HARBORRAG_MCP_AUDIT_PATH", ".harborrag/mcp-audit.jsonl"))
-        )
+        _default_audit_log = McpAuditLog(path=DEFAULT_AUDIT_PATH)
     return _default_audit_log
 
 
 @dataclass(slots=True)
 class McpServer(BaseMcpServer):
-    """In-process MCP transport enforcing policy and audit boundaries."""
+    """In-process MCP transport enforcing policy and audit boundaries.
+
+    Attributes:
+        runtime: Reader services the default tool catalog is built from.
+        tools: The tool catalog. Left unset, it comes from the invoker or the runtime.
+        policy: Limits applied when no configuration store is attached.
+        audit: The trail that records every tool call.
+        configuration: Tool defaults, limits and enablement, global and per tenant.
+        references: Knowledge references shared with the tool catalog.
+        invoker: Runs the tools. It must share the catalog in ``tools``.
+        corpus_mode: Access mode for calls to ``shared_tenant_id``. Other tenants
+            use source ACLs.
+        shared_tenant_id: The tenant whose published corpus is shared.
+        config_provider: Source of the tenant-level ``retrieval.top_k`` override.
+        known_tenants: Tenants this deployment was started with.
+        tenant_directory: Finds the tenants that hold content. It crosses tenants,
+            so only ``tenant_choices`` reads it.
+    """
 
     runtime: ReaderServices | None = None
     tools: list[BaseTool] | None = None
@@ -67,8 +84,11 @@ class McpServer(BaseMcpServer):
     corpus_mode: Literal["source_acl", "tenant_shared"] = "source_acl"
     shared_tenant_id: str | None = None
     config_provider: ConfigProvider | None = None
+    known_tenants: tuple[str, ...] = ()
+    tenant_directory: TenantDirectory | None = None
 
     def __post_init__(self) -> None:
+        """Build the catalog and invoker left unset and reject an inconsistent setup."""
         if self.corpus_mode == "tenant_shared" and not self.shared_tenant_id:
             raise ValueError("shared corpus mode requires an explicit tenant")
         if (
@@ -92,7 +112,43 @@ class McpServer(BaseMcpServer):
                 f"{', '.join(sorted(missing_output_schema))}"
             )
 
+    async def tenant_choices(self) -> list[str]:
+        """List the tenants to offer a caller who may name any tenant.
+
+        The lookup of tenants that hold content is best effort. When it fails or
+        takes too long, the configured tenants are returned alone and a warning
+        is logged, so a caller can still choose one.
+
+        Returns:
+            The tenants that hold content, the tenants the deployment was started
+            with, the shared tenant and the tenants the configuration overrides,
+            sorted.
+        """
+        overridden = self.configuration.snapshot().tenants if self.configuration else {}
+        shared = (self.shared_tenant_id,) if self.shared_tenant_id else ()
+        with_content = await self._tenants_with_content()
+        return sorted({*self.known_tenants, *shared, *overridden, *with_content})
+
+    async def _tenants_with_content(self) -> list[str]:
+        """Return the directory's tenants, or none when it cannot be read in time."""
+        if self.tenant_directory is None:
+            return []
+        try:
+            async with asyncio.timeout(_TENANT_LOOKUP_TIMEOUT_SECONDS):
+                return [str(tenant) for tenant in await self.tenant_directory.tenant_ids()]
+        except (HarborUnavailableError, TimeoutError) as exc:
+            logger.warning("tenant_directory_unavailable", extra={"error": type(exc).__name__})
+            return []
+
     def list_tools(self, tenant_id: str | None = None) -> list[ToolSpec]:
+        """List the specs of the tools enabled for a tenant, with its configured defaults.
+
+        Args:
+            tenant_id: The tenant whose overrides apply, or None for the global view.
+
+        Returns:
+            The enabled tools' specs.
+        """
         if self.tools is None:
             raise HarborInvariantError("self.tools must not be None here")
         if self.configuration is None:
@@ -111,12 +167,28 @@ class McpServer(BaseMcpServer):
         principal_id: str = "in-process",
         context: ToolInvocationContext | None = None,
     ) -> dict[str, object]:
+        """Run one tool under configuration, policy and audit.
+
+        The tenant value is stripped once, so configuration, audit, schema
+        validation and the access context all see the same tenant. Audit events
+        are written off the event loop, because each one is flushed to disk.
+
+        Args:
+            name: The tool to run.
+            arguments: The tool's arguments. ``tenant_id`` selects the tenant.
+            principal_id: Who calls, for the audit trail, when no ``context`` is given.
+            context: The authenticated caller. Its tenant must match ``tenant_id``.
+
+        Returns:
+            The tool's result object.
+
+        Raises:
+            PermissionError: The tool is disabled or the tenant is not the caller's.
+            ValueError: The tool is unknown, or the arguments break its schema or budget.
+        """
         payload = dict(arguments or {})
         tenant_value = payload.get("tenant_id")
         if isinstance(tenant_value, str):
-            # One canonical tenant value must drive configuration, audit, schema
-            # validation, and the eventual AccessContext. Otherwise whitespace can
-            # select global policy here and a tenant override in the tool layer.
             payload["tenant_id"] = tenant_value.strip()
         audited_tenant = payload.get("tenant_id")
         tenant_id = audited_tenant if isinstance(audited_tenant, str) else None
@@ -127,9 +199,6 @@ class McpServer(BaseMcpServer):
                 setattr(refusal, _CALLER_CORRECTABLE, True)
                 raise refusal
             tenant_id = str(context.access.tenant_id)
-        # Off the event loop: each durable audit event opens, writes and
-        # fsyncs under a lock, twice per call, and this dispatch runs inline in
-        # the transport's loop.
         invocation_id = await asyncio.to_thread(
             self.audit.start,
             name,
@@ -176,7 +245,14 @@ class McpServer(BaseMcpServer):
             raise
 
     async def _tenant_top_k_override(self, name: str, tenant_id: str | None) -> int | None:
-        """Return the tenant-level ``retrieval.top_k`` override for ``vector_search``, else ``None``.
+        """Return the tenant-level ``retrieval.top_k`` override for ``vector_search``.
+
+        Args:
+            name: The tool being called. Only ``vector_search`` has the override.
+            tenant_id: The tenant whose settings to read.
+
+        Returns:
+            The override, or None when the tool, the tenant or the setting has none.
 
         Raises:
             HarborUnavailableError: The provider cannot load a never-cached tenant.
@@ -208,7 +284,6 @@ class McpServer(BaseMcpServer):
         ``top_k_default`` replaces the configured ``top_k`` default, still
         clamped by the tool's ``top_k`` limit and the policy ceiling.
         """
-
         if self.tools is None:
             raise HarborInvariantError("self.tools must not be None here")
         tool = next((item for item in self.tools if item.spec.name == name), None)
@@ -256,6 +331,9 @@ def _clamped(top_k: int, policy: McpToolPolicy, limits: dict[str, int | float]) 
 
 
 def is_caller_correctable(exc: BaseException) -> bool:
-    """Whether ``call_tool`` refused ``exc`` before the tool itself ran."""
+    """Whether ``call_tool`` refused ``exc`` before the tool itself ran.
 
+    Such a refusal keeps its exception type, so the audit record and the HTTP
+    status mapping are unchanged.
+    """
     return getattr(exc, _CALLER_CORRECTABLE, False) is True

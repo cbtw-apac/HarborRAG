@@ -252,7 +252,9 @@ docs/developers/architecture/http_backend/
 # Local macOS-compatible copy of dev.sh (bash 3.2 / BSD sed tweaks)
 scripts/deployment/dev-mac.sh
 
-# Deployment config files; each ships as an .example.yaml beside it
+# Optional first-boot runtime settings seed; see docs/users/configuration/runtime-settings.md
 /config/settings.yaml
+
+# Deployment config files; each ships as an .example.yaml beside it
 /config/sources/schedules.yaml
 /config/mcp/keys.yaml

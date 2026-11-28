@@ -38,6 +38,3 @@ def retrieval_payload(
             "duration_ms": 1.0,
         },
     }
-
-
-__all__ = ["retrieval_payload"]

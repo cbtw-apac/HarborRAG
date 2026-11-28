@@ -6,11 +6,11 @@ from pathlib import Path
 import pytest
 
 from harborrag_adapters.connectors.base import BaseConnector
-from harborrag_adapters.connectors.schemas import ConnectorCapabilities, ConnectorQuery
 from harborrag_adapters.parsers.common.base import BaseParser
 from harborrag_adapters.parsers.markup.engines.markdown.engine import MarkdownParser
 from harborrag_core.domain.raw_document import RawDocument
 from harborrag_core.domain.source import SourceRecord
+from harborrag_core.ingestion.connector_contracts import ConnectorCapabilities, ConnectorQuery
 
 pytestmark = pytest.mark.unit
 
@@ -104,21 +104,15 @@ def test_implemented_base_methods_raise_not_implemented():
 
 @pytest.mark.whitebox
 def test_repository_contracts_are_abstract():
-    from harborrag_adapters.repositories.cache.base import HarborCacheBackend
-    from harborrag_adapters.repositories.database.base import HarborDatabaseBackend
     from harborrag_adapters.repositories.graph.base import HarborGraphRepository
     from harborrag_adapters.repositories.object_store.base import HarborObjectStore
-    from harborrag_adapters.repositories.state.base import HarborStateBackend
     from harborrag_adapters.repositories.vector.base import HarborVectorRepository
 
     assert all(
         inspect.isabstract(contract)
         for contract in (
-            HarborCacheBackend,
-            HarborDatabaseBackend,
             HarborGraphRepository,
             HarborObjectStore,
-            HarborStateBackend,
             HarborVectorRepository,
         )
     )

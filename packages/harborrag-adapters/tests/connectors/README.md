@@ -1,22 +1,22 @@
 # Connector tests
 
-This module owns shared connector contracts and the Local, GitHub, Confluence,
-JIRA, and SharePoint implementations.
+These tests cover the shared connector contracts and the Local, GitHub, Confluence, Jira and
+SharePoint connectors.
 
-| Type | Scope |
+| Folder | What it covers |
 | --- | --- |
-| `unit/` | Configuration, discovery/load mapping, HTTP clients, filters, attachments, and utilities with fakes |
-| `failure/` | Retry, rate-limit, authentication, fetch, and normalized failure behavior |
-| `security/` | Same-origin URL enforcement, secret redaction, and safe smoke output |
+| `unit/` | Configuration, discovery and load mapping, HTTP clients, filters, attachments and utilities, with fakes |
+| `failure/` | Retry, rate limits, authentication, fetch errors and normalized failures |
+| `security/` | Same-origin URL checks, secret redaction and the redacted smoke-script output |
 | `performance/` | Bounded response streaming and download caps |
-| `smoke/` | Real filesystem and provider discovery/load operations |
+| `smoke/` | Standalone scripts that discover and load from a real folder or provider, plus collected tests of their helpers |
 
-Run deterministic connector coverage with:
+Run the collected tests from the repository root:
 
 ```bash
-python -m pytest packages/harborrag-adapters/tests/connectors
+uv run pytest packages/harborrag-adapters/tests/connectors
 ```
 
-Real providers require credentials, network access, source scoping, optional
-attachment parsers, and sometimes PDF/OCR models. Follow the complete
-[connector smoke setup](smoke/README.md) before executing those scripts.
+The smoke scripts call real providers, so they need credentials, network access, a scoped source
+and the attachment parsers, and sometimes an OCR server. Set them up with
+[Connector smoke checks](smoke/README.md) before you run one.

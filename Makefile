@@ -3,7 +3,7 @@ PYTHON ?= python
 PYTEST ?= pytest
 PACKAGE ?=
 
-.PHONY: help bootstrap install-dev test test-package coverage coverage-html openapi lint complexity file-length import-boundaries format typecheck compile doctor deps-check provider-matrix clean hooks
+.PHONY: help bootstrap install-dev test test-package coverage coverage-html openapi cli-reference lint complexity file-length import-boundaries format typecheck compile doctor deps-check clean hooks
 
 help:
 	@echo "HarborRAG development targets"
@@ -18,6 +18,7 @@ help:
 	@echo "  make test-package PACKAGE=harborrag-core"
 	@echo "  make coverage         Run tests with 90% coverage gate"
 	@echo "  make openapi          Export the OpenAPI contract to openapi.json"
+	@echo "  make cli-reference    Generate docs/users/cli-reference/commands.md from the CLI and OpenAPI"
 	@echo "  make lint             Run Ruff lint checks"
 	@echo "  make complexity       Enforce the Ruff complexity ratchet"
 	@echo "  make file-length      Require every Python file to stay at most 1000 lines"
@@ -29,12 +30,12 @@ help:
 	@echo "Diagnostics:"
 	@echo "  make doctor           Run CLI doctor as JSON"
 	@echo "  make deps-check       Check package dependency direction"
-	@echo "  make provider-matrix  Print provider/repository TODO matrix"
 	@echo "  make clean            Remove Python build/test caches"
 
 bootstrap:
 	$(PYTHON) -m pip install -e packages/harborrag-core
 	$(PYTHON) -m pip install -e "packages/harborrag-adapters[control-plane]"
+	$(PYTHON) -m pip install -e packages/harborrag-memory
 	$(PYTHON) -m pip install -e packages/harborrag-engine
 	$(PYTHON) -m pip install -e "packages/harborrag-runtime[production]"
 	$(PYTHON) -m pip install -e "packages/harborrag-app[api]"
@@ -60,6 +61,10 @@ coverage:
 openapi:
 	$(PYTHON) -m harborrag_app.api.export_openapi > openapi.json
 	@echo "openapi.json written"
+
+cli-reference: openapi
+	$(PYTHON) -m harborrag_app.cli.reference openapi.json > docs/users/cli-reference/commands.md
+	@echo "docs/users/cli-reference/commands.md written"
 
 coverage-html:
 	$(PYTEST) --cov --cov-report=term-missing --cov-report=html
@@ -88,13 +93,10 @@ compile:
 	$(PYTHON) -m compileall -q packages scripts
 
 doctor:
-	$(PYTHON) -m harborrag_app.cli.main doctor --json
+	$(PYTHON) -m harborrag_app.cli.main doctor -o json
 
 deps-check:
 	$(PYTHON) scripts/check_dependency_direction.py
-
-provider-matrix:
-	$(PYTHON) scripts/generate_provider_matrix.py
 
 clean:
 	find . -type d \( -name __pycache__ -o -name .pytest_cache -o -name .ruff_cache -o -name .mypy_cache -o -name htmlcov \) -prune -exec rm -rf {} +

@@ -157,16 +157,8 @@ class HarborChatConfigurationError(HarborChatError):
     """Report chat configuration failures."""
 
 
-class HarborChatBudgetExceededError(HarborChatError):
-    """Report chat token-budget failures."""
-
-
 class HarborChatStructuredOutputError(HarborChatError):
     """Report chat structured-output failures."""
-
-
-class HarborChatCancelledError(HarborChatError):
-    """Report cancelled chat operations."""
 
 
 class HarborEmbedError(HarborModelError):
@@ -229,10 +221,6 @@ class HarborEmbedPartialBatchError(HarborEmbedProviderError):
     """Report a terminal batch failure after earlier embedding batches completed."""
 
 
-class HarborEmbedCancelledError(HarborEmbedError):
-    """Report cancelled embedding operations."""
-
-
 class HarborRerankError(HarborModelError):
     """Base error for reranking operations."""
 
@@ -283,7 +271,3 @@ class HarborRerankConfigurationError(HarborRerankError):
 
 class HarborRerankMalformedResponseError(HarborRerankError):
     """Report malformed reranking provider responses."""
-
-
-class HarborRerankCancelledError(HarborRerankError):
-    """Report cancelled reranking operations."""

@@ -1,4 +1,14 @@
-"""SharePoint site, drive, and item traversal operations."""
+"""SharePoint site, drive and drive-item traversal over Microsoft Graph.
+
+Resolves the configured site and drives, walks folders, and applies the query,
+allowlist, size and extension filters to drive items. An item selected by ID
+must sit inside the configured ``root_path``. Item endpoints come from
+``drive_paths``, which validates item IDs; nothing here downloads content.
+Free-text log and error messages name items by ID, never by file name; the
+structured skip fields owned by ``skips`` still carry ``webUrl`` and path.
+
+Start from: SharePointDriveAPI.
+"""
 
 from __future__ import annotations
 
@@ -7,25 +17,29 @@ from collections.abc import Iterator
 from typing import Any
 
 from harborrag_adapters.connectors.exceptions import AuthorizationError, FetchError
-from harborrag_adapters.connectors.schemas import ConnectorQuery
 from harborrag_core.domain.source import SourceRecord
+from harborrag_core.ingestion.connector_contracts import ConnectorQuery
 
-from .allowlist import SharePointAllowlist
+from .allowlist import SharePointAllowlist, library_names
 from .client import SharePointClient
 from .config import SharePointSiteConfig
 from .drive_paths import (
     DRIVE_ITEM_SELECT,
     DRIVE_SELECT,
     children_endpoint,
+    drive_item_endpoint,
     is_drive_file,
     is_drive_folder,
+    is_within_drive_path,
     item_extension,
+    item_has_drive_location,
     item_hidden,
     item_mime_type,
     item_name,
     item_path,
     matches_pattern,
     site_path_endpoint,
+    validate_graph_id_segment,
 )
 from .mappers import build_source_record, parse_timestamp
 from .skips import (
@@ -34,16 +48,26 @@ from .skips import (
     UNSUPPORTED_EXTENSION,
     SharePointItemSkippedError,
     SharePointSkipRecorder,
-    skip_reason_for_error,
+    listing_skip_reason,
 )
 
 logger = logging.getLogger("harborrag.adapters.connectors.sharepoint")
 _MAX_PROVIDER_PAGES = 10_000
+_OUTSIDE_ROOT_PATH = "SharePoint item must stay inside the configured root path"
 PAGE_FILE_EXTENSION = ".aspx"
 
 
 class SharePointDriveAPI:
-    """SharePoint site, drive, and drive-item traversal helpers."""
+    """SharePoint site, drive and drive-item traversal for one connector config.
+
+    The resolved site, drive and drive list are cached for the instance's
+    lifetime, so one instance serves one discovery or load session.
+
+    Args:
+        client: Graph client that sends the requests.
+        config: Validated connector config that sets the crawl scope.
+        skips: Recorder for declined items; a fresh one when ``None``.
+    """
 
     def __init__(
         self,
@@ -52,7 +76,6 @@ class SharePointDriveAPI:
         *,
         skips: SharePointSkipRecorder | None = None,
     ) -> None:
-        """Bind drive traversal to a client, validated config, and skip recorder."""
         self.client = client
         self.config = config
         self.skips = skips or SharePointSkipRecorder()
@@ -69,19 +92,40 @@ class SharePointDriveAPI:
         drive: dict[str, Any],
         query: ConnectorQuery,
     ) -> Iterator[SourceRecord]:
-        """Return records for a direct drive item ID, descending into folders.
+        """Yield records for a direct drive item ID, descending into folders.
 
-        A direct item that is gone, forbidden, or still failing after retries
-        is recorded as a skip so the other requested items still load.
+        A direct item that is gone or forbidden is recorded as a skip so the
+        other requested items still load. A throttled or failing fetch raises. The
+        ``ValueError`` for an unsafe ``item_id`` passes through from
+        ``get_item``, the one for an item outside ``root_path`` from
+        ``require_inside_root`` before anything is yielded or listed, and folder
+        walk errors from ``walk_children``.
+
+        Args:
+            item_id: Drive item ID from config or the caller's query filters.
+            site: Resolved site payload.
+            drive: Resolved drive payload the item belongs to.
+            query: Discovery query whose filters apply to every file.
+
+        Yields:
+            SourceRecord: One record for an accepted file, or one per accepted
+            file below a folder.
+
+        Raises:
+            AuthorizationError: Fetching the item is denied for a reason that is
+                not about this one item.
+            FetchError: Fetching the item is throttled, fails transiently, or
+                fails for a reason that is not about this one item.
         """
         try:
             item = self.get_item(str(drive["id"]), item_id)
         except (AuthorizationError, FetchError) as exc:
-            reason = skip_reason_for_error(exc)
+            reason = listing_skip_reason(exc)
             if reason is None:
                 raise
             self.skips.record(reason, str(exc), item_id=item_id)
             return
+        self.require_inside_root(item)
         if is_drive_file(item):
             if self.should_process_file(item, query):
                 yield build_source_record(
@@ -99,6 +143,59 @@ class SharePointDriveAPI:
                 item_id=item_id,
             )
 
+    def walk_selected_folder(
+        self,
+        item_id: str,
+        *,
+        site: dict[str, Any],
+        drive: dict[str, Any],
+        query: ConnectorQuery,
+    ) -> Iterator[SourceRecord]:
+        """Walk a folder the caller selected by item ID, refusing one outside ``root_path``.
+
+        With ``root_path`` set, the folder's metadata is fetched first and
+        checked before any child is listed. With no ``root_path`` the folder is
+        listed directly, without that lookup. Errors from ``get_item``,
+        ``require_inside_root`` and ``walk_children`` pass through, including the
+        ``ValueError`` for an unsafe ``item_id`` or a folder outside ``root_path``.
+
+        Args:
+            item_id: Folder item ID from the caller's query filters.
+            site: Resolved site payload.
+            drive: Resolved drive payload the folder belongs to.
+            query: Discovery query whose filters apply to every file.
+
+        Yields:
+            SourceRecord: One record per accepted file below the folder.
+        """
+        if self.config.root_path:
+            self.require_inside_root(self.get_item(str(drive["id"]), item_id))
+        yield from self.walk_children(site=site, drive=drive, query=query, item_id=item_id)
+
+    def require_inside_root(self, item: dict[str, Any]) -> None:
+        """Refuse an item selected by ID that lies outside the configured ``root_path``.
+
+        The item's drive path comes from its ``parentReference.path``. An item
+        without that path resolves to its bare name, which could equal
+        ``root_path`` by coincidence, so with ``root_path`` set it is refused
+        rather than trusted. With no ``root_path`` every item in the drive
+        passes.
+
+        Args:
+            item: Drive item payload fetched with ``DRIVE_ITEM_SELECT``.
+
+        Raises:
+            ValueError: ``root_path`` is set and the item has no drive
+                location, or its drive path is neither ``root_path`` nor below it.
+        """
+        root_path = self.config.root_path
+        if not root_path:
+            return
+        if not item_has_drive_location(item) or not is_within_drive_path(
+            item_path(item), root_path
+        ):
+            raise ValueError(_OUTSIDE_ROOT_PATH)
+
     def walk_children(
         self,
         *,
@@ -110,17 +207,35 @@ class SharePointDriveAPI:
     ) -> Iterator[SourceRecord]:
         """Walk child items depth-first with an explicit stack.
 
-        A folder tree with no depth cap and no cycle protection previously
-        recursed once per subfolder, so an extremely deep tree could grow the
-        Python call stack past its limit before ``query.limit`` ever has a
-        chance to stop discovery. An explicit stack removes that ceiling
-        while preserving the same depth-first yield order.
+        The stack replaces recursion, so a very deep folder tree cannot exhaust
+        the Python call stack before ``query.limit`` stops discovery, and the
+        yield order stays depth-first.
 
-        A subfolder whose listing fails for an item-level reason (deleted,
-        access denied, retries exhausted) is recorded as a skip and the walk
-        moves on, keeping whatever pages of it were already listed. The crawl
+        A subfolder whose listing is denied or whose folder was deleted is
+        recorded as a skip and the walk moves on, keeping whatever pages of it
+        were already listed. A throttled or failing listing raises, so the scan
+        is not taken as complete while the files below it are unseen. The crawl
         root carries no folder item, so a failure listing it stays fatal:
-        nothing in scope is reachable.
+        nothing in scope is reachable. The ``ValueError`` for an unsafe item
+        ID passes through from ``children_endpoint``.
+
+        Args:
+            site: Resolved site payload.
+            drive: Resolved drive payload to walk.
+            query: Discovery query whose filters apply to every file.
+            item_id: Folder item ID to start from; takes precedence over ``path``.
+            path: Validated drive-relative folder path to start from; the drive
+                root when both are unset.
+
+        Yields:
+            SourceRecord: One record per accepted file, in depth-first order.
+
+        Raises:
+            AuthorizationError: Listing the crawl root is denied, or a folder
+                listing is denied for a reason that is not about that folder.
+            FetchError: Listing the crawl root fails, a folder listing is
+                throttled or fails transiently, or it fails for a reason that is
+                not about that folder, such as a cycle.
         """
         drive_id = str(drive["id"])
         pending: list[tuple[str | None, str | None, dict[str, Any] | None]] = [
@@ -154,12 +269,12 @@ class SharePointDriveAPI:
                 pending.append((child_id, None, child))
 
     def _skip_failed_folder(self, folder: dict[str, Any], error: Exception) -> bool:
-        """Record a subfolder whose listing failed for an item-level reason.
+        """Record a subfolder whose listing was denied or whose folder was deleted.
 
-        Returns ``False`` for a failure that is not about this one folder, such
-        as a traversal cycle, so the caller re-raises it.
+        Returns ``False`` for any other failure, such as throttling, a 5xx answer
+        or a traversal cycle, so the caller re-raises it.
         """
-        reason = skip_reason_for_error(error)
+        reason = listing_skip_reason(error)
         if reason is None:
             return False
         self.skips.record(
@@ -181,14 +296,27 @@ class SharePointDriveAPI:
 
         A folder that cannot hold anything under an allowed path prefix is not
         listed at all, so nothing beneath it is fetched.
+
+        Args:
+            item: Child item from a folder listing.
+            query: Discovery query; ``recursive=False`` stops the descent.
+            seen_folder_ids: Folder IDs already queued; the returned ID is added.
+
+        Returns:
+            The folder's item ID, or ``None`` when it is not walked.
+
+        Raises:
+            FetchError: The folder was already queued, so the tree has a cycle.
         """
         if not (query.recursive and self.config.recursive and is_drive_folder(item)):
             return None
         child_id = str(item.get("id") or "")
         if not child_id:
             return None
-        if not self.allowlist.folder_may_contain_allowed(item_path(item)):
-            logger.debug("Skipping SharePoint folder outside allowed paths %s", item_name(item))
+        if not self.allowlist.folder_may_contain_allowed(
+            item_path(item), library_names=self._library_names(item)
+        ):
+            logger.debug("Skipping SharePoint folder %s outside allowed paths", child_id)
             return None
         if child_id in seen_folder_ids:
             raise FetchError("SharePoint folder traversal contains a cycle")
@@ -202,7 +330,23 @@ class SharePointDriveAPI:
         item_id: str | None = None,
         path: str | None = None,
     ) -> Iterator[dict[str, Any]]:
-        """Iterate Graph children pages for a folder item or path."""
+        """Iterate Graph children pages for a folder item, a folder path or the drive root.
+
+        The ``ValueError`` for an unsafe ``item_id`` and Graph request errors
+        pass through.
+
+        Args:
+            drive_id: Graph drive ID of the configured library.
+            item_id: Folder item ID; takes precedence over ``path``.
+            path: Validated drive-relative folder path.
+
+        Yields:
+            dict[str, Any]: Each child item payload, page by page.
+
+        Raises:
+            FetchError: A page link repeats, the page cap is reached, or a page
+                holds an invalid ``value`` list.
+        """
         endpoint = children_endpoint(drive_id, item_id=item_id, path=path)
         params: dict[str, Any] | None = {
             "$top": self.config.page_size,
@@ -221,7 +365,20 @@ class SharePointDriveAPI:
             params = None
 
     def iter_site_drives(self, site_id: str) -> Iterator[dict[str, Any]]:
-        """Iterate drives for a site when resolving a configured drive name."""
+        """Iterate drives for a site when resolving a configured drive name.
+
+        Graph request errors pass through.
+
+        Args:
+            site_id: Graph site ID.
+
+        Yields:
+            dict[str, Any]: Each drive payload, page by page.
+
+        Raises:
+            FetchError: A page link repeats, the page cap is reached, or a page
+                holds an invalid ``value`` list.
+        """
         endpoint = f"sites/{site_id}/drives"
         params: dict[str, Any] | None = {
             "$top": self.config.page_size,
@@ -240,14 +397,37 @@ class SharePointDriveAPI:
             params = None
 
     def get_item(self, drive_id: str, item_id: str) -> dict[str, Any]:
-        """Fetch one drive item with the fields used by mappers and filters."""
+        """Fetch one drive item with the fields used by mappers and filters.
+
+        The ``ValueError`` for an unsafe ``item_id`` is raised before any
+        request; Graph request errors pass through.
+
+        Args:
+            drive_id: Graph drive ID of the configured library.
+            item_id: Drive item ID from Graph, config or the caller.
+
+        Returns:
+            The drive item payload.
+        """
         return self.client.get_json(
-            f"drives/{drive_id}/items/{item_id}",
+            drive_item_endpoint(drive_id, item_id),
             params={"$select": DRIVE_ITEM_SELECT},
         )
 
     def resolve_site(self) -> dict[str, Any]:
-        """Resolve and cache the configured SharePoint site."""
+        """Resolve and cache the configured SharePoint site.
+
+        A site denied to the app makes everything in scope unreachable, so the
+        ``AuthorizationError`` is fatal for the run rather than a per-item skip.
+        Other Graph request errors pass through.
+
+        Returns:
+            The site payload; a stub built from config when ``site_id`` is set.
+
+        Raises:
+            AuthorizationError: The app is not granted access to the site.
+            FetchError: The site response has no ``id``.
+        """
         if self._site is not None:
             return self._site
 
@@ -266,8 +446,6 @@ class SharePointDriveAPI:
         try:
             site = self.client.get_json(endpoint)
         except AuthorizationError as exc:
-            # The configured site itself is off limits, so nothing in scope is
-            # reachable: this is fatal for the run, not a per-item skip.
             raise AuthorizationError(
                 f"SharePoint app is not granted access to site {self.config.site_url or endpoint!r}; "
                 "grant it Sites.Selected access to this site",
@@ -286,7 +464,14 @@ class SharePointDriveAPI:
         ID was not, so without this check bad credentials or a missing
         ``Sites.Selected`` grant would only surface mid-traversal. The site's
         ``webUrl`` is kept when the config did not supply one, which lets a
-        URL entry in ``allowed_sites`` match a site configured by ID.
+        URL entry in ``allowed_sites`` match a site configured by ID. Other
+        Graph request errors pass through.
+
+        Args:
+            site: Resolved site payload; updated in place with ``webUrl``.
+
+        Raises:
+            AuthorizationError: The app is not granted access to the site.
         """
         if not self.config.site_id:
             return
@@ -303,7 +488,20 @@ class SharePointDriveAPI:
             site["webUrl"] = remote["webUrl"]
 
     def resolve_drive(self, site: dict[str, Any]) -> dict[str, Any]:
-        """Resolve and cache the configured or default document library drive."""
+        """Resolve and cache the configured or default document library drive.
+
+        Graph request errors pass through.
+
+        Args:
+            site: Resolved site payload.
+
+        Returns:
+            The drive payload; a stub built from config when ``drive_id`` is set.
+
+        Raises:
+            FetchError: No drive has the configured ``drive_name``, or the
+                default drive response has no ``id``.
+        """
         if self._drive is not None:
             return self._drive
 
@@ -359,8 +557,7 @@ class SharePointDriveAPI:
         intended filtering, not skips. An item declined for an allowlist, size,
         or extension reason is recorded as a skip with that reason.
         """
-        name = item_name(item)
-        if not self._matches_query(item, query, name=name):
+        if not self._matches_query(item, query):
             return False
         declined = self.declined_reason(item)
         if declined is not None:
@@ -373,17 +570,21 @@ class SharePointDriveAPI:
                 path=item_path(item),
             )
             return False
-        return self._callback_allows_file(name, int(item.get("size") or 0), item_mime_type(item))
+        return self._callback_allows_file(item)
 
-    def _matches_query(self, item: dict[str, Any], query: ConnectorQuery, *, name: str) -> bool:
+    def _matches_query(self, item: dict[str, Any], query: ConnectorQuery) -> bool:
+        """Return whether a drive file passes the page, hidden and query filters.
+
+        With ``include_pages`` on, an ``.aspx`` file in the Site Pages library
+        is left to the pages API, so the drive walk never ingests the same page
+        a second time under a file identity.
+        """
+        item_id = item.get("id")
         if self.config.include_pages and item_extension(item) == PAGE_FILE_EXTENSION:
-            # A modern page is also an .aspx file in the Site Pages library. With
-            # pages on, the pages API owns it, so the drive walk must not ingest
-            # the same page a second time under a file identity.
-            logger.debug("Skipping SharePoint page file %s; pages API loads it", name)
+            logger.debug("Skipping SharePoint page file %s; the pages API loads it", item_id)
             return False
         if item_hidden(item) and not self.config.include_hidden:
-            logger.debug("Skipping hidden SharePoint file %s", name)
+            logger.debug("Skipping hidden SharePoint file %s", item_id)
             return False
         if query.updated_after:
             updated_at = parse_timestamp(item.get("lastModifiedDateTime"))
@@ -393,9 +594,10 @@ class SharePointDriveAPI:
 
     def declined_reason(self, item: dict[str, Any]) -> tuple[str, str] | None:
         """Return the standard skip reason and detail for an out-of-policy file."""
-        path = item_path(item)
-        if not self.allowlist.path_allowed(path):
-            return NOT_IN_ALLOWLIST, f"path {path!r} is outside allowed_path_prefixes"
+        if not self.allowlist.path_allowed(
+            item_path(item), library_names=self._library_names(item)
+        ):
+            return NOT_IN_ALLOWLIST, "path is outside allowed_path_prefixes"
         size = int(item.get("size") or 0)
         limit = self.config.max_file_size_bytes
         if limit is not None and size > limit:
@@ -408,50 +610,94 @@ class SharePointDriveAPI:
             return UNSUPPORTED_EXTENSION, f"extension {extension!r} is excluded"
         return None
 
-    def _callback_allows_file(self, name: str, size: int, mime_type: str) -> bool:
+    def _library_names(self, item: dict[str, Any]) -> tuple[str, ...]:
+        """Return the names of the resolved library that holds an item, if it is known.
+
+        An item of a library this instance has not resolved gets no names, so
+        its path is matched against the prefixes exactly as configured.
+        """
+        drive_id = str(item.get("parentReference", {}).get("driveId") or "")
+        resolved = [*(self._drives or ()), *((self._drive,) if self._drive else ())]
+        for drive in resolved:
+            if drive_id and str(drive.get("id")) == drive_id:
+                return library_names(self._with_names(drive))
+        return ()
+
+    def _with_names(self, drive: dict[str, Any]) -> dict[str, Any]:
+        """Return a resolved drive with its names, fetched once for a drive set by ID.
+
+        A drive configured by ``drive_id`` starts without its web URL. It is fetched
+        only when a path prefix could start with the library's name, so a one-folder
+        allowlist never depends on the lookup. Graph request errors pass through.
+        """
+        if "webUrl" in drive or not self.allowlist.may_name_a_library():
+            return drive
+        drive_id = validate_graph_id_segment(str(drive.get("id") or ""), label="drive_id")
+        fetched = self.client.get_json(f"drives/{drive_id}", params={"$select": DRIVE_SELECT})
+        drive["name"] = drive.get("name") or fetched.get("name")
+        drive["webUrl"] = fetched.get("webUrl")
+        return drive
+
+    def _callback_allows_file(self, item: dict[str, Any]) -> bool:
+        """Ask the configured ``process_file_callback`` whether to keep a file.
+
+        A callback error is re-raised with ``fail_on_error`` on and otherwise
+        logged against the item ID, declining the file.
+        """
         callback = self.config.process_file_callback
         if callback is None:
             return True
+        item_id = item.get("id")
         try:
-            should_process, reason = callback(name, size, mime_type)
+            should_process, _ = callback(
+                item_name(item), int(item.get("size") or 0), item_mime_type(item)
+            )
         except Exception:
             if self.config.fail_on_error:
                 raise
-            logger.exception("SharePoint file callback failed for %s", name)
+            logger.exception("SharePoint file callback failed for item %s", item_id)
             return False
         if not should_process:
-            logger.debug("Skipping SharePoint file %s: %s", name, reason)
+            logger.debug("Skipping SharePoint file %s declined by process_file_callback", item_id)
             return False
         return True
 
     def enforce_size_limit(self, item: dict[str, Any]) -> None:
-        """Prevent large drive files from being downloaded by direct loads."""
+        """Refuse a drive file over ``max_file_size_bytes`` before it is downloaded.
+
+        Args:
+            item: Drive item payload with its ``size``.
+
+        Raises:
+            SharePointItemSkippedError: The file is larger than the configured limit.
+        """
         size = int(item.get("size") or 0)
         if self.config.max_file_size_bytes is None or not size:
             return
         if size > self.config.max_file_size_bytes:
+            item_id = str(item.get("id") or "") or None
             raise SharePointItemSkippedError(
                 EXCEEDS_SIZE_LIMIT,
-                f"SharePoint file {item_name(item)!r} size {size} exceeds "
+                f"SharePoint file {item_id} size {size} exceeds "
                 f"max_file_size_bytes {self.config.max_file_size_bytes}",
-                item_id=str(item.get("id") or "") or None,
+                item_id=item_id,
                 url=item.get("webUrl"),
             )
 
-    def record_for_item_id(self, item_id: str) -> SourceRecord:
-        """Resolve a drive item ID and build its source record."""
-        site = self.resolve_site()
-        drive = self.resolve_drive(site)
-        item = self.get_item(str(drive["id"]), item_id)
-        return build_source_record(
-            item,
-            site_id=str(site["id"]),
-            drive_id=str(drive["id"]),
-        )
-
 
 def _page_items(response: dict[str, Any], *, operation: str) -> list[dict[str, Any]]:
-    """Validate Graph collection pages before exposing provider-controlled data."""
+    """Validate a Graph collection page before exposing provider-controlled data.
+
+    Args:
+        response: One Graph collection page.
+        operation: Listing name used in the error message.
+
+    Returns:
+        The page's item payloads.
+
+    Raises:
+        FetchError: ``value`` is not a list of objects.
+    """
     raw_items = response.get("value", [])
     if not isinstance(raw_items, list) or any(not isinstance(item, dict) for item in raw_items):
         raise FetchError(f"SharePoint {operation} response contained an invalid value list")

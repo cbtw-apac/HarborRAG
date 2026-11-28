@@ -10,20 +10,22 @@ import pytest
 import pytest_asyncio
 from sqlalchemy import insert
 
+from harborrag_adapters.repositories.backends.sqlalchemy import SQLAlchemyDBClient
 from harborrag_adapters.repositories.database.ingestion_control import (
     IngestionControlPlaneDatabase,
 )
 from harborrag_adapters.repositories.database.ingestion_control.schema import (
     TASK_DOCUMENT_RESULTS,
 )
-from harborrag_adapters.repositories.database.sqlite.client import SQLiteDBClient
 from harborrag_core.ingestion import FailurePage, IngestionTask, IngestionTaskState
+
+from .ingestion_control_fixtures import sqlite_client
 
 pytestmark = pytest.mark.unit
 
 BASE = datetime(2026, 11, 1, tzinfo=UTC)
-TICKETS = "cpm/tickets"
-WIKI = "cpm/wiki"
+TICKETS = "demo/tickets"
+WIKI = "demo/wiki"
 
 
 def _failed(
@@ -39,7 +41,7 @@ def _failed(
 
 class _Seed:
     def __init__(
-        self, control_plane: IngestionControlPlaneDatabase, client: SQLiteDBClient
+        self, control_plane: IngestionControlPlaneDatabase, client: SQLAlchemyDBClient
     ) -> None:
         self._control_plane = control_plane
         self._client = client
@@ -90,7 +92,7 @@ Inbox = tuple[IngestionControlPlaneDatabase, _Seed]
 
 @pytest_asyncio.fixture
 async def inbox(tmp_path: Path) -> AsyncIterator[Inbox]:
-    client = SQLiteDBClient(database=str(tmp_path / "control-plane.db"))
+    client = sqlite_client(tmp_path / "control-plane.db")
     control_plane = IngestionControlPlaneDatabase(client, create_schema=True)
     async with control_plane:
         seed = _Seed(control_plane, client)

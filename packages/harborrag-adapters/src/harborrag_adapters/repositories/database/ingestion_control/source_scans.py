@@ -12,13 +12,18 @@ from harborrag_core.base import utc_now
 from harborrag_core.contracts import HarborConflictError, HarborNotFoundError
 from harborrag_core.ingestion import (
     DiscoveredSourceItem,
+    SourceIdentity,
     SourceItemRegistration,
     SourceScanState,
     StoredSourceItem,
 )
+from harborrag_core.ingestion.identity import (
+    composed_owner_of_legacy_identity,
+    legacy_identity_for_source,
+)
 
 from .removal_reconciliation import SourceRemovalReconciler
-from .schema import SOURCE_ITEMS, SOURCE_SCANS, SOURCE_SCOPES
+from .schema import DOCUMENTS, SOURCE_ITEMS, SOURCE_SCANS, SOURCE_SCOPES
 from .source_catalog import SourceCatalogReader
 from .source_item_mapping import (
     registration_from_existing,
@@ -154,7 +159,20 @@ class SourceScanRepository(SourceCatalogReader):
         scan_id: str,
         items: Sequence[DiscoveredSourceItem],
     ) -> tuple[SourceItemRegistration, ...]:
-        """Record a bounded discovery batch in one scan transaction."""
+        """Record a bounded discovery batch in one scan transaction.
+
+        A stored item whose document ID is the one 2.0.0a2 and earlier gave it is
+        re-keyed to the current ID and registered as new. When its ID is not in
+        Unicode NFC, the legacy document now belongs to the NFC spelling, so its
+        binding moves there and removal reconciliation retires it once that spelling
+        is missed. Otherwise those releases failed the item before storing a
+        document, so nothing may be stored under the legacy ID.
+
+        Raises:
+            HarborConflictError: An item belongs to another scope, its stored document
+                ID is neither the current nor the legacy one, or a document is stored
+                under the legacy ID of an item whose ID is in NFC.
+        """
 
         if not items:
             return ()
@@ -179,6 +197,7 @@ class SourceScanRepository(SourceCatalogReader):
                     existing is not None
                     and existing["last_seen_scan_sequence"] == scan["scan_sequence"]
                 )
+                previous = await _registered_row(session, existing, item)
                 values = {
                     "document_id": str(item.document_id),
                     "source_version": item.source_version,
@@ -200,16 +219,12 @@ class SourceScanRepository(SourceCatalogReader):
                         )
                     )
                 else:
-                    if existing["document_id"] != str(item.document_id):
-                        raise HarborConflictError(
-                            "source identity resolved to a different document identity"
-                        )
                     await session.execute(
                         update(SOURCE_ITEMS).where(*key_condition).values(**values)
                     )
                 if not already_seen:
                     newly_seen += 1
-                registrations.append(registration_from_existing(existing, item))
+                registrations.append(registration_from_existing(previous, item))
             if newly_seen:
                 await session.execute(
                     update(SOURCE_SCANS)
@@ -363,3 +378,68 @@ class SourceScanRepository(SourceCatalogReader):
         if scan["status"] != SourceScanState.STARTED.value:
             raise HarborConflictError("source scan is no longer accepting discovery records")
         return cast(Mapping[str, object], scan)
+
+
+async def _registered_row(
+    session: AsyncSession,
+    existing: Mapping[str, object] | None,
+    item: DiscoveredSourceItem,
+) -> Mapping[str, object] | None:
+    """Return the stored row ``item`` is registered against, or None for a re-keyed one.
+
+    Raises:
+        HarborConflictError: The stored document ID is neither the current nor the
+            legacy one, or a document is stored under the legacy ID of an item whose
+            ID is in NFC.
+    """
+    if existing is None or existing["document_id"] == str(item.document_id):
+        return existing
+    legacy_document_id = str(legacy_identity_for_source(item.source_identity))
+    if existing["document_id"] != legacy_document_id:
+        raise HarborConflictError("source identity resolved to a different document identity")
+    composed = composed_owner_of_legacy_identity(item.source_identity)
+    if composed is not None:
+        await _move_to_composed_spelling(session, existing, composed)
+        return None
+    stored = await session.execute(
+        select(DOCUMENTS.c.document_id).where(DOCUMENTS.c.document_id == legacy_document_id)
+    )
+    if stored.scalar_one_or_none() is not None:
+        raise HarborConflictError("a document is stored under the legacy source identity")
+    return None
+
+
+async def _move_to_composed_spelling(
+    session: AsyncSession,
+    existing: Mapping[str, object],
+    composed: SourceIdentity,
+) -> None:
+    """Bind the legacy document of ``existing`` to its item's NFC spelling.
+
+    The NFC spelling's source item, copied from ``existing`` when the scope has none,
+    keeps its last scan, so removal reconciliation misses it and retires the document
+    like any removed item's, and cleanup still finds the document through it. A
+    document row bound to the item's own spelling moves too, which frees that spelling
+    for the item's new document.
+    """
+    now = utc_now()
+    present = await session.execute(
+        select(SOURCE_ITEMS.c.source_item_id).where(
+            SOURCE_ITEMS.c.source_scope_id == composed.source_scope_id,
+            SOURCE_ITEMS.c.source_item_id == composed.source_item_id,
+        )
+    )
+    if present.scalar_one_or_none() is None:
+        await session.execute(
+            insert(SOURCE_ITEMS).values(
+                {**existing, "source_item_id": composed.source_item_id, "updated_at": now}
+            )
+        )
+    await session.execute(
+        update(DOCUMENTS)
+        .where(
+            DOCUMENTS.c.document_id == existing["document_id"],
+            DOCUMENTS.c.source_item_id == existing["source_item_id"],
+        )
+        .values(source_item_id=composed.source_item_id, updated_at=now)
+    )

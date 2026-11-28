@@ -1,11 +1,18 @@
+"""EPUB engine that reads spine documents in order and renders them as Markdown.
+
+Every package part is parsed with defusedxml. Chapter tables stay Markdown tables,
+so their rows and columns reach chunk context instead of one cell per line.
+"""
+
 from __future__ import annotations
 
 import posixpath
+import re
 import zipfile
 from collections.abc import Callable
 from typing import Any, ClassVar
 
-from harborrag_adapters._shared.text.normalization import html_to_text
+from harborrag_adapters._shared.text.html_markdown import html_to_markdown
 from harborrag_adapters.parsers.common.resources import read_parse_input_bytes
 from harborrag_adapters.parsers.common.utils import (
     get_parser_logger,
@@ -19,6 +26,8 @@ from harborrag_core.domain.element import DocumentElement
 from harborrag_core.domain.parser import ParsedDocument, ParseInput
 
 parser_logger = get_parser_logger("epub")
+
+_EXTRA_BLANK_LINES = re.compile(r"\n{3,}")
 
 _xml_fromstring: Callable[[bytes], Any] | None = None
 _XmlParseError: type[BaseException] | None = None
@@ -48,23 +57,46 @@ def _ensure_defusedxml() -> tuple[Callable[[bytes], Any], type[BaseException]]:
 
 
 class EpubDocumentEngine(HarborDocumentEngine):
-    """Extract reading-order text from EPUB archives."""
+    """Extract reading-order text from EPUB archives, keeping tables as tables.
+
+    Attributes:
+        parser_name: Parser family name used for routing.
+        parser_engine: Engine name recorded in parse metadata and errors.
+        parser_version: Version recorded with each parse result.
+        suffixes: File suffixes this engine accepts.
+        content_types: Media types this engine accepts.
+    """
 
     parser_name: ClassVar[str] = "epub"
     parser_engine: ClassVar[str] = "python/zipfile+xml"
+    parser_version: ClassVar[str | None] = "1.1.0"
     suffixes: ClassVar[frozenset[str]] = frozenset({"epub"})
     content_types: ClassVar[frozenset[str]] = frozenset({"application/epub+zip"})
 
     def parse(self, input: ParseInput) -> ParsedDocument:  # noqa: C901
-        """Read EPUB HTML documents, convert them to text, and preserve section order."""
+        """Read EPUB HTML documents as Markdown, preserving section order.
 
+        Empty input succeeds with empty output like the other engines, because
+        0 bytes is never a valid zip archive. A ``ParseError`` raised while
+        reading is re-raised unchanged, even though it subclasses
+        ``RuntimeError``. ``zipfile`` raises a bare ``RuntimeError`` for an
+        encrypted member, and that becomes the same recoverable ``ParseError``
+        as a corrupt archive, before any per-section handling can catch it.
+
+        Args:
+            input: The EPUB bytes or path to parse.
+
+        Returns:
+            The publication title, then one element per spine section.
+
+        Raises:
+            ParseError: The archive is corrupt, encrypted or missing its package
+                document.
+        """
         parse_input = self.coerce_input(input)
         _ensure_defusedxml()
         source_bytes = guard_input_size(read_parse_input_bytes(parse_input))
         if not source_bytes:
-            # 0 bytes is never a valid zip archive, so zipfile would
-            # otherwise reject it as corrupt. There is nothing to parse, so
-            # succeed with empty output like the other engines.
             return self.empty_result(parse_input, sections=0, title=None)
         try:
             parser_logger.debug(
@@ -91,7 +123,7 @@ class EpubDocumentEngine(HarborDocumentEngine):
                         continue
                     section_title = self._html_title(html)
                     discovered_title = discovered_title or section_title
-                    text = html_to_text(html)
+                    text = html_to_markdown(html)
                     if section_title:
                         text = self._deduplicate_leading_title(text, section_title)
                     if publication_title:
@@ -108,18 +140,8 @@ class EpubDocumentEngine(HarborDocumentEngine):
                         )
                     )
         except ParseError:
-            # `ParseError` is itself a `RuntimeError` subclass (see
-            # harborrag_adapters.parsers.errors), so it would otherwise be
-            # caught and flattened by the broader `RuntimeError` clause below
-            # -- re-raise typed errors already raised deeper in this method
-            # (e.g. a missing OPF member) unchanged.
             raise
         except (zipfile.BadZipFile, RuntimeError) as exc:
-            # `zipfile` raises a bare `RuntimeError` (not `BadZipFile`) when a
-            # member is password-protected/encrypted. Surface that as the same
-            # typed, recoverable `ParseError` instead of letting it crash the
-            # caller -- container.xml/the OPF are read before any per-section
-            # try/except gets a chance to catch it.
             is_encrypted = isinstance(exc, RuntimeError) and "encrypted" in str(exc).lower()
             parser_logger.warning(
                 "%s: %s",
@@ -181,8 +203,13 @@ class EpubDocumentEngine(HarborDocumentEngine):
 
     @classmethod
     def _document_paths(cls, archive: zipfile.ZipFile) -> list[str]:
-        """Resolve content documents from the OPF spine with an HTML fallback."""
+        """Resolve content documents from the OPF spine with an HTML fallback.
 
+        The EPUB3 navigation document (``properties="nav"``) is left out. It is a
+        generated table of contents, and some spines list it so readers can open
+        it as a page, but extracting it duplicates the chapter titles it links
+        to. The fallback path excludes ``nav.xhtml`` and ``toc.xhtml`` by name.
+        """
         xml_fromstring, xml_parse_error = _ensure_defusedxml()
         names = set(archive.namelist())
         opf_path = cls._opf_path(archive, xml_fromstring, xml_parse_error)
@@ -227,12 +254,6 @@ class EpubDocumentEngine(HarborDocumentEngine):
                     }
                     and "nav" not in properties
                 ):
-                    # The EPUB3 navigation document (``properties="nav"``) is a
-                    # generated table of contents, not reading content. Some
-                    # spines still list it (so readers can open it as a page),
-                    # but extracting it as a section duplicates the chapter
-                    # titles it links to. The fallback path already excludes
-                    # `nav.xhtml`/`toc.xhtml` by name for the same reason.
                     manifest[item_id] = posixpath.normpath(posixpath.join(opf_dir, href))
             elif tag == "itemref":
                 idref = node.attrib.get("idref")
@@ -245,7 +266,6 @@ class EpubDocumentEngine(HarborDocumentEngine):
     @classmethod
     def _publication_title(cls, archive: zipfile.ZipFile) -> str | None:
         """Read the package title used when section markup omits it."""
-
         xml_fromstring, xml_parse_error = _ensure_defusedxml()
         opf_path = cls._opf_path(archive, xml_fromstring, xml_parse_error)
         if opf_path is None:
@@ -265,7 +285,6 @@ class EpubDocumentEngine(HarborDocumentEngine):
     @classmethod
     def _html_title(cls, html: bytes) -> str | None:
         """Extract a valid XHTML title for de-duplication and metadata."""
-
         xml_fromstring, xml_parse_error = _ensure_defusedxml()
         try:
             root = xml_fromstring(html)
@@ -281,26 +300,32 @@ class EpubDocumentEngine(HarborDocumentEngine):
 
     @staticmethod
     def _deduplicate_leading_title(text: str, title: str) -> str:
-        """Collapse repeated HTML ``title``/body-heading text to one line."""
+        """Collapse a title repeated at the start of a section to its first line.
 
+        Blank lines and Markdown heading markers are ignored when comparing.
+        """
         lines = text.splitlines()
-        normalized_title = " ".join(title.split()).casefold()
-        repeated = 0
-        for line in lines:
-            if " ".join(line.split()).casefold() != normalized_title:
+        normalized_title = _comparable_line(title)
+        repeats: list[int] = []
+        for index, line in enumerate(lines):
+            if not line.strip():
+                continue
+            if _comparable_line(line) != normalized_title:
                 break
-            repeated += 1
-        if repeated > 1:
-            del lines[1:repeated]
-        return "\n".join(lines).strip()
+            repeats.append(index)
+        for index in reversed(repeats[1:]):
+            del lines[index]
+        return _EXTRA_BLANK_LINES.sub("\n\n", "\n".join(lines)).strip()
 
     @staticmethod
     def _remove_leading_title(text: str, title: str) -> str:
-        """Remove a package title from section text before adding it once."""
+        """Remove a package title from section text before adding it once.
 
+        Blank lines and Markdown heading markers are ignored when comparing.
+        """
         lines = text.splitlines()
-        normalized_title = " ".join(title.split()).casefold()
-        while lines and " ".join(lines[0].split()).casefold() == normalized_title:
+        normalized_title = _comparable_line(title)
+        while lines and (not lines[0].strip() or _comparable_line(lines[0]) == normalized_title):
             lines.pop(0)
         return "\n".join(lines).strip()
 
@@ -312,7 +337,6 @@ class EpubDocumentEngine(HarborDocumentEngine):
         xml_parse_error: type[BaseException],
     ) -> str | None:
         """Locate the package document declared by META-INF/container.xml."""
-
         try:
             container = xml_fromstring(archive.read("META-INF/container.xml"))
         except (KeyError, xml_parse_error):
@@ -328,7 +352,6 @@ class EpubDocumentEngine(HarborDocumentEngine):
     @staticmethod
     def _fallback_html_paths(names: set[str]) -> list[str]:
         """Return a stable list of likely content files when the spine is unavailable."""
-
         return sorted(
             name
             for name in names
@@ -339,8 +362,12 @@ class EpubDocumentEngine(HarborDocumentEngine):
     @staticmethod
     def _local_name(tag: str) -> str:
         """Remove an XML namespace prefix from an ElementTree tag."""
-
         return tag.rsplit("}", 1)[-1]
 
 
 EpubParser = EpubDocumentEngine
+
+
+def _comparable_line(line: str) -> str:
+    """Return a line's text for title matching, without Markdown heading markers."""
+    return " ".join(line.lstrip("#").split()).casefold()

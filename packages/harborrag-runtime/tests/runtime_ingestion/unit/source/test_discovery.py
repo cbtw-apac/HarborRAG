@@ -13,7 +13,6 @@ import pytest
 from temporalio.exceptions import ApplicationError
 
 from harborrag_adapters.connectors.descriptors import ConnectorDocumentDescriptor
-from harborrag_adapters.connectors.schemas import ConnectorCapabilities, ConnectorPage
 from harborrag_adapters.repositories.object_store import (
     ARTIFACT_BUCKET,
     ImmutableArtifactReader,
@@ -21,16 +20,15 @@ from harborrag_adapters.repositories.object_store import (
     IngestionArtifactLayout,
 )
 from harborrag_core.domain.source import SourceRecord
+from harborrag_core.ingestion.connector_contracts import ConnectorCapabilities, ConnectorPage
+from harborrag_core.ingestion.source_query import ProcessingProfileInput
 from harborrag_core.schemas.storage import StorageOperationContext
 from harborrag_runtime.ingestion import SourceIngestionService, SourcePlanRepository
 from harborrag_runtime.ingestion.connections import ConnectionHealth
 from harborrag_runtime.temporal.ingestion_activities import (
     IngestionActivities,
 )
-from harborrag_runtime.temporal.schemas import (
-    ProcessingProfileInput,
-    SourceIngestionInput,
-)
+from harborrag_runtime.temporal.schemas import SourceIngestionInput
 
 from ...fixtures.connectors import DescriptorConnector
 from ...fixtures.release import (
@@ -164,6 +162,12 @@ async def test_discovery_replay_uses_plan_written_before_scan_completion(
 
 @pytest.mark.asyncio
 async def test_native_discovery_resumes_from_immutable_page_checkpoint(tmp_path) -> None:
+    """The index maps document indexes onto the pages discovery persisted.
+
+    A document workflow never has to load the whole plan. Two provider pages of two roots; the first
+    page's roots carry a descriptor each. The index is the plan handed on: no artifact ever holds
+    every document.
+    """
     control = build_control_plane(tmp_path)
     resources = build_release_resources(control)
     connector = CheckpointedDescriptorConnector()
@@ -202,17 +206,13 @@ async def test_native_discovery_resumes_from_immutable_page_checkpoint(tmp_path)
             context=StorageOperationContext.system(source.tenant_id),
         )
         assert checkpoint is not None
-        # The index maps document indexes onto the pages discovery persisted,
-        # so a document workflow never has to load the whole plan.
         index = await plans.find_index(
             task_id=source.task_id,
             scan_id=result.scan_id,
             context=StorageOperationContext.system(source.tenant_id),
         )
         assert index is not None and index.document_count == 6
-        # Two provider pages of two roots; the first page's roots carry a descriptor each.
         assert [page.count for page in index.pages] == [4, 2]
-        # The index is the plan handed on: no artifact ever holds every document.
         assert result.plan_reference.key.endswith(f"/{result.scan_id}/index.json")
         whole_plan = await reader.find(
             bucket=ARTIFACT_BUCKET,

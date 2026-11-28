@@ -13,15 +13,18 @@ from harborrag_core.ingestion.task_query_contracts import (
     StoredTaskDocumentResult,
     TaskDocumentPage,
 )
-from harborrag_runtime.ingestion.maintenance.relation_repair import RelationRepairResult
-from harborrag_runtime.ingestion.source.finalization import SourceFinalizationService
-from harborrag_runtime.ingestion.source.models import (
+from harborrag_engine.ingestion.source.models import (
+    DISCOVERY_SKIPS_KEY,
     PlannedDocumentRelease,
     PlannedDocuments,
     RelationRepairProgress,
     SourceDispatchSummary,
 )
+from harborrag_runtime.ingestion.maintenance.relation_repair import RelationRepairResult
+from harborrag_runtime.ingestion.source.finalization import SourceFinalizationService
 from harborrag_runtime.ingestion.source.skips import discovery_skip_summary, run_skip_summary
+
+pytestmark = pytest.mark.unit
 
 
 class _Recorder:
@@ -38,6 +41,7 @@ class _Recorder:
 
 
 _NO_RESULTS = TaskDocumentPage(items=(), has_more=False)
+_PARSER_REJECTED = "document_release_parser_rejected_document"
 
 
 class _PageRepair:
@@ -72,6 +76,11 @@ def _paged_plan(*pages: tuple[str, ...]) -> PlannedDocuments:
 
 @pytest.mark.asyncio
 async def test_finalization_repairs_relations_page_by_page_and_sums_the_results() -> None:
+    """Finalization repairs each plan page, then runs the reverse pass once.
+
+    The reverse pass repairs declarers elsewhere whose link targets are now
+    published. It never adds to the plan's unresolved count.
+    """
     tasks = _Recorder(document_results_page=_NO_RESULTS)
     control = SimpleNamespace(
         tasks=tasks,
@@ -98,8 +107,6 @@ async def test_finalization_repairs_relations_page_by_page_and_sums_the_results(
     )
 
     assert repair.pages == [("a", "b"), ("c",)]
-    # Then the reverse pass, once, after every page: declarers elsewhere whose link
-    # targets are now published. It never adds to the plan's unresolved count.
     assert repair.reverse_calls == [
         {"tenant_id": "tenant-1", "graph_projection_version": "graph-v2"}
     ]
@@ -112,8 +119,10 @@ async def test_finalization_repairs_relations_page_by_page_and_sums_the_results(
 
 @pytest.mark.asyncio
 async def test_finalization_resumes_relation_repair_after_the_pages_already_done() -> None:
-    # A retry must not repeat hours of repair: pages a prior attempt finished are
-    # skipped, and their totals still count toward the outcome.
+    """A retry skips the pages a prior attempt repaired and still counts their totals.
+
+    Repeating them could cost hours of repair.
+    """
     control = SimpleNamespace(
         tasks=_Recorder(document_results_page=_NO_RESULTS),
         source_scans=_Recorder(reconcile_removals=()),
@@ -151,11 +160,15 @@ async def test_finalization_resumes_relation_repair_after_the_pages_already_done
 
 @pytest.mark.asyncio
 async def test_finalization_summary_breaks_skips_down_by_reason() -> None:
-    # Discovery skips are already on the task; a document that failed while
-    # parsing is an extraction skip, and one that failed elsewhere is not.
+    """Finalization adds extraction skips to the discovery skips already on the task.
+
+    A document that failed while parsing is an extraction skip, and one that
+    failed elsewhere is not. Finalization replaces the stored summary, so it
+    carries the discovery breakdown over for status views to read.
+    """
     failed = TaskDocumentPage(
         items=(
-            _failed_result("doc-1", stage="ParseAndNormalize"),
+            _failed_result("doc-1", stage="ParseAndNormalize", code=_PARSER_REJECTED),
             _failed_result("doc-2", stage="FetchAndCaptureRaw"),
         ),
         has_more=False,
@@ -201,15 +214,17 @@ async def test_finalization_summary_breaks_skips_down_by_reason() -> None:
         "EXTRACTION_FAILED": 1,
         "NOT_IN_ALLOWLIST": 2,
     }
+    assert stored[DISCOVERY_SKIPS_KEY] == {"EXCEEDS_SIZE_LIMIT": 1, "NOT_IN_ALLOWLIST": 2}
 
 
 @pytest.mark.asyncio
 async def test_run_skip_summary_counts_item_load_skips_once() -> None:
+    """A retried finalization sees the same task summary and must not double count."""
     failed = TaskDocumentPage(
         items=(
             _failed_result("doc-1", stage="FetchAndCaptureRaw", skip_reason="ACCESS_DENIED"),
             _failed_result("doc-2", stage="FetchAndCaptureRaw", skip_reason="ACCESS_DENIED"),
-            _failed_result("doc-3", stage="ParseAndNormalize"),
+            _failed_result("doc-3", stage="ParseAndNormalize", code=_PARSER_REJECTED),
         ),
         has_more=False,
     )
@@ -217,7 +232,6 @@ async def test_run_skip_summary_counts_item_load_skips_once() -> None:
     control = SimpleNamespace(tasks=_Recorder(get=task, document_results_page=failed))
 
     first = await run_skip_summary(cast(Any, control), "task-1")
-    # A retried finalization sees the same task summary and must not double count.
     second = await run_skip_summary(cast(Any, control), "task-1")
 
     assert first == second
@@ -226,6 +240,39 @@ async def test_run_skip_summary_counts_item_load_skips_once() -> None:
         "DELETED": 1,
         "EXTRACTION_FAILED": 1,
     }
+
+
+@pytest.mark.asyncio
+async def test_run_skip_summary_counts_only_parser_rejections_as_extraction_skips() -> None:
+    """An outage, a missing parser or a cancel while parsing is a failure to retry, not a skip."""
+    failed = TaskDocumentPage(
+        items=(
+            _failed_result("doc-1", stage="ParseAndNormalize", code=_PARSER_REJECTED),
+            _failed_result(
+                "doc-2", stage="ParseAndNormalize", code="document_release_document_unsupported"
+            ),
+            _failed_result(
+                "doc-3", stage="ParseAndNormalize", code="document_release_parser_unavailable"
+            ),
+            _failed_result(
+                "doc-4",
+                stage="ParseAndNormalize",
+                code="document_release_parseandnormalize_clienterror",
+            ),
+            _failed_result("doc-5", stage="ParseAndNormalize", code="document_release_cancelled"),
+            _failed_result(
+                "doc-6", stage="ParseAndNormalize", code="document_release_cancellederror"
+            ),
+        ),
+        has_more=False,
+    )
+    control = SimpleNamespace(
+        tasks=_Recorder(get=SimpleNamespace(summary={}), document_results_page=failed)
+    )
+
+    summary = await run_skip_summary(cast(Any, control), "task-1")
+
+    assert summary["skipped_by_reason"] == {"EXTRACTION_FAILED": 2}
 
 
 def test_discovery_skip_summary_clears_counts_for_a_traversal_without_skips() -> None:
@@ -238,19 +285,28 @@ def test_discovery_skip_summary_clears_counts_for_a_traversal_without_skips() ->
 
 
 def _failed_result(
-    document_id: str, *, stage: str, skip_reason: str | None = None
+    document_id: str,
+    *,
+    stage: str,
+    skip_reason: str | None = None,
+    code: str = "document_release_fetchandcaptureraw_valueerror",
 ) -> StoredTaskDocumentResult:
     return StoredTaskDocumentResult(
         task_id="task-1",
         document_id=document_id,
         document_version_id=None,
         status="failed",
-        result={"failure_stage": stage, **({"skip_reason": skip_reason} if skip_reason else {})},
+        result={
+            "failure_stage": stage,
+            "safe_error_code": code,
+            **({"skip_reason": skip_reason} if skip_reason else {}),
+        },
         updated_at=datetime(2026, 1, 1, tzinfo=UTC),
     )
 
 
 def test_repair_progress_resumes_only_from_a_well_formed_heartbeat() -> None:
+    """Earlier attempts heartbeated a plain string, so anything malformed starts over."""
     assert RelationRepairProgress.resume(
         {
             "next_page": 4,
@@ -259,7 +315,6 @@ def test_repair_progress_resumes_only_from_a_well_formed_heartbeat() -> None:
             "unresolved_relations": 1,
         }
     ) == RelationRepairProgress(4, 9, 3, 1)
-    # Earlier attempts heartbeated a plain string; anything malformed starts over.
     assert RelationRepairProgress.resume("finalize-source") == RelationRepairProgress()
     assert RelationRepairProgress.resume({"next_page": -1}) == RelationRepairProgress()
 

@@ -3,8 +3,9 @@
 from contextlib import asynccontextmanager
 from datetime import timedelta
 
+from harborrag_adapters.repositories.backends.sqlalchemy import SQLAlchemyDBClient
+from harborrag_adapters.repositories.backends.sqlite import prepare_sqlite_database
 from harborrag_adapters.repositories.database.ingestion_control import IngestionControlPlaneDatabase
-from harborrag_adapters.repositories.database.sqlite.client import SQLiteDBClient
 from harborrag_adapters.repositories.object_store import (
     ChunkArtifactReader,
     ChunkArtifactWriter,
@@ -105,7 +106,15 @@ class FakeProjection:
 class Harness:
     def __init__(self, tmp_path):
         self.control = IngestionControlPlaneDatabase(
-            SQLiteDBClient(database=str(tmp_path / "topology.db")), create_schema=True
+            SQLAlchemyDBClient(
+                backend="sqlite",
+                url=prepare_sqlite_database(str(tmp_path / "topology.db")),
+                pool_size=None,
+                max_overflow=None,
+                pool_recycle_seconds=1800,
+                echo=False,
+            ),
+            create_schema=True,
         )
         self.store = MemoryObjectStore()
         self.writer = ImmutableArtifactWriter(self.store)
@@ -256,7 +265,7 @@ class Harness:
                 }
             )
             chunks = (route, *chunks)
-        artifacts = await ChunkArtifactWriter(self.writer).put(
+        artifacts = await ChunkArtifactWriter(self.writer, self.reader).put(
             document_id=str(document_id),
             document_version_id=str(version_id),
             chunks=chunks,

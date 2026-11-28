@@ -17,14 +17,15 @@ from harborrag_adapters.connectors.descriptors import (
 )
 from harborrag_adapters.connectors.exceptions import DocumentProcessingError
 from harborrag_adapters.connectors.policies.http import verify_credentials
+from harborrag_adapters.connectors.policies.network import DestinationPolicy
 from harborrag_adapters.connectors.rate_limiting import ConnectorRateLimiter
-from harborrag_adapters.connectors.schemas import (
+from harborrag_core.domain.raw_document import RawDocument
+from harborrag_core.domain.source import SourceRecord
+from harborrag_core.ingestion.connector_contracts import (
     ConnectorCapabilities,
     ConnectorPage,
     ConnectorQuery,
 )
-from harborrag_core.domain.raw_document import RawDocument
-from harborrag_core.domain.source import SourceRecord
 
 from .client import JiraClient, _RequestsJiraClient
 from .config import JiraProjectConfig
@@ -73,6 +74,7 @@ class JiraConnector(BaseConnector):
         *,
         client: JiraClient | None = None,
         rate_limiter: ConnectorRateLimiter | None = None,
+        destination_policy: DestinationPolicy | None = None,
     ) -> None:
         """Initialize issue operations and attachment sources."""
         self.config = config
@@ -80,6 +82,7 @@ class JiraConnector(BaseConnector):
         self.client = client or _RequestsJiraClient(
             config,
             rate_limiter=rate_limiter,
+            destination_policy=destination_policy,
         )
         self._issues = JiraIssueAPI(self.client, config)
         self._policy = JiraDiscoveryPolicy(config, base_url=self.base_url)
@@ -104,7 +107,6 @@ class JiraConnector(BaseConnector):
 
     def close(self) -> None:
         """Release the client session when the connector owns one."""
-
         close = getattr(self.client, "close", None)
         if callable(close):
             close()
@@ -171,7 +173,6 @@ class JiraConnector(BaseConnector):
         page_size: int,
     ) -> ConnectorPage:
         """Use Jira's native page token or offset without replaying prior pages."""
-
         self._ensure_connected()
         query = query or ConnectorQuery()
         if issue_keys_from_query(query):
@@ -213,7 +214,6 @@ class JiraConnector(BaseConnector):
 
     def load(self, record: SourceRecord) -> RawDocument:
         """Load one JIRA issue as a text/markdown raw document."""
-
         if is_attachment_record(record):
             if (
                 not self.config.include_attachments
@@ -267,7 +267,6 @@ class JiraConnector(BaseConnector):
         record: SourceRecord,
     ) -> ConnectorDocumentDescriptor:
         """Discover comment/attachment versions and explicit issue relations."""
-
         descriptor = self._descriptors.describe(record)
         logger.info(
             "JIRA issue described source_id=%s comments=%d attachments=%d "

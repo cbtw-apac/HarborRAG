@@ -12,6 +12,7 @@ from harborrag_adapters.repositories.object_store.s3.client import S3DBClient
 from harborrag_adapters.repositories.object_store.s3.config import S3ObjectStoreConfig
 from harborrag_adapters.repositories.object_store.s3.operations import (
     S3ObjectOperationsMixin,
+    _translate_s3_errors,
 )
 from harborrag_adapters.repositories.telemetry import (
     RepositoryTelemetry,
@@ -47,19 +48,7 @@ class S3ObjectStore(S3ObjectOperationsMixin, HarborObjectStore):
             family=StorageFamily.OBJECT_STORE,
             backend="s3",
         )
-        self._database = client or S3DBClient(
-            endpoint_url=config.endpoint_url,
-            region=config.region,
-            access_key_id=(
-                config.access_key_id.get_secret_value() if config.access_key_id else None
-            ),
-            secret_access_key=(
-                config.secret_access_key.get_secret_value() if config.secret_access_key else None
-            ),
-            session_token=(
-                config.session_token.get_secret_value() if config.session_token else None
-            ),
-        )
+        self._database = client or S3DBClient(config)
 
     @property
     def capabilities(self) -> ObjectStoreCapabilities:
@@ -80,8 +69,14 @@ class S3ObjectStore(S3ObjectOperationsMixin, HarborObjectStore):
     async def close(self) -> None:
         await self._database.close()
 
+    @_translate_s3_errors
     async def ensure_buckets(self, buckets: tuple[str, ...]) -> None:
-        """Create missing S3-compatible buckets without changing existing ones."""
+        """Create missing S3-compatible buckets without changing existing ones.
+
+        Raises:
+            HarborStorageConnectionError: The endpoint is unreachable or answered 5xx.
+            HarborStorageTimeoutError: The endpoint did not answer in time.
+        """
 
         for bucket in buckets:
             try:
@@ -108,13 +103,23 @@ class S3ObjectStore(S3ObjectOperationsMixin, HarborObjectStore):
                 }:
                     raise
 
+    @_translate_s3_errors
     async def validate_buckets(self, buckets: tuple[str, ...]) -> None:
-        """Require existing readable buckets without attempting provisioning."""
+        """Require existing readable buckets without attempting provisioning.
+
+        Raises:
+            HarborStorageConnectionError: The endpoint is unreachable or answered 5xx.
+            HarborStorageTimeoutError: The endpoint did not answer in time.
+            RuntimeError: A bucket is missing or not readable with these credentials.
+        """
 
         for bucket in buckets:
             try:
                 await self.client.head_bucket(Bucket=bucket)
             except ClientError as exc:
+                storage_error = self._s3_storage_error("validate_buckets", exc, None)
+                if storage_error is not None:
+                    raise storage_error from exc
                 raise RuntimeError(f"required reader bucket {bucket!r} is unavailable") from exc
 
     async def health(self) -> RepositoryHealth:

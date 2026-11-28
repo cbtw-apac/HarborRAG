@@ -100,12 +100,14 @@ def test_parser_errors_are_wrapped_as_parse_errors() -> None:
         def parse(self, _value: str | bytes) -> object:
             raise RuntimeError("corrupt xref table")
 
-    with pytest.raises(ParseError, match="LiteParse could not parse PDF: corrupt xref table"):
+    with pytest.raises(ParseError, match="LiteParse could not parse PDF: RuntimeError") as raised:
         _engine(_Broken()).parse_input(_PDF)
+
+    assert "corrupt xref table" not in str(raised.value)
 
 
 def test_parser_without_parse_method_is_reported() -> None:
-    with pytest.raises(ParseError, match="does not expose `parse`"):
+    with pytest.raises(ParseError, match="LiteParse could not parse PDF: ImportError"):
         _engine(object()).parse_input(_PDF)
 
 
@@ -118,8 +120,8 @@ def test_bytes_input_mode_passes_raw_bytes() -> None:
 
 
 def test_unknown_input_mode_is_rejected() -> None:
-    with pytest.raises(ParseError, match="input_mode must be `path` or `bytes`"):
-        _engine(_RecordingParser(), input_mode="stream").parse_input(_PDF)
+    with pytest.raises(ValueError, match="LiteParse input_mode must be one of bytes, path"):
+        _engine(_RecordingParser(), input_mode="stream")
 
 
 def test_result_without_text_falls_back_to_whole_result() -> None:

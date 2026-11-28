@@ -121,17 +121,3 @@ def hmac_app(monkeypatch: pytest.MonkeyPatch, service: MockAppService) -> FastAP
     monkeypatch.setattr(api_app, "select_app_service", lambda: (service, "test"))
     settings = ApiSettings(auth_mode="hmac", auth_secret=SECRET, auth_user_id_claim="oid")
     return create_fastapi_app(settings)
-
-
-__all__ = [
-    "ALICE",
-    "BOB",
-    "CONVERSATIONS",
-    "SECRET",
-    "auth",
-    "hmac_app",
-    "identity",
-    "message",
-    "seed",
-    "token",
-]

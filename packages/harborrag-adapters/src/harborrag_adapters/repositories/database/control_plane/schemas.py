@@ -1,9 +1,16 @@
-"""Control-plane ORM schemas: the 12 tables from the HTTP-backend plan §6 (ST5).
+"""SQLAlchemy models of the control-plane tables.
 
-Conventions: TEXT ids (stable_hash_id output), JSON payload columns (JSONB on
-Postgres via variant), timezone-aware UTC datetimes (UTCDateTime restores
-tzinfo on SQLite), and a fixed naming_convention so Alembic autogenerate
-stays deterministic.
+Every tenant-owned row takes its ``tenant_id`` from the writer, so no
+``tenant_id`` column has a default. IDs are TEXT, payloads are JSON,
+datetimes are timezone-aware UTC, and constraint names come from
+``NAMING_CONVENTION`` so Alembic autogenerate stays deterministic. A payload
+column keeps the type its revision created: ``JSONVariant`` (JSONB on
+Postgres) for those added from revision 0041 on, plain JSON for the older ones.
+
+The sibling ``schemas_*`` modules are imported after ``Base`` and
+``JSONVariant`` exist, so their models register on ``Base.metadata`` whenever
+this module is imported. Alembic autogenerate and the metadata-drift test rely
+on that.
 """
 
 from __future__ import annotations
@@ -41,9 +48,7 @@ class ProjectRow(Base):
     __tablename__ = "projects"
 
     id: Mapped[str] = mapped_column(sa.Text, primary_key=True)
-    tenant_id: Mapped[str] = mapped_column(
-        sa.String(128), server_default="DEFAULT", nullable=False, index=True
-    )
+    tenant_id: Mapped[str] = mapped_column(sa.String(128), nullable=False, index=True)
     name: Mapped[str] = mapped_column(sa.Text, nullable=False)
     description: Mapped[str] = mapped_column(sa.Text, default="", nullable=False)
     collection: Mapped[str] = mapped_column(sa.Text, nullable=False)
@@ -69,9 +74,7 @@ class SourceRow(Base):
     )
 
     id: Mapped[str] = mapped_column(sa.Text, primary_key=True)
-    tenant_id: Mapped[str] = mapped_column(
-        sa.String(128), server_default="DEFAULT", nullable=False, index=True
-    )
+    tenant_id: Mapped[str] = mapped_column(sa.String(128), nullable=False, index=True)
     project_id: Mapped[str] = mapped_column(
         sa.Text, sa.ForeignKey("projects.id"), nullable=False, index=True
     )
@@ -80,9 +83,9 @@ class SourceRow(Base):
     source_type: Mapped[str] = mapped_column(sa.Text, nullable=False)
     name: Mapped[str] = mapped_column(sa.Text, nullable=False)
     credentials: Mapped[dict[str, Any]] = mapped_column(JSONVariant, default=dict, nullable=False)
-    config_json: Mapped[dict[str, Any]] = mapped_column(JSONVariant, default=dict, nullable=False)
+    config_json: Mapped[dict[str, Any]] = mapped_column(sa.JSON, default=dict, nullable=False)
     tuning: Mapped[dict[str, Any]] = mapped_column(JSONVariant, default=dict, nullable=False)
-    secret_refs: Mapped[list[str]] = mapped_column(JSONVariant, default=list, nullable=False)
+    secret_refs: Mapped[list[str]] = mapped_column(sa.JSON, default=list, nullable=False)
     schedule: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     status: Mapped[str] = mapped_column(sa.Text, default="active", nullable=False)
     status_detail: Mapped[dict[str, Any] | None] = mapped_column(JSONVariant, nullable=True)
@@ -124,9 +127,7 @@ class SecretRefRow(Base):
     __tablename__ = "secrets"
 
     ref: Mapped[str] = mapped_column(sa.Text, primary_key=True)
-    tenant_id: Mapped[str] = mapped_column(
-        sa.String(128), server_default="DEFAULT", nullable=False, index=True
-    )
+    tenant_id: Mapped[str] = mapped_column(sa.String(128), nullable=False, index=True)
     provider: Mapped[str] = mapped_column(sa.Text, nullable=False)
     created_by: Mapped[str] = mapped_column(sa.Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
@@ -139,9 +140,7 @@ class JobRow(Base):
     __tablename__ = "jobs"
 
     id: Mapped[str] = mapped_column(sa.Text, primary_key=True)
-    tenant_id: Mapped[str] = mapped_column(
-        sa.String(128), server_default="DEFAULT", nullable=False, index=True
-    )
+    tenant_id: Mapped[str] = mapped_column(sa.String(128), nullable=False, index=True)
     source_id: Mapped[str] = mapped_column(sa.Text, nullable=False, index=True)
     project_id: Mapped[str] = mapped_column(sa.Text, nullable=False, index=True)
     job_type: Mapped[str] = mapped_column(sa.Text, nullable=False)
@@ -154,7 +153,7 @@ class JobRow(Base):
         server_default="0",
         nullable=False,
     )
-    payload_json: Mapped[dict[str, Any]] = mapped_column(JSONVariant, default=dict, nullable=False)
+    payload_json: Mapped[dict[str, Any]] = mapped_column(sa.JSON, default=dict, nullable=False)
     visibility_deadline: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     enqueued_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
     started_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
@@ -174,7 +173,7 @@ class JobEventRow(Base):
     seq: Mapped[int] = mapped_column(sa.Integer, primary_key=True)
     name: Mapped[str] = mapped_column(sa.Text, nullable=False)
     trace_id: Mapped[str] = mapped_column(sa.Text, nullable=False)
-    payload_json: Mapped[dict[str, Any]] = mapped_column(JSONVariant, default=dict, nullable=False)
+    payload_json: Mapped[dict[str, Any]] = mapped_column(sa.JSON, default=dict, nullable=False)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
 
 
@@ -205,9 +204,7 @@ class ActivityRow(Base):
     __tablename__ = "activity"
 
     id: Mapped[str] = mapped_column(sa.Text, primary_key=True)
-    tenant_id: Mapped[str] = mapped_column(
-        sa.String(128), server_default="DEFAULT", nullable=False, index=True
-    )
+    tenant_id: Mapped[str] = mapped_column(sa.String(128), nullable=False, index=True)
     actor: Mapped[str] = mapped_column(sa.Text, nullable=False)
     verb: Mapped[str] = mapped_column(sa.Text, nullable=False)
     entity_type: Mapped[str] = mapped_column(sa.Text, nullable=False)
@@ -217,22 +214,24 @@ class ActivityRow(Base):
 
 
 class PendingControlPlaneEffectRow(Base):
-    """pending_control_plane_effects: durable retry queue for secret retirement and
-    audit logging that failed after the primary source write already committed
-    (ML2 recoverability hardening; not part of the original plan §6 table list).
+    """pending_control_plane_effects: durable retry queue for follow-up effects.
+
+    Holds secret retirement and audit logging that failed after the primary
+    source write had already committed.
     """
 
     __tablename__ = "pending_control_plane_effects"
 
     id: Mapped[str] = mapped_column(sa.Text, primary_key=True)
     kind: Mapped[str] = mapped_column(sa.Text, nullable=False)
-    payload_json: Mapped[dict[str, Any]] = mapped_column(JSONVariant, default=dict, nullable=False)
+    payload_json: Mapped[dict[str, Any]] = mapped_column(sa.JSON, default=dict, nullable=False)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, index=True)
 
 
 class SingletonLeaseRow(Base):
-    """singleton_leases: leader-election lease per named singleton background job
-    (ML2 multi-process hardening -- one row per lease, seeded by its migration).
+    """singleton_leases: leader-election lease of a singleton background job.
+
+    One row per named lease, seeded by its migration.
     """
 
     __tablename__ = "singleton_leases"
@@ -252,12 +251,10 @@ class ProviderRow(Base):
     __tablename__ = "providers"
 
     id: Mapped[str] = mapped_column(sa.Text, primary_key=True)
-    tenant_id: Mapped[str] = mapped_column(
-        sa.String(128), server_default="DEFAULT", nullable=False, index=True
-    )
+    tenant_id: Mapped[str] = mapped_column(sa.String(128), nullable=False, index=True)
     name: Mapped[str] = mapped_column(sa.Text, nullable=False)
     family: Mapped[str] = mapped_column(sa.Text, nullable=False)
-    config_json: Mapped[dict[str, Any]] = mapped_column(JSONVariant, default=dict, nullable=False)
+    config_json: Mapped[dict[str, Any]] = mapped_column(sa.JSON, default=dict, nullable=False)
     secret_ref: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
 
@@ -274,7 +271,7 @@ class RoutingRuleRow(Base):
     id: Mapped[str] = mapped_column(sa.Text, primary_key=True)
     family: Mapped[str] = mapped_column(sa.Text, nullable=False)
     provider_id: Mapped[str] = mapped_column(sa.Text, sa.ForeignKey("providers.id"), nullable=False)
-    rule_json: Mapped[dict[str, Any]] = mapped_column(JSONVariant, default=dict, nullable=False)
+    rule_json: Mapped[dict[str, Any]] = mapped_column(sa.JSON, default=dict, nullable=False)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
 
@@ -285,10 +282,8 @@ class WorkspaceSettingsRow(Base):
     __tablename__ = "workspace_settings"
 
     id: Mapped[int] = mapped_column(sa.Integer, primary_key=True)
-    tenant_id: Mapped[str] = mapped_column(
-        sa.String(128), server_default="DEFAULT", nullable=False, index=True
-    )
-    data: Mapped[dict[str, Any]] = mapped_column(JSONVariant, default=dict, nullable=False)
+    tenant_id: Mapped[str] = mapped_column(sa.String(128), nullable=False, index=True)
+    data: Mapped[dict[str, Any]] = mapped_column(sa.JSON, default=dict, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
 
 
@@ -298,9 +293,7 @@ class MemberRow(Base):
     __tablename__ = "members"
 
     id: Mapped[str] = mapped_column(sa.Text, primary_key=True)
-    tenant_id: Mapped[str] = mapped_column(
-        sa.String(128), server_default="DEFAULT", nullable=False, index=True
-    )
+    tenant_id: Mapped[str] = mapped_column(sa.String(128), nullable=False, index=True)
     subject: Mapped[str] = mapped_column(sa.Text, nullable=False, unique=True, index=True)
     role: Mapped[str] = mapped_column(sa.Text, default="reader", nullable=False)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
@@ -331,7 +324,7 @@ class GraphConflictRow(Base):
     )
 
     id: Mapped[str] = mapped_column(sa.Text, primary_key=True)
-    tenant_id: Mapped[str] = mapped_column(sa.String(128), server_default="DEFAULT", nullable=False)
+    tenant_id: Mapped[str] = mapped_column(sa.String(128), nullable=False)
     conflict_type: Mapped[str] = mapped_column(sa.Text, nullable=False)
     subject_node_key: Mapped[str] = mapped_column(sa.Text, nullable=False)
     competing_node_key: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
@@ -343,10 +336,6 @@ class GraphConflictRow(Base):
     resolved_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
 
 
-# Conversation/memory rows live in schemas_conversation_memory.py (file-length
-# gate); imported here, after Base/JSONVariant exist, so every class in that
-# module still registers on Base.metadata whenever schemas.py is imported --
-# required for Alembic autogenerate and the metadata-drift test to see them.
 from . import schemas_completion_requests as _schemas_completion_requests  # noqa: E402, F401
 from . import schemas_conversation_memory as _schemas_conversation_memory  # noqa: E402, F401
 from . import schemas_settings as _schemas_settings  # noqa: E402, F401
@@ -361,6 +350,8 @@ class McpApiKeyRow(Base):
     audit trail of who issued and withdrew what. ``key_id`` and ``secret_hash``
     must be lowercase hex of a fixed length on every dialect: PostgreSQL checks
     a regex, SQLite (which has no ``~`` operator) checks length plus GLOB.
+    ``conv()`` keeps the check names verbatim, outside the naming convention, so
+    they match what migrations 0036 and 0040 create.
     """
 
     __tablename__ = "mcp_api_keys"
@@ -378,8 +369,6 @@ class McpApiKeyRow(Base):
     revoked_by: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     revocation_reason: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
 
-    # conv() keeps these names verbatim instead of expanding them through the
-    # "ck" naming convention, so they match what migrations 0036/0040 create.
     __table_args__ = (
         sa.CheckConstraint("key_id ~ '^[0-9a-f]{24}$'", name=conv("ck_mcp_key_id")).ddl_if(
             dialect="postgresql"

@@ -56,6 +56,3 @@ class ModelCost(StrictModel):
             model_calls=calls,
             priced_model_calls=priced,
         )
-
-
-__all__ = ["ModelCost"]

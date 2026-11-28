@@ -7,6 +7,8 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from harborrag_core.ingestion import IngestionTaskState
+from harborrag_core.ingestion.run_contracts import PreparedSourceSubmission, RunSettings
+from harborrag_core.ingestion.source_query import ProcessingProfileInput
 from harborrag_core.security import AccessContext
 from harborrag_runtime.config.errors import ConnectorConfigurationError
 from harborrag_runtime.config.settings import RuntimeSettings
@@ -16,9 +18,9 @@ from harborrag_runtime.execution import build_ingestion_executor
 from harborrag_runtime.execution.direct import DirectIngestionExecutor
 from harborrag_runtime.execution.temporal import TemporalIngestionExecutor
 from harborrag_runtime.ingestion.connections import ConnectionNotFoundError
-from harborrag_runtime.ingestion_contracts import PreparedSourceSubmission
-from harborrag_runtime.source_query import ProcessingProfileInput
 from harborrag_runtime.temporal.gateway import to_temporal_source
+
+pytestmark = pytest.mark.unit
 
 
 def _request() -> IngestionRequest:
@@ -190,6 +192,7 @@ async def test_direct_executor_runs_and_closes_runtime(monkeypatch) -> None:
                 published=2,
                 unchanged=2,
                 failed=0,
+                skipped=3,
             )
 
     class Runtime:
@@ -205,16 +208,27 @@ async def test_direct_executor_runs_and_closes_runtime(monkeypatch) -> None:
         connection_resolver = object()
         connection_stores = None
 
-        async def connector(self, *, tenant_id: str, task_id: str, configuration_fingerprint: str):
-            calls.append((task_id, configuration_fingerprint))
+        async def connector(
+            self,
+            *,
+            tenant_id: str,
+            task_id: str,
+            configuration_fingerprint: str,
+            run_settings: object = None,
+        ):
+            calls.append((task_id, configuration_fingerprint, run_settings))
             return "connector"
 
         async def close(self) -> None:
             self.closed += 1
 
     runtime = Runtime()
+    pinned = RunSettings("rev_2", max_document_mb=5)
     source_input = SimpleNamespace(
-        tenant_id="tenant-1", task_id="task-1", configuration_fingerprint="fingerprint-1"
+        tenant_id="tenant-1",
+        task_id="task-1",
+        configuration_fingerprint="fingerprint-1",
+        run_settings=pinned,
     )
     monkeypatch.setattr(
         direct_module,
@@ -244,17 +258,18 @@ async def test_direct_executor_runs_and_closes_runtime(monkeypatch) -> None:
     assert runtime.started == 1
     assert runtime.closed == 1
     assert calls == [
-        ("task-1", "fingerprint-1"),
+        ("task-1", "fingerprint-1", pinned),
         (("converted", source_input), "connector"),
     ]
     assert result.task_id == "task-1"
     assert result.status == "COMPLETED"
-    assert (result.discovered, result.published, result.unchanged, result.failed) == (
-        4,
-        2,
-        2,
-        0,
-    )
+    assert (
+        result.discovered,
+        result.published,
+        result.unchanged,
+        result.failed,
+        result.skipped,
+    ) == (4, 2, 2, 0, 3)
 
 
 @pytest.mark.asyncio
@@ -291,6 +306,7 @@ async def test_temporal_executor_submits_controls_and_reads_results(
                 published=2,
                 unchanged=1,
                 failed=0,
+                skipped=2,
             )
 
         async def get_status(self, task_id: str):
@@ -358,12 +374,13 @@ async def test_temporal_executor_submits_controls_and_reads_results(
     config.aclose.assert_awaited_once_with()
     assert (reference.task_id, reference.workflow_id) == ("task-1", "workflow-1")
     assert result.status == "completed"
-    assert (result.discovered, result.published, result.unchanged, result.failed) == (
-        3,
-        2,
-        1,
-        0,
-    )
+    assert (
+        result.discovered,
+        result.published,
+        result.unchanged,
+        result.failed,
+        result.skipped,
+    ) == (3, 2, 1, 0, 2)
     assert status.paused is True
     assert status.cancel_requested is False
     assert calls == [
@@ -489,7 +506,10 @@ async def test_direct_resolves_connector_before_connecting(monkeypatch) -> None:
         "build_ingestion_input",
         Mock(
             return_value=SimpleNamespace(
-                tenant_id="tenant-1", task_id="task-1", configuration_fingerprint="f"
+                tenant_id="tenant-1",
+                task_id="task-1",
+                configuration_fingerprint="f",
+                run_settings=None,
             )
         ),
     )
@@ -523,7 +543,10 @@ async def test_direct_rejects_reused_terminal_run_id(monkeypatch) -> None:
         "build_ingestion_input",
         Mock(
             return_value=SimpleNamespace(
-                tenant_id="tenant-1", task_id="task-1", configuration_fingerprint="f"
+                tenant_id="tenant-1",
+                task_id="task-1",
+                configuration_fingerprint="f",
+                run_settings=None,
             )
         ),
     )
@@ -556,8 +579,8 @@ async def test_direct_mode_migrates_then_imports_on_a_fresh_database(tmp_path, m
     runtime = SimpleNamespace(connection_stores=stores)
     executor = DirectIngestionExecutor(settings)
 
-    await executor._import_connectors_once(runtime)  # type: ignore[arg-type]
-    await executor._import_connectors_once(runtime)  # type: ignore[arg-type]
+    await executor._import_connectors_once(runtime)  # type: ignore[arg-type]  # namespace stands in for the runtime
+    await executor._import_connectors_once(runtime)  # type: ignore[arg-type]  # namespace stands in for the runtime
 
     imported = await stores.connections.get_by_source_key(
         tenant_id="DEFAULT", source_key="workspace"

@@ -1,11 +1,6 @@
 """The per-source-type strategy: schemas, validation and the dataclass mapping.
 
-Handles:
-- validating a connection's credentials, config and tuning, collecting every field issue
-- publishing the spec's ``SourceType`` object (JSON Schemas, ``ui`` hints, capabilities)
-- mapping stored values to and from the connector config dataclass keywords
-
-Does NOT resolve secret references or build connectors; see ``builder.py``.
+Secret references are resolved and connectors built elsewhere; see ``builder.py``.
 """
 
 from __future__ import annotations
@@ -133,7 +128,11 @@ class SourceTypeSpec:
 
     ``credential_renames`` maps a public credential name to the dataclass
     keyword it feeds; ``query_fields`` are config fields that travel in the
-    run's query filters instead of the dataclass; ``endpoints`` are the
+    run's query filters instead of the dataclass; ``query_narrowers`` gives a
+    query field the function that combines the connection's value with a run's
+    so the run selects no more than the connection does, raising ``ValueError``
+    when it cannot, and a query field without one cannot be set by a run once
+    the connection configures it; ``endpoints`` are the
     credential fields naming the host secrets are sent to;
     ``operator_fields`` are credential fields only the CLI and
     ``connectors.yaml`` may set, such as a worker file path;
@@ -164,6 +163,7 @@ class SourceTypeSpec:
     tenant_keyword: str | None = None
     build_check: bool = True
     query_fields: frozenset[str] = frozenset()
+    query_narrowers: Mapping[str, Callable[[str, str], str]] = field(default_factory=dict)
     aliases: tuple[str, ...] = ()
     version: str = "2.0.0"
     policy: Callable[[Mapping[str, Any]], list[FieldIssue]] | None = None

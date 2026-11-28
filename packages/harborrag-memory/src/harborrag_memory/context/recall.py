@@ -303,6 +303,3 @@ class MemoryRecall:
             )
             return None
         return tuple(hydrated)
-
-
-__all__ = ["FALLBACK_RELEVANCE", "RECALL_MEMORY_TYPES", "MemoryRecall"]

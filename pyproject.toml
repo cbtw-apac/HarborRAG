@@ -39,7 +39,7 @@ Documentation = "https://github.com/cbtw-apac/HarborRAG/tree/main/docs"
 
 [project.optional-dependencies]
 dev = [
-    "click>=8.1,<9",
+    "click>=8.4.0,<9",
     "packaging>=24,<27",
     "python-dotenv>=1,<2",
     "pytest>=9.0.3",
@@ -50,13 +50,14 @@ dev = [
     "pytest-xdist>=3.8.0",
     "litellm>=1.106.0,<1.106.5",
     "langchain-core>=1.5,<2",
-    "opentelemetry-api>=1.45.1,<2",
+    "opentelemetry-api>=1.45.2,<2",
     "opentelemetry-sdk>=1.45.1,<2",
     "Pillow>=10.0.0",
     "pytesseract>=0.3.13",
     "cairosvg>=2.7.0",
     "import-linter>=2.13,<3",
     "mypy>=1.0.0",
+    "jsonschema>=4.26,<5",
     "types-jsonschema>=4.26,<5",
     "ruff>=0.1.0",
     "pre-commit>=3.5.0",
@@ -332,6 +333,10 @@ override-dependencies = [
     "pillow>=13.0.0",
     # litellm 1.106 caps filelock<4; 4.2.1 fixes CVE-2026-112907/112913/112940.
     "filelock>=4.2.1",
+    "dnspython==2.9.2",
+    "opentelemetry-api==1.45.2",
+    "soupsieve==4.1.1",
+    "mail-parser==4.6.3",
 ]
 
 [tool.uv.workspace]

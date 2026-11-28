@@ -30,7 +30,6 @@ def _no_sleep(monkeypatch):
     for module in (
         "harborrag_adapters.connectors._http.client",
         "harborrag_adapters.connectors.sharepoint.client",
-        "harborrag_adapters.connectors.sharepoint.connector",
     ):
         monkeypatch.setattr(f"{module}.time.sleep", lambda *_a, **_k: None)
 
@@ -57,7 +56,7 @@ def _no_sleep(monkeypatch):
     ],
 )
 def test_github_rate_limited_classification(response, expected):
-    assert _RequestsGitHubClient._rate_limited(response) is expected
+    assert _RequestsGitHubClient._rate_limited(response, response.text) is expected
 
 
 def _github_config(**overrides) -> GitHubRepositoryConfig:

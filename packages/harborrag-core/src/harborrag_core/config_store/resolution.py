@@ -7,8 +7,8 @@ failure raises, so nothing is ever partially planned.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import Literal
 
@@ -18,6 +18,9 @@ from harborrag_core.contracts.errors import HarborConflictError, HarborValidatio
 
 Origin = Literal["default", "tenant", "project", "connection"]
 RevisionSource = Literal["seed", "import", "api"]
+
+_MAX_TOKENS_KEY = "chunking.max_tokens"
+_OVERLAP_KEY = "chunking.overlap_tokens"
 
 
 class SettingsReindexRequiredError(HarborConflictError):
@@ -30,7 +33,7 @@ class SettingsReindexRequiredError(HarborConflictError):
 class SettingsSnapshot:
     """All overrides of one tenant at one revision.
 
-    Args:
+    Attributes:
         tenant_id: Tenant that owns the overrides.
         revision: Tenant revision counter; 0 for an empty log.
         overrides: Key to value maps keyed by level label.
@@ -47,7 +50,12 @@ class SettingsSnapshot:
 
 @dataclass(frozen=True, slots=True)
 class EffectiveValue:
-    """A resolved value and the level it came from."""
+    """A resolved value and the level it came from.
+
+    Attributes:
+        value: The resolved value.
+        origin: Level kind that set the value, or ``default``.
+    """
 
     value: object
     origin: Origin
@@ -57,7 +65,7 @@ class EffectiveValue:
 class EffectiveSettings:
     """Every registry key resolved at one level.
 
-    Args:
+    Attributes:
         revision: Revision of the snapshot resolved.
         values: Effective value by key.
     """
@@ -79,7 +87,7 @@ class EffectiveSettings:
 class SettingChange:
     """One planned or recorded override change.
 
-    Args:
+    Attributes:
         level: Level label the override lives at.
         key: Setting key.
         from_value: Effective value at the level before the change.
@@ -105,7 +113,16 @@ class SettingChange:
 
 @dataclass(frozen=True, slots=True)
 class SettingsRevision:
-    """One entry of a tenant's revision log."""
+    """One entry of a tenant's revision log.
+
+    Attributes:
+        tenant_id: Tenant that owns the log.
+        revision: Revision number of this entry.
+        source: Where the change came from, ``seed``, ``import`` or ``api``.
+        created_by: Actor that made the change.
+        created_at: When the revision was written.
+        changes: Override changes the revision recorded.
+    """
 
     tenant_id: str
     revision: int
@@ -154,8 +171,10 @@ def plan_changes(
     """Plan the override changes a PATCH body makes at ``level``.
 
     Keys are checked in sorted order: known and not boot-only, allowed at the
-    level, not a reindex key, ``retrieval.rerank`` not ``True``, value valid.
-    A ``None`` value removes the override. Unchanged overrides are left out.
+    level, not a reindex key, ``retrieval.rerank: true`` only with a rerank model,
+    and a valid value. Then an overridden ``chunking.overlap_tokens`` must stay
+    below the effective ``chunking.max_tokens``. A ``None`` value removes the
+    override. Unchanged overrides are left out.
 
     Args:
         registry: Registry the keys must belong to.
@@ -168,7 +187,8 @@ def plan_changes(
 
     Raises:
         HarborValidationError: First key that is unknown, boot-only, not allowed at
-            the level, ``retrieval.rerank: true``, or invalid (``field = key``).
+            the level, ``retrieval.rerank: true`` without a rerank model, or invalid,
+            or an overlap left at or above max tokens (``field = key``).
         SettingsReindexRequiredError: A key whose change needs a reindex.
     """
     effective = resolve_effective(registry, snapshot, level)
@@ -183,9 +203,9 @@ def plan_changes(
                 f"{key} needs a reindex, which cannot be started here"
             )
         value = body[key]
-        if key == "retrieval.rerank" and value is True:
+        if key == "retrieval.rerank" and value is True and not registry.rerank_available:
             raise HarborValidationError(
-                "retrieval.rerank cannot be enabled: no retrieval path reranks",
+                "retrieval.rerank cannot be enabled: the model catalog has no rerank model",
                 details={"field": key},
             )
         new = None if value is None else definition.validate(value)
@@ -196,4 +216,45 @@ def plan_changes(
         changes.append(
             SettingChange(str(level), key, effective.value(key), new, definition.applies)
         )
+    _require_overlap_below_max_tokens(registry, snapshot, level, changes)
     return tuple(changes)
+
+
+def _require_overlap_below_max_tokens(
+    registry: SettingsRegistry,
+    snapshot: SettingsSnapshot,
+    level: SettingsLevel,
+    changes: Sequence[SettingChange],
+) -> None:
+    """Refuse changes that leave an overridden overlap at or above the effective max tokens.
+
+    The check runs on the values at ``level`` after ``changes`` apply, so removing
+    an override is judged by the value it falls back to. The default overlap is
+    never pinned to a run, so it is not compared. The error names the overlap key
+    when the changes set it, else the max-tokens key.
+    """
+    touched = {change.key for change in changes}
+    if not touched & {_MAX_TOKENS_KEY, _OVERLAP_KEY}:
+        return
+    effective = resolve_effective(registry, _with_changes(snapshot, level, changes), level)
+    max_tokens = effective.value(_MAX_TOKENS_KEY)
+    overlap = effective.override(_OVERLAP_KEY)
+    if isinstance(max_tokens, int) and isinstance(overlap, int) and overlap >= max_tokens:
+        field_key = _OVERLAP_KEY if _OVERLAP_KEY in touched else _MAX_TOKENS_KEY
+        raise HarborValidationError(
+            f"{_OVERLAP_KEY} ({overlap}) must be below {_MAX_TOKENS_KEY} ({max_tokens})",
+            details={"field": field_key},
+        )
+
+
+def _with_changes(
+    snapshot: SettingsSnapshot, level: SettingsLevel, changes: Sequence[SettingChange]
+) -> SettingsSnapshot:
+    """Return ``snapshot`` with ``changes`` applied at ``level``; ``snapshot`` is unchanged."""
+    overrides = dict(snapshot.at(level))
+    for change in changes:
+        if change.to_value is None:
+            overrides.pop(change.key, None)
+        else:
+            overrides[change.key] = change.to_value
+    return replace(snapshot, overrides={**snapshot.overrides, str(level): overrides})

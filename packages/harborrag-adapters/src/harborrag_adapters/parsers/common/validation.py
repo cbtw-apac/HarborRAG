@@ -83,7 +83,8 @@ def wrap_parse_errors(engine: str) -> Generator[None, None, None]:
     preserved as ``__cause__``) instead of leaking a zoo of library-specific
     types (``BadZipFile``, ``RecursionError``, ``csv.Error`` …) that callers
     cannot catch to quarantine bad documents. Genuine programming errors are
-    intentionally NOT swallowed.
+    intentionally NOT swallowed. The message names the library error's class
+    only, since its text can quote a path or the document's bytes.
     """
     try:
         yield
@@ -96,7 +97,7 @@ def wrap_parse_errors(engine: str) -> Generator[None, None, None]:
         OSError,
         RecursionError,
     ) as exc:
-        raise ParseError(f"{engine} failed to parse input: {exc}") from exc
+        raise ParseError(f"{engine} failed to parse input: {type(exc).__name__}") from exc
 
 
 def guard_input_size(data: bytes, *, max_bytes: int = DEFAULT_MAX_INPUT_BYTES) -> bytes:
@@ -141,10 +142,18 @@ def parse_input_is_empty(value: ParseInput) -> bool:
 
 
 def guarded_path_size(path: Path) -> int:
-    """Return a regular file's size from the opened descriptor, without following links."""
+    """Return a regular file's size from the opened descriptor, without following links.
+
+    Raises:
+        OSError: The path cannot be opened. It keeps the errno and leaves the path out.
+        ParseError: The path is not a regular file.
+    """
 
     flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
-    descriptor = os.open(path, flags)
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as error:
+        raise OSError(error.errno, error.strerror) from None
     try:
         details = os.fstat(descriptor)
         if not stat.S_ISREG(details.st_mode):
@@ -160,7 +169,8 @@ def open_guarded_zip(data: bytes) -> zipfile.ZipFile:
     EPUB/DOCX/PPTX/XLSX are all zip containers. Without member-count, total
     uncompressed-size, and per-member ratio checks a few-KB upload can inflate
     to gigabytes in memory. This validates the central directory *before* any
-    member is read.
+    member is read. Errors leave member names out, since an embedded file keeps
+    its own name.
     """
     archive = zipfile.ZipFile(BytesIO(data))
     infos = archive.infolist()
@@ -180,8 +190,8 @@ def open_guarded_zip(data: bytes) -> zipfile.ZipFile:
             if ratio > MAX_ARCHIVE_COMPRESSION_RATIO:
                 archive.close()
                 raise ParseError(
-                    f"Archive member {info.filename!r} compression ratio "
-                    f"{ratio:.0f} exceeds {MAX_ARCHIVE_COMPRESSION_RATIO}"
+                    f"Archive member compression ratio {ratio:.0f} exceeds "
+                    f"{MAX_ARCHIVE_COMPRESSION_RATIO}"
                 )
         elif info.file_size > 0:
             # compress_size == 0 with a non-zero claimed uncompressed size is
@@ -191,8 +201,7 @@ def open_guarded_zip(data: bytes) -> zipfile.ZipFile:
             # silently skipping the ratio check as before.
             archive.close()
             raise ParseError(
-                f"Archive member {info.filename!r} claims {info.file_size} "
-                "uncompressed bytes from 0 compressed bytes"
+                f"Archive member claims {info.file_size} uncompressed bytes from 0 compressed bytes"
             )
     # NOTE: this trusts the zip central directory's `file_size`/
     # `compress_size` fields rather than independently re-verifying

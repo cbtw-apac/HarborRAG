@@ -21,13 +21,13 @@ PINS: dict[str, tuple[str, str, str, str]] = {
         "document:1b4395c5d3a19e8b5d9bd3973b06b6d2d60f36c5a397c45dfbdff3c87260cc9e",
         "admission-change:9baab2224ac5f948a209771697207546d76e267c80eb71bf915a7af750dbf8e8",
         "e6ffe813059b6dbbfac11ae896e2afa922c9c91d6f9755d61c6e0b4da2db331e",
-        "retrieval-metadata:808785af073b389b577fc61988bb04885fbb785fcbc2922449da5db243cfb9ad",
+        "retrieval-metadata:9104930665b6172827024f14936822d6cbd5fc49bd5bcc5c65554d4d058d7f06",
     ),
     "sharepoint://site1/pages/page1": (
         "document:313ee7f63da9ab3b23abc4f2c80b51ba968a63d5815ba73f0ee046470fe25989",
         "admission-change:53ff4f873499294e0e4afedd8f35d9080a0dec46500af422c810d06963915a88",
-        "cd101fd176468cf6c24e7d049d7d1e9af69e258036a3430d5b75e8dbaecdf043",
-        "retrieval-metadata:95f516b02fdaa81b00bc07ea0f7c04872391b08c898b060344e08b936da2033f",
+        "d007fa61f7bbfff22ed5534b2938d864c13609ed0cf5a04dc5e82850c1d9e481",
+        "retrieval-metadata:61abd966904499dd04848d0e240d607053454953a2feea14a17a983a592facd4",
     ),
 }
 

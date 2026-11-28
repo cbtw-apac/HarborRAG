@@ -12,18 +12,46 @@ from harborrag_core.contracts.errors import HarborValidationError
 
 pytestmark = pytest.mark.unit
 
-SIX_KEYS = (
+CAPTURE_FILE_TYPES = [
+    ".md",
+    ".markdown",
+    ".txt",
+    ".pdf",
+    ".docx",
+    ".doc",
+    ".epub",
+    ".odt",
+    ".pptx",
+    ".csv",
+    ".xlsx",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".html",
+]
+
+SIXTEEN_KEYS = (
+    "capture.file_types",
+    "capture.max_document_mb",
+    "capture.max_pdf_pages",
     "chunking.max_tokens",
+    "chunking.overlap_tokens",
+    "embedding.batch_size",
+    "ingestion.activity_timeout",
+    "ingestion.batch_size",
     "ingestion.concurrency",
+    "ingestion.max_attempts",
     "models.embedding",
+    "parsing.ocr.enabled",
+    "parsing.ocr.languages",
     "parsing.pdf_parser",
     "retrieval.rerank",
     "retrieval.top_k",
 )
 
 
-def test_registry_holds_exactly_the_six_keys() -> None:
-    assert SettingsRegistry.default().keys() == SIX_KEYS
+def test_registry_holds_exactly_the_sixteen_keys() -> None:
+    assert SettingsRegistry.default().keys() == SIXTEEN_KEYS
 
 
 def test_defaults_match_todays_knobs() -> None:
@@ -31,7 +59,24 @@ def test_defaults_match_todays_knobs() -> None:
 
     defaults = [registry.definition(key).default for key in registry.keys()]
 
-    assert defaults == [1200, 8, None, "liteparse", False, 5]
+    assert defaults == [
+        CAPTURE_FILE_TYPES,
+        20,
+        200,
+        1200,
+        None,
+        32,
+        None,
+        200,
+        8,
+        None,
+        None,
+        True,
+        ["en"],
+        "liteparse",
+        False,
+        5,
+    ]
 
 
 def test_levels_and_applies() -> None:
@@ -46,15 +91,40 @@ def test_json_schema_groups_hold_every_key_once() -> None:
 
     assert [(group["name"], group["title"]) for group in groups] == [
         ("retrieval", "Retrieval"),
+        ("capture", "Capture"),
         ("parsing", "Parsing"),
         ("chunking", "Chunking"),
+        ("embedding", "Embedding"),
         ("ingestion", "Ingestion"),
         ("models", "Models"),
     ]
     entries = {entry["key"]: entry for group in groups for entry in group["settings"]}
     assert sorted(entry["key"] for group in groups for entry in group["settings"]) == sorted(
-        SIX_KEYS
+        SIXTEEN_KEYS
     )
+    assert entries["capture.max_document_mb"] == {
+        "key": "capture.max_document_mb",
+        "type": "integer",
+        "default": 20,
+        "min": 1,
+        "max": 100,
+        "levels": ["tenant", "project", "connection"],
+        "applies": "next_ingestion",
+        "description": entries["capture.max_document_mb"]["description"],
+    }
+    assert entries["capture.file_types"]["type"] == "array"
+    assert entries["capture.file_types"]["default"] == CAPTURE_FILE_TYPES
+    assert "min" not in entries["capture.file_types"]
+    assert entries["capture.max_pdf_pages"] == {
+        "key": "capture.max_pdf_pages",
+        "type": "integer",
+        "default": 200,
+        "min": 1,
+        "max": 2000,
+        "levels": ["tenant", "project", "connection"],
+        "applies": "next_ingestion",
+        "description": entries["capture.max_pdf_pages"]["description"],
+    }
     assert entries["chunking.max_tokens"] == {
         "key": "chunking.max_tokens",
         "type": "integer",
@@ -65,8 +135,45 @@ def test_json_schema_groups_hold_every_key_once() -> None:
         "applies": "next_ingestion",
         "description": entries["chunking.max_tokens"]["description"],
     }
+    assert entries["chunking.overlap_tokens"] == {
+        "key": "chunking.overlap_tokens",
+        "type": "integer",
+        "default": None,
+        "min": 0,
+        "max": 512,
+        "levels": ["tenant", "project", "connection"],
+        "applies": "next_ingestion",
+        "description": entries["chunking.overlap_tokens"]["description"],
+    }
+    assert (
+        entries["ingestion.max_attempts"]["default"],
+        entries["ingestion.max_attempts"]["min"],
+        entries["ingestion.max_attempts"]["max"],
+    ) == (None, 1, 10)
+    assert entries["ingestion.activity_timeout"]["type"] == "string"
+    assert entries["ingestion.activity_timeout"]["default"] is None
+    assert entries["embedding.batch_size"] == {
+        "key": "embedding.batch_size",
+        "type": "integer",
+        "default": 32,
+        "min": 1,
+        "max": 256,
+        "levels": ["tenant", "project"],
+        "applies": "next_ingestion",
+        "description": entries["embedding.batch_size"]["description"],
+    }
     assert entries["parsing.pdf_parser"]["type"] == "enum"
     assert entries["parsing.pdf_parser"]["enum"] == ["liteparse", "docling"]
+    assert entries["parsing.ocr.enabled"] == {
+        "key": "parsing.ocr.enabled",
+        "type": "boolean",
+        "default": True,
+        "levels": ["tenant", "project", "connection"],
+        "applies": "next_ingestion",
+        "description": entries["parsing.ocr.enabled"]["description"],
+    }
+    assert entries["parsing.ocr.languages"]["type"] == "array"
+    assert entries["parsing.ocr.languages"]["default"] == ["en"]
     assert entries["retrieval.rerank"]["type"] == "boolean"
     assert "min" not in entries["retrieval.rerank"]
     assert "max" not in entries["retrieval.rerank"]
@@ -113,6 +220,13 @@ def test_unknown_key_is_refused() -> None:
         ("retrieval.top_k", "5"),
         ("parsing.pdf_parser", "tesseract"),
         ("models.embedding", "no-colon"),
+        ("ingestion.activity_timeout", "PT1S"),
+        ("ingestion.activity_timeout", "PT2H"),
+        ("ingestion.activity_timeout", "bogus"),
+        ("capture.file_types", ["exe"]),
+        ("capture.file_types", ["pdf", ".exe"]),
+        ("capture.file_types", []),
+        ("capture.file_types", "pdf"),
     ],
 )
 def test_validate_rejects_bad_values(key: str, value: object) -> None:
@@ -126,19 +240,32 @@ def test_validate_returns_the_value() -> None:
     assert SettingsRegistry.default().definition("chunking.max_tokens").validate(300) == 300
 
 
+def test_file_types_accept_shared_types_with_or_without_the_dot_and_keep_them_as_sent() -> None:
+    definition = SettingsRegistry.default().definition("capture.file_types")
+
+    assert definition.validate(["pdf", "DOCX", ".txt"]) == ["pdf", "DOCX", ".txt"]
+
+
+@pytest.mark.parametrize("value", ["PT30S", "PT10M", "PT1H"])
+def test_activity_timeout_accepts_the_boundary_and_middle_values(value: str) -> None:
+    assert (
+        SettingsRegistry.default().definition("ingestion.activity_timeout").validate(value) == value
+    )
+
+
 def test_level_parse() -> None:
     assert SettingsLevel.parse(None) == SettingsLevel("tenant")
     assert SettingsLevel.parse("tenant") == SettingsLevel("tenant")
-    assert SettingsLevel.parse("project:cpm") == SettingsLevel("project", project_id="cpm")
-    parsed = SettingsLevel.parse("connection:cpm/cpm-tickets")
-    assert parsed == SettingsLevel("connection", project_id="cpm", connection_id="cpm-tickets")
-    assert str(parsed) == "connection:cpm/cpm-tickets"
-    assert str(SettingsLevel.parse("project:cpm")) == "project:cpm"
+    assert SettingsLevel.parse("project:demo") == SettingsLevel("project", project_id="demo")
+    parsed = SettingsLevel.parse("connection:demo/demo-tickets")
+    assert parsed == SettingsLevel("connection", project_id="demo", connection_id="demo-tickets")
+    assert str(parsed) == "connection:demo/demo-tickets"
+    assert str(SettingsLevel.parse("project:demo")) == "project:demo"
     assert str(SettingsLevel("tenant")) == "tenant"
 
 
 @pytest.mark.parametrize(
-    "text", ["folder:x", "connection:cpm", "connection:cpm/Bad!", "project:", ""]
+    "text", ["folder:x", "connection:demo", "connection:demo/Bad!", "project:", ""]
 )
 def test_level_parse_rejects_malformed(text: str) -> None:
     with pytest.raises(HarborValidationError) as raised:
@@ -148,11 +275,11 @@ def test_level_parse_rejects_malformed(text: str) -> None:
 
 
 def test_level_chain_runs_from_tenant_to_self() -> None:
-    level = SettingsLevel.parse("connection:cpm/cpm-tickets")
+    level = SettingsLevel.parse("connection:demo/demo-tickets")
 
     assert [str(item) for item in level.chain()] == [
         "tenant",
-        "project:cpm",
-        "connection:cpm/cpm-tickets",
+        "project:demo",
+        "connection:demo/demo-tickets",
     ]
     assert SettingsLevel("tenant").chain() == (SettingsLevel("tenant"),)

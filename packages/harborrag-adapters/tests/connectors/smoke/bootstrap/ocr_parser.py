@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from harborrag_adapters.parsers.common.base import BaseParser
@@ -90,7 +89,7 @@ def build_harbor_parser() -> HarborParserRegistry:
     container-only DNS alias.
     """
     catalog = parser_catalog()
-    harbor_parser = catalog.build_harbor_parser(environment=os.environ)
+    harbor_parser = catalog.build_harbor_parser()
     apply_host_ocr_server_url(harbor_parser)
     _print_engine_selection(harbor_parser, _reported_families(catalog))
     return harbor_parser
@@ -130,16 +129,6 @@ def _print_engine_selection(
         ]
         if engines:
             print(f"[parsers] {family.parser_name} engines={', '.join(engines)}")
-
-
-def attachment_custom_parsers() -> dict[Any, CustomAttachmentParser]:
-    """Take no attachment type away from the configured parser registry.
-
-    Image attachments used to be diverted to RapidOCR here. The catalog now
-    configures the image family itself, so leaving this empty lets every
-    attachment route through the same engines `config/ingestion/parsers.yaml` selects.
-    """
-    return {}
 
 
 _RAPID_OCR_ENGINE: Any | None = None

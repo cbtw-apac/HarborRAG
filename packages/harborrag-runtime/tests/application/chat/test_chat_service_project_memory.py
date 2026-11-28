@@ -1,0 +1,206 @@
+"""Chat application-service tests for per-message history and project scoping."""
+
+from __future__ import annotations
+
+import json
+
+import pytest
+
+from harborrag_core.contracts.errors import HarborNotFoundError, UnknownReferenceError
+from harborrag_core.domain.project import Project
+from harborrag_core.domain.retrieval import RetrievalResult
+from harborrag_memory.tiers.in_memory import InMemoryConversationMemory
+from harborrag_runtime.application.chat import ChatApplicationService, ChatExecutionOptions
+from harborrag_runtime.application.chat.presenters import citation_marker
+from harborrag_runtime.config.settings import RuntimeSettings
+from harborrag_runtime.memory import ConversationIdentity
+from harborrag_runtime.testing.chat_fakes import FakeChatFacade, FakeRetrievalFacade, FakeRuntime
+from harborrag_runtime.testing.chat_service_double import FakeConnectionCatalog
+
+pytestmark = pytest.mark.unit
+
+IDENTITY = ConversationIdentity("ACME", "reader-1", "session-1", "reader-1")
+RESULTS = (
+    RetrievalResult(
+        id="chunk-1",
+        text="HarborRAG grounds answers.",
+        score=0.9,
+        metadata={"document_id": "doc-1"},
+    ),
+)
+
+
+class FakeProjects:
+    """``ProjectRepositoryPort.get`` double honouring the tenant filter."""
+
+    def __init__(self, *projects: Project) -> None:
+        self.projects = {project.id: project for project in projects}
+        self.calls: list[tuple[str, frozenset[str] | None]] = []
+
+    async def get(self, project_id: str, *, tenant_ids: frozenset[str] | None) -> Project | None:
+        self.calls.append((project_id, tenant_ids))
+        project = self.projects.get(project_id)
+        if project is None or (tenant_ids is not None and project.tenant_id not in tenant_ids):
+            return None
+        return project
+
+
+def _project(project_id: str, tenant_id: str = "ACME") -> Project:
+    return Project(
+        id=project_id, name=project_id, collection=f"c-{project_id}", tenant_id=tenant_id
+    )
+
+
+def _service(
+    memory: InMemoryConversationMemory,
+    *,
+    projects: FakeProjects | None = None,
+    results: tuple[RetrievalResult, ...] = (),
+    answer: str = "Hello",
+    retrieval: FakeRetrievalFacade | None = None,
+) -> ChatApplicationService:
+    runtime = FakeRuntime(FakeChatFacade(answer=answer), retrieval or FakeRetrievalFacade(results))
+    catalog = FakeConnectionCatalog()
+    catalog.add("proj-1", "proj-1/docs", ("scope-docs",), documents=3)
+    return ChatApplicationService(
+        lambda: runtime,  # type: ignore[arg-type]
+        RuntimeSettings(),
+        memory=memory,
+        projects=projects,  # type: ignore[arg-type]
+        catalog=catalog,
+    )
+
+
+@pytest.mark.asyncio
+async def test_chat_completion_writes_user_and_assistant_messages_with_citations() -> None:
+    """The turn view (phase-1 history reads) stays derivable from the message log."""
+    memory = InMemoryConversationMemory()
+    await memory.create(IDENTITY)
+    answer = f"Hello {citation_marker(1, RESULTS[0])}"
+    service = _service(memory, results=RESULTS, answer=answer)
+
+    response = await service.complete(
+        "Hello",
+        tenant_id="ACME",
+        principal_id="reader-1",
+        options=ChatExecutionOptions(session_id="session-1", user_id="reader-1"),
+    )
+
+    assert response.ok is True
+    user, assistant = await memory.recent_messages(IDENTITY, limit=10)
+    assert (user.role, user.content, user.token_count, user.citations_json) == (
+        "user",
+        "Hello",
+        None,
+        None,
+    )
+    assert (assistant.role, assistant.content, assistant.token_count) == (
+        "assistant",
+        answer,
+        1,
+    )
+    assert (
+        json.loads(assistant.citations_json or "null")
+        == response.data["citations"]
+        == [
+            {
+                "n": 1,
+                "chunk_id": "chunk-1",
+                "document_id": "doc-1",
+                "title": "doc-1",
+                "snippet": "HarborRAG grounds answers.",
+                "url": None,
+                "page": None,
+            }
+        ]
+    )
+    assert assistant.message_id == response.data["completion_id"]
+    assert user.message_id != assistant.message_id
+    (turn,) = await memory.recent(IDENTITY, limit=2)
+    assert (turn.user_content, turn.assistant_content) == ("Hello", answer)
+
+
+@pytest.mark.asyncio
+async def test_a_one_off_question_reads_its_project_and_stores_nothing() -> None:
+    memory = InMemoryConversationMemory()
+    await memory.create(IDENTITY)
+    projects = FakeProjects(_project("proj-1"))
+    retrieval = FakeRetrievalFacade(RESULTS)
+    service = _service(memory, projects=projects, retrieval=retrieval)
+
+    response = await service.complete(
+        "Hello",
+        tenant_id="ACME",
+        principal_id="reader-1",
+        options=ChatExecutionOptions(user_id="reader-1", project_ids=("proj-1",)),
+    )
+
+    assert response.ok is True
+    assert response.data["session_id"] is None
+    assert projects.calls == [("proj-1", frozenset({"ACME"}))]
+    assert retrieval.request.filters == {"source_scope_id": ["scope-docs"]}  # type: ignore[union-attr]
+    assert await memory.recent_messages(IDENTITY, limit=10) == ()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("project_id", ["missing", "foreign"])
+async def test_chat_completion_rejects_unknown_or_foreign_project(project_id: str) -> None:
+    memory = InMemoryConversationMemory()
+    await memory.create(IDENTITY)
+    service = _service(memory, projects=FakeProjects(_project("foreign", tenant_id="OTHER")))
+
+    with pytest.raises(UnknownReferenceError, match="Project was not found") as refused:
+        await service.complete(
+            "Hello",
+            tenant_id="ACME",
+            principal_id="reader-1",
+            options=ChatExecutionOptions(user_id="reader-1", project_ids=(project_id,)),
+        )
+    assert refused.value.details == {"field": "project_ids"}
+
+
+@pytest.mark.asyncio
+async def test_chat_completion_rejects_a_project_without_a_control_plane() -> None:
+    memory = InMemoryConversationMemory()
+    await memory.create(IDENTITY)
+    service = _service(memory)
+
+    with pytest.raises(UnknownReferenceError, match="Project was not found"):
+        await service.complete(
+            "Hello",
+            tenant_id="ACME",
+            principal_id="reader-1",
+            options=ChatExecutionOptions(user_id="reader-1", project_ids=("proj-1",)),
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("project_id", ["missing", "foreign"])
+async def test_validate_project_rejects_unknown_or_foreign_project(project_id: str) -> None:
+    """What the streaming transport asks before it commits to a status line.
+
+    Same rule as ``_require_scope`` applies inside a turn, asked early enough
+    that the answer can still be a ``404``.
+    """
+
+    service = _service(
+        InMemoryConversationMemory(),
+        projects=FakeProjects(_project("foreign", tenant_id="OTHER")),
+    )
+
+    with pytest.raises(HarborNotFoundError, match="Project was not found"):
+        await service.validate_project(project_id, tenant_id="ACME")
+
+
+@pytest.mark.asyncio
+async def test_validate_project_accepts_a_known_project_and_costs_nothing_without_one() -> None:
+    """Only the real project was looked up: every turn without one would otherwise pay for a control-
+    plane read that can only answer "none".
+    """
+    projects = FakeProjects(_project("proj-1"))
+    service = _service(InMemoryConversationMemory(), projects=projects)
+
+    await service.validate_project("proj-1", tenant_id="ACME")
+    await service.validate_project(None, tenant_id="ACME")
+
+    assert projects.calls == [("proj-1", frozenset({"ACME"}))]

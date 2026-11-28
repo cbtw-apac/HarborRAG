@@ -7,7 +7,6 @@ from collections.abc import Awaitable, Callable, Iterator
 
 import asyncpg
 import pytest
-from app_test_connections import connection_world
 from app_test_fixtures import MockAppService
 from fastapi import APIRouter
 from fastapi.testclient import TestClient
@@ -17,12 +16,15 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from harborrag_app.api import app as api_app
 from harborrag_app.api.app import create_fastapi_app
 from harborrag_app.api.settings import ApiSettings
-from harborrag_app.workflow_control.control_plane.projects import ProjectService
 from harborrag_core.contracts.errors import (
     HarborConflictError,
     HarborValidationError,
 )
 from harborrag_core.domain.project import Project
+from harborrag_runtime.application.control_plane.projects import ProjectService
+from harborrag_runtime.testing.connection_fakes import connection_world
+
+pytestmark = pytest.mark.unit
 
 _TRACE_ID = re.compile(r"^[0-9a-f]{32}$")
 _LIMIT = 1_048_576
@@ -34,7 +36,7 @@ class _ProjectApp(MockAppService):
     def __init__(self) -> None:
         super().__init__()
         self.world = connection_world(
-            [Project(id="cpm", name="CPM", collection="cpm", tenant_id="DEFAULT")]
+            [Project(id="demo", name="DEMO", collection="demo", tenant_id="DEFAULT")]
         )
         self.connection_service = self.world.service
         self.project_service = ProjectService(

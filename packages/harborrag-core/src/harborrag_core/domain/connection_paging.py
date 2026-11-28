@@ -1,8 +1,6 @@
 """Keyset ordering and opaque cursors for connection listings.
 
-Handles:
-- the listing order: connections needing attention first, then project and ``connection_id``
-- the cursor codec every ``ConnectionRepositoryPort`` implementation shares
+Every ``ConnectionRepositoryPort`` implementation shares the cursor codec.
 """
 
 from __future__ import annotations

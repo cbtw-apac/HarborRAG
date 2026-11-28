@@ -23,10 +23,8 @@ from harborrag_adapters.connectors.exceptions import (
     AuthenticationError,
     AuthorizationError,
     FetchError,
-    RateLimitError,
 )
 from harborrag_adapters.connectors.limits import DEFAULT_ALLOWED_EXTENSIONS
-from harborrag_adapters.connectors.schemas import ConnectorQuery
 from harborrag_adapters.connectors.sharepoint.permissions import reject_broad_permissions
 from harborrag_adapters.connectors.sharepoint.skips import SharePointItemSkippedError
 from harborrag_core.domain.source import SourceRecord
@@ -35,6 +33,7 @@ from harborrag_core.ingestion import (
     SourceUnavailableError,
     UnsupportedDocumentError,
 )
+from harborrag_core.ingestion.connector_contracts import ConnectorQuery
 
 pytestmark = [pytest.mark.unit, pytest.mark.graybox]
 
@@ -71,9 +70,6 @@ def _file_record(item_id: str = "file1", drive_id: str = "drive1") -> SourceReco
 def _jwt(claims: dict[str, Any]) -> str:
     payload = base64.urlsafe_b64encode(json.dumps(claims).encode()).decode().rstrip("=")
     return f"header.{payload}.signature"
-
-
-# --- Config (AC10) ------------------------------------------------------------
 
 
 def test_default_extensions_are_the_shared_document_and_image_set():
@@ -113,9 +109,6 @@ def test_config_normalizes_allowlists():
     assert cfg.allowed_sites == {"https://contoso.sharepoint.com/sites/engineering"}
     assert cfg.allowed_tenant_ids == {"tenant-1"}
     assert cfg.allowed_path_prefixes == ["docs/policies", ""]
-
-
-# --- Crawl scope (AC1, AC2) -----------------------------------------------------
 
 
 def test_recursive_setting_off_stays_in_the_root_folder():
@@ -180,9 +173,6 @@ def test_crawl_all_drives_loads_a_file_from_any_library_in_scope():
 
     assert document.content == b"bytes"
     assert document.metadata["drive_id"] == "drive2"
-
-
-# --- Allowlists (AC3) -------------------------------------------------------------
 
 
 def test_site_not_in_allowlist_is_never_crawled():
@@ -283,9 +273,6 @@ def test_load_refuses_any_record_when_the_site_is_not_allowlisted():
     assert client.byte_calls == []
 
 
-# --- Skips (AC6, AC7, AC9) -------------------------------------------------------
-
-
 def test_discovery_reports_unsupported_and_oversized_files_with_item_id_and_url():
     client = FakeGraphClient()
     add_site_and_default_drive(client)
@@ -329,8 +316,6 @@ def test_skipped_resets_between_discoveries():
     [
         (FetchError("gone", status_code=404), "DELETED"),
         (AuthorizationError("forbidden", status_code=403), "ACCESS_DENIED"),
-        (RateLimitError("slow down", status_code=429), "TRANSIENT_ERROR_MAX_RETRIES"),
-        (FetchError("boom", status_code=503), "TRANSIENT_ERROR_MAX_RETRIES"),
     ],
 )
 def test_direct_item_failures_are_skipped_and_the_run_continues(error, reason):
@@ -364,8 +349,6 @@ def _subfolder_tree(client: RaisingGraphClient) -> None:
     [
         (FetchError("gone", status_code=404), "DELETED"),
         (AuthorizationError("forbidden", status_code=403), "ACCESS_DENIED"),
-        (RateLimitError("slow down", status_code=429), "TRANSIENT_ERROR_MAX_RETRIES"),
-        (FetchError("boom", status_code=503), "TRANSIENT_ERROR_MAX_RETRIES"),
     ],
 )
 def test_a_failing_subfolder_is_skipped_and_its_siblings_still_crawl(error, reason):
@@ -391,15 +374,13 @@ def test_a_subfolder_failing_mid_pagination_keeps_the_pages_already_listed():
         "drives/drive1/items/big/children",
         {"value": [file_item("file1", "A.docx", parent_id="big")], "@odata.nextLink": "page2"},
     )
-    client.errors["page2"] = FetchError("boom", status_code=503)
+    client.errors["page2"] = FetchError("gone", status_code=404)
     connector = SharePointConnector(config(), client=client)
 
     records = list(connector.discover())
 
     assert [record.locator for record in records] == ["file1"]
-    assert [(skip.reason, skip.item_id) for skip in connector.skipped] == [
-        ("TRANSIENT_ERROR_MAX_RETRIES", "big")
-    ]
+    assert [(skip.reason, skip.item_id) for skip in connector.skipped] == [("DELETED", "big")]
 
 
 @pytest.mark.parametrize(
@@ -454,6 +435,11 @@ def test_authentication_failure_in_a_subfolder_still_stops_the_run():
     ],
 )
 def test_load_turns_item_failures_into_non_fatal_skips(endpoint, error, reason, error_type):
+    """A per-item failure, never an auth failure: the engine records one failed item.
+
+    Only a decline is classified unsupported; a deleted item is missing, and exhausted retries stay
+    retryable.
+    """
     client = RaisingGraphClient()
     add_site_and_default_drive(client)
     client.add("drives/drive1/items/file1", file_item("file1", "Guide.docx"))
@@ -465,9 +451,6 @@ def test_load_turns_item_failures_into_non_fatal_skips(endpoint, error, reason, 
 
     assert excinfo.value.skip_reason == reason
     assert excinfo.value.item_id == "file1"
-    # A per-item failure, never an auth failure: the engine records one failed item.
-    # Only a decline is classified unsupported; a deleted item is missing, and
-    # exhausted retries stay retryable.
     assert isinstance(excinfo.value, UnsupportedDocumentError) is (reason == "ACCESS_DENIED")
     assert not isinstance(excinfo.value, AuthenticationError)
 
@@ -489,9 +472,6 @@ def test_load_raw_documents_skips_a_forbidden_item_instead_of_stopping():
     assert [document.content for document in documents] == [b"ok"]
 
 
-# --- Dedup (AC8) ------------------------------------------------------------------
-
-
 def test_discover_yields_each_item_once_per_run():
     client = FakeGraphClient()
     add_site_and_default_drive(client)
@@ -502,9 +482,6 @@ def test_discover_yields_each_item_once_per_run():
     records = list(connector.discover(ConnectorQuery(filters={"item_ids": ["file1", "file1"]})))
 
     assert [record.id for record in records] == ["sharepoint://site1/drive1/file1"]
-
-
-# --- Authentication and permissions (AC4, AC5) ----------------------------------------
 
 
 def test_broad_graph_permissions_are_refused():

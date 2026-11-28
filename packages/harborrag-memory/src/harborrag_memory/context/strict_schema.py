@@ -29,6 +29,3 @@ def strict_schema(schema: dict[str, Any]) -> None:
 
 STRICT_SCHEMA_CONFIG = ConfigDict(json_schema_extra=strict_schema)
 """``model_config`` for any model bound by ``with_structured_output``."""
-
-
-__all__ = ["STRICT_SCHEMA_CONFIG", "strict_schema"]

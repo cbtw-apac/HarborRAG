@@ -10,11 +10,15 @@ Usage::
     python -m harborrag_runtime.connections.sharepoint_login \
         --tenant-id <tenant-guid> --client-id <app-guid>
 
-Tenant and client IDs default to ``MICROSOFT_TENANT_ID`` and
-``MICROSOFT_CLIENT_ID``, from the environment or else from the connector env file
-(``env/.env.connector``, or ``$CONNECTOR_ENV_FILE``) the CLI reads. The default
-token file sits in the folder of the HarborRAG tenant the connection belongs to:
-``--harborrag-tenant``, else ``HARBORRAG_INGESTION_TENANT_ID``, else ``DEFAULT``.
+The IDs are not secrets. Only this command defaults them: ``--tenant-id`` and
+``--client-id`` fall back to ``MICROSOFT_TENANT_ID`` and ``MICROSOFT_CLIENT_ID``, from
+the environment or else from the connector env file (``env/.env.connector``, or
+``$CONNECTOR_ENV_FILE``) the CLI reads; a connection's own configuration does not read
+them. The default token file sits in the folder of the HarborRAG tenant the connection
+belongs to, which must match the connection's ``harborrag_tenant_id``:
+``--harborrag-tenant``, else ``HARBORRAG_TENANT_ID``, else ``DEFAULT``. The sign-in
+reaches only public addresses, plus the hosts and proxy setting of
+``HARBORRAG_CONNECTOR_ALLOWED_HOSTS`` and ``HARBORRAG_CONNECTOR_USE_PROXY``.
 ``--logout`` deletes the stored sign-in.
 """
 
@@ -26,6 +30,10 @@ import sys
 from pathlib import Path
 
 from harborrag_adapters.connectors.exceptions import AuthenticationError
+from harborrag_adapters.connectors.policies.network import (
+    BlockedDestinationError,
+    DestinationPolicy,
+)
 from harborrag_adapters.connectors.sharepoint import (
     DelegatedTokenCache,
     DeviceCodeLogin,
@@ -34,7 +42,7 @@ from harborrag_adapters.connectors.sharepoint import (
 
 _TENANT_ID = "MICROSOFT_TENANT_ID"
 _CLIENT_ID = "MICROSOFT_CLIENT_ID"
-_HARBORRAG_TENANT = "HARBORRAG_INGESTION_TENANT_ID"
+_HARBORRAG_TENANT = "HARBORRAG_TENANT_ID"
 _CONNECTOR_ENV_FILE = "env/.env.connector"
 
 
@@ -63,12 +71,23 @@ def _default(name: str, file_ids: dict[str, str]) -> str | None:
 
 def _arguments(argv: list[str] | None, file_ids: dict[str, str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("--tenant-id", default=_default(_TENANT_ID, file_ids))
-    parser.add_argument("--client-id", default=_default(_CLIENT_ID, file_ids))
+    parser.add_argument(
+        "--tenant-id",
+        default=_default(_TENANT_ID, file_ids),
+        help="Microsoft Entra tenant ID; default MICROSOFT_TENANT_ID (environment or env file).",
+    )
+    parser.add_argument(
+        "--client-id",
+        default=_default(_CLIENT_ID, file_ids),
+        help="App (client) ID; default MICROSOFT_CLIENT_ID (environment or env file).",
+    )
     parser.add_argument(
         "--harborrag-tenant",
         default=os.getenv(_HARBORRAG_TENANT) or "DEFAULT",
-        help="HarborRAG tenant of the connection; picks the default token file's folder.",
+        help=(
+            "HarborRAG tenant of the connection, default HARBORRAG_TENANT_ID or DEFAULT; "
+            "picks the default token file's folder."
+        ),
     )
     parser.add_argument(
         "--token-cache-path",
@@ -105,8 +124,10 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Removed SharePoint sign-in at {cache.path}")
         return 0
     try:
-        account = DeviceCodeLogin(cache).run(prompt=lambda message: print(message, flush=True))
-    except AuthenticationError as exc:
+        account = DeviceCodeLogin(cache, destination_policy=DestinationPolicy.from_environ()).run(
+            prompt=lambda message: print(message, flush=True)
+        )
+    except (AuthenticationError, BlockedDestinationError, ValueError) as exc:
         print(str(exc))
         return 1
     print(f"Signed in as {account or 'unknown account'}; token stored at {cache.path}")

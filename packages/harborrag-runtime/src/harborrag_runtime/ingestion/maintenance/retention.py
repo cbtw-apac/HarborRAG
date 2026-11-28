@@ -18,21 +18,18 @@ from datetime import datetime, timedelta
 
 from harborrag_adapters.repositories.database import IngestionControlPlaneDatabase
 from harborrag_adapters.repositories.database.ingestion_control.retention import PurgeClaim
-from harborrag_adapters.repositories.errors import HarborStorageNotFoundError
 from harborrag_adapters.repositories.object_store import (
     ARTIFACT_BUCKET,
     IngestionArtifactLayout,
 )
 from harborrag_core.base import utc_now
+from harborrag_core.contracts.errors import StorageNotFoundError
 from harborrag_core.ingestion import PurgeableDocumentVersion
 from harborrag_core.ports.storage import ObjectStorePort
 from harborrag_core.storage import StorageOperationContext
 
 logger = logging.getLogger("harborrag.runtime.ingestion.retention")
 
-# Object families whose keys are addressed by (document_id, document_version_id).
-# ``parsed/`` is a content-addressed cache shared across versions and
-# ``source-plans/`` belongs to tasks, so neither is ever touched here.
 _VERSION_FAMILIES = (
     "canonical",
     "chunks",
@@ -42,24 +39,31 @@ _VERSION_FAMILIES = (
     "tables",
     "representations",
 )
+"""Object families whose keys are addressed by (document_id, document_version_id). ``parsed/`` is a
+content-addressed cache shared across versions and ``source-plans/`` belongs to tasks, so neither
+is ever touched here.
+"""
 _SHARED_PREFIXES = ("parsed/", "source-plans/")
 _LIST_PAGE = 1_000
 _MAX_LIST_PASSES = 100
 _SWEEP_BATCH = 1_000
-# One periodic sweep keeps claiming batches while they come back full, for at
-# most this long, so a backlog drains in one sweep rather than 1000 a day.
 SWEEP_TIME_BUDGET_SECONDS = 600.0
+"""One periodic sweep keeps claiming batches while they come back full, for at most this long, so a
+backlog drains in one sweep rather than 1000 a day.
+"""
 
 
 @dataclass(frozen=True, slots=True)
 class RetiredVersionPurgeBatch:
+    """Counts from one purge batch of retired versions."""
+
     eligible: int = 0
     purged: int = 0
     skipped: int = 0
     failed: int = 0
     deleted_objects: int = 0
-    # Versions still eligible when a sweep stopped; only ``run_all`` counts them.
     backlog: int = 0
+    """Versions still eligible when a sweep stopped; only ``run_all`` counts them."""
 
     def __add__(self, other: RetiredVersionPurgeBatch) -> RetiredVersionPurgeBatch:
         return RetiredVersionPurgeBatch(
@@ -97,6 +101,7 @@ class RetiredVersionPurgeService:
         source_scope_id: str,
         limit: int = 100,
     ) -> RetiredVersionPurgeBatch:
+        """Purge eligible retired versions of one source scope, up to ``limit``."""
         versions = await self._control.retention.purgeable_versions(
             tenant_id=tenant_id,
             source_scope_id=source_scope_id,
@@ -120,7 +125,6 @@ class RetiredVersionPurgeService:
         claimed (RETIRED -> PURGING) under a row lock and a lease before anything
         is deleted. With retention off only interrupted purges are resumed.
         """
-
         deadline = time.monotonic() + time_budget_seconds
         total = RetiredVersionPurgeBatch()
         while True:
@@ -141,7 +145,6 @@ class RetiredVersionPurgeService:
 
     def _retired_before(self) -> datetime | None:
         """The TTL cutoff; None (retention off) still resumes interrupted purges."""
-
         if self._retention_days is None:
             return None
         return self._clock() - timedelta(days=self._retention_days)
@@ -181,6 +184,13 @@ class RetiredVersionPurgeService:
         return batch
 
     async def _purge(self, version: PurgeableDocumentVersion) -> tuple[str, int]:
+        """Purge one retired version and return its outcome with the objects removed.
+
+        Artifacts are deleted with the tenant context they were written with, because keys are
+        tenant-relative and the store adds the tenant prefix itself. The version stays PURGING under
+        its lease, which is the retry backoff: a failed delete cannot prove the object survived, so
+        replay must not restore the version until a purge completes.
+        """
         snapshot = version.snapshot
         document_id = str(snapshot.document_id)
         version_id = str(snapshot.document_version_id)
@@ -190,8 +200,6 @@ class RetiredVersionPurgeService:
             if claim is None:
                 _log_skip(document_id, version_id, "no_longer_retired_or_held")
                 return "skipped", 0
-            # The same tenant context the artifacts were written with: keys are
-            # tenant-relative and the store adds the tenant prefix itself.
             run = _PurgeRun(claim, StorageOperationContext.system(version.tenant_id))
             await self._delete_owned(version, run)
             if not await self._control.retention.mark_version_purged(
@@ -213,9 +221,6 @@ class RetiredVersionPurgeService:
                 removed,
                 exc_info=True,
             )
-            # The version stays PURGING under its lease, which is the retry backoff:
-            # a failed delete cannot prove the object survived, so replay must not
-            # restore the version until a purge completes.
             return "failed", removed
         logger.info(
             "Retired version purged document_id=%s document_version_id=%s deleted_objects=%d",
@@ -226,6 +231,11 @@ class RetiredVersionPurgeService:
         return "purged", run.removed
 
     async def _delete_owned(self, version: PurgeableDocumentVersion, run: _PurgeRun) -> None:
+        """Delete the objects a version owns, then its unshared raw objects.
+
+        Shared raw objects go last, right after checking who still references them, so a version
+        recording the same raw key meanwhile keeps it.
+        """
         snapshot = version.snapshot
         document_id = str(snapshot.document_id)
         version_id = str(snapshot.document_version_id)
@@ -233,8 +243,6 @@ class RetiredVersionPurgeService:
             await self._delete(bucket, key, run)
         for family in _VERSION_FAMILIES:
             await self._delete_stem(f"{family}/{document_id}/{version_id}", run)
-        # Shared raw objects last, right after checking who still references them,
-        # so a version recording the same raw key meanwhile keeps it.
         await self._renew(run)
         for bucket, key in sorted(await self._unshared_raw_objects(version)):
             await self._delete(bucket, key, run)
@@ -247,8 +255,11 @@ class RetiredVersionPurgeService:
 
     @staticmethod
     def _recorded_objects(version: PurgeableDocumentVersion) -> set[tuple[str, str]]:
-        """Artifacts the version row records plus its deterministic keys."""
+        """Artifacts the version row records plus its deterministic keys.
 
+        Deterministic keys a crash may have written without recording them on the version row;
+        deleting a missing key is a no-op.
+        """
         snapshot = version.snapshot
         document_id = str(snapshot.document_id)
         version_id = str(snapshot.document_version_id)
@@ -259,12 +270,9 @@ class RetiredVersionPurgeService:
                 snapshot.chunk_artifact,
                 snapshot.chunk_index_artifact,
                 snapshot.representation_artifact,
-                snapshot.relation_artifact,
             )
             if reference is not None and not reference.key.startswith(_SHARED_PREFIXES)
         }
-        # Deterministic keys a crash may have written without recording them on
-        # the version row; deleting a missing key is a no-op.
         layout = IngestionArtifactLayout
         targets |= {
             (ARTIFACT_BUCKET, layout.canonical(document_id, version_id)),
@@ -301,7 +309,6 @@ class RetiredVersionPurgeService:
         prefix of another can never select the other version's objects.
         Listing has no cursor, so full pages are deleted and listed again.
         """
-
         for _ in range(_MAX_LIST_PASSES):
             await self._renew(run)
             page = await self._store.list(
@@ -318,10 +325,10 @@ class RetiredVersionPurgeService:
                 return
 
     async def _delete(self, bucket: str, key: str, run: _PurgeRun) -> None:
+        """Already deleted by an earlier, interrupted purge."""
         try:
             existed = await self._store.delete(bucket, key, context=run.context)
-        except HarborStorageNotFoundError:
-            # Already deleted by an earlier, interrupted purge.
+        except StorageNotFoundError:
             return
         run.removed += int(existed)
 

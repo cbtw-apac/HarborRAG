@@ -13,14 +13,15 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Path, Query, Response
 
 from harborrag_app.api.auth.access import require_role
-from harborrag_app.api.auth.principal import Principal
-from harborrag_app.api.auth.tenancy import TenantDependency
-from harborrag_app.api.errors import ReferenceNotFoundError, documented_error_responses
-from harborrag_app.workflow_control.memory import MemoryAccess
-from harborrag_core.contracts.errors import HarborConnectionError, HarborNotFoundError
-
-from .dependencies import ChatServiceDependency, ConversationServiceDependency
-from .schemas import ChatSessionCreateRequest, MessageList, Session, SessionList
+from harborrag_app.api.dependencies import OperationsDependency, ScopeDependency
+from harborrag_app.api.errors import documented_error_responses
+from harborrag_app.operations.contract import OPERATIONS, route_kwargs
+from harborrag_app.operations.schemas.chat import (
+    ChatSessionCreateRequest,
+    MessageList,
+    Session,
+    SessionList,
+)
 
 
 def _no_store(response: Response) -> None:
@@ -29,8 +30,6 @@ def _no_store(response: Response) -> None:
 
 
 router = APIRouter(prefix="/sessions", dependencies=[Depends(_no_store)])
-
-Reader = Annotated[Principal, Depends(require_role("reader"))]
 
 CREATE_ERRORS = documented_error_responses(
     {
@@ -59,76 +58,52 @@ SessionPath = Annotated[
 ]
 
 
-def _access(principal: Principal, tenant: str, session_id: str | None = None) -> MemoryAccess:
-    """The caller's own conversation key, built only from verified claims."""
-
-    return MemoryAccess(
-        tenant_id=tenant,
-        principal_id=principal.subject,
-        user_id=principal.user_id,
-        session_id=session_id,
-    )
-
-
 @router.post(
     "",
-    response_model=Session,
-    status_code=201,
     responses=CREATE_ERRORS,
     name="create_chat_session",
+    **route_kwargs("create_chat_session"),
+    dependencies=[Depends(require_role(OPERATIONS["create_chat_session"].role))],
 )
 async def create_chat_session(
-    request: ChatSessionCreateRequest,
-    service: ChatServiceDependency,
-    principal: Reader,
-    tenant: TenantDependency,
+    request: ChatSessionCreateRequest, operations: OperationsDependency, scope: ScopeDependency
 ) -> Session:
     """Start a session, scoped to one project of the tenant for its whole life."""
-
-    try:
-        result = await service.create_chat_session(
-            tenant_id=tenant,
-            principal_id=principal.subject,
-            user_id=principal.user_id,
-            title=request.title,
-            project_id=request.project_id,
-        )
-    except HarborNotFoundError as exc:
-        raise ReferenceNotFoundError(str(exc), {"field": "project_id"}) from exc
-    if not result.ok:
-        raise HarborConnectionError("Chat service is unavailable")
-    return Session.model_validate(result.data)
+    return await operations.create_chat_session(scope, request)
 
 
-@router.get("", response_model=SessionList, responses=READ_ERRORS, name="list_chat_sessions")
-async def list_sessions(  # noqa: PLR0913 - the route's dependencies and query
-    service: ConversationServiceDependency,
-    principal: Reader,
-    tenant: TenantDependency,
+@router.get(
+    "",
+    responses=READ_ERRORS,
+    name="list_chat_sessions",
+    **route_kwargs("list_chat_sessions"),
+    dependencies=[Depends(require_role(OPERATIONS["list_chat_sessions"].role))],
+)
+async def list_sessions(
+    operations: OperationsDependency,
+    scope: ScopeDependency,
     cursor: CursorQuery = None,
     limit: LimitQuery = 20,
     q: Annotated[str | None, Query(max_length=200, description="Search titles")] = None,
 ) -> SessionList:
     """The caller's sessions, newest activity first."""
-
-    result = await service.list_conversations(
-        _access(principal, tenant), cursor=cursor, limit=limit, title_query=q
-    )
-    return SessionList.model_validate(result.data)
+    return await operations.list_chat_sessions(scope, cursor=cursor, limit=limit, q=q)
 
 
-@router.get("/{session_id}/messages", response_model=MessageList, responses=READ_ERRORS)
-async def list_conversation_messages(  # noqa: PLR0913 - the route's dependencies and query
+@router.get(
+    "/{session_id}/messages",
+    responses=READ_ERRORS,
+    **route_kwargs("list_conversation_messages"),
+    dependencies=[Depends(require_role(OPERATIONS["list_conversation_messages"].role))],
+)
+async def list_conversation_messages(
     session_id: SessionPath,
-    service: ConversationServiceDependency,
-    principal: Reader,
-    tenant: TenantDependency,
+    operations: OperationsDependency,
+    scope: ScopeDependency,
     cursor: CursorQuery = None,
     limit: LimitQuery = 20,
 ) -> MessageList:
     """A session's messages with their citations, newest first."""
-
-    result = await service.conversation_messages(
-        _access(principal, tenant, session_id), cursor=cursor, limit=limit
+    return await operations.list_conversation_messages(
+        scope, session_id, cursor=cursor, limit=limit
     )
-    return MessageList.model_validate(result.data)

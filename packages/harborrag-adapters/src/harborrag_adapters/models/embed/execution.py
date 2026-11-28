@@ -253,7 +253,10 @@ class EmbedExecution(EmbedExecutionContextMixin):
                 state.add(raw, offset=offset, size=len(batch), latency_ms=_elapsed(started))
             except Exception as exc:
                 error = self._error(exc, attempt.logical_model, attempt.deployment, request)
-                raise state.failure(error, batch_index=batch_index, completed=offset) from exc
+                failure = state.failure(error, batch_index=batch_index, completed=offset)
+                if failure is exc:
+                    raise
+                raise failure from exc
         return state.complete(_elapsed(operation_started))
 
     async def _ainvoke(
@@ -278,7 +281,10 @@ class EmbedExecution(EmbedExecutionContextMixin):
                 state.add(raw, offset=offset, size=len(batch), latency_ms=_elapsed(started))
             except Exception as exc:
                 error = self._error(exc, attempt.logical_model, attempt.deployment, request)
-                raise state.failure(error, batch_index=batch_index, completed=offset) from exc
+                failure = state.failure(error, batch_index=batch_index, completed=offset)
+                if failure is exc:
+                    raise
+                raise failure from exc
         return state.complete(_elapsed(operation_started))
 
     def _batches(
@@ -322,7 +328,7 @@ class EmbedExecution(EmbedExecutionContextMixin):
             inputs=inputs,
             timeout=self.config.timeouts.request_seconds,
             model_override=override,
-            litellm_provider=descriptor.litellm_provider,
+            metadata=descriptor,
         )
         cache_params = self.cache.provider_parameters(decision)
         if "preset_cache_key" in cache_params:

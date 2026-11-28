@@ -25,16 +25,29 @@ from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 from harborrag_core.ingestion import DocumentIngestionOutcome
 from harborrag_runtime.temporal.retry_workflow import DocumentRetryWorkflow, RetryFailuresWorkflow
 from harborrag_runtime.temporal.schemas import (
+    RetryDocumentFailureInput,
+    RetryDocumentInput,
     RetryFailuresInput,
     RetryPreparationResult,
     SourceCancellationInput,
     WorkflowArtifactReference,
 )
+from harborrag_runtime.temporal_models import TemporalWorkflowOptions
 
 pytestmark = pytest.mark.graybox
 
 _HISTORIES = Path(__file__).parent / "histories" / "retry"
 _CANCEL_PATCH = "harborrag-retry-records-cancellation"
+_DOCUMENT_CANCEL_PATCH = "harborrag-document-retry-records-cancellation"
+_CANCELLED_DOCUMENT_PATCH = "harborrag-retry-counts-cancelled-document"
+_PRE_DOCUMENT_CANCEL_PATCH = "pre_document_retry_cancel_patch.json"
+_PLAN = WorkflowArtifactReference(
+    bucket="artifacts",
+    key="source-plans/retry.json",
+    sha256="0" * 64,
+    byte_size=1,
+    media_type="application/json",
+)
 
 
 class _Activities:
@@ -43,6 +56,7 @@ class _Activities:
     def __init__(self, *blocking: str) -> None:
         self.calls: list[str] = []
         self.cancelled: list[str] = []
+        self.document_failures: list[str] = []
         self.entered = {name: asyncio.Event() for name in blocking}
         self.released = {name: asyncio.Event() for name in blocking}
 
@@ -60,16 +74,7 @@ class _Activities:
     async def prepare(self, request: Any) -> RetryPreparationResult:
         del request
         await self._record("prepare")
-        return RetryPreparationResult(
-            plan_reference=WorkflowArtifactReference(
-                bucket="artifacts",
-                key="source-plans/retry.json",
-                sha256="0" * 64,
-                byte_size=1,
-                media_type="application/json",
-            ),
-            document_count=2,
-        )
+        return RetryPreparationResult(plan_reference=_PLAN, document_count=2)
 
     @activity.defn(name="harborrag.retry_document_release")
     async def release(self, request: Any) -> DocumentIngestionOutcome:
@@ -78,8 +83,8 @@ class _Activities:
         return DocumentIngestionOutcome.PUBLISHED
 
     @activity.defn(name="harborrag.record_retry_document_failure")
-    async def record_document_failure(self, request: Any) -> None:
-        del request
+    async def record_document_failure(self, request: RetryDocumentFailureInput) -> None:
+        self.document_failures.append(request.error_type)
         await self._record("record_document_failure")
 
     @activity.defn(name="harborrag.record_retry_failures_task_failure")
@@ -121,6 +126,33 @@ async def environment() -> AsyncIterator[WorkflowEnvironment]:
 
 
 @asynccontextmanager
+async def _workers(
+    environment: WorkflowEnvironment, activities: _Activities
+) -> AsyncIterator[None]:
+    """Run the retry workflows and ``activities`` on every task queue."""
+
+    workers = [
+        Worker(
+            environment.client,
+            task_queue=queue,
+            workflows=[RetryFailuresWorkflow, DocumentRetryWorkflow],
+            activities=activities.all(),
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        )
+        for queue in set(TemporalWorkflowOptions().task_queues.as_tuple())
+    ]
+    runs = [asyncio.create_task(worker.run()) for worker in workers]
+    try:
+        with environment.auto_time_skipping_disabled():
+            yield
+    finally:
+        activities.release_all()
+        for worker in workers:
+            await worker.shutdown()
+        await asyncio.gather(*runs, return_exceptions=True)
+
+
+@asynccontextmanager
 async def _retry_run(
     environment: WorkflowEnvironment, activities: _Activities
 ) -> AsyncIterator[WorkflowHandle[Any, Any]]:
@@ -134,30 +166,13 @@ async def _retry_run(
         document_ids=("document-1", "document-2"),
         document_concurrency=2,
     )
-    workers = [
-        Worker(
-            environment.client,
-            task_queue=queue,
-            workflows=[RetryFailuresWorkflow, DocumentRetryWorkflow],
-            activities=activities.all(),
-            workflow_runner=UnsandboxedWorkflowRunner(),
+    async with _workers(environment, activities):
+        yield await environment.client.start_workflow(
+            RetryFailuresWorkflow.run,
+            request,
+            id=f"harborrag-retry:{retry_task_id}",
+            task_queue=request.workflow_options.task_queues.discovery,
         )
-        for queue in set(request.workflow_options.task_queues.as_tuple())
-    ]
-    runs = [asyncio.create_task(worker.run()) for worker in workers]
-    try:
-        with environment.auto_time_skipping_disabled():
-            yield await environment.client.start_workflow(
-                RetryFailuresWorkflow.run,
-                request,
-                id=f"harborrag-retry:{retry_task_id}",
-                task_queue=request.workflow_options.task_queues.discovery,
-            )
-    finally:
-        activities.release_all()
-        for worker in workers:
-            await worker.shutdown()
-        await asyncio.gather(*runs, return_exceptions=True)
 
 
 async def _closed_status(handle: WorkflowHandle[Any, Any]) -> WorkflowExecutionStatus | None:
@@ -221,6 +236,72 @@ async def test_histories_recorded_before_the_cancel_patch_still_replay(history: 
         "harborrag-retry:replay", (_HISTORIES / history).read_text()
     )
 
+    assert await _replay_failure(recorded) is None
+
+
+@pytest.mark.asyncio
+async def test_a_cancelled_document_retry_records_a_cancelled_document(
+    environment: WorkflowEnvironment,
+) -> None:
+    activities = _Activities("release")
+    async with _workers(environment, activities):
+        handle = await environment.client.start_workflow(
+            DocumentRetryWorkflow.run,
+            RetryDocumentInput(
+                retry_task_id=f"retry-{uuid.uuid4().hex[:8]}",
+                original_task_id="task-1",
+                tenant_id="tenant-1",
+                plan_reference=_PLAN,
+                document_index=0,
+            ),
+            id=f"harborrag-document-retry:{uuid.uuid4().hex[:8]}:0",
+            task_queue=TemporalWorkflowOptions().task_queues.transform,
+        )
+        await asyncio.wait_for(activities.entered["release"].wait(), 10)
+        await handle.cancel()
+        status = await _closed_status(handle)
+        history = await handle.fetch_history()
+
+    assert status is WorkflowExecutionStatus.CANCELED
+    assert activities.document_failures == ["cancelled"]
+    assert _DOCUMENT_CANCEL_PATCH in _patch_ids(history)
+    assert await _replay_failure(history) is None
+
+
+@pytest.mark.asyncio
+async def test_a_document_retry_cancelled_on_its_own_counts_as_failed_and_the_run_finishes(
+    environment: WorkflowEnvironment,
+) -> None:
+    activities = _Activities("release")
+    async with _retry_run(environment, activities) as handle:
+        await asyncio.wait_for(activities.entered["release"].wait(), 10)
+        retry_task_id = handle.id.removeprefix("harborrag-retry:")
+        await environment.client.get_workflow_handle(
+            f"harborrag-document-retry:{retry_task_id}:0"
+        ).cancel()
+        await _closed_status(
+            environment.client.get_workflow_handle(f"harborrag-document-retry:{retry_task_id}:0")
+        )
+        activities.release_all()
+        status = await _closed_status(handle)
+        history = await handle.fetch_history()
+
+    assert status is WorkflowExecutionStatus.COMPLETED
+    assert activities.document_failures == ["cancelled"]
+    assert "finalize" in activities.calls
+    assert activities.cancelled == []
+    assert _CANCELLED_DOCUMENT_PATCH in _patch_ids(history)
+    assert await _replay_failure(history) is None
+
+
+@pytest.mark.asyncio
+async def test_a_document_retry_cancelled_before_the_patch_still_replays() -> None:
+    recorded = WorkflowHistory.from_json(
+        "harborrag-document-retry:replay",
+        (_HISTORIES / _PRE_DOCUMENT_CANCEL_PATCH).read_text(),
+    )
+
+    assert _DOCUMENT_CANCEL_PATCH not in _patch_ids(recorded)
     assert await _replay_failure(recorded) is None
 
 

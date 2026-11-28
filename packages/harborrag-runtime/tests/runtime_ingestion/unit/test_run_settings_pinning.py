@@ -13,6 +13,8 @@ from temporalio.converter import DataConverter
 
 from harborrag_core.config_store import SettingsLevel, SettingsSnapshot, resolve_effective
 from harborrag_core.ingestion import IngestionTask, IngestionTaskState
+from harborrag_core.ingestion.run_contracts import RunSettings, SourceSubmission
+from harborrag_core.ingestion.source_query import ProcessingProfileInput, SourceQuery
 from harborrag_core.testing.control_plane_fakes import (
     FakeConnectionRepository,
     FakeConnectionRevisionRepository,
@@ -24,12 +26,7 @@ from harborrag_runtime.execution.gateway import prepare_configured_source_submis
 from harborrag_runtime.execution.task_registry import IngestionTaskRegistry
 from harborrag_runtime.ingestion.connections import ConnectionResolver
 from harborrag_runtime.ingestion.profiles import build_processing_profile
-from harborrag_runtime.ingestion_contracts import RunSettings, SourceSubmission
-from harborrag_runtime.temporal.schemas import (
-    ProcessingProfileInput,
-    SourceIngestionInput,
-    SourceQuery,
-)
+from harborrag_runtime.temporal.schemas import SourceIngestionInput
 from runtime_ingestion.connection_support import connection_row
 
 pytestmark = pytest.mark.unit
@@ -138,6 +135,21 @@ async def test_concurrency_precedence(shipped_settings: RuntimeSettings) -> None
     assert concurrency(plain) == 8
 
 
+@pytest.mark.asyncio
+async def test_batch_size_precedence(shipped_settings: RuntimeSettings) -> None:
+    plain = await _resolve()
+    overridden = await _resolve(_MutableProvider(_snapshot(1, {"ingestion.batch_size": 100})))
+
+    def batch_size(connection, **submission: object) -> int:  # noqa: ANN001
+        return prepare_configured_source_submission(
+            shipped_settings, _submission(**submission), connection=connection
+        ).batch_size
+
+    assert batch_size(overridden, batch_size=7) == 7
+    assert batch_size(overridden) == 100
+    assert batch_size(plain) == 200
+
+
 def _source(run_settings: RunSettings | None) -> SourceIngestionInput:
     return SourceIngestionInput(
         task_id="task-1",
@@ -227,7 +239,8 @@ async def test_scheduled_preparation_pins_settings(
     provider = _MutableProvider(_snapshot(4, {"chunking.max_tokens": 256}))
     runtime = SimpleNamespace(
         control=SimpleNamespace(
-            source_scans=SimpleNamespace(has_running_scan=AsyncMock(return_value=False))
+            source_scans=SimpleNamespace(has_running_scan=AsyncMock(return_value=False)),
+            connection_records=SimpleNamespace(active_task=AsyncMock(return_value=None)),
         ),
         source_plans=None,
         connection_resolver=ConnectionResolver(
@@ -248,6 +261,46 @@ async def test_scheduled_preparation_pins_settings(
 
     assert preparation.source is not None
     assert preparation.source.run_settings == RunSettings("rev_4", None, 256, None)
+
+
+@pytest.mark.asyncio
+async def test_scheduled_preparation_applies_the_pinned_activity_timeout_and_attempts(
+    shipped_settings: RuntimeSettings,
+) -> None:
+    from harborrag_runtime.config.temporal import TemporalRuntimeConfig
+    from harborrag_runtime.temporal.ingestion_activities import IngestionActivities
+    from harborrag_runtime.temporal.schemas import ScheduledSourcePreparationInput
+
+    connections, revisions = await _stored_connection()
+    provider = _MutableProvider(
+        _snapshot(4, {"ingestion.activity_timeout": "PT2M", "ingestion.max_attempts": 2})
+    )
+    runtime = SimpleNamespace(
+        control=SimpleNamespace(
+            source_scans=SimpleNamespace(has_running_scan=AsyncMock(return_value=False)),
+            connection_records=SimpleNamespace(active_task=AsyncMock(return_value=None)),
+        ),
+        source_plans=None,
+        connection_resolver=ConnectionResolver(
+            connections, revisions, run_settings=RunSettingsResolver(provider)
+        ),
+    )
+    activities = IngestionActivities(
+        runtime,  # type: ignore[arg-type]
+        settings=shipped_settings,
+        temporal_config=TemporalRuntimeConfig(),
+    )
+
+    preparation = await activities.prepare_scheduled_source(
+        ScheduledSourcePreparationInput(
+            task_id="scheduled-1", tenant_id="tenant-1", connection_id="docs"
+        )
+    )
+
+    assert preparation.source is not None
+    options = preparation.source.workflow_options
+    assert options.timeouts.document_seconds == 120
+    assert options.retries.document.maximum_attempts == 2
 
 
 def test_source_input_without_run_settings_still_loads() -> None:

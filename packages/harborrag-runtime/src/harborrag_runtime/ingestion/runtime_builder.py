@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from dataclasses import replace
 
+from harborrag_adapters.connectors.policies.network import DestinationPolicy
 from harborrag_adapters.connectors.rate_limiting import ConnectorRateLimiter
 from harborrag_adapters.models.embed import HarborEmbedClient, HarborEmbedClientConfig
 from harborrag_adapters.models.runtime import ResourceOwnership
@@ -19,6 +20,7 @@ from harborrag_adapters.repositories.object_store import (
     ProjectionArtifactRepository,
     RawDocumentArtifactRepository,
 )
+from harborrag_core.chunking.tokenization import ApproximateTokenCounter
 from harborrag_core.ingestion import SparseEncoderProfile
 from harborrag_engine.ingestion import (
     BaseChunker,
@@ -33,6 +35,13 @@ from harborrag_engine.ingestion import (
     VectorProjectionStore,
     build_chunking_service,
 )
+from harborrag_engine.ingestion.maintenance.cleanup import ProjectionCleanupService
+from harborrag_engine.ingestion.maintenance.reindex import DocumentReindexService
+from harborrag_engine.ingestion.normalizers.builder import SourceDocumentNormalizerBuilder
+from harborrag_engine.ingestion.release.dependencies import DocumentReleaseDependencies
+from harborrag_engine.ingestion.release.pipeline import DocumentStagePipeline
+from harborrag_engine.ingestion.release.service import DocumentReleaseService
+from harborrag_runtime.chat.composition import build_parser_chat_client
 from harborrag_runtime.composition.config_store import build_config_provider
 from harborrag_runtime.composition.connection_stores import build_connection_stores
 from harborrag_runtime.composition.resources import (
@@ -52,22 +61,14 @@ from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.config_store.run_settings import RunSettingsResolver
 from harborrag_runtime.connections import default_secret_resolver
 from harborrag_runtime.rate_limiting import build_connector_rate_limiter
-from harborrag_runtime.tokenization import ApproximateTokenCounter
 
 from .chunking_profile import build_refiner, default_chunking_config
 from .composition import IngestionRuntime
 from .connections import ConnectionHealth, ConnectionResolver, ConnectorPool
-from .document.dependencies import DocumentReleaseDependencies
-from .document.normalizers import (
-    SourceDocumentNormalizerBuilder,
-    default_source_document_normalizer_builder,
-)
-from .document.pipeline import DocumentStagePipeline
+from .document.normalizers import default_source_document_normalizer_builder
 from .document.run_tools import RunTools
-from .document.service import DocumentReleaseService
+from .failure_classification import ingestion_failure_classifier
 from .field_indexes import declared_field_indexes
-from .maintenance.cleanup import ProjectionCleanupService
-from .maintenance.reindex import DocumentReindexService
 from .maintenance.relation_repair import GraphRelationRepairService
 from .maintenance.retention import RetiredVersionPurgeService
 from .observability import IngestionTelemetry, build_model_telemetry
@@ -79,7 +80,14 @@ logger = logging.getLogger("harborrag.runtime.ingestion.runtime_builder")
 
 
 class IngestionRuntimeBuilder:
-    """Assemble one runtime graph without performing external I/O."""
+    """Assemble one runtime graph without performing external I/O.
+
+    Args:
+        settings: Runtime settings the graph is built from.
+        normalizer_builder: Source normalizer builder; the built-in providers when omitted.
+        chunking_config: Chunking configuration overriding the settings'.
+        chunking_strategies: Extra chunk strategies registered next to the built-in ones.
+    """
 
     def __init__(
         self,
@@ -97,13 +105,18 @@ class IngestionRuntimeBuilder:
         self._chunking_strategies = tuple(chunking_strategies)
 
     def build(self) -> IngestionRuntime:
+        """Create the clients and services of the ingestion runtime without connecting them."""
         settings = self._settings
         telemetry = IngestionTelemetry(
             metrics_port=settings.metrics_port,
             metrics_bind_address=settings.metrics_bind_address,
         )
         parser_catalog = load_parser_catalog(settings.parser_config_path)
-        parser = parser_catalog.build_harbor_parser()
+        parser_models = parser_catalog.chat_models()
+        parser_chat_client = (
+            build_parser_chat_client(settings, parser_models) if parser_models else None
+        )
+        parser = parser_catalog.build_harbor_parser(chat_client=parser_chat_client)
         chunking = chunking_settings_from(settings)
         boot_chunking = replace(chunking, config=self._chunking_config or chunking.config)
         boot_chunker = build_default_chunker(
@@ -132,11 +145,30 @@ class IngestionRuntimeBuilder:
             artifact_reader,
         )
         chunk_reader = ChunkArtifactReader(artifact_reader)
-        dependencies = DocumentReleaseDependencies(
+        boot_representations = RepresentationReuseService(
+            ChunkRepresentationEncoder(
+                embed_client,
+                BM25SparseEncoder(self._sparse_profile()),
+                RepresentationEncodingPolicy(
+                    logical_model=model,
+                    dense_profile_id=settings.dense_encoder_profile,
+                    dense_dimension=dimensions,
+                ),
+            )
+        )
+        run_tools = RunTools(
             parser=parser,
-            normalizer=self.build_document_normalizer(),
             chunker=boot_chunker,
-            representations=RepresentationReuseService(
+            chunking=boot_chunking,
+            parsers=parser_catalog,
+            chat_client=parser_chat_client,
+            build_chunker=lambda config: build_default_chunker(
+                config=config,
+                additional_strategies=self._chunking_strategies,
+                refiner=chunking.refiner,
+            ),
+            representations=boot_representations,
+            build_representations=lambda batch_size: RepresentationReuseService(
                 ChunkRepresentationEncoder(
                     embed_client,
                     BM25SparseEncoder(self._sparse_profile()),
@@ -144,9 +176,16 @@ class IngestionRuntimeBuilder:
                         logical_model=model,
                         dense_profile_id=settings.dense_encoder_profile,
                         dense_dimension=dimensions,
+                        batch_size=batch_size,
                     ),
                 )
             ),
+        )
+        dependencies = DocumentReleaseDependencies(
+            parser=parser,
+            normalizer=self.build_document_normalizer(),
+            chunker=boot_chunker,
+            representations=boot_representations,
             control=control,
             raw_artifacts=RawDocumentArtifactRepository(artifacts, artifact_reader),
             canonical_artifacts=canonical_artifacts,
@@ -158,7 +197,7 @@ class IngestionRuntimeBuilder:
                 artifacts,
                 artifact_reader,
             ),
-            chunk_writer=ChunkArtifactWriter(artifacts),
+            chunk_writer=ChunkArtifactWriter(artifacts, artifact_reader),
             chunk_reader=chunk_reader,
             projection_artifacts=ProjectionArtifactRepository(
                 artifacts,
@@ -166,17 +205,10 @@ class IngestionRuntimeBuilder:
             ),
             vector_store=vector_store,
             graph_store=graph,
-            run_tools=RunTools(
-                parser=parser,
-                chunker=boot_chunker,
-                chunking=boot_chunking,
-                parsers=parser_catalog,
-                build_chunker=lambda config: build_default_chunker(
-                    config=config,
-                    additional_strategies=self._chunking_strategies,
-                    refiner=chunking.refiner,
-                ),
-            ),
+            failures=ingestion_failure_classifier(),
+            parser_for=run_tools.parser_for,
+            chunker_for=run_tools.chunker_for,
+            representations_for=run_tools.representations_for,
         )
 
         stages = DocumentStagePipeline(dependencies)
@@ -194,6 +226,7 @@ class IngestionRuntimeBuilder:
                 revisions=stores.revisions,
                 secrets=default_secret_resolver(stores.secrets),
                 parser=parser,
+                destination_policy=DestinationPolicy.from_environ(),
                 rate_limiter=rate_limiter,
             ),
             connection_health=ConnectionHealth(stores.connections),
@@ -241,7 +274,6 @@ class IngestionRuntimeBuilder:
 
     def build_document_normalizer(self) -> BaseDocumentNormalizer:
         """Build the configured immutable provider router."""
-
         return self._normalizer_builder.build()
 
     def _rate_limiter(self, telemetry: IngestionTelemetry) -> ConnectorRateLimiter:
@@ -289,7 +321,6 @@ def build_default_chunker(
     refiner: RefinerConfig | None = None,
 ) -> BaseChunker:
     """Build canonical chunking with optional source-owned extensions."""
-
     token_counter = ApproximateTokenCounter()
     return build_chunking_service(
         config=config or default_chunking_config(),
@@ -307,7 +338,6 @@ def build_ingestion_runtime(
     chunking_strategies: tuple[ChunkStrategy, ...] = (),
 ) -> IngestionRuntime:
     """Build the production ingestion object graph without starting resources."""
-
     return IngestionRuntimeBuilder(
         settings or RuntimeSettings(),
         normalizer_builder=normalizer_builder,

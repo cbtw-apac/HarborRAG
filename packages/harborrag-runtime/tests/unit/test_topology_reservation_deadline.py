@@ -13,12 +13,12 @@ from harborrag_adapters.repositories.object_store import (
 )
 from harborrag_core.topology.budget import BudgetAdmission, BudgetReservation
 from harborrag_core.topology.derived import DescriptionPacket
+from harborrag_engine.topology.reservation_deadline import reservation_seconds
 from harborrag_runtime.topology.derived_models import (
     DerivedBudget,
     DescriptionArtifacts,
     FrozenDescriptionGenerator,
 )
-from harborrag_runtime.topology.reservation_deadline import reservation_seconds
 
 
 def admission(seconds):

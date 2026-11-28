@@ -281,6 +281,3 @@ def _cell_text(artifact: TableArtifact, row_index: int, column_index: int) -> st
 
 def _escape(value: str) -> str:
     return value.replace("|", "\\|")
-
-
-__all__ = ["TableRenderContext", "TableView", "render_table_view"]

@@ -54,6 +54,3 @@ def declared_field_indexes(
                 for path, numeric in sorted(paths.items())
             )
     return output
-
-
-__all__ = ["declared_field_indexes"]

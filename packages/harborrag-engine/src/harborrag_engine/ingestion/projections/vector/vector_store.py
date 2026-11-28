@@ -1,3 +1,10 @@
+"""Staging and verification of evidence points in the vector index.
+
+``EVIDENCE_PAYLOAD_INDEXES`` is also the filter vocabulary evidence search
+accepts. Adding, removing or renaming a key there changes the public filter
+keys, so the MCP guide and the changelog change with it.
+"""
+
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
@@ -24,14 +31,6 @@ from .vector import (
     EVIDENCE_INDEX,
 )
 
-# Every payload field a caller can usefully narrow on. The connector-specific
-# identifiers come in pairs -- a space and its pages, a project and its issues,
-# a document and its attachments -- so indexing the container without the item
-# left the more precise filter as the unindexed scan.
-#
-# This list is also the filter vocabulary ``vector_search`` advertises and
-# accepts: a key outside it has no index, and filtering on it is a scan of
-# every point's on-disk payload, so it is rejected instead of served slowly.
 EVIDENCE_PAYLOAD_INDEXES: tuple[str, ...] = (
     "document_id",
     "document_version_id",
@@ -40,11 +39,8 @@ EVIDENCE_PAYLOAD_INDEXES: tuple[str, ...] = (
     "connector_type",
     "document_kind",
     "source_scope_id",
-    # An item and the item it is attached to: tracing a parent filter to its
-    # attachments is a lookup on both, and the distinct-value facet requires an index.
     "source_item_id",
     "parent_source_item_id",
-    # The graph source entity a chunk belongs to: joins the graph to its evidence.
     "graph_source_node_key",
     "space_id",
     "page_id",
@@ -53,12 +49,8 @@ EVIDENCE_PAYLOAD_INDEXES: tuple[str, ...] = (
     "attachment_id",
     "relative_path",
     "language",
-    # Source-owned descriptors. Time is indexed because "what changed since" is a
-    # filter, not a ranking; the people fields because a result set is routinely
-    # narrowed to one owner; labels and components because they are the source's
-    # own taxonomy.
     "created_at",
-    "updated_at",
+    "last_modified",
     "status",
     "status_category",
     "item_type",
@@ -69,14 +61,28 @@ EVIDENCE_PAYLOAD_INDEXES: tuple[str, ...] = (
     "labels",
     "components",
 )
+"""Every payload field a caller can usefully narrow evidence on.
+
+A key outside this list has no index, so filtering on it would scan every
+point's on-disk payload, and evidence search rejects it. Connector identifiers
+are indexed in pairs, such as a project and its issues, so the more precise
+filter is never the unindexed one. An item and the item it is attached to are
+both indexed, because tracing a parent filter to its attachments looks up both.
+``graph_source_node_key`` joins the graph to its evidence. Times, people,
+labels and components are the source's own descriptors that results are
+narrowed on.
+"""
 _MAXIMUM_FILTERED_SCAN_PAGES = 10_000
+_SCAN_PAGE_SIZE = 256
 
 
 @dataclass(frozen=True, slots=True)
 class SourceFieldIndex:
     """One ``fields.<key>`` payload path a tenant filters evidence on.
 
-    ``numeric`` selects a range-capable index; anything else is matched exactly.
+    Attributes:
+        path: Payload path, such as ``fields.skill_set``.
+        numeric: Whether the index answers ranges. Otherwise values match exactly.
     """
 
     path: str
@@ -85,23 +91,46 @@ class SourceFieldIndex:
 
 @dataclass(frozen=True, slots=True)
 class VectorProjectionPolicy:
+    """Vector shape and payload indexes of the evidence collection.
+
+    Attributes:
+        dimension: Size of each dense vector, at least 1.
+        distance: Similarity metric of the dense vectors.
+        dense_vector_name: Name of the dense vector, different from the sparse one.
+        sparse_vector_name: Name of the sparse vector.
+        field_indexes: Per tenant, the ``fields.<key>`` paths its source scopes
+            declare as filterable facets. Only these are indexed, because the
+            ``fields`` object holds every typed custom field of a source.
+    """
+
     dimension: int
     distance: VectorDistance = VectorDistance.COSINE
     dense_vector_name: str = "dense"
     sparse_vector_name: str = "sparse"
-    # Per tenant, the source fields its scopes declare as filterable facets. The
-    # ``fields`` object is open-ended (every typed Jira custom field lands in it),
-    # so it is never indexed wholesale; only what a scope names as a filter is.
-    # Without an index a ``fields.*`` filter reads every point's on-disk payload.
     field_indexes: Mapping[str, tuple[SourceFieldIndex, ...]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        """Reject a dimension below 1 and one name for both vectors.
+
+        Raises:
+            ValueError: The dimension is below 1 or the vector names are equal.
+        """
         if self.dimension < 1:
             raise ValueError("vector projection dimension must be positive")
         if self.dense_vector_name == self.sparse_vector_name:
             raise ValueError("dense and sparse vector names must differ")
 
     def index(self, name: str, *, tenant_id: str | None = None) -> VectorIndexSpec:
+        """Return the collection spec, with a tenant's declared field indexes.
+
+        Args:
+            name: Index name, such as ``EVIDENCE_INDEX``.
+            tenant_id: Tenant whose declared ``fields.<key>`` paths are indexed
+                too, or ``None`` for the shared payload indexes only.
+
+        Returns:
+            The spec, with numeric field paths indexed for ranges.
+        """
         declared = self.field_indexes.get(tenant_id, ()) if tenant_id is not None else ()
         paths = sorted({item.path for item in declared} - set(EVIDENCE_PAYLOAD_INDEXES))
         return VectorIndexSpec(
@@ -119,7 +148,12 @@ class VectorProjectionPolicy:
 
 
 class VectorProjectionStore:
-    """Stage and verify the single dense/sparse evidence projection."""
+    """Writer and verifier of the dense and sparse evidence points.
+
+    Args:
+        repository: Vector index the points are written to.
+        policy: Vector shape and payload indexes of the evidence collection.
+    """
 
     def __init__(
         self,
@@ -130,6 +164,11 @@ class VectorProjectionStore:
         self._policy = policy
 
     async def provision(self, *, context: StorageOperationContext) -> None:
+        """Create the evidence collection, or add the payload indexes it lacks.
+
+        Args:
+            context: Storage context of the tenant.
+        """
         await self._repository.ensure_index(
             self._policy.index(EVIDENCE_INDEX, tenant_id=str(context.tenant_id)),
             context=context,
@@ -141,6 +180,15 @@ class VectorProjectionStore:
         *,
         context: StorageOperationContext,
     ) -> None:
+        """Write one document version's evidence points.
+
+        Stored points of the same version that the batch no longer has are
+        deleted before the batch is upserted.
+
+        Args:
+            batch: Evidence points of one document version.
+            context: Storage context of the tenant.
+        """
         evidence_points = self._points(batch.evidence_records)
         stale_ids = await self._stale_version_point_ids(evidence_points, context=context)
         if stale_ids:
@@ -158,6 +206,16 @@ class VectorProjectionStore:
         *,
         context: StorageOperationContext,
     ) -> VectorProjectionVerification:
+        """Compare the stored points with a batch.
+
+        Args:
+            batch: Evidence points of one document version.
+            context: Storage context of the tenant.
+
+        Returns:
+            The points that are missing, have a dense vector of the wrong size,
+            have an empty sparse vector or hold a different payload.
+        """
         evidence_points = self._points(batch.evidence_records)
         evidence = await self._get(EVIDENCE_INDEX, evidence_points, context=context)
         expected = {point.id: point for point in evidence_points}
@@ -213,6 +271,12 @@ class VectorProjectionStore:
         *,
         context: StorageOperationContext,
     ) -> None:
+        """Delete the evidence points a projection manifest lists.
+
+        Args:
+            manifest: Manifest of the version whose points are removed.
+            context: Storage context of the tenant.
+        """
         if manifest.evidence_point_ids:
             await self._repository.delete_records(
                 EVIDENCE_INDEX,
@@ -241,6 +305,7 @@ class VectorProjectionStore:
         *,
         context: StorageOperationContext,
     ) -> list[VectorIndexRecord]:
+        """Return every stored point of the expected points' document versions."""
         versions = {
             str(point.payload["document_version_id"])
             for point in expected
@@ -267,7 +332,7 @@ class VectorProjectionStore:
                 raise ValueError("vector repository exceeded the filtered scan page limit")
             page = await self._repository.scan_records(
                 EVIDENCE_INDEX,
-                limit=256,
+                limit=_SCAN_PAGE_SIZE,
                 cursor=cursor,
                 filters=filters,
                 context=context,
@@ -296,6 +361,10 @@ class VectorProjectionStore:
         expected: dict[str, object],
         actual: dict[str, object],
     ) -> bool:
+        """Return whether the stored payload holds every expected value.
+
+        Extra stored keys are allowed.
+        """
         return all(actual.get(key) == value for key, value in expected.items())
 
     @staticmethod

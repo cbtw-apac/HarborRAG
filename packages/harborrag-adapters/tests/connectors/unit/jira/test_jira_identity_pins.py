@@ -15,13 +15,13 @@ PINS: dict[str, tuple[str, str, str, str]] = {
         "document:b3eed87c3ea9fabf3ef1b9c30b7db910f3d2e45f2ba45514262a12092b9f4d54",
         "admission-change:8625822ff46ec0700cc36d42f690284e0ebae02be9e1a3a9b8fcec4febfae1e5",
         "d2a5b02938c61d18073156e9c156f4dc832333a4ef8ac06cb13a4a29481e141e",
-        "retrieval-metadata:dec90725ce6099490ea30343535ad6a0f27b99bc8d908cf8b841475a7d592efe",
+        "retrieval-metadata:caf441a596171c7d617778f245e6ca4703f3f7f57087b2e1f06f4888706f7975",
     ),
     "jira://ENG/ENG-1/attachments/a1": (
         "document:8becf212ea6cc27c838946ac3a8b1ae08854e26efe6580ca488c47c510cdfd94",
         "admission-change:2d75136660a117956d61fc286e8570e36eb988c5dff6fa020fb42d893dfe29dc",
         "409bcdc9ba64779508effe60eb5fcd69b5a65c5b8bdd0b2be24bbaa0a0fbcf66",
-        "retrieval-metadata:89034c18d42e636ab5138318d28ca95685ac90cb45cfe6bc6111e9da155ed76d",
+        "retrieval-metadata:550a2275c14389d24769989c0e960cbbcd14afe2f93c79cd704983e7e0f040ea",
     ),
 }
 

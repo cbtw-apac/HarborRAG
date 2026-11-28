@@ -11,12 +11,12 @@ required and which are merely optional:
 - ``GRAPH_SEARCH_DIAGNOSTICS_SCHEMA`` -- ``GraphSearchDiagnostics``
   (``harborrag_engine.retrieval.graph``), the diagnostics behind every graph tool.
 - ``RETRIEVAL_RESULT_SCHEMA`` -- ``RetrievalResult`` as built by
-  ``EvidenceResultLoader.result`` (``harborrag_runtime.retrieval.result_loader``), less
+  ``EvidenceResultLoader.result`` (``harborrag_engine.retrieval.service.result_loader``), less
   the keys the tool trims (``vector_search.TRIMMED_METADATA_KEYS``); this is the only
   place a production ``vector_search`` response constructs one, so its ``metadata``
   keys are exhaustive, not illustrative.
 - ``RETRIEVAL_DIAGNOSTICS_SCHEMA`` -- ``RetrievalDiagnostics``
-  (``harborrag_runtime.retrieval.contracts``), including its nested
+  (``harborrag_engine.retrieval.service.contracts``), including its nested
   ``graph_documents``/``related_results`` (``GraphDocumentSummary`` /
   ``GraphResultNeighborhood``), which reuse the same node/relation projection.
 
@@ -24,6 +24,20 @@ required and which are merely optional:
 ``node_kind`` (a closed ``KnowledgeNodeKind`` StrEnum), ``GraphEntityType`` accepts
 dynamically minted ``CUSTOM_*`` members for provider-specific source items via its
 ``_missing_`` hook, so a real node's ``entity_type`` is not limited to the built-in list.
+
+Field notes:
+
+- ``duplicates_collapsed``: hits dropped because a better-ranked hit had identical text. The wider
+  search window backfilled the page, so this is not a shortfall.
+- ``relevance``: not required, because a lane that cannot measure similarity reports null and older
+  payloads predate the field. Unlike ``score``, this is the number a client may threshold: on the
+  hybrid lane ``score`` is a rank-fusion value whose top hit is near 1.0 however poor the match.
+  Dense cosine similarity, clamped at 0; null on the sparse lane, whose BM25 score is unbounded and
+  not comparable across queries.
+- ``citation_locator``: connector-specific locator shape. It is genuinely open, unlike everything
+  else here, because there is no fixed set of keys to close over.
+- ``issue_key``: the source's own human-readable key (a Jira issue key such as DEMO-123), so callers
+  need not parse it out of ``source_item_id``.
 """
 
 from __future__ import annotations
@@ -41,9 +55,10 @@ from .evidence_output_schema import (
 
 _NODE_KIND_VALUES = [kind.value for kind in KnowledgeNodeKind]
 _PROJECTED_RELATION_VALUES = [relation.value for relation in PROJECTED_RELATION_TYPES]
-# Fully inlined: this fragment is nested deep inside each tool's outputSchema, where
-# a leftover ``#/$defs/...`` pointer resolves against the tool root and fails.
 _SUMMARY_SCHEMA = inline_schema(SummaryView.model_json_schema())
+"""Fully inlined: this fragment is nested deep inside each tool's outputSchema, where a leftover
+``#/$defs/...`` pointer resolves against the tool root and fails.
+"""
 
 NODE_SCHEMA: dict[str, object] = {
     "type": "object",
@@ -177,8 +192,6 @@ RETRIEVAL_DIAGNOSTICS_SCHEMA: dict[str, object] = {
         "duration_ms": {"type": "number"},
         "graph_documents": {"type": "array", "items": _GRAPH_DOCUMENT_SUMMARY_SCHEMA},
         "short_by": {"type": "integer", "minimum": 0},
-        # Hits dropped because a better-ranked hit had identical text; the wider
-        # search window backfilled the page, so this is not a shortfall.
         "duplicates_collapsed": {"type": "integer", "minimum": 0},
         "topology": {
             "type": "object",
@@ -209,12 +222,6 @@ RETRIEVAL_RESULT_SCHEMA: dict[str, object] = {
         "id": {"type": "string", "minLength": 1},
         "text": {"type": "string"},
         "score": {"type": "number"},
-        # Not required: a lane that cannot measure similarity reports null,
-        # and older payloads predate the field. Unlike "score", this is the
-        # number a client may threshold -- on the hybrid lane "score" is a
-        # rank-fusion value whose top hit is near 1.0 however poor the match.
-        # Dense cosine similarity, clamped at 0; null on the sparse lane, whose BM25
-        # score is unbounded and not comparable across queries.
         "relevance": {"type": ["number", "null"]},
         "metadata": {
             "type": "object",
@@ -231,15 +238,15 @@ RETRIEVAL_RESULT_SCHEMA: dict[str, object] = {
                 "document_id": {"type": "string"},
                 "document_version_id": {"type": "string"},
                 "record_kind": {"type": "string"},
-                "chunk_kind": {"type": "string"},
+                "chunk_kind": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "minItems": 1,
+                },
                 "connector_type": {"type": "string"},
-                # Connector-specific locator shape; genuinely open, unlike everything
-                # else here -- there is no fixed set of keys to close over.
                 "citation_locator": {"type": "object"},
                 "source_scope_id": {"type": "string"},
                 "source_item_id": {"type": "string"},
-                # The source's own human-readable key (a Jira issue key such as
-                # CPM-101361), so callers need not parse it out of source_item_id.
                 "issue_key": {"type": "string"},
                 "document_title": {"type": ["string", "null"]},
                 "section_path": {"type": "array", "items": {"type": "string"}},

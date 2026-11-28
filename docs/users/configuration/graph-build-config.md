@@ -1,22 +1,41 @@
 # Graph Build Configuration
 
-[`config/graph/build.yaml`](../../../config/graph/build.yaml) decides how the knowledge
-graph is built: runtime limits, entity summarization, the extraction vocabularies and the
-per-tenant policy. The runtime reads it from `HARBORRAG_GRAPH_BUILD_CONFIG_PATH`
-(default `config/graph/build.yaml`). When that variable is unset and the file is missing,
-the built-in defaults apply, and they make no LLM calls. An explicitly set path that does
+Besides vectors, HarborRAG builds a knowledge graph from what it ingests: nodes for
+documents, sections and the entities an LLM extracts, linked by typed relations.
+[`config/graph/build.yaml`](../../../config/graph/build.yaml) decides how that graph is
+built: runtime limits, summaries of parent nodes, the extraction vocabularies
+(ontologies) and the policy of each tenant.
+
+The runtime reads the file from `HARBORRAG_GRAPH_BUILD_CONFIG_PATH` (default
+`config/graph/build.yaml`). When that variable is unset and the file is missing, the
+built-in defaults apply, and they make no LLM calls. An explicitly set path that does
 not exist is an error.
 
-Print the effective values, and check the file, with:
+## Check the file
+
+Load the file with the runtime's own loader, from the root of a repository checkout:
 
 ```bash
-harborrag topology config validate
+uv run python -c "
+from harborrag_runtime.config import load_graph_build_config
+config = load_graph_build_config('config/graph/build.yaml')
+print([tenant.tenant_id for tenant in config.tenants])
+"
 ```
 
-`harborrag topology config apply` writes the tenant and source policy to the control
-database.
+For the shipped file it prints `['DEFAULT']`. An invalid file raises
+`GraphBuildConfigurationError`, which names the file and each failing key with its
+problem, such as `runtime.bogus_key` and `Extra inputs are not permitted`. Pass another
+path to check another file.
+
+The CLI, the HTTP API and the MCP tools do not read or apply this file in 2.0.0. The
+runtime functions that write its tenant and source policy to the control database remain
+in `harborrag_runtime/topology/operations.py`, but nothing calls them yet, so the file has
+no operator entry point.
 
 ## File layout
+
+The shipped file:
 
 ```yaml
 runtime:
@@ -27,13 +46,17 @@ runtime:
 
 summarization:
   enabled: false
+  task_queue: harborrag-summaries
+  debounce_seconds: 5
+  max_wait_seconds: 60
   tenant_enabled: false
   max_description_tokens: 512
   budget:
     max_calls_per_document: 256
-
-ontologies:
-  example: ontologies/example.yaml
+  input:
+    max_children_per_call: 8
+    max_bytes_per_call: 24000
+    max_tokens_per_call: 6000
 
 tenants:
   - tenant_id: DEFAULT
@@ -44,11 +67,33 @@ tenants:
       daily_cost_usd: "15.00"
     sources:
       - source_scope_id: harborrag-docs
-        ontology: example
 ```
 
-Quote money values so they keep their exact decimal value. Unknown and duplicate keys are
-rejected at load time.
+Quote money values so they keep their exact decimal value. Unknown and duplicate keys
+are rejected at load time.
+
+## Tenants and sources
+
+Each `tenants` entry sets the graph policy of one tenant and of its sources. A source
+is named by its source scope ID, the stable ID of the content one ingestion source
+covers.
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `tenant_id` | required | Tenant the entry applies to |
+| `mode` | `deterministic` | `llm` turns on entity extraction with the chat model; `deterministic` leaves it off |
+| `prohibited` | `false` | Forbid LLM extraction for the tenant, whatever `mode` and its sources say |
+| `spending_paused` | `false` | Refuse new LLM calls for the tenant until it is unpaused |
+| `budget.max_concurrency` | `4` | Concurrent LLM jobs |
+| `budget.daily_token_cap` | `2000000` | Tokens per day |
+| `budget.daily_cost_usd` | `"10"` | Spending per day |
+| `sources[].source_scope_id` | required | Source the entry applies to |
+| `sources[].enabled` | `true` | Build the graph for this source |
+| `sources[].model` | `primary` | Logical chat model of `config/models/models.yaml` used for extraction |
+| `sources[].ontology` | none | Ontology name from `ontologies:` ([Extraction vocabularies](#extraction-vocabularies)) |
+
+Facets, the filterable facts of an entity card, are also declared per source; see
+[Facets](../detailed-guides/mcp-server/setup-and-integration.md#facets-the-filterable-part-of-a-card).
 
 ## Summarization
 
@@ -60,20 +105,35 @@ rejected at load time.
 | `max_description_tokens` | Size of each generated summary |
 | `budget.max_usd_per_run` | Stops the run once crossed. Needs pricing on the model deployment |
 | `budget.max_calls_per_document` | Upper bound of summarization calls per document |
-
-Facets, the filterable facts of an entity card, are declared per source; see
-[Facets](../detailed-guides/mcp-server/setup-and-integration.md#facets-the-filterable-part-of-a-card).
+| `input.max_children_per_call` | Children one summarization call reads at most |
+| `input.max_bytes_per_call`, `input.max_tokens_per_call` | Size of the child content one call reads at most |
 
 ## Extraction vocabularies
 
-An ontology is the closed set of entity types and relation predicates the LLM may emit.
-It is compiled into the structured-output JSON schema as literal enums, so the model
-cannot return a type the file does not list.
+An ontology is the closed set of entity types and relation predicates the LLM may
+emit. It is compiled into the structured-output JSON schema as literal enums, so the
+model cannot return a type the file does not list.
 [`config/graph/ontologies/example.yaml`](../../../config/graph/ontologies/example.yaml)
-is a worked example. To use one, name it under `ontologies:` (paths are relative to
-`build.yaml`) and select it on a source with `ontology:`, as in the layout above.
+is a worked example. The shipped `build.yaml` selects none. To use one, name it under
+`ontologies:`, with a path relative to `build.yaml`, and select it on a source with
+`ontology:`:
 
-Changing an ontology changes the extraction profile fingerprint, so the affected
-documents are extracted again instead of mixing two vocabularies.
+```yaml
+ontologies:
+  example: ontologies/example.yaml
 
-TODO: move the per-tenant `tenants:` blocks out of `config/graph/build.yaml` into tenant settings.
+tenants:
+  - tenant_id: DEFAULT
+    mode: llm
+    sources:
+      - source_scope_id: harborrag-docs
+        ontology: example
+```
+
+A source that names an ontology missing from `ontologies:` fails validation. Changing
+an ontology changes the extraction profile fingerprint, so the affected documents are
+extracted again instead of mixing two vocabularies.
+
+Per-tenant graph settings live only in the `tenants:` blocks of `config/graph/build.yaml`;
+they are not runtime settings, so `harborrag settings import` and `/v1/admin/settings` do not
+change them.

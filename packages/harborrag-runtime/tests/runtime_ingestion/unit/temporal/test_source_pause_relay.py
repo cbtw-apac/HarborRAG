@@ -9,10 +9,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import uuid
 from collections.abc import AsyncIterator, Callable
-from contextlib import asynccontextmanager
-from dataclasses import replace
+from contextlib import asynccontextmanager, suppress
+from dataclasses import fields, replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -22,6 +23,7 @@ import pytest
 import pytest_asyncio
 from temporalio import activity, workflow
 from temporalio.client import (
+    Client,
     WorkflowExecutionStatus,
     WorkflowFailureError,
     WorkflowHandle,
@@ -31,6 +33,9 @@ from temporalio.service import RPCError, RPCStatusCode
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 
+from harborrag_runtime.config.temporal import TemporalConnectionConfig, TemporalRuntimeConfig
+from harborrag_runtime.temporal import source_activities as source_activities_module
+from harborrag_runtime.temporal.client import IngestionTemporalClient
 from harborrag_runtime.temporal.maintenance_schemas import ProjectionCleanupResult
 from harborrag_runtime.temporal.schemas import (
     DocumentDispatchSummary,
@@ -38,6 +43,7 @@ from harborrag_runtime.temporal.schemas import (
     SourceFinalizationInput,
     SourceIngestionInput,
     SourceIngestionResult,
+    SourceIngestionStatus,
     WorkflowArtifactReference,
     WorkflowExecutionControlInput,
 )
@@ -182,6 +188,19 @@ class _Activities:
         ]
 
 
+class _DelayedNativePause(SourceActivitiesMixin):
+    def __init__(self, client: Client) -> None:
+        self._temporal_client = client
+        self.entered = asyncio.Event()
+        self.release = asyncio.Event()
+
+    @activity.defn(name="harborrag.pause_workflow_execution")
+    async def pause_workflow_execution(self, request: WorkflowExecutionControlInput) -> None:
+        self.entered.set()
+        await self.release.wait()
+        await super().pause_workflow_execution(request)
+
+
 @pytest_asyncio.fixture
 async def environment() -> AsyncIterator[WorkflowEnvironment]:
     try:
@@ -196,18 +215,40 @@ async def environment() -> AsyncIterator[WorkflowEnvironment]:
 
 @asynccontextmanager
 async def _source_run(
-    environment: WorkflowEnvironment, activities: _Activities
+    environment: WorkflowEnvironment,
+    activities: _Activities,
+    *,
+    native_pause: bool = False,
+    control: SourceActivitiesMixin | None = None,
 ) -> AsyncIterator[tuple[WorkflowHandle[Any, Any], WorkflowHandle[Any, Any]]]:
     """Start one single-batch source run; yield its handle and the batch child's."""
 
     task_id = f"task-{uuid.uuid4().hex[:8]}"
     source: SourceIngestionInput = replace(_source(), task_id=task_id)
+    if native_pause:
+        queues = source.workflow_options.task_queues
+        isolated_queues = replace(
+            queues,
+            **{field.name: f"{getattr(queues, field.name)}-{task_id}" for field in fields(queues)},
+        )
+        source = replace(
+            source,
+            workflow_options=replace(
+                source.workflow_options, task_queues=isolated_queues, native_pause=True
+            ),
+        )
+    control = control or SourceActivitiesMixin()
+    control._temporal_client = environment.client
+    registered = [*activities.all(), control.close_cancelled_source_execution]
+    if native_pause:
+        registered.remove(activities.pause_execution)
+        registered.append(control.pause_workflow_execution)
     workers = [
         Worker(
             environment.client,
             task_queue=queue,
             workflows=[SourceIngestionWorkflow, _Batch],
-            activities=activities.all(),
+            activities=registered,
             workflow_runner=UnsandboxedWorkflowRunner(),
         )
         for queue in set(source.workflow_options.task_queues.as_tuple())
@@ -225,7 +266,15 @@ async def _source_run(
             )
             child = environment.client.get_workflow_handle(f"harborrag-source-batch:{task_id}:0")
             await _until(lambda: _exists(child))
-            yield handle, child
+            try:
+                yield handle, child
+            except BaseException:
+                if native_pause:
+                    with suppress(RPCError):
+                        await handle.terminate()
+                    with suppress(RPCError):
+                        await child.terminate()
+                raise
     finally:
         for worker in workers:
             await worker.shutdown()
@@ -276,6 +325,7 @@ async def run_batch_closes_while_pause_persists(
     async with _source_run(environment, activities) as (handle, child):
         await handle.signal("pause")
         await asyncio.wait_for(activities.entered["pause"].wait(), 10)
+        assert "HarborRAGIngestionStatus" not in await (await handle.describe()).memo()
         # The batch's last documents land while the relay persists the pause.
         await child.signal("finish")
         await _until(lambda: _closed(child))
@@ -283,6 +333,9 @@ async def run_batch_closes_while_pause_persists(
         # The operator's pause still holds: the run stops at the batch boundary.
         await _until(lambda: _pause_applied(handle))
         assert (await _status(handle))["status"] == "PAUSED"
+        description = await handle.describe()
+        assert description.status is WorkflowExecutionStatus.RUNNING
+        assert await description.memo_value("HarborRAGIngestionStatus") == "paused"
         await handle.signal("resume")
         return activities, await _outcome(handle), handle
 
@@ -300,7 +353,10 @@ async def run_cancel_while_resume_persists(
         await asyncio.wait_for(activities.entered["resume"].wait(), 10)
         await _until(lambda: _closed(child))
         activities.released["resume"].set()
-        return activities, await _outcome(handle), handle
+        with pytest.raises(WorkflowFailureError):
+            await asyncio.wait_for(handle.result(), 30)
+        result = await handle.query("get_graceful_cancel_result", result_type=SourceIngestionResult)
+        return activities, result.status, handle
 
 
 async def run_pause_then_resume_mid_batch(
@@ -310,9 +366,11 @@ async def run_pause_then_resume_mid_batch(
     async with _source_run(environment, activities) as (handle, child):
         await handle.signal("pause")
         await _until(lambda: _pause_applied(handle))
+        assert await (await handle.describe()).memo_value("HarborRAGIngestionStatus") == "paused"
         await handle.signal("resume")
         # Let the relay finish forwarding the resume before the batch closes.
         await _until(lambda: _received(child, "resume"))
+        assert "HarborRAGIngestionStatus" not in await (await handle.describe()).memo()
         await child.signal("finish")
         return activities, await _outcome(handle), handle
 
@@ -336,6 +394,61 @@ async def _received(child: WorkflowHandle[Any, Any], signal: str, *, times: int 
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("action", ["resume", "cancel", "racing_resume"])
+async def test_native_pause_can_be_released(action: str) -> None:
+    target = os.environ.get("HARBORRAG_NATIVE_PAUSE_TEST_TARGET")
+    if not target:
+        pytest.skip("requires a disposable Temporal server with native pause enabled")
+    sdk = await Client.connect(
+        target, namespace=os.environ.get("HARBORRAG_NATIVE_PAUSE_TEST_NAMESPACE", "default")
+    )
+    config = TemporalRuntimeConfig(
+        connection=TemporalConnectionConfig(namespace=sdk.namespace),
+        workflow_native_pause=True,
+    )
+    client = IngestionTemporalClient(sdk, config)
+    activities = _Activities()
+    delayed = _DelayedNativePause(sdk) if action == "racing_resume" else None
+    async with _source_run(
+        WorkflowEnvironment.from_client(sdk), activities, native_pause=True, control=delayed
+    ) as (
+        handle,
+        child,
+    ):
+        task_id = handle.id.split(":", 1)[1]
+        if delayed is not None:
+            pause = asyncio.create_task(client.pause(task_id))
+            await asyncio.wait_for(delayed.entered.wait(), 5)
+            resume = asyncio.create_task(client.resume(task_id))
+            try:
+                await _until(lambda: _resume_is_pending(handle))
+            finally:
+                delayed.release.set()
+            await asyncio.gather(pause, resume)
+        else:
+            await client.pause(task_id)
+            assert await client.execution_status(task_id) == "paused"
+        assert await _received(child, "pause")
+        if action != "cancel":
+            if delayed is None:
+                await client.resume(task_id)
+            await _until(lambda: _received(child, "resume"))
+            await child.signal("finish")
+            assert (await client.result(task_id)).status == "COMPLETED"
+            assert await client.execution_status(task_id) == "completed"
+        else:
+            await client.cancel(task_id)
+            assert (await client.result(task_id)).status == "CANCELLED"
+            assert await client.execution_status(task_id) == "canceled"
+        assert await _replay_failure(await handle.fetch_history()) is None
+
+
+async def _resume_is_pending(handle: WorkflowHandle[Any, Any]) -> bool:
+    status = await _status(handle)
+    return bool(status["native_pause_pending"] and not status["paused"])
+
+
+@pytest.mark.asyncio
 async def test_batch_closing_while_the_relay_persists_a_pause_pauses_at_the_boundary(
     environment: WorkflowEnvironment,
 ) -> None:
@@ -356,6 +469,9 @@ async def test_cancel_while_the_relay_persists_a_resume_cancels_the_run(
     activities, outcome, handle = await run_cancel_while_resume_persists(environment)
 
     assert outcome == "CANCELLED"
+    description = await handle.describe()
+    assert description.status is WorkflowExecutionStatus.CANCELED
+    assert await description.memo_value("HarborRAGIngestionStatus") == "cancelled"
     assert "record_source_failure" not in activities.calls
     assert "cancel" in activities.calls
     history = await handle.fetch_history()
@@ -454,3 +570,79 @@ async def test_native_control_of_a_closed_batch_is_a_no_op(
     await getattr(activities, operation)(
         WorkflowExecutionControlInput(workflow_id="harborrag-source-batch:task-1:0")
     )
+
+
+@pytest.mark.asyncio
+async def test_timed_out_native_pause_does_not_send_a_late_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    release = asyncio.Event()
+
+    async def stalled_version_check(client: Client) -> bool:
+        del client
+        await release.wait()
+        return True
+
+    activities = SourceActivitiesMixin()
+    pause = AsyncMock()
+    activities._temporal_client = SimpleNamespace(
+        namespace="harborrag",
+        workflow_service=SimpleNamespace(pause_workflow_execution=pause),
+    )
+    monkeypatch.setattr(
+        SourceActivitiesMixin, "_supports_native_pause", staticmethod(stalled_version_check)
+    )
+    monkeypatch.setattr(
+        source_activities_module.activity,
+        "info",
+        lambda: SimpleNamespace(workflow_id="harborrag-source:task-1", activity_id="7"),
+    )
+    monkeypatch.setattr(source_activities_module, "_NATIVE_PAUSE_RPC_BUDGET_SECONDS", 0.01)
+    task = asyncio.create_task(
+        activities.pause_workflow_execution(
+            WorkflowExecutionControlInput(workflow_id="harborrag-source:task-1", run_id="run-1")
+        )
+    )
+    try:
+        done, _ = await asyncio.wait({task}, timeout=0.25)
+        assert task in done
+        assert isinstance(task.exception(), TimeoutError)
+    finally:
+        release.set()
+        await asyncio.gather(task, return_exceptions=True)
+    pause.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "status",
+    [
+        SourceIngestionStatus("task-1", "RUNNING", False, False, native_pause_pending=True),
+        SourceIngestionStatus("task-1", "CANCELLING", False, True, native_pause_pending=True),
+        SourceIngestionStatus("task-1", "PAUSED", True, False),
+    ],
+    ids=["resumed", "cancelled", "expired"],
+)
+async def test_queued_native_pause_skips_rpc_after_release(
+    monkeypatch: pytest.MonkeyPatch, status: SourceIngestionStatus
+) -> None:
+    activities = SourceActivitiesMixin()
+    pause = AsyncMock()
+    query = AsyncMock(return_value=status)
+    activities._temporal_client = SimpleNamespace(
+        namespace="harborrag",
+        workflow_service=SimpleNamespace(pause_workflow_execution=pause),
+        get_workflow_handle=lambda *_args, **_kwargs: SimpleNamespace(query=query),
+    )
+    monkeypatch.setattr(
+        SourceActivitiesMixin, "_supports_native_pause", AsyncMock(return_value=True)
+    )
+    monkeypatch.setattr(
+        source_activities_module.activity,
+        "info",
+        lambda: SimpleNamespace(workflow_id="harborrag-source:task-1", activity_id="7"),
+    )
+    await activities.pause_workflow_execution(
+        WorkflowExecutionControlInput(workflow_id="harborrag-source:task-1", run_id="run-1")
+    )
+    pause.assert_not_awaited()

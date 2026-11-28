@@ -1,4 +1,9 @@
-"""Reader MCP tools backed by publication-safe runtime use cases."""
+"""Reader MCP tools backed by publication-safe runtime use cases.
+
+From their defining module, not from the SDK facade: importing a stateless tool should not drag in
+HarborRAG, chat, memory and execution. The facade re-exports these, so going through it also made a
+cycle inevitable the moment the SDK referenced tools at runtime.
+"""
 
 from __future__ import annotations
 
@@ -12,11 +17,6 @@ from harborrag_core.contracts.errors import (
     HarborDeadlineExceeded,
     HarborValidationError,
 )
-
-# From their defining module, not from the SDK facade: importing a stateless
-# tool should not drag in HarborRAG, chat, memory and execution. The facade
-# re-exports these, so going through it also made a cycle inevitable the moment
-# the SDK referenced tools at runtime.
 from harborrag_core.contracts.reader import (
     DOCUMENT_CONTEXT_LIMIT,
     DocumentContextRequest,
@@ -44,13 +44,15 @@ from .reader_support import (
     success,
 )
 from .retrieval_inputs import access, boolean, integer, optional_text, string_list, text
-from .source_list_tool import ListSourcesTool
+from .source_list_tool import ListSourcesTool as ListSourcesTool
 
-logger = logging.getLogger("harborrag.runtime.tools.readers")
+logger = logging.getLogger("harborrag.engine.tools.reader_tools")
 
 
 @dataclass(slots=True)
 class FetchEvidenceTool(ReaderTool):
+    """Fetch the evidence behind cited passages."""
+
     spec = FETCH_EVIDENCE_SPEC
 
     async def call(
@@ -60,16 +62,19 @@ class FetchEvidenceTool(ReaderTool):
         principal_id: str,
         context: ToolInvocationContext | None = None,
     ) -> dict[str, object]:
+        """Return the evidence for the requested references."""
         if context is not None and principal_id != context.access.principal_id:
             raise PermissionError("tool principal does not match invocation context")
         try:
-            raw_items = arguments.get("items")
-            if not isinstance(raw_items, list):
-                raise HarborValidationError("items must be an array")
-            selectors = tuple(evidence_selector(item) for item in raw_items)
-            response = await self.require_knowledge().read_evidence(
-                EvidenceReadRequest(access(arguments, principal_id), selectors)
-            )
+            try:
+                raw_items = arguments.get("items")
+                if not isinstance(raw_items, list):
+                    raise HarborValidationError("items must be an array")
+                selectors = tuple(evidence_selector(item) for item in raw_items)
+                request = EvidenceReadRequest(access(arguments, principal_id), selectors)
+            except ValueError as exc:
+                return failure(str(exc))
+            response = await self.require_knowledge().read_evidence(request)
             items = [evidence_item(item) for item in response.items]
             reasons = sorted(
                 {str(item["availability"]) for item in items if item["availability"] != "available"}
@@ -80,9 +85,7 @@ class FetchEvidenceTool(ReaderTool):
                 complete=not reasons,
                 reasons=reasons,
             )
-        except (HarborValidationError, ValueError) as exc:
-            return failure(str(exc))
-        except HarborCapabilityError as exc:
+        except (HarborValidationError, HarborCapabilityError) as exc:
             return failure(str(exc))
         except Exception:
             logger.exception("fetch_evidence failed")
@@ -91,6 +94,8 @@ class FetchEvidenceTool(ReaderTool):
 
 @dataclass(slots=True)
 class GetDocumentContextTool(ReaderTool):
+    """Read the context around a document."""
+
     spec = GET_DOCUMENT_CONTEXT_SPEC
 
     async def call(
@@ -100,12 +105,13 @@ class GetDocumentContextTool(ReaderTool):
         principal_id: str,
         context: ToolInvocationContext | None = None,
     ) -> dict[str, object]:
+        """Return the document context for the principal."""
         if context is not None and principal_id != context.access.principal_id:
             raise PermissionError("tool principal does not match invocation context")
         try:
-            selected = self._context_arguments(arguments, principal_id)
-            response = await self.require_knowledge().get_document_context(
-                DocumentContextRequest(
+            try:
+                selected = self._context_arguments(arguments, principal_id)
+                request = DocumentContextRequest(
                     access=access(arguments, principal_id),
                     document_id=selected["document_id"],
                     expected_document_version_id=selected["version_id"],
@@ -115,7 +121,9 @@ class GetDocumentContextTool(ReaderTool):
                     limit=selected["limit"],
                     include_outline=selected["include_outline"],
                 )
-            )
+            except ValueError as exc:
+                return failure(str(exc))
+            response = await self.require_knowledge().get_document_context(request)
             next_cursor = self._context_cursor(response, selected, arguments, principal_id)
             outline_complete = bool(
                 selected["include_outline"]
@@ -144,7 +152,7 @@ class GetDocumentContextTool(ReaderTool):
                             "chunk_id": item.chunk_id,
                             "ordinal": item.ordinal,
                             "text": item.text,
-                            "chunk_kind": item.chunk_kind,
+                            "chunk_kind": list(item.chunk_kind),
                             "section_path": list(item.section_path),
                             "citation_locator": item.citation_locator,
                         }
@@ -157,9 +165,7 @@ class GetDocumentContextTool(ReaderTool):
                 complete=not reasons,
                 reasons=reasons,
             )
-        except (HarborValidationError, ValueError) as exc:
-            return failure(str(exc))
-        except HarborCapabilityError as exc:
+        except (HarborValidationError, HarborCapabilityError) as exc:
             return failure(str(exc))
         except Exception:
             logger.exception("get_document_context failed")
@@ -191,7 +197,7 @@ class GetDocumentContextTool(ReaderTool):
             minimum=1,
             maximum=DOCUMENT_CONTEXT_LIMIT,
         )
-        requested_outline = boolean(arguments, "include_outline", False)
+        requested_outline = boolean(arguments, "include_outline", default=False)
         match_cursor_value(arguments, stored, "limit", requested_limit)
         match_cursor_value(arguments, stored, "include_outline", requested_outline)
         return {
@@ -239,6 +245,8 @@ class GetDocumentContextTool(ReaderTool):
 
 @dataclass(slots=True)
 class ResolveGraphNodesTool(ReaderTool):
+    """Resolve graph node references to nodes."""
+
     spec = RESOLVE_GRAPH_NODES_SPEC
 
     async def call(
@@ -248,29 +256,22 @@ class ResolveGraphNodesTool(ReaderTool):
         principal_id: str,
         context: ToolInvocationContext | None = None,
     ) -> dict[str, object]:
+        """Return the nodes for the requested references.
+
+        A provider id may arrive as the source_item_id vector_search returned.
+
+        A very common exact title can match more nodes than one bounded read can order; the caller
+        can narrow it, so say how instead of failing opaquely.
+        """
         if context is not None and principal_id != context.access.principal_id:
             raise PermissionError("tool principal does not match invocation context")
         try:
-            selector = arguments.get("selector")
-            if not isinstance(selector, dict):
-                raise HarborValidationError("selector must be an object")
-            selector_kind = GraphNodeSelectorKind(text(selector, "kind"))
-            value = text(selector, "value")
-            query = GraphNodeResolutionQuery(
-                selector_kind=selector_kind,
-                # A provider id may arrive as the source_item_id vector_search returned.
-                value=(
-                    node_selector(value)
-                    if selector_kind == GraphNodeSelectorKind.PROVIDER_ID
-                    else value
-                ),
-                source_scope_ids=string_list(arguments, "source_ids"),
-                entity_types=string_list(arguments, "entity_types"),
-                limit=integer(arguments, "limit", 5, minimum=1, maximum=10),
-            )
-            response = await self.require_knowledge().resolve_graph_nodes(
-                GraphNodeResolveRequest(access(arguments, principal_id), query)
-            )
+            try:
+                query = _resolution_query(arguments)
+                request = GraphNodeResolveRequest(access(arguments, principal_id), query)
+            except ValueError as exc:
+                return failure(str(exc))
+            response = await self.require_knowledge().resolve_graph_nodes(request)
             candidates = [node(item) for item in response.candidates]
             resolution = (
                 "no_match"
@@ -285,13 +286,9 @@ class ResolveGraphNodesTool(ReaderTool):
                 complete=not response.truncated,
                 reasons=[] if not response.truncated else ["candidate_limit"],
             )
-        except (HarborValidationError, ValueError) as exc:
-            return failure(str(exc))
-        except HarborCapabilityError as exc:
+        except (HarborValidationError, HarborCapabilityError) as exc:
             return failure(str(exc))
         except HarborDeadlineExceeded:
-            # A very common exact title can match more nodes than one bounded read can
-            # order; the caller can narrow it, so say how instead of failing opaquely.
             logger.warning("resolve_graph_nodes graph query timed out")
             return failure(
                 "graph query timed out; narrow with source_ids or entity_types, "
@@ -302,9 +299,17 @@ class ResolveGraphNodesTool(ReaderTool):
             return failure("graph node resolution failed")
 
 
-__all__ = [
-    "FetchEvidenceTool",
-    "GetDocumentContextTool",
-    "ListSourcesTool",
-    "ResolveGraphNodesTool",
-]
+def _resolution_query(arguments: dict[str, object]) -> GraphNodeResolutionQuery:
+    """Parse the selector and filters of a ``resolve_graph_nodes`` call."""
+    selector = arguments.get("selector")
+    if not isinstance(selector, dict):
+        raise HarborValidationError("selector must be an object")
+    selector_kind = GraphNodeSelectorKind(text(selector, "kind"))
+    value = text(selector, "value")
+    return GraphNodeResolutionQuery(
+        selector_kind=selector_kind,
+        value=node_selector(value) if selector_kind == GraphNodeSelectorKind.PROVIDER_ID else value,
+        source_scope_ids=string_list(arguments, "source_ids"),
+        entity_types=string_list(arguments, "entity_types"),
+        limit=integer(arguments, "limit", 5, minimum=1, maximum=10),
+    )

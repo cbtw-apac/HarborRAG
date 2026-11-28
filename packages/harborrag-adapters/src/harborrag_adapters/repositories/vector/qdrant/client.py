@@ -28,6 +28,7 @@ class QdrantDBClient(AsyncLifecycle):
         api_key: str | None,
         prefer_grpc: bool,
         operation_timeout_seconds: float,
+        grpc_port: int | None = None,
     ) -> None:
         if AsyncQdrantClient is None:
             raise MissingOptionalDependencyError("qdrant-client")
@@ -36,6 +37,7 @@ class QdrantDBClient(AsyncLifecycle):
         self._path = path
         self._api_key = api_key
         self._prefer_grpc = prefer_grpc
+        self._grpc_port = grpc_port
         self._operation_timeout_seconds = operation_timeout_seconds
         self._client: Any = None
 
@@ -73,16 +75,23 @@ class QdrantDBClient(AsyncLifecycle):
                 else:
                     self._client = AsyncQdrantClient(location=":memory:")
             else:
-                self._client = AsyncQdrantClient(
-                    url=self._url,
-                    api_key=self._api_key,
-                    prefer_grpc=self._prefer_grpc,
-                    timeout=max(1, math.ceil(self._operation_timeout_seconds)),
-                )
+                self._client = AsyncQdrantClient(**self._remote_options())
             await self.ping()
         except BaseException:
             await self.close()
             raise
+
+    def _remote_options(self) -> dict[str, Any]:
+        """Remote client options; without an explicit gRPC port the SDK's 6334 applies."""
+        options: dict[str, Any] = {
+            "url": self._url,
+            "api_key": self._api_key,
+            "prefer_grpc": self._prefer_grpc,
+            "timeout": max(1, math.ceil(self._operation_timeout_seconds)),
+        }
+        if self._grpc_port is not None:
+            options["grpc_port"] = self._grpc_port
+        return options
 
     async def close(self) -> None:
         if self._client is not None:

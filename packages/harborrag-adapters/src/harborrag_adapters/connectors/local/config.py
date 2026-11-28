@@ -67,6 +67,4 @@ class LocalFileConfig:
             "excluded_extensions",
             {normalize_extension(value) for value in self.excluded_extensions},
         )
-        object.__setattr__(
-            self, "excluded_dir_names", {value.strip() for value in self.excluded_dir_names}
-        )
+        object.__setattr__(self, "excluded_dir_names", set(self.excluded_dir_names))
